@@ -238,11 +238,11 @@ impl EvalCache {
         let fingerprint = EvalFingerprint::new(poly, assignment);
 
         // Check if we need to evict
-        if self.value_cache.len() >= self.config.max_value_entries {
-            if let Some(old_fingerprint) = self.value_lru.pop_back() {
-                self.value_cache.remove(&old_fingerprint);
-                self.stats.evictions += 1;
-            }
+        if self.value_cache.len() >= self.config.max_value_entries
+            && let Some(old_fingerprint) = self.value_lru.pop_back()
+        {
+            self.value_cache.remove(&old_fingerprint);
+            self.stats.evictions += 1;
         }
 
         self.value_cache.insert(fingerprint, value);
@@ -274,11 +274,11 @@ impl EvalCache {
         }
 
         // Check if we need to evict
-        if self.pattern_cache.len() >= self.config.max_pattern_entries {
-            if let Some(old_hash) = self.pattern_lru.pop_back() {
-                self.pattern_cache.remove(&old_hash);
-                self.stats.evictions += 1;
-            }
+        if self.pattern_cache.len() >= self.config.max_pattern_entries
+            && let Some(old_hash) = self.pattern_lru.pop_back()
+        {
+            self.pattern_cache.remove(&old_hash);
+            self.stats.evictions += 1;
         }
 
         self.pattern_cache.insert(pattern_hash, pattern);

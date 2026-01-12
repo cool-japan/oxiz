@@ -200,11 +200,11 @@ impl InvariantInference {
 
         for rule in chc.rules() {
             // Head predicate needs an invariant
-            if let RuleHead::Predicate(app) = &rule.head {
-                if !seen.contains(&app.pred) {
-                    seen.insert(app.pred);
-                    predicates.push(app.pred);
-                }
+            if let RuleHead::Predicate(app) = &rule.head
+                && !seen.contains(&app.pred)
+            {
+                seen.insert(app.pred);
+                predicates.push(app.pred);
             }
         }
 
@@ -472,10 +472,10 @@ impl InvariantInference {
     fn get_predicate_variables(&self, predicate_id: PredId, chc: &ChcSystem) -> Vec<TermId> {
         // Find rules with this predicate in head
         for rule in chc.rules() {
-            if let RuleHead::Predicate(app) = &rule.head {
-                if app.pred == predicate_id {
-                    return app.args.to_vec();
-                }
+            if let RuleHead::Predicate(app) = &rule.head
+                && app.pred == predicate_id
+            {
+                return app.args.to_vec();
             }
         }
         Vec::new()

@@ -475,11 +475,11 @@ impl WordLevelPropagator {
     /// Set the interval for a term
     pub fn set_interval(&mut self, term: TermId, interval: Interval) {
         if let Some(old) = self.intervals.get(&term) {
-            if let Some(new) = old.intersect(&interval) {
-                if new != *old {
-                    self.intervals.insert(term, new);
-                    self.queue.push(term);
-                }
+            if let Some(new) = old.intersect(&interval)
+                && new != *old
+            {
+                self.intervals.insert(term, new);
+                self.queue.push(term);
             }
         } else {
             self.intervals.insert(term, interval);

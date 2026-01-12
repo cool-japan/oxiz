@@ -291,14 +291,14 @@ impl Optimizer {
         let value_term = model.eval(objective.term, term_manager);
 
         // Try to extract the integer value
-        if let Some(t) = term_manager.get(value_term) {
-            if let TermKind::IntConst(_n) = &t.kind {
-                // Successfully got an integer constant - return it
-                return OptimizationResult::Optimal {
-                    value: value_term,
-                    model,
-                };
-            }
+        if let Some(t) = term_manager.get(value_term)
+            && let TermKind::IntConst(_n) = &t.kind
+        {
+            // Successfully got an integer constant - return it
+            return OptimizationResult::Optimal {
+                value: value_term,
+                model,
+            };
         }
 
         // If we can't extract an integer value, return a placeholder

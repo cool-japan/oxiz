@@ -585,10 +585,10 @@ impl LPSolver {
             }
 
             // Prune by bound
-            if let Some((_, ref incumbent_obj)) = best_incumbent {
-                if &node.lower_bound >= incumbent_obj {
-                    continue;
-                }
+            if let Some((_, ref incumbent_obj)) = best_incumbent
+                && &node.lower_bound >= incumbent_obj
+            {
+                continue;
             }
 
             // Get node solution
@@ -667,14 +667,14 @@ impl LPSolver {
     /// Check if solution is integer-feasible
     fn is_integer_feasible(&self, values: &FxHashMap<VarId, BigRational>) -> bool {
         for (id, val) in values {
-            if let Some(var) = self.variables.get(id) {
-                if var.var_type != VarType::Continuous {
-                    let frac = val - val.floor();
-                    if frac > self.config.int_tolerance
-                        && frac < BigRational::one() - &self.config.int_tolerance
-                    {
-                        return false;
-                    }
+            if let Some(var) = self.variables.get(id)
+                && var.var_type != VarType::Continuous
+            {
+                let frac = val - val.floor();
+                if frac > self.config.int_tolerance
+                    && frac < BigRational::one() - &self.config.int_tolerance
+                {
+                    return false;
                 }
             }
         }
@@ -689,41 +689,41 @@ impl LPSolver {
         let mut best: Option<(VarId, BigRational, BigRational)> = None;
 
         for (id, val) in values {
-            if let Some(var) = self.variables.get(id) {
-                if var.var_type != VarType::Continuous {
-                    let frac = val - val.floor();
-                    if frac > self.config.int_tolerance
-                        && frac < BigRational::one() - &self.config.int_tolerance
-                    {
-                        let fractionality =
-                            if frac < BigRational::new(BigInt::from(1), BigInt::from(2)) {
-                                frac.clone()
-                            } else {
-                                BigRational::one() - &frac
-                            };
+            if let Some(var) = self.variables.get(id)
+                && var.var_type != VarType::Continuous
+            {
+                let frac = val - val.floor();
+                if frac > self.config.int_tolerance
+                    && frac < BigRational::one() - &self.config.int_tolerance
+                {
+                    let fractionality =
+                        if frac < BigRational::new(BigInt::from(1), BigInt::from(2)) {
+                            frac.clone()
+                        } else {
+                            BigRational::one() - &frac
+                        };
 
-                        match self.config.branching {
-                            BranchingStrategy::FirstFractional => {
-                                return Some((*id, val.clone()));
+                    match self.config.branching {
+                        BranchingStrategy::FirstFractional => {
+                            return Some((*id, val.clone()));
+                        }
+                        BranchingStrategy::MostFractional => {
+                            let score = &BigRational::new(BigInt::from(1), BigInt::from(2))
+                                - &fractionality;
+                            if best.is_none()
+                                || &score < best.as_ref().map(|(_, _, s)| s).unwrap_or(&score)
+                            {
+                                best = Some((*id, val.clone(), score));
                             }
-                            BranchingStrategy::MostFractional => {
-                                let score = &BigRational::new(BigInt::from(1), BigInt::from(2))
-                                    - &fractionality;
-                                if best.is_none()
-                                    || &score < best.as_ref().map(|(_, _, s)| s).unwrap_or(&score)
-                                {
-                                    best = Some((*id, val.clone(), score));
-                                }
-                            }
-                            _ => {
-                                // Default to most fractional
-                                let score = &BigRational::new(BigInt::from(1), BigInt::from(2))
-                                    - &fractionality;
-                                if best.is_none()
-                                    || &score < best.as_ref().map(|(_, _, s)| s).unwrap_or(&score)
-                                {
-                                    best = Some((*id, val.clone(), score));
-                                }
+                        }
+                        _ => {
+                            // Default to most fractional
+                            let score = &BigRational::new(BigInt::from(1), BigInt::from(2))
+                                - &fractionality;
+                            if best.is_none()
+                                || &score < best.as_ref().map(|(_, _, s)| s).unwrap_or(&score)
+                            {
+                                best = Some((*id, val.clone(), score));
                             }
                         }
                     }

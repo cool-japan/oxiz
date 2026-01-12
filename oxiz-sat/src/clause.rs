@@ -455,23 +455,23 @@ impl ClauseDatabase {
     ///
     /// The deleted clause slot is added to the free list for reuse (memory pool)
     pub fn remove(&mut self, id: ClauseId) {
-        if let Some(clause) = self.clauses.get_mut(id.index()) {
-            if !clause.deleted {
-                // Clone necessary info for stats update
-                let clause_copy = clause.clone();
+        if let Some(clause) = self.clauses.get_mut(id.index())
+            && !clause.deleted
+        {
+            // Clone necessary info for stats update
+            let clause_copy = clause.clone();
 
-                clause.deleted = true;
-                if clause.learned {
-                    self.num_learned -= 1;
-                } else {
-                    self.num_original -= 1;
-                }
-                // Add to free list for reuse
-                self.free_list.push(id);
-
-                // Update statistics after marking as deleted
-                self.update_stats_remove(&clause_copy);
+            clause.deleted = true;
+            if clause.learned {
+                self.num_learned -= 1;
+            } else {
+                self.num_original -= 1;
             }
+            // Add to free list for reuse
+            self.free_list.push(id);
+
+            // Update statistics after marking as deleted
+            self.update_stats_remove(&clause_copy);
         }
     }
 

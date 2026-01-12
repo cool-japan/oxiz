@@ -232,13 +232,12 @@ impl FpRewriter {
         // Infinity handling
         if self.simplify_infinity {
             // inf + (-inf) → NaN
-            if (self.is_pos_inf(lhs, manager) && self.is_neg_inf(rhs, manager))
-                || (self.is_neg_inf(lhs, manager) && self.is_pos_inf(rhs, manager))
+            if ((self.is_pos_inf(lhs, manager) && self.is_neg_inf(rhs, manager))
+                || (self.is_neg_inf(lhs, manager) && self.is_pos_inf(rhs, manager)))
+                && let Some((eb, sb)) = self.get_fp_width(lhs, manager)
             {
-                if let Some((eb, sb)) = self.get_fp_width(lhs, manager) {
-                    ctx.stats_mut().record_rule("fp_add_inf_neg_inf");
-                    return RewriteResult::Rewritten(manager.mk_fp_nan(eb, sb));
-                }
+                ctx.stats_mut().record_rule("fp_add_inf_neg_inf");
+                return RewriteResult::Rewritten(manager.mk_fp_nan(eb, sb));
             }
 
             // inf + x → inf (for finite x)
@@ -290,11 +289,10 @@ impl FpRewriter {
         if self.simplify_infinity
             && ((self.is_zero(lhs, manager) && self.is_infinity(rhs, manager))
                 || (self.is_infinity(lhs, manager) && self.is_zero(rhs, manager)))
+            && let Some((eb, sb)) = self.get_fp_width(lhs, manager)
         {
-            if let Some((eb, sb)) = self.get_fp_width(lhs, manager) {
-                ctx.stats_mut().record_rule("fp_mul_zero_inf");
-                return RewriteResult::Rewritten(manager.mk_fp_nan(eb, sb));
-            }
+            ctx.stats_mut().record_rule("fp_mul_zero_inf");
+            return RewriteResult::Rewritten(manager.mk_fp_nan(eb, sb));
         }
 
         RewriteResult::Unchanged(manager.mk_fp_mul(rm, lhs, rhs))
@@ -322,33 +320,32 @@ impl FpRewriter {
         }
 
         // 0/0 → NaN
-        if self.is_zero(lhs, manager) && self.is_zero(rhs, manager) {
-            if let Some((eb, sb)) = self.get_fp_width(lhs, manager) {
-                ctx.stats_mut().record_rule("fp_div_zero_zero");
-                return RewriteResult::Rewritten(manager.mk_fp_nan(eb, sb));
-            }
+        if self.is_zero(lhs, manager)
+            && self.is_zero(rhs, manager)
+            && let Some((eb, sb)) = self.get_fp_width(lhs, manager)
+        {
+            ctx.stats_mut().record_rule("fp_div_zero_zero");
+            return RewriteResult::Rewritten(manager.mk_fp_nan(eb, sb));
         }
 
         // inf/inf → NaN
         if self.simplify_infinity
             && self.is_infinity(lhs, manager)
             && self.is_infinity(rhs, manager)
+            && let Some((eb, sb)) = self.get_fp_width(lhs, manager)
         {
-            if let Some((eb, sb)) = self.get_fp_width(lhs, manager) {
-                ctx.stats_mut().record_rule("fp_div_inf_inf");
-                return RewriteResult::Rewritten(manager.mk_fp_nan(eb, sb));
-            }
+            ctx.stats_mut().record_rule("fp_div_inf_inf");
+            return RewriteResult::Rewritten(manager.mk_fp_nan(eb, sb));
         }
 
         // x/inf → 0 (for finite x)
         if self.simplify_infinity
             && self.is_infinity(rhs, manager)
             && !self.is_infinity(lhs, manager)
+            && let Some((eb, sb)) = self.get_fp_width(lhs, manager)
         {
-            if let Some((eb, sb)) = self.get_fp_width(lhs, manager) {
-                ctx.stats_mut().record_rule("fp_div_by_inf");
-                return RewriteResult::Rewritten(manager.mk_fp_plus_zero(eb, sb));
-            }
+            ctx.stats_mut().record_rule("fp_div_by_inf");
+            return RewriteResult::Rewritten(manager.mk_fp_plus_zero(eb, sb));
         }
 
         RewriteResult::Unchanged(manager.mk_fp_div(rm, lhs, rhs))

@@ -2,12 +2,15 @@
 
 use crate::mbqi::{MBQIResult, MBQISolver};
 use crate::simplify::Simplifier;
+use num_rational::Rational64;
+use num_traits::{One, ToPrimitive, Zero};
 use oxiz_core::ast::{TermId, TermKind, TermManager};
 use oxiz_sat::{
     Lit, RestartStrategy, Solver as SatSolver, SolverConfig as SatConfig,
     SolverResult as SatResult, TheoryCallback, TheoryCheckResult, Var,
 };
 use oxiz_theories::arithmetic::ArithSolver;
+use oxiz_theories::bv::BvSolver;
 use oxiz_theories::euf::EufSolver;
 use oxiz_theories::{EqualityNotification, Theory, TheoryCombination};
 use rustc_hash::FxHashMap;
@@ -160,6 +163,33 @@ enum Constraint {
     Gt(TermId, TermId),
     /// Greater-than-or-equal constraint: lhs >= rhs
     Ge(TermId, TermId),
+}
+
+/// Type of arithmetic constraint
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ArithConstraintType {
+    /// Less than (<)
+    Lt,
+    /// Less than or equal (<=)
+    Le,
+    /// Greater than (>)
+    Gt,
+    /// Greater than or equal (>=)
+    Ge,
+}
+
+/// Parsed arithmetic constraint with extracted linear expression
+/// Represents: sum of (term, coefficient) <= constant OR < constant (if strict)
+#[derive(Debug, Clone)]
+struct ParsedArithConstraint {
+    /// Linear terms: (variable_term, coefficient)
+    terms: SmallVec<[(TermId, Rational64); 4]>,
+    /// Constant bound (RHS)
+    constant: Rational64,
+    /// Type of constraint
+    constraint_type: ArithConstraintType,
+    /// The original term (for conflict explanation)
+    reason_term: TermId,
 }
 
 /// Polarity of a term in the formula
@@ -581,10 +611,10 @@ impl Model {
                     }
                 }
 
-                if let Some(t) = manager.get(rhs_val) {
-                    if matches!(t.kind, TermKind::True) {
-                        return manager.mk_true();
-                    }
+                if let Some(t) = manager.get(rhs_val)
+                    && matches!(t.kind, TermKind::True)
+                {
+                    return manager.mk_true();
                 }
 
                 manager.mk_implies(lhs_val, rhs_val)
@@ -768,6 +798,8 @@ pub struct Solver {
     euf: EufSolver,
     /// Arithmetic theory solver
     arith: ArithSolver,
+    /// Bitvector theory solver
+    bv: BvSolver,
     /// MBQI solver for quantified formulas
     mbqi: MBQISolver,
     /// Whether the formula contains quantifiers
@@ -778,6 +810,8 @@ pub struct Solver {
     var_to_term: Vec<TermId>,
     /// SAT variable to theory constraint mapping
     var_to_constraint: FxHashMap<Var, Constraint>,
+    /// SAT variable to parsed arithmetic constraint mapping
+    var_to_parsed_arith: FxHashMap<Var, ParsedArithConstraint>,
     /// Current logic
     logic: Option<String>,
     /// Assertions
@@ -834,8 +868,12 @@ struct TheoryManager<'a> {
     euf: &'a mut EufSolver,
     /// Reference to the arithmetic solver
     arith: &'a mut ArithSolver,
+    /// Reference to the bitvector solver
+    bv: &'a mut BvSolver,
     /// Mapping from SAT variables to constraints
     var_to_constraint: &'a FxHashMap<Var, Constraint>,
+    /// Mapping from SAT variables to parsed arithmetic constraints
+    var_to_parsed_arith: &'a FxHashMap<Var, ParsedArithConstraint>,
     /// Mapping from terms to SAT variables (for conflict clause generation)
     term_to_var: &'a FxHashMap<TermId, Var>,
     /// Current decision level stack for backtracking
@@ -867,7 +905,9 @@ impl<'a> TheoryManager<'a> {
     fn new(
         euf: &'a mut EufSolver,
         arith: &'a mut ArithSolver,
+        bv: &'a mut BvSolver,
         var_to_constraint: &'a FxHashMap<Var, Constraint>,
+        var_to_parsed_arith: &'a FxHashMap<Var, ParsedArithConstraint>,
         term_to_var: &'a FxHashMap<TermId, Var>,
         theory_mode: TheoryMode,
         statistics: &'a mut Statistics,
@@ -877,7 +917,9 @@ impl<'a> TheoryManager<'a> {
         Self {
             euf,
             arith,
+            bv,
             var_to_constraint,
+            var_to_parsed_arith,
             term_to_var,
             level_stack: vec![0],
             processed_count: 0,
@@ -969,14 +1011,14 @@ impl<'a> TheoryManager<'a> {
                     let t1_value = self.arith.value(t1);
                     let t2_value = self.arith.value(t2);
 
-                    if let (Some(v1), Some(v2)) = (t1_value, t2_value) {
-                        if v1 != v2 {
-                            // Disagreement! Generate conflict clause
-                            // The conflict is that EUF says t1=t2 but arithmetic says t1≠t2
-                            // We need to find the literals that led to this equality in EUF
-                            let conflict_lits = self.terms_to_conflict_clause(&[t1, t2]);
-                            return TheoryCheckResult::Conflict(conflict_lits);
-                        }
+                    if let (Some(v1), Some(v2)) = (t1_value, t2_value)
+                        && v1 != v2
+                    {
+                        // Disagreement! Generate conflict clause
+                        // The conflict is that EUF says t1=t2 but arithmetic says t1≠t2
+                        // We need to find the literals that led to this equality in EUF
+                        let conflict_lits = self.terms_to_conflict_clause(&[t1, t2]);
+                        return TheoryCheckResult::Conflict(conflict_lits);
                     }
                 }
             }
@@ -1028,6 +1070,7 @@ impl<'a> TheoryManager<'a> {
     /// Process a theory constraint
     fn process_constraint(
         &mut self,
+        var: Var,
         constraint: Constraint,
         is_positive: bool,
     ) -> TheoryCheckResult {
@@ -1086,16 +1129,72 @@ impl<'a> TheoryManager<'a> {
                     }
                 }
             }
-            // Arithmetic constraints - simplified handling for now
-            // Full implementation would parse linear expressions
+            // Arithmetic constraints - use parsed linear expressions
             Constraint::Lt(_lhs, _rhs)
             | Constraint::Le(_lhs, _rhs)
             | Constraint::Gt(_lhs, _rhs)
             | Constraint::Ge(_lhs, _rhs) => {
-                // For now, just intern the variables
-                // Full implementation would parse the arithmetic expression
-                // and add constraints to the simplex solver
-                // No conflicts or propagations yet
+                // Look up the pre-parsed linear constraint
+                if let Some(parsed) = self.var_to_parsed_arith.get(&var) {
+                    // Add constraint to ArithSolver
+                    let terms: Vec<(TermId, Rational64)> = parsed.terms.iter().copied().collect();
+                    let reason = parsed.reason_term;
+                    let constant = parsed.constant;
+
+                    if is_positive {
+                        // Positive assignment: constraint holds
+                        match parsed.constraint_type {
+                            ArithConstraintType::Lt => {
+                                // lhs - rhs < 0, i.e., sum of terms < constant
+                                self.arith.assert_lt(&terms, constant, reason);
+                            }
+                            ArithConstraintType::Le => {
+                                // lhs - rhs <= 0
+                                self.arith.assert_le(&terms, constant, reason);
+                            }
+                            ArithConstraintType::Gt => {
+                                // lhs - rhs > 0, i.e., sum of terms > constant
+                                self.arith.assert_gt(&terms, constant, reason);
+                            }
+                            ArithConstraintType::Ge => {
+                                // lhs - rhs >= 0
+                                self.arith.assert_ge(&terms, constant, reason);
+                            }
+                        }
+                    } else {
+                        // Negative assignment: negation of constraint holds
+                        // ~(a < b) => a >= b
+                        // ~(a <= b) => a > b
+                        // ~(a > b) => a <= b
+                        // ~(a >= b) => a < b
+                        match parsed.constraint_type {
+                            ArithConstraintType::Lt => {
+                                // ~(lhs < rhs) => lhs >= rhs
+                                self.arith.assert_ge(&terms, constant, reason);
+                            }
+                            ArithConstraintType::Le => {
+                                // ~(lhs <= rhs) => lhs > rhs
+                                self.arith.assert_gt(&terms, constant, reason);
+                            }
+                            ArithConstraintType::Gt => {
+                                // ~(lhs > rhs) => lhs <= rhs
+                                self.arith.assert_le(&terms, constant, reason);
+                            }
+                            ArithConstraintType::Ge => {
+                                // ~(lhs >= rhs) => lhs < rhs
+                                self.arith.assert_lt(&terms, constant, reason);
+                            }
+                        }
+                    }
+
+                    // Check ArithSolver for conflicts
+                    use oxiz_theories::Theory;
+                    use oxiz_theories::TheoryCheckResult as TheoryCheckResultEnum;
+                    if let Ok(TheoryCheckResultEnum::Unsat(conflict_terms)) = self.arith.check() {
+                        let conflict_lits = self.terms_to_conflict_clause(&conflict_terms);
+                        return TheoryCheckResult::Conflict(conflict_lits);
+                    }
+                }
             }
         }
         TheoryCheckResult::Sat
@@ -1128,7 +1227,7 @@ impl TheoryCallback for TheoryManager<'_> {
         self.processed_count += 1;
         self.statistics.theory_propagations += 1;
 
-        let result = self.process_constraint(constraint, is_positive);
+        let result = self.process_constraint(var, constraint, is_positive);
 
         // Track theory conflicts
         if matches!(result, TheoryCheckResult::Conflict(_)) {
@@ -1156,7 +1255,7 @@ impl TheoryCallback for TheoryManager<'_> {
                 self.statistics.theory_propagations += 1;
 
                 // Process the constraint (same logic as eager mode)
-                let result = self.process_constraint(constraint, is_positive);
+                let result = self.process_constraint(var, constraint, is_positive);
                 if let TheoryCheckResult::Conflict(conflict) = result {
                     self.statistics.theory_conflicts += 1;
                     self.statistics.conflicts += 1;
@@ -1229,12 +1328,24 @@ impl TheoryCallback for TheoryManager<'_> {
         }
     }
 
+    fn on_new_level(&mut self, level: u32) {
+        // Push theory state when a new decision level is created
+        // Ensure we have enough levels in the stack
+        while self.level_stack.len() < (level as usize + 1) {
+            self.level_stack.push(self.processed_count);
+            self.euf.push();
+            self.arith.push();
+            self.bv.push();
+        }
+    }
+
     fn on_backtrack(&mut self, level: u32) {
-        // Pop EUF and Arith states if needed
+        // Pop EUF, Arith, and BV states if needed
         while self.level_stack.len() > (level as usize + 1) {
             self.level_stack.pop();
             self.euf.pop();
             self.arith.pop();
+            self.bv.pop();
         }
         self.processed_count = *self.level_stack.last().unwrap_or(&0);
 
@@ -1314,11 +1425,13 @@ impl Solver {
             sat: SatSolver::with_config(sat_config),
             euf: EufSolver::new(),
             arith: ArithSolver::lra(),
+            bv: BvSolver::new(),
             mbqi: MBQISolver::new(),
             has_quantifiers: false,
             term_to_var: FxHashMap::default(),
             var_to_term: Vec::new(),
             var_to_constraint: FxHashMap::default(),
+            var_to_parsed_arith: FxHashMap::default(),
             logic: None,
             assertions: Vec::new(),
             named_assertions: Vec::new(),
@@ -1459,6 +1572,154 @@ impl Solver {
         }
         self.var_to_term[var.index()] = term;
         var
+    }
+
+    /// Parse an arithmetic comparison and extract linear expression
+    /// Returns: (terms with coefficients, constant, constraint_type)
+    fn parse_arith_comparison(
+        &self,
+        lhs: TermId,
+        rhs: TermId,
+        constraint_type: ArithConstraintType,
+        reason: TermId,
+        manager: &TermManager,
+    ) -> Option<ParsedArithConstraint> {
+        let mut terms: SmallVec<[(TermId, Rational64); 4]> = SmallVec::new();
+        let mut constant = Rational64::zero();
+
+        // Parse LHS (add positive coefficients)
+        self.extract_linear_terms(lhs, Rational64::one(), &mut terms, &mut constant, manager)?;
+
+        // Parse RHS (subtract, so coefficients are negated)
+        // For lhs OP rhs, we want lhs - rhs OP 0
+        self.extract_linear_terms(rhs, -Rational64::one(), &mut terms, &mut constant, manager)?;
+
+        // Combine like terms
+        let mut combined: FxHashMap<TermId, Rational64> = FxHashMap::default();
+        for (term, coef) in terms {
+            *combined.entry(term).or_insert(Rational64::zero()) += coef;
+        }
+
+        // Remove zero coefficients
+        let final_terms: SmallVec<[(TermId, Rational64); 4]> =
+            combined.into_iter().filter(|(_, c)| !c.is_zero()).collect();
+
+        Some(ParsedArithConstraint {
+            terms: final_terms,
+            constant: -constant, // Move constant to RHS
+            constraint_type,
+            reason_term: reason,
+        })
+    }
+
+    /// Extract linear terms recursively from an arithmetic expression
+    /// Returns None if the term is not linear
+    fn extract_linear_terms(
+        &self,
+        term_id: TermId,
+        scale: Rational64,
+        terms: &mut SmallVec<[(TermId, Rational64); 4]>,
+        constant: &mut Rational64,
+        manager: &TermManager,
+    ) -> Option<()> {
+        let term = manager.get(term_id)?;
+
+        match &term.kind {
+            // Integer constant
+            TermKind::IntConst(n) => {
+                if let Some(val) = n.to_i64() {
+                    *constant += scale * Rational64::from_integer(val);
+                    Some(())
+                } else {
+                    // BigInt too large, skip for now
+                    None
+                }
+            }
+
+            // Rational constant
+            TermKind::RealConst(r) => {
+                *constant += scale * *r;
+                Some(())
+            }
+
+            // Bitvector constant - treat as integer
+            TermKind::BitVecConst { value, .. } => {
+                if let Some(val) = value.to_i64() {
+                    *constant += scale * Rational64::from_integer(val);
+                    Some(())
+                } else {
+                    // BigInt too large, skip for now
+                    None
+                }
+            }
+
+            // Variable (or bitvector variable - treat as integer variable)
+            TermKind::Var(_) => {
+                terms.push((term_id, scale));
+                Some(())
+            }
+
+            // Addition
+            TermKind::Add(args) => {
+                for &arg in args {
+                    self.extract_linear_terms(arg, scale, terms, constant, manager)?;
+                }
+                Some(())
+            }
+
+            // Subtraction
+            TermKind::Sub(lhs, rhs) => {
+                self.extract_linear_terms(*lhs, scale, terms, constant, manager)?;
+                self.extract_linear_terms(*rhs, -scale, terms, constant, manager)?;
+                Some(())
+            }
+
+            // Negation
+            TermKind::Neg(arg) => self.extract_linear_terms(*arg, -scale, terms, constant, manager),
+
+            // Multiplication by constant
+            TermKind::Mul(args) => {
+                // Check if all but one are constants
+                let mut const_product = Rational64::one();
+                let mut var_term: Option<TermId> = None;
+
+                for &arg in args {
+                    let arg_term = manager.get(arg)?;
+                    match &arg_term.kind {
+                        TermKind::IntConst(n) => {
+                            if let Some(val) = n.to_i64() {
+                                const_product *= Rational64::from_integer(val);
+                            } else {
+                                return None; // BigInt too large
+                            }
+                        }
+                        TermKind::RealConst(r) => {
+                            const_product *= *r;
+                        }
+                        _ => {
+                            if var_term.is_some() {
+                                // Multiple non-constant terms - not linear
+                                return None;
+                            }
+                            var_term = Some(arg);
+                        }
+                    }
+                }
+
+                let new_scale = scale * const_product;
+                match var_term {
+                    Some(v) => self.extract_linear_terms(v, new_scale, terms, constant, manager),
+                    None => {
+                        // All constants
+                        *constant += new_scale;
+                        Some(())
+                    }
+                }
+            }
+
+            // Not linear
+            _ => None,
+        }
     }
 
     /// Assert a term
@@ -1895,6 +2156,12 @@ impl Solver {
                 self.var_to_constraint
                     .insert(var, Constraint::Lt(*lhs, *rhs));
                 self.trail.push(TrailOp::ConstraintAdded { var });
+                // Parse and store linear constraint for ArithSolver
+                if let Some(parsed) =
+                    self.parse_arith_comparison(*lhs, *rhs, ArithConstraintType::Lt, term, manager)
+                {
+                    self.var_to_parsed_arith.insert(var, parsed);
+                }
                 Lit::pos(var)
             }
             TermKind::Le(lhs, rhs) => {
@@ -1903,6 +2170,12 @@ impl Solver {
                 self.var_to_constraint
                     .insert(var, Constraint::Le(*lhs, *rhs));
                 self.trail.push(TrailOp::ConstraintAdded { var });
+                // Parse and store linear constraint for ArithSolver
+                if let Some(parsed) =
+                    self.parse_arith_comparison(*lhs, *rhs, ArithConstraintType::Le, term, manager)
+                {
+                    self.var_to_parsed_arith.insert(var, parsed);
+                }
                 Lit::pos(var)
             }
             TermKind::Gt(lhs, rhs) => {
@@ -1911,6 +2184,12 @@ impl Solver {
                 self.var_to_constraint
                     .insert(var, Constraint::Gt(*lhs, *rhs));
                 self.trail.push(TrailOp::ConstraintAdded { var });
+                // Parse and store linear constraint for ArithSolver
+                if let Some(parsed) =
+                    self.parse_arith_comparison(*lhs, *rhs, ArithConstraintType::Gt, term, manager)
+                {
+                    self.var_to_parsed_arith.insert(var, parsed);
+                }
                 Lit::pos(var)
             }
             TermKind::Ge(lhs, rhs) => {
@@ -1919,6 +2198,12 @@ impl Solver {
                 self.var_to_constraint
                     .insert(var, Constraint::Ge(*lhs, *rhs));
                 self.trail.push(TrailOp::ConstraintAdded { var });
+                // Parse and store linear constraint for ArithSolver
+                if let Some(parsed) =
+                    self.parse_arith_comparison(*lhs, *rhs, ArithConstraintType::Ge, term, manager)
+                {
+                    self.var_to_parsed_arith.insert(var, parsed);
+                }
                 Lit::pos(var)
             }
             TermKind::BvConcat(_, _)
@@ -1941,12 +2226,57 @@ impl Solver {
                 let var = self.get_or_create_var(term);
                 Lit::pos(var)
             }
-            TermKind::BvUlt(_, _)
-            | TermKind::BvUle(_, _)
-            | TermKind::BvSlt(_, _)
-            | TermKind::BvSle(_, _) => {
-                // Bitvector predicates - theory atoms
+            TermKind::BvUlt(lhs, rhs) => {
+                // Bitvector unsigned less-than: treat as integer comparison
                 let var = self.get_or_create_var(term);
+                self.var_to_constraint
+                    .insert(var, Constraint::Lt(*lhs, *rhs));
+                self.trail.push(TrailOp::ConstraintAdded { var });
+                // Parse as arithmetic constraint (bitvector as bounded integer)
+                if let Some(parsed) =
+                    self.parse_arith_comparison(*lhs, *rhs, ArithConstraintType::Lt, term, manager)
+                {
+                    self.var_to_parsed_arith.insert(var, parsed);
+                }
+                Lit::pos(var)
+            }
+            TermKind::BvUle(lhs, rhs) => {
+                // Bitvector unsigned less-than-or-equal: treat as integer comparison
+                let var = self.get_or_create_var(term);
+                self.var_to_constraint
+                    .insert(var, Constraint::Le(*lhs, *rhs));
+                self.trail.push(TrailOp::ConstraintAdded { var });
+                if let Some(parsed) =
+                    self.parse_arith_comparison(*lhs, *rhs, ArithConstraintType::Le, term, manager)
+                {
+                    self.var_to_parsed_arith.insert(var, parsed);
+                }
+                Lit::pos(var)
+            }
+            TermKind::BvSlt(lhs, rhs) => {
+                // Bitvector signed less-than: treat as integer comparison
+                let var = self.get_or_create_var(term);
+                self.var_to_constraint
+                    .insert(var, Constraint::Lt(*lhs, *rhs));
+                self.trail.push(TrailOp::ConstraintAdded { var });
+                if let Some(parsed) =
+                    self.parse_arith_comparison(*lhs, *rhs, ArithConstraintType::Lt, term, manager)
+                {
+                    self.var_to_parsed_arith.insert(var, parsed);
+                }
+                Lit::pos(var)
+            }
+            TermKind::BvSle(lhs, rhs) => {
+                // Bitvector signed less-than-or-equal: treat as integer comparison
+                let var = self.get_or_create_var(term);
+                self.var_to_constraint
+                    .insert(var, Constraint::Le(*lhs, *rhs));
+                self.trail.push(TrailOp::ConstraintAdded { var });
+                if let Some(parsed) =
+                    self.parse_arith_comparison(*lhs, *rhs, ArithConstraintType::Le, term, manager)
+                {
+                    self.var_to_parsed_arith.insert(var, parsed);
+                }
                 Lit::pos(var)
             }
             TermKind::Select(_, _) | TermKind::Store(_, _, _) => {
@@ -2102,7 +2432,9 @@ impl Solver {
         let mut theory_manager = TheoryManager::new(
             &mut self.euf,
             &mut self.arith,
+            &mut self.bv,
             &self.var_to_constraint,
+            &self.var_to_parsed_arith,
             &self.term_to_var,
             self.config.theory_mode,
             &mut self.statistics,
@@ -2186,7 +2518,9 @@ impl Solver {
                     theory_manager = TheoryManager::new(
                         &mut self.euf,
                         &mut self.arith,
+                        &mut self.bv,
                         &self.var_to_constraint,
+                        &self.var_to_parsed_arith,
                         &self.term_to_var,
                         self.config.theory_mode,
                         &mut self.statistics,
@@ -2294,10 +2628,10 @@ impl Solver {
                 core.indices.push(i as u32);
 
                 // Find the name if there is one
-                if let Some(named) = self.named_assertions.iter().find(|na| na.index == i as u32) {
-                    if let Some(ref name) = named.name {
-                        core.names.push(name.clone());
-                    }
+                if let Some(named) = self.named_assertions.iter().find(|na| na.index == i as u32)
+                    && let Some(ref name) = named.name
+                {
+                    core.names.push(name.clone());
                 }
             }
         }
@@ -2522,6 +2856,7 @@ impl Solver {
         self.term_to_var.clear();
         self.var_to_term.clear();
         self.var_to_constraint.clear();
+        self.var_to_parsed_arith.clear();
         self.assertions.clear();
         self.named_assertions.clear();
         self.model = None;
@@ -3551,9 +3886,12 @@ mod tests {
         solver.assert(forall, &mut manager);
 
         let result1 = solver.check(&mut manager);
+        // forall x. x > 0 is invalid (counterexample: x = 0 or x = -1)
+        // So the solver should return Unsat or Unknown
         assert!(
-            result1 == SolverResult::Sat || result1 == SolverResult::Unknown,
-            "Quantifier in pushed context"
+            result1 == SolverResult::Unsat || result1 == SolverResult::Unknown,
+            "forall x. x > 0 should be Unsat or Unknown, got {:?}",
+            result1
         );
 
         solver.pop();

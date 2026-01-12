@@ -543,10 +543,10 @@ impl SturmSequence {
                 -1
             };
 
-            if let Some(prev) = prev_sign {
-                if prev != sign {
-                    changes += 1;
-                }
+            if let Some(prev) = prev_sign
+                && prev != sign
+            {
+                changes += 1;
             }
             prev_sign = Some(sign);
         }
@@ -603,10 +603,10 @@ impl SturmSequence {
             // At -∞: sign = lc_sign * (-1)^degree
             let sign = if degree % 2 == 0 { lc_sign } else { -lc_sign };
 
-            if let Some(prev) = prev_sign {
-                if prev != sign {
-                    changes += 1;
-                }
+            if let Some(prev) = prev_sign
+                && prev != sign
+            {
+                changes += 1;
             }
             prev_sign = Some(sign);
         }
@@ -630,10 +630,10 @@ impl SturmSequence {
                 continue;
             }
 
-            if let Some(prev) = prev_sign {
-                if prev != lc_sign {
-                    changes += 1;
-                }
+            if let Some(prev) = prev_sign
+                && prev != lc_sign
+            {
+                changes += 1;
             }
             prev_sign = Some(lc_sign);
         }

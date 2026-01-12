@@ -308,12 +308,12 @@ impl PredicateFrames {
 
     /// Propagate a lemma to a higher level
     pub fn propagate(&mut self, id: LemmaId, new_level: u32) -> bool {
-        if let Some(lemma) = self.get_lemma_mut(id) {
-            if new_level > lemma.level() {
-                lemma.set_level(new_level);
-                self.sorted = false;
-                return true;
-            }
+        if let Some(lemma) = self.get_lemma_mut(id)
+            && new_level > lemma.level()
+        {
+            lemma.set_level(new_level);
+            self.sorted = false;
+            return true;
         }
         false
     }

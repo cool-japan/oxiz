@@ -166,15 +166,15 @@ impl ResolutionGraph {
         let result_id = self.add_clause(result_clause, decision_level);
 
         // Update the result node to record the resolution
-        if let Some(node) = self.nodes.get_mut(result_id) {
-            if node.parents.is_empty() {
-                // Only add parents if not already set (for deduplication)
-                node.add_resolution(parent1_id, parent2_id, resolved_var);
-                self.stats.resolutions += 1;
+        if let Some(node) = self.nodes.get_mut(result_id)
+            && node.parents.is_empty()
+        {
+            // Only add parents if not already set (for deduplication)
+            node.add_resolution(parent1_id, parent2_id, resolved_var);
+            self.stats.resolutions += 1;
 
-                // Track variable frequency
-                *self.stats.frequent_vars.entry(resolved_var).or_insert(0) += 1;
-            }
+            // Track variable frequency
+            *self.stats.frequent_vars.entry(resolved_var).or_insert(0) += 1;
         }
 
         result_id
@@ -328,12 +328,11 @@ impl ResolutionGraph {
             let current_depth = depths[&current_id];
 
             // Check if this node has the same clause
-            if let Some(clause) = self.nodes[current_id].clause() {
-                if Self::hash_clause(clause) == target_hash
-                    && current_depth < self.compute_depth(node_id)
-                {
-                    return true; // Found a shorter path
-                }
+            if let Some(clause) = self.nodes[current_id].clause()
+                && Self::hash_clause(clause) == target_hash
+                && current_depth < self.compute_depth(node_id)
+            {
+                return true; // Found a shorter path
             }
 
             // Explore children (nodes that use this as a parent)

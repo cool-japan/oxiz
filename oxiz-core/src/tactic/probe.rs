@@ -407,10 +407,10 @@ impl Probe for NumVarsProbe {
 
         impl TermVisitor for VarCollector<'_> {
             fn visit_pre(&mut self, term_id: TermId, manager: &TermManager) -> VisitorAction {
-                if let Some(term) = manager.get(term_id) {
-                    if matches!(term.kind, TermKind::Var(_)) {
-                        self.vars.insert(term_id);
-                    }
+                if let Some(term) = manager.get(term_id)
+                    && matches!(term.kind, TermKind::Var(_))
+                {
+                    self.vars.insert(term_id);
                 }
                 VisitorAction::Continue
             }

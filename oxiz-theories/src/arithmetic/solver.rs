@@ -126,10 +126,10 @@ impl ArithSolver {
         }
 
         // Ensure first coefficient is positive
-        if let Some((_, c)) = expr.terms.first() {
-            if c.is_negative() {
-                expr.negate();
-            }
+        if let Some((_, c)) = expr.terms.first()
+            && c.is_negative()
+        {
+            expr.negate();
         }
 
         // Sort terms by variable ID for canonical form
@@ -191,7 +191,6 @@ impl ArithSolver {
     /// For LRA, uses infinitesimals: lhs <= rhs - δ
     pub fn assert_lt(&mut self, lhs: &[(TermId, Rational64)], rhs: Rational64, reason: TermId) {
         // lhs < rhs is equivalent to lhs - rhs < 0
-        // Introduce slack: lhs - rhs + s = 0, s > 0 (strict lower bound)
         let mut expr = LinExpr::new();
 
         for (term, coef) in lhs {
@@ -200,8 +199,9 @@ impl ArithSolver {
         }
         expr.add_constant(-rhs);
 
-        // Normalize the expression
-        self.normalize_expr(&mut expr);
+        // Note: We do NOT normalize here because normalize_expr may negate
+        // the expression to make the first coefficient positive, which would
+        // flip the inequality direction for strict inequalities.
 
         let reason_id = self.add_reason(reason);
         self.simplex.add_strict_lt(expr, reason_id);
@@ -210,18 +210,23 @@ impl ArithSolver {
     /// Assert: lhs > rhs (strict inequality)
     /// For LRA, uses infinitesimals: lhs >= rhs + δ
     pub fn assert_gt(&mut self, lhs: &[(TermId, Rational64)], rhs: Rational64, reason: TermId) {
-        // lhs > rhs is equivalent to -(lhs - rhs) < 0
+        // lhs > rhs is equivalent to rhs - lhs < 0
+        // We build rhs - lhs directly instead of negating lhs - rhs
+        // This avoids issues with normalize_expr which ensures positive first coefficient
         let mut expr = LinExpr::new();
 
         for (term, coef) in lhs {
             let var = self.intern(*term);
-            expr.add_term(var, *coef);
+            // Add negative coefficient since we want rhs - lhs
+            expr.add_term(var, -(*coef));
         }
-        expr.add_constant(-rhs);
-        expr.negate();
+        // Add +rhs (since we want rhs - lhs, not lhs - rhs)
+        expr.add_constant(rhs);
 
-        // Normalize the expression
-        self.normalize_expr(&mut expr);
+        // Note: We do NOT normalize here because:
+        // 1. normalize_expr may negate to make first coefficient positive
+        // 2. This would flip the inequality direction
+        // 3. For strict inequalities, the sign matters
 
         let reason_id = self.add_reason(reason);
         self.simplex.add_strict_lt(expr, reason_id);
@@ -326,6 +331,7 @@ impl Theory for ArithSolver {
             num_vars: self.var_to_term.len(),
             num_reasons: self.reasons.len(),
         });
+        self.simplex.push();
     }
 
     fn pop(&mut self) {
@@ -333,7 +339,7 @@ impl Theory for ArithSolver {
             self.var_to_term.truncate(state.num_vars);
             self.reasons.truncate(state.num_reasons);
             self.reason_counter = state.num_reasons as u32;
-            // Note: Simplex doesn't support pop directly
+            self.simplex.pop();
         }
     }
 

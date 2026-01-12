@@ -294,11 +294,11 @@ impl StrategyLearner {
 
         for proof in proofs {
             for node in proof.nodes() {
-                if let ProofStep::Inference { rule, .. } = &node.step {
-                    if rule.contains("lemma") || rule.contains("theory") {
-                        let pattern = self.extract_lemma_pattern(node.conclusion());
-                        *lemma_patterns.entry(pattern).or_insert(0) += 1;
-                    }
+                if let ProofStep::Inference { rule, .. } = &node.step
+                    && (rule.contains("lemma") || rule.contains("theory"))
+                {
+                    let pattern = self.extract_lemma_pattern(node.conclusion());
+                    *lemma_patterns.entry(pattern).or_insert(0) += 1;
                 }
             }
         }
@@ -342,11 +342,11 @@ impl StrategyLearner {
 
         for proof in proofs {
             for node in proof.nodes() {
-                if let ProofStep::Inference { rule, .. } = &node.step {
-                    if rule.contains("instantiation") || rule.contains("forall_elim") {
-                        let pattern = self.extract_trigger_pattern(node.conclusion());
-                        *instantiation_patterns.entry(pattern).or_insert(0) += 1;
-                    }
+                if let ProofStep::Inference { rule, .. } = &node.step
+                    && (rule.contains("instantiation") || rule.contains("forall_elim"))
+                {
+                    let pattern = self.extract_trigger_pattern(node.conclusion());
+                    *instantiation_patterns.entry(pattern).or_insert(0) += 1;
                 }
             }
         }
@@ -372,10 +372,10 @@ impl StrategyLearner {
     // Helper: Extract trigger pattern
     fn extract_trigger_pattern(&self, conclusion: &str) -> String {
         // Extract function applications as triggers (simplified)
-        if let Some(start) = conclusion.find('(') {
-            if let Some(end) = conclusion[start..].find(')') {
-                return conclusion[..start + end + 1].to_string();
-            }
+        if let Some(start) = conclusion.find('(')
+            && let Some(end) = conclusion[start..].find(')')
+        {
+            return conclusion[..start + end + 1].to_string();
         }
         "default".to_string()
     }

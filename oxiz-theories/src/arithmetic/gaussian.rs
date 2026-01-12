@@ -65,14 +65,15 @@ impl LinearEquation {
 
     /// Normalize the equation by dividing by the leading coefficient
     pub fn normalize(&mut self) {
-        if let Some((_, first_coef)) = self.terms.first().cloned() {
-            if !first_coef.is_zero() && !first_coef.is_one() {
-                let inv = Rational64::one() / first_coef;
-                for (_, coef) in &mut self.terms {
-                    *coef *= inv;
-                }
-                self.rhs *= inv;
+        if let Some((_, first_coef)) = self.terms.first().cloned()
+            && !first_coef.is_zero()
+            && !first_coef.is_one()
+        {
+            let inv = Rational64::one() / first_coef;
+            for (_, coef) in &mut self.terms {
+                *coef *= inv;
             }
+            self.rhs *= inv;
         }
     }
 

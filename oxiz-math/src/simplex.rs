@@ -207,11 +207,11 @@ impl Row {
             }
         }
 
-        if let Some(g) = gcd {
-            if !g.is_one() {
-                let divisor = BigRational::from_integer(g);
-                self.scale(&(BigRational::one() / divisor));
-            }
+        if let Some(g) = gcd
+            && !g.is_one()
+        {
+            let divisor = BigRational::from_integer(g);
+            self.scale(&(BigRational::one() / divisor));
         }
     }
 }
@@ -376,12 +376,12 @@ impl SimplexTableau {
                 }
 
                 // Check for immediate conflict
-                if let Some(ub) = self.upper_bounds.get(&var) {
-                    if &value > ub {
-                        return Err(Conflict {
-                            constraints: vec![constraint_id],
-                        });
-                    }
+                if let Some(ub) = self.upper_bounds.get(&var)
+                    && &value > ub
+                {
+                    return Err(Conflict {
+                        constraints: vec![constraint_id],
+                    });
                 }
             }
             BoundType::Upper => {
@@ -395,12 +395,12 @@ impl SimplexTableau {
                 }
 
                 // Check for immediate conflict
-                if let Some(lb) = self.lower_bounds.get(&var) {
-                    if &value < lb {
-                        return Err(Conflict {
-                            constraints: vec![constraint_id],
-                        });
-                    }
+                if let Some(lb) = self.lower_bounds.get(&var)
+                    && &value < lb
+                {
+                    return Err(Conflict {
+                        constraints: vec![constraint_id],
+                    });
                 }
             }
             BoundType::Equal => {
@@ -408,19 +408,19 @@ impl SimplexTableau {
                 self.upper_bounds.insert(var, value.clone());
 
                 // Check existing bounds
-                if let Some(lb) = self.lower_bounds.get(&var) {
-                    if &value < lb {
-                        return Err(Conflict {
-                            constraints: vec![constraint_id],
-                        });
-                    }
+                if let Some(lb) = self.lower_bounds.get(&var)
+                    && &value < lb
+                {
+                    return Err(Conflict {
+                        constraints: vec![constraint_id],
+                    });
                 }
-                if let Some(ub) = self.upper_bounds.get(&var) {
-                    if &value > ub {
-                        return Err(Conflict {
-                            constraints: vec![constraint_id],
-                        });
-                    }
+                if let Some(ub) = self.upper_bounds.get(&var)
+                    && &value > ub
+                {
+                    return Err(Conflict {
+                        constraints: vec![constraint_id],
+                    });
                 }
             }
         }
@@ -436,15 +436,15 @@ impl SimplexTableau {
     /// Check if a basic variable violates its bounds.
     fn violates_bounds(&self, var: VarId) -> bool {
         if let Some(val) = self.assignment.get(&var) {
-            if let Some(lb) = self.lower_bounds.get(&var) {
-                if val < lb {
-                    return true;
-                }
+            if let Some(lb) = self.lower_bounds.get(&var)
+                && val < lb
+            {
+                return true;
             }
-            if let Some(ub) = self.upper_bounds.get(&var) {
-                if val > ub {
-                    return true;
-                }
+            if let Some(ub) = self.upper_bounds.get(&var)
+                && val > ub
+            {
+                return true;
             }
         }
         false
@@ -852,15 +852,15 @@ impl SimplexTableau {
     pub fn get_model(&self) -> Option<FxHashMap<VarId, BigRational>> {
         // Check if all variables satisfy their bounds
         for (var, val) in &self.assignment {
-            if let Some(lb) = self.lower_bounds.get(var) {
-                if val < lb {
-                    return None;
-                }
+            if let Some(lb) = self.lower_bounds.get(var)
+                && val < lb
+            {
+                return None;
             }
-            if let Some(ub) = self.upper_bounds.get(var) {
-                if val > ub {
-                    return None;
-                }
+            if let Some(ub) = self.upper_bounds.get(var)
+                && val > ub
+            {
+                return None;
             }
         }
         Some(self.assignment.clone())
@@ -869,15 +869,15 @@ impl SimplexTableau {
     /// Check if the current assignment satisfies all bounds.
     pub fn is_feasible(&self) -> bool {
         for (var, val) in &self.assignment {
-            if let Some(lb) = self.lower_bounds.get(var) {
-                if val < lb {
-                    return false;
-                }
+            if let Some(lb) = self.lower_bounds.get(var)
+                && val < lb
+            {
+                return false;
             }
-            if let Some(ub) = self.upper_bounds.get(var) {
-                if val > ub {
-                    return false;
-                }
+            if let Some(ub) = self.upper_bounds.get(var)
+                && val > ub
+            {
+                return false;
             }
         }
         true
@@ -886,15 +886,15 @@ impl SimplexTableau {
     /// Find a variable that violates its bounds, if any.
     pub fn find_violated_bound(&self) -> Option<VarId> {
         for (var, val) in &self.assignment {
-            if let Some(lb) = self.lower_bounds.get(var) {
-                if val < lb {
-                    return Some(*var);
-                }
+            if let Some(lb) = self.lower_bounds.get(var)
+                && val < lb
+            {
+                return Some(*var);
             }
-            if let Some(ub) = self.upper_bounds.get(var) {
-                if val > ub {
-                    return Some(*var);
-                }
+            if let Some(ub) = self.upper_bounds.get(var)
+                && val > ub
+            {
+                return Some(*var);
             }
         }
         None

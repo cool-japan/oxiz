@@ -344,13 +344,13 @@ impl<'a> Parser<'a> {
             }
             "-" => {
                 let first = self.parse_term()?;
-                if let Some(token) = self.lexer.peek() {
-                    if matches!(token.kind, TokenKind::RParen) {
-                        self.lexer.next_token();
-                        // Unary minus
-                        let zero = self.manager.mk_int(0);
-                        return Ok(self.manager.mk_sub(zero, first));
-                    }
+                if let Some(token) = self.lexer.peek()
+                    && matches!(token.kind, TokenKind::RParen)
+                {
+                    self.lexer.next_token();
+                    // Unary minus
+                    let zero = self.manager.mk_int(0);
+                    return Ok(self.manager.mk_sub(zero, first));
                 }
                 let second = self.parse_term()?;
                 self.expect_rparen()?;
@@ -516,11 +516,11 @@ impl<'a> Parser<'a> {
     fn parse_term_list(&mut self) -> Result<SmallVec<[TermId; 4]>> {
         let mut args = SmallVec::new();
         loop {
-            if let Some(token) = self.lexer.peek() {
-                if matches!(token.kind, TokenKind::RParen) {
-                    self.lexer.next_token();
-                    break;
-                }
+            if let Some(token) = self.lexer.peek()
+                && matches!(token.kind, TokenKind::RParen)
+            {
+                self.lexer.next_token();
+                break;
             }
             args.push(self.parse_term()?);
         }
@@ -552,11 +552,11 @@ impl<'a> Parser<'a> {
         let mut new_bindings: Vec<(String, TermId)> = Vec::new();
 
         loop {
-            if let Some(token) = self.lexer.peek() {
-                if matches!(token.kind, TokenKind::RParen) {
-                    self.lexer.next_token();
-                    break;
-                }
+            if let Some(token) = self.lexer.peek()
+                && matches!(token.kind, TokenKind::RParen)
+            {
+                self.lexer.next_token();
+                break;
             }
 
             self.expect_lparen()?;
@@ -622,11 +622,11 @@ impl<'a> Parser<'a> {
     fn parse_sorted_vars(&mut self) -> Result<Vec<(String, SortId)>> {
         let mut vars = Vec::new();
         loop {
-            if let Some(token) = self.lexer.peek() {
-                if matches!(token.kind, TokenKind::RParen) {
-                    self.lexer.next_token();
-                    break;
-                }
+            if let Some(token) = self.lexer.peek()
+                && matches!(token.kind, TokenKind::RParen)
+            {
+                self.lexer.next_token();
+                break;
             }
 
             self.expect_lparen()?;
@@ -767,11 +767,11 @@ impl<'a> Parser<'a> {
                 self.expect_lparen()?;
                 let mut arg_sorts = Vec::new();
                 loop {
-                    if let Some(t) = self.lexer.peek() {
-                        if matches!(t.kind, TokenKind::RParen) {
-                            self.lexer.next_token();
-                            break;
-                        }
+                    if let Some(t) = self.lexer.peek()
+                        && matches!(t.kind, TokenKind::RParen)
+                    {
+                        self.lexer.next_token();
+                        break;
                     }
                     arg_sorts.push(self.expect_symbol()?);
                 }
@@ -801,11 +801,11 @@ impl<'a> Parser<'a> {
                 self.expect_lparen()?;
                 let mut terms = Vec::new();
                 loop {
-                    if let Some(t) = self.lexer.peek() {
-                        if matches!(t.kind, TokenKind::RParen) {
-                            self.lexer.next_token();
-                            break;
-                        }
+                    if let Some(t) = self.lexer.peek()
+                        && matches!(t.kind, TokenKind::RParen)
+                    {
+                        self.lexer.next_token();
+                        break;
                     }
                     terms.push(self.parse_term()?);
                 }
@@ -875,11 +875,11 @@ impl<'a> Parser<'a> {
                 self.expect_lparen()?;
                 let mut assumptions = Vec::new();
                 loop {
-                    if let Some(t) = self.lexer.peek() {
-                        if matches!(t.kind, TokenKind::RParen) {
-                            self.lexer.next_token();
-                            break;
-                        }
+                    if let Some(t) = self.lexer.peek()
+                        && matches!(t.kind, TokenKind::RParen)
+                    {
+                        self.lexer.next_token();
+                        break;
                     }
                     assumptions.push(self.parse_term()?);
                 }
@@ -917,11 +917,11 @@ impl<'a> Parser<'a> {
                 self.expect_lparen()?;
                 let mut params = Vec::new();
                 loop {
-                    if let Some(t) = self.lexer.peek() {
-                        if matches!(t.kind, TokenKind::RParen) {
-                            self.lexer.next_token();
-                            break;
-                        }
+                    if let Some(t) = self.lexer.peek()
+                        && matches!(t.kind, TokenKind::RParen)
+                    {
+                        self.lexer.next_token();
+                        break;
                     }
                     params.push(self.expect_symbol()?);
                 }
@@ -942,11 +942,11 @@ impl<'a> Parser<'a> {
                 // Parse parameters
                 let mut params: Vec<(String, String)> = Vec::new();
                 loop {
-                    if let Some(t) = self.lexer.peek() {
-                        if matches!(t.kind, TokenKind::RParen) {
-                            self.lexer.next_token();
-                            break;
-                        }
+                    if let Some(t) = self.lexer.peek()
+                        && matches!(t.kind, TokenKind::RParen)
+                    {
+                        self.lexer.next_token();
+                        break;
                     }
                     self.expect_lparen()?;
                     let param_name = self.expect_symbol()?;
@@ -995,11 +995,11 @@ impl<'a> Parser<'a> {
 
                 let mut constructors = Vec::new();
                 loop {
-                    if let Some(t) = self.lexer.peek() {
-                        if matches!(t.kind, TokenKind::RParen) {
-                            self.lexer.next_token();
-                            break;
-                        }
+                    if let Some(t) = self.lexer.peek()
+                        && matches!(t.kind, TokenKind::RParen)
+                    {
+                        self.lexer.next_token();
+                        break;
                     }
 
                     // Parse constructor
@@ -1009,11 +1009,11 @@ impl<'a> Parser<'a> {
                     // Parse selectors
                     let mut selectors = Vec::new();
                     loop {
-                        if let Some(t) = self.lexer.peek() {
-                            if matches!(t.kind, TokenKind::RParen) {
-                                self.lexer.next_token();
-                                break;
-                            }
+                        if let Some(t) = self.lexer.peek()
+                            && matches!(t.kind, TokenKind::RParen)
+                        {
+                            self.lexer.next_token();
+                            break;
                         }
 
                         self.expect_lparen()?;
@@ -1159,11 +1159,11 @@ impl<'a> Parser<'a> {
                 let mut values = Vec::new();
 
                 loop {
-                    if let Some(t) = self.lexer.peek() {
-                        if matches!(t.kind, TokenKind::RParen) {
-                            self.lexer.next_token();
-                            break;
-                        }
+                    if let Some(t) = self.lexer.peek()
+                        && matches!(t.kind, TokenKind::RParen)
+                    {
+                        self.lexer.next_token();
+                        break;
                     }
 
                     // Try to parse as term first

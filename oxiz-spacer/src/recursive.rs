@@ -209,10 +209,10 @@ impl<'a> RecursiveAnalyzer<'a> {
 
         // Check for mutual recursion
         for dep in &info.dependencies {
-            if let Some(dep_info) = self.info.get(dep) {
-                if dep_info.dependencies.contains(&pred) {
-                    return Ok(RecursionKind::MutuallyRecursive);
-                }
+            if let Some(dep_info) = self.info.get(dep)
+                && dep_info.dependencies.contains(&pred)
+            {
+                return Ok(RecursionKind::MutuallyRecursive);
             }
         }
 
@@ -307,10 +307,10 @@ impl<'a> RecursiveAnalyzer<'a> {
                     if let Some(&dep_low) = indices.get(&dep) {
                         low_link = low_link.min(dep_low);
                     }
-                } else if stack.contains(&dep) {
-                    if let Some(&dep_idx) = indices.get(&dep) {
-                        low_link = low_link.min(dep_idx);
-                    }
+                } else if stack.contains(&dep)
+                    && let Some(&dep_idx) = indices.get(&dep)
+                {
+                    low_link = low_link.min(dep_idx);
                 }
             }
         }

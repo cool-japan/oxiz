@@ -75,15 +75,15 @@ impl BoolRewriter {
 
     /// Check if one term is the negation of another
     fn is_negation_of(&self, t1: TermId, t2: TermId, manager: &TermManager) -> bool {
-        if let Some(term1) = manager.get(t1) {
-            if let TermKind::Not(inner) = &term1.kind {
-                return *inner == t2;
-            }
+        if let Some(term1) = manager.get(t1)
+            && let TermKind::Not(inner) = &term1.kind
+        {
+            return *inner == t2;
         }
-        if let Some(term2) = manager.get(t2) {
-            if let TermKind::Not(inner) = &term2.kind {
-                return *inner == t1;
-            }
+        if let Some(term2) = manager.get(t2)
+            && let TermKind::Not(inner) = &term2.kind
+        {
+            return *inner == t1;
         }
         false
     }
@@ -167,26 +167,25 @@ impl BoolRewriter {
             }
 
             // Flatten nested ANDs
-            if self.flatten {
-                if let Some(t) = manager.get(arg) {
-                    if let TermKind::And(nested) = &t.kind {
-                        changed = true;
-                        for &nested_arg in nested {
-                            if !seen.contains(&nested_arg) {
-                                // Check for complement
-                                for &existing in &result {
-                                    if self.is_negation_of(nested_arg, existing, manager) {
-                                        ctx.stats_mut().record_rule("bool_and_complement");
-                                        return RewriteResult::Rewritten(manager.mk_false());
-                                    }
-                                }
-                                seen.insert(nested_arg);
-                                result.push(nested_arg);
+            if self.flatten
+                && let Some(t) = manager.get(arg)
+                && let TermKind::And(nested) = &t.kind
+            {
+                changed = true;
+                for &nested_arg in nested {
+                    if !seen.contains(&nested_arg) {
+                        // Check for complement
+                        for &existing in &result {
+                            if self.is_negation_of(nested_arg, existing, manager) {
+                                ctx.stats_mut().record_rule("bool_and_complement");
+                                return RewriteResult::Rewritten(manager.mk_false());
                             }
                         }
-                        continue;
+                        seen.insert(nested_arg);
+                        result.push(nested_arg);
                     }
                 }
+                continue;
             }
 
             // Check for complement: x ∧ ¬x → false
@@ -254,26 +253,25 @@ impl BoolRewriter {
             }
 
             // Flatten nested ORs
-            if self.flatten {
-                if let Some(t) = manager.get(arg) {
-                    if let TermKind::Or(nested) = &t.kind {
-                        changed = true;
-                        for &nested_arg in nested {
-                            if !seen.contains(&nested_arg) {
-                                // Check for tautology
-                                for &existing in &result {
-                                    if self.is_negation_of(nested_arg, existing, manager) {
-                                        ctx.stats_mut().record_rule("bool_or_tautology");
-                                        return RewriteResult::Rewritten(manager.mk_true());
-                                    }
-                                }
-                                seen.insert(nested_arg);
-                                result.push(nested_arg);
+            if self.flatten
+                && let Some(t) = manager.get(arg)
+                && let TermKind::Or(nested) = &t.kind
+            {
+                changed = true;
+                for &nested_arg in nested {
+                    if !seen.contains(&nested_arg) {
+                        // Check for tautology
+                        for &existing in &result {
+                            if self.is_negation_of(nested_arg, existing, manager) {
+                                ctx.stats_mut().record_rule("bool_or_tautology");
+                                return RewriteResult::Rewritten(manager.mk_true());
                             }
                         }
-                        continue;
+                        seen.insert(nested_arg);
+                        result.push(nested_arg);
                     }
                 }
+                continue;
             }
 
             // Check for tautology: x ∨ ¬x → true

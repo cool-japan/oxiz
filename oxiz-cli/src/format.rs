@@ -825,39 +825,39 @@ pub(crate) fn print_statistics(stats: &SolverStats, args: &Args) {
     }
 
     // Print detailed profiling data if enabled
-    if args.profile {
-        if let Some(ref profiling_data) = stats.profiling_data {
-            println!();
-            println_colored(args, "Profiling Data:", Some(owo_colors::AnsiColors::Cyan));
+    if args.profile
+        && let Some(ref profiling_data) = stats.profiling_data
+    {
+        println!();
+        println_colored(args, "Profiling Data:", Some(owo_colors::AnsiColors::Cyan));
 
-            for prof in profiling_data {
-                let time_display = if prof.duration_us >= 1000 {
-                    format!("{:.2}ms", prof.duration_us as f64 / 1000.0)
+        for prof in profiling_data {
+            let time_display = if prof.duration_us >= 1000 {
+                format!("{:.2}ms", prof.duration_us as f64 / 1000.0)
+            } else {
+                format!("{}μs", prof.duration_us)
+            };
+
+            println_colored(
+                args,
+                &format!("  {} - {}", prof.operation, time_display),
+                None,
+            );
+
+            if prof.memory_delta_bytes != 0 {
+                let mem_display = if prof.memory_delta_bytes.unsigned_abs() >= 1_048_576 {
+                    format!("{:.2} MB", prof.memory_delta_bytes as f64 / 1_048_576.0)
+                } else if prof.memory_delta_bytes.unsigned_abs() >= 1024 {
+                    format!("{:.2} KB", prof.memory_delta_bytes as f64 / 1024.0)
                 } else {
-                    format!("{}μs", prof.duration_us)
+                    format!("{} bytes", prof.memory_delta_bytes)
                 };
 
                 println_colored(
                     args,
-                    &format!("  {} - {}", prof.operation, time_display),
-                    None,
+                    &format!("    Memory delta: {}", mem_display),
+                    Some(owo_colors::AnsiColors::BrightBlack),
                 );
-
-                if prof.memory_delta_bytes != 0 {
-                    let mem_display = if prof.memory_delta_bytes.unsigned_abs() >= 1_048_576 {
-                        format!("{:.2} MB", prof.memory_delta_bytes as f64 / 1_048_576.0)
-                    } else if prof.memory_delta_bytes.unsigned_abs() >= 1024 {
-                        format!("{:.2} KB", prof.memory_delta_bytes as f64 / 1024.0)
-                    } else {
-                        format!("{} bytes", prof.memory_delta_bytes)
-                    };
-
-                    println_colored(
-                        args,
-                        &format!("    Memory delta: {}", mem_display),
-                        Some(owo_colors::AnsiColors::BrightBlack),
-                    );
-                }
             }
         }
     }

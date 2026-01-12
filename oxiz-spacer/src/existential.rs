@@ -726,14 +726,12 @@ impl ExistentialHandler {
         // Add Skolem variables to the universal quantifiers
         let mut new_vars = rule.vars.clone();
         for (ex_var_name, ex_var_sort) in &info.existential_vars {
-            if let Some(&skolem_term) = skolem_substitution.get(ex_var_name) {
-                // Extract the Skolem variable name from the term
-                if let Some(term) = terms.get(skolem_term) {
-                    if let TermKind::Var(spur) = &term.kind {
-                        let name = terms.resolve_str(*spur);
-                        new_vars.push((name.to_string(), *ex_var_sort));
-                    }
-                }
+            if let Some(&skolem_term) = skolem_substitution.get(ex_var_name)
+                && let Some(term) = terms.get(skolem_term)
+                && let TermKind::Var(spur) = &term.kind
+            {
+                let name = terms.resolve_str(*spur);
+                new_vars.push((name.to_string(), *ex_var_sort));
             }
         }
 

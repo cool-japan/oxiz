@@ -76,11 +76,11 @@ impl Preprocessor {
         self.occurrences.clear();
         for i in 0..clauses.len() {
             let clause_id = ClauseId::new(i as u32);
-            if let Some(clause) = clauses.get(clause_id) {
-                if !clause.deleted {
-                    for &lit in &clause.lits {
-                        self.occurrences.add(lit, clause_id);
-                    }
+            if let Some(clause) = clauses.get(clause_id)
+                && !clause.deleted
+            {
+                for &lit in &clause.lits {
+                    self.occurrences.add(lit, clause_id);
                 }
             }
         }
@@ -217,14 +217,14 @@ impl Preprocessor {
         // Remove clauses containing pure literals
         for lit in pure_literals {
             for &clause_id in self.occurrences.get(lit).iter() {
-                if !self.removed_clauses.contains(&clause_id) {
-                    if let Some(clause) = clauses.get_mut(clause_id) {
-                        if !clause.deleted && !clause.learned {
-                            clause.deleted = true;
-                            self.removed_clauses.insert(clause_id);
-                            eliminated += 1;
-                        }
-                    }
+                if !self.removed_clauses.contains(&clause_id)
+                    && let Some(clause) = clauses.get_mut(clause_id)
+                    && !clause.deleted
+                    && !clause.learned
+                {
+                    clause.deleted = true;
+                    self.removed_clauses.insert(clause_id);
+                    eliminated += 1;
                 }
             }
         }

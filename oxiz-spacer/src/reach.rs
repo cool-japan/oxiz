@@ -570,10 +570,10 @@ impl<'a> ConcreteWitnessExtractor<'a> {
         trace!("Validating witness with {} states", witness.states.len());
 
         // Check that trace starts from initial state
-        if let Some(first) = witness.states.first() {
-            if first.step != 0 {
-                return Ok(false);
-            }
+        if let Some(first) = witness.states.first()
+            && first.step != 0
+        {
+            return Ok(false);
         }
 
         // Check that each transition is valid
@@ -582,10 +582,10 @@ impl<'a> ConcreteWitnessExtractor<'a> {
             let curr = &witness.states[i];
 
             // Check that we used a valid rule
-            if let Some(rule_id) = curr.rule {
-                if self.system.get_rule(rule_id).is_none() {
-                    return Ok(false);
-                }
+            if let Some(rule_id) = curr.rule
+                && self.system.get_rule(rule_id).is_none()
+            {
+                return Ok(false);
             }
 
             trace!(

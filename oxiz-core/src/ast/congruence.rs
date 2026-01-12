@@ -109,10 +109,10 @@ impl CongruenceClosure {
             };
 
             // Path halving: make current point to grandparent
-            if let Some(&grandparent) = self.parent.get(&parent) {
-                if grandparent != parent {
-                    self.parent.insert(current, grandparent);
-                }
+            if let Some(&grandparent) = self.parent.get(&parent)
+                && grandparent != parent
+            {
+                self.parent.insert(current, grandparent);
             }
 
             current = parent;

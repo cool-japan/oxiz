@@ -47,11 +47,11 @@ impl RewriteRuleSet {
             iterations += 1;
 
             for rule in &self.rules {
-                if let Some(new_term) = rule.apply(current, manager) {
-                    if new_term != current {
-                        current = new_term;
-                        changed = true;
-                    }
+                if let Some(new_term) = rule.apply(current, manager)
+                    && new_term != current
+                {
+                    current = new_term;
+                    changed = true;
                 }
             }
         }
@@ -71,11 +71,11 @@ impl RewriteRuleSet {
         // Apply rules to each subterm
         for &subterm_id in &subterms {
             for rule in &self.rules {
-                if let Some(new_term) = rule.apply(subterm_id, manager) {
-                    if new_term != subterm_id {
-                        cache.insert(subterm_id, new_term);
-                        break;
-                    }
+                if let Some(new_term) = rule.apply(subterm_id, manager)
+                    && new_term != subterm_id
+                {
+                    cache.insert(subterm_id, new_term);
+                    break;
                 }
             }
         }
@@ -92,12 +92,11 @@ pub struct DoubleNegationRule;
 impl RewriteRule for DoubleNegationRule {
     fn apply(&self, term_id: TermId, manager: &mut TermManager) -> Option<TermId> {
         let term = manager.get(term_id)?;
-        if let TermKind::Not(inner) = &term.kind {
-            if let Some(inner_term) = manager.get(*inner) {
-                if let TermKind::Not(inner_inner) = inner_term.kind {
-                    return Some(inner_inner);
-                }
-            }
+        if let TermKind::Not(inner) = &term.kind
+            && let Some(inner_term) = manager.get(*inner)
+            && let TermKind::Not(inner_inner) = inner_term.kind
+        {
+            return Some(inner_inner);
         }
         None
     }
@@ -182,10 +181,10 @@ impl RewriteRule for ArithmeticIdentityRule {
                 let non_zero: Vec<TermId> = args
                     .iter()
                     .filter(|&&arg| {
-                        if let Some(arg_term) = manager.get(arg) {
-                            if let TermKind::IntConst(n) = &arg_term.kind {
-                                return *n != zero;
-                            }
+                        if let Some(arg_term) = manager.get(arg)
+                            && let TermKind::IntConst(n) = &arg_term.kind
+                        {
+                            return *n != zero;
                         }
                         true
                     })
@@ -208,12 +207,11 @@ impl RewriteRule for ArithmeticIdentityRule {
 
                 // Check if any argument is 0
                 for &arg in args.iter() {
-                    if let Some(arg_term) = manager.get(arg) {
-                        if let TermKind::IntConst(n) = &arg_term.kind {
-                            if *n == zero {
-                                return Some(manager.mk_int(0));
-                            }
-                        }
+                    if let Some(arg_term) = manager.get(arg)
+                        && let TermKind::IntConst(n) = &arg_term.kind
+                        && *n == zero
+                    {
+                        return Some(manager.mk_int(0));
                     }
                 }
 
@@ -221,10 +219,10 @@ impl RewriteRule for ArithmeticIdentityRule {
                 let non_one: Vec<TermId> = args
                     .iter()
                     .filter(|&&arg| {
-                        if let Some(arg_term) = manager.get(arg) {
-                            if let TermKind::IntConst(n) = &arg_term.kind {
-                                return *n != one;
-                            }
+                        if let Some(arg_term) = manager.get(arg)
+                            && let TermKind::IntConst(n) = &arg_term.kind
+                        {
+                            return *n != one;
                         }
                         true
                     })
@@ -325,12 +323,11 @@ impl RewriteRule for ArithmeticConstantFoldingRule {
 
             // Fold subtraction of constants
             TermKind::Sub(a, b) => {
-                if let (Some(a_term), Some(b_term)) = (manager.get(*a), manager.get(*b)) {
-                    if let (TermKind::IntConst(a_val), TermKind::IntConst(b_val)) =
+                if let (Some(a_term), Some(b_term)) = (manager.get(*a), manager.get(*b))
+                    && let (TermKind::IntConst(a_val), TermKind::IntConst(b_val)) =
                         (&a_term.kind, &b_term.kind)
-                    {
-                        return Some(manager.mk_int(a_val - b_val));
-                    }
+                {
+                    return Some(manager.mk_int(a_val - b_val));
                 }
             }
 
@@ -357,14 +354,14 @@ impl RewriteRule for BooleanAbsorptionRule {
             // P ∧ (P ∨ Q) → P
             TermKind::And(args) => {
                 for &arg in args.iter() {
-                    if let Some(arg_term) = manager.get(arg) {
-                        if let TermKind::Or(or_args) = &arg_term.kind {
-                            // Check if any Or arg is in And args
-                            for &or_arg in or_args.iter() {
-                                if args.contains(&or_arg) {
-                                    // Found absorption pattern
-                                    return Some(or_arg);
-                                }
+                    if let Some(arg_term) = manager.get(arg)
+                        && let TermKind::Or(or_args) = &arg_term.kind
+                    {
+                        // Check if any Or arg is in And args
+                        for &or_arg in or_args.iter() {
+                            if args.contains(&or_arg) {
+                                // Found absorption pattern
+                                return Some(or_arg);
                             }
                         }
                     }
@@ -374,12 +371,12 @@ impl RewriteRule for BooleanAbsorptionRule {
             // P ∨ (P ∧ Q) → P
             TermKind::Or(args) => {
                 for &arg in args.iter() {
-                    if let Some(arg_term) = manager.get(arg) {
-                        if let TermKind::And(and_args) = &arg_term.kind {
-                            for &and_arg in and_args.iter() {
-                                if args.contains(&and_arg) {
-                                    return Some(and_arg);
-                                }
+                    if let Some(arg_term) = manager.get(arg)
+                        && let TermKind::And(and_args) = &arg_term.kind
+                    {
+                        for &and_arg in and_args.iter() {
+                            if args.contains(&and_arg) {
+                                return Some(and_arg);
                             }
                         }
                     }
@@ -454,12 +451,11 @@ impl RewriteRule for EqualitySimplificationRule {
 
             // x ≠ x → false (using negation of equality)
             TermKind::Not(inner) => {
-                if let Some(inner_term) = manager.get(*inner) {
-                    if let TermKind::Eq(lhs, rhs) = inner_term.kind {
-                        if lhs == rhs {
-                            return Some(manager.mk_false());
-                        }
-                    }
+                if let Some(inner_term) = manager.get(*inner)
+                    && let TermKind::Eq(lhs, rhs) = inner_term.kind
+                    && lhs == rhs
+                {
+                    return Some(manager.mk_false());
                 }
                 None
             }
@@ -524,29 +520,29 @@ impl RewriteRule for DistributivityRule {
                 let rhs = args[1];
 
                 // Check if rhs is an addition
-                if let Some(rhs_term) = manager.get(rhs) {
-                    if let TermKind::Add(add_args) = &rhs_term.kind {
-                        // a * (b + c + ...) → a*b + a*c + ...
-                        let add_args_clone = add_args.clone();
-                        let distributed: Vec<_> = add_args_clone
-                            .iter()
-                            .map(|&arg| manager.mk_mul([lhs, arg]))
-                            .collect();
-                        return Some(manager.mk_add(distributed));
-                    }
+                if let Some(rhs_term) = manager.get(rhs)
+                    && let TermKind::Add(add_args) = &rhs_term.kind
+                {
+                    // a * (b + c + ...) → a*b + a*c + ...
+                    let add_args_clone = add_args.clone();
+                    let distributed: Vec<_> = add_args_clone
+                        .iter()
+                        .map(|&arg| manager.mk_mul([lhs, arg]))
+                        .collect();
+                    return Some(manager.mk_add(distributed));
                 }
 
                 // Check if lhs is an addition
-                if let Some(lhs_term) = manager.get(lhs) {
-                    if let TermKind::Add(add_args) = &lhs_term.kind {
-                        // (a + b + ...) * c → a*c + b*c + ...
-                        let add_args_clone = add_args.clone();
-                        let distributed: Vec<_> = add_args_clone
-                            .iter()
-                            .map(|&arg| manager.mk_mul([arg, rhs]))
-                            .collect();
-                        return Some(manager.mk_add(distributed));
-                    }
+                if let Some(lhs_term) = manager.get(lhs)
+                    && let TermKind::Add(add_args) = &lhs_term.kind
+                {
+                    // (a + b + ...) * c → a*c + b*c + ...
+                    let add_args_clone = add_args.clone();
+                    let distributed: Vec<_> = add_args_clone
+                        .iter()
+                        .map(|&arg| manager.mk_mul([arg, rhs]))
+                        .collect();
+                    return Some(manager.mk_add(distributed));
                 }
             }
         }

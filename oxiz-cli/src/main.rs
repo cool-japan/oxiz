@@ -73,14 +73,12 @@ impl CliConfig {
                 })
             });
 
-        if let Some(path) = config_path {
-            if path.exists() {
-                if let Ok(contents) = fs::read_to_string(&path) {
-                    if let Ok(config) = serde_yaml::from_str(&contents) {
-                        return config;
-                    }
-                }
-            }
+        if let Some(path) = config_path
+            && path.exists()
+            && let Ok(contents) = fs::read_to_string(&path)
+            && let Ok(config) = serde_yaml::from_str(&contents)
+        {
+            return config;
         }
 
         Self::default()
@@ -89,15 +87,16 @@ impl CliConfig {
     /// Merge configuration with command-line arguments
     fn merge_with_args(&self, args: &mut Args) {
         // Only apply config if arg is not explicitly set
-        if args.verbosity == Verbosity::Normal && self.verbosity.is_some() {
-            if let Some(ref v) = self.verbosity {
-                match v.as_str() {
-                    "quiet" => args.verbosity = Verbosity::Quiet,
-                    "verbose" => args.verbosity = Verbosity::Verbose,
-                    "debug" => args.verbosity = Verbosity::Debug,
-                    "trace" => args.verbosity = Verbosity::Trace,
-                    _ => {}
-                }
+        if args.verbosity == Verbosity::Normal
+            && self.verbosity.is_some()
+            && let Some(ref v) = self.verbosity
+        {
+            match v.as_str() {
+                "quiet" => args.verbosity = Verbosity::Quiet,
+                "verbose" => args.verbosity = Verbosity::Verbose,
+                "debug" => args.verbosity = Verbosity::Debug,
+                "trace" => args.verbosity = Verbosity::Trace,
+                _ => {}
             }
         }
 
@@ -113,10 +112,10 @@ impl CliConfig {
             args.parallel = self.parallel.unwrap_or(false);
         }
 
-        if let Some(color) = self.color {
-            if !color {
-                args.no_color = true;
-            }
+        if let Some(color) = self.color
+            && !color
+        {
+            args.no_color = true;
         }
     }
 }
@@ -490,12 +489,12 @@ async fn main() {
             .as_ref()
             .and_then(|s| tutorial::parse_tutorial_section(s));
 
-        if let Some(ref arg) = section_arg {
-            if section.is_none() {
-                eprintln!("Error: Invalid tutorial section '{}'", arg);
-                tutorial::list_tutorial_sections();
-                std::process::exit(1);
-            }
+        if let Some(ref arg) = section_arg
+            && section.is_none()
+        {
+            eprintln!("Error: Invalid tutorial section '{}'", arg);
+            tutorial::list_tutorial_sections();
+            std::process::exit(1);
         }
 
         tutorial::run_tutorial(section);
@@ -844,29 +843,26 @@ pub(crate) fn execute_and_format(ctx: &mut Context, script: &str, args: &Args) -
             {
                 // Execute get-model if not already done
                 let has_model = output.iter().any(|line| line.contains("define-fun"));
-                if !has_model {
-                    if let Ok(model_output) = ctx.execute_script("(get-model)") {
-                        output.extend(model_output);
-                    }
+                if !has_model && let Ok(model_output) = ctx.execute_script("(get-model)") {
+                    output.extend(model_output);
                 }
             }
 
             // Handle proof DOT generation if requested
-            if let Some(ref dot_path) = args.proof_dot {
-                if let Some(proof_line) = output.iter().find(|line| {
+            if let Some(ref dot_path) = args.proof_dot
+                && let Some(proof_line) = output.iter().find(|line| {
                     line.contains("proof") || line.contains("step") || line.contains("assume")
+                })
+            {
+                if let Err(e) = std::fs::File::create(dot_path).and_then(|file| {
+                    unsat_core::generate_proof_dot(proof_line, file).map_err(std::io::Error::other)
                 }) {
-                    if let Err(e) = std::fs::File::create(dot_path).and_then(|file| {
-                        unsat_core::generate_proof_dot(proof_line, file)
-                            .map_err(std::io::Error::other)
-                    }) {
-                        eprintln_colored(args, &format!("Failed to generate proof DOT: {}", e));
-                    } else if args.verbosity >= Verbosity::Verbose {
-                        eprintln_colored(
-                            args,
-                            &format!("Proof tree written to {}", dot_path.display()),
-                        );
-                    }
+                    eprintln_colored(args, &format!("Failed to generate proof DOT: {}", e));
+                } else if args.verbosity >= Verbosity::Verbose {
+                    eprintln_colored(
+                        args,
+                        &format!("Proof tree written to {}", dot_path.display()),
+                    );
                 }
             }
 

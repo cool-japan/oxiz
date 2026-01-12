@@ -110,10 +110,10 @@ impl<'a> ModelEvaluator<'a> {
     /// Evaluate a term
     pub fn eval(&mut self, term: TermId, manager: &TermManager) -> EvalResult {
         // Check cache first
-        if self.use_cache {
-            if let Some(v) = self.cache.get(term) {
-                return EvalResult::Ok(v.clone());
-            }
+        if self.use_cache
+            && let Some(v) = self.cache.get(term)
+        {
+            return EvalResult::Ok(v.clone());
         }
 
         // Check model assignment
@@ -128,10 +128,10 @@ impl<'a> ModelEvaluator<'a> {
         let result = self.eval_term(term, manager);
 
         // Cache result
-        if self.use_cache {
-            if let EvalResult::Ok(ref v) = result {
-                self.cache.insert(term, v.clone());
-            }
+        if self.use_cache
+            && let EvalResult::Ok(ref v) = result
+        {
+            self.cache.insert(term, v.clone());
         }
 
         result

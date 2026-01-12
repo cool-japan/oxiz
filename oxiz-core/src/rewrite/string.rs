@@ -117,13 +117,13 @@ impl StringRewriter {
         }
 
         // len(concat(s1, s2)) → len(s1) + len(s2)
-        if let Some(t) = manager.get(arg).cloned() {
-            if let TermKind::StrConcat(s1, s2) = &t.kind {
-                ctx.stats_mut().record_rule("str_len_concat");
-                let len1 = manager.mk_str_len(*s1);
-                let len2 = manager.mk_str_len(*s2);
-                return RewriteResult::Rewritten(manager.mk_add([len1, len2]));
-            }
+        if let Some(t) = manager.get(arg).cloned()
+            && let TermKind::StrConcat(s1, s2) = &t.kind
+        {
+            ctx.stats_mut().record_rule("str_len_concat");
+            let len1 = manager.mk_str_len(*s1);
+            let len2 = manager.mk_str_len(*s2);
+            return RewriteResult::Rewritten(manager.mk_add([len1, len2]));
         }
 
         RewriteResult::Unchanged(manager.mk_str_len(arg))
@@ -143,33 +143,31 @@ impl StringRewriter {
             self.get_str_const(str_arg, manager),
             self.get_int_const(start, manager),
             self.get_int_const(len, manager),
-        ) {
-            if st >= 0 && ln >= 0 {
-                let start_idx = st as usize;
-                let length = ln as usize;
-                if start_idx <= s.len() {
-                    let end_idx = (start_idx + length).min(s.len());
-                    let result: String = s
-                        .chars()
-                        .skip(start_idx)
-                        .take(end_idx - start_idx)
-                        .collect();
-                    ctx.stats_mut().record_rule("str_substr_const");
-                    return RewriteResult::Rewritten(manager.mk_string_lit(&result));
-                }
+        ) && st >= 0
+            && ln >= 0
+        {
+            let start_idx = st as usize;
+            let length = ln as usize;
+            if start_idx <= s.len() {
+                let end_idx = (start_idx + length).min(s.len());
+                let result: String = s
+                    .chars()
+                    .skip(start_idx)
+                    .take(end_idx - start_idx)
+                    .collect();
+                ctx.stats_mut().record_rule("str_substr_const");
+                return RewriteResult::Rewritten(manager.mk_string_lit(&result));
             }
         }
 
         // substr(s, 0, len(s)) → s
-        if let Some(0) = self.get_int_const(start, manager) {
-            if let Some(len_term) = manager.get(len) {
-                if let TermKind::StrLen(inner) = &len_term.kind {
-                    if *inner == str_arg {
-                        ctx.stats_mut().record_rule("str_substr_identity");
-                        return RewriteResult::Rewritten(str_arg);
-                    }
-                }
-            }
+        if let Some(0) = self.get_int_const(start, manager)
+            && let Some(len_term) = manager.get(len)
+            && let TermKind::StrLen(inner) = &len_term.kind
+            && *inner == str_arg
+        {
+            ctx.stats_mut().record_rule("str_substr_identity");
+            return RewriteResult::Rewritten(str_arg);
         }
 
         // substr(s, start, 0) → ""
@@ -309,16 +307,15 @@ impl StringRewriter {
             self.get_str_const(haystack, manager),
             self.get_str_const(needle, manager),
             self.get_int_const(start, manager),
-        ) {
-            if st >= 0 {
-                let start_idx = st as usize;
-                if start_idx <= h.len() {
-                    ctx.stats_mut().record_rule("str_indexof_const");
-                    if let Some(pos) = h[start_idx..].find(&n) {
-                        return RewriteResult::Rewritten(manager.mk_int((start_idx + pos) as i64));
-                    } else {
-                        return RewriteResult::Rewritten(manager.mk_int(-1));
-                    }
+        ) && st >= 0
+        {
+            let start_idx = st as usize;
+            if start_idx <= h.len() {
+                ctx.stats_mut().record_rule("str_indexof_const");
+                if let Some(pos) = h[start_idx..].find(&n) {
+                    return RewriteResult::Rewritten(manager.mk_int((start_idx + pos) as i64));
+                } else {
+                    return RewriteResult::Rewritten(manager.mk_int(-1));
                 }
             }
         }
@@ -404,10 +401,10 @@ impl StringRewriter {
             if s.is_empty() {
                 return RewriteResult::Rewritten(manager.mk_int(-1));
             }
-            if let Ok(n) = s.parse::<i64>() {
-                if n >= 0 {
-                    return RewriteResult::Rewritten(manager.mk_int(n));
-                }
+            if let Ok(n) = s.parse::<i64>()
+                && n >= 0
+            {
+                return RewriteResult::Rewritten(manager.mk_int(n));
             }
             return RewriteResult::Rewritten(manager.mk_int(-1));
         }

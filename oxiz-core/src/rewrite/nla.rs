@@ -490,13 +490,12 @@ impl NlaRewriter {
 
         // Check for zero factor
         for &arg in args {
-            if let Some(t) = manager.get(arg) {
-                if let TermKind::IntConst(n) = &t.kind {
-                    if n.is_zero() {
-                        ctx.stats_mut().record_rule("nla_mul_zero");
-                        return RewriteResult::Rewritten(manager.mk_int(0));
-                    }
-                }
+            if let Some(t) = manager.get(arg)
+                && let TermKind::IntConst(n) = &t.kind
+                && n.is_zero()
+            {
+                ctx.stats_mut().record_rule("nla_mul_zero");
+                return RewriteResult::Rewritten(manager.mk_int(0));
             }
         }
 
@@ -528,22 +527,22 @@ impl NlaRewriter {
         }
 
         // Try polynomial normalization
-        if self.config.enable_normalization {
-            if let Some(poly) = self.term_to_polynomial(term, manager) {
-                let normalized = poly.normalize();
-                if self.config.enable_gcd_reduction {
-                    let reduced = normalized.reduce_by_gcd();
-                    let new_term = self.polynomial_to_term(&reduced, manager);
-                    if new_term != term {
-                        ctx.stats_mut().record_rule("nla_polynomial_normalize");
-                        return RewriteResult::Rewritten(new_term);
-                    }
-                } else {
-                    let new_term = self.polynomial_to_term(&normalized, manager);
-                    if new_term != term {
-                        ctx.stats_mut().record_rule("nla_polynomial_normalize");
-                        return RewriteResult::Rewritten(new_term);
-                    }
+        if self.config.enable_normalization
+            && let Some(poly) = self.term_to_polynomial(term, manager)
+        {
+            let normalized = poly.normalize();
+            if self.config.enable_gcd_reduction {
+                let reduced = normalized.reduce_by_gcd();
+                let new_term = self.polynomial_to_term(&reduced, manager);
+                if new_term != term {
+                    ctx.stats_mut().record_rule("nla_polynomial_normalize");
+                    return RewriteResult::Rewritten(new_term);
+                }
+            } else {
+                let new_term = self.polynomial_to_term(&normalized, manager);
+                if new_term != term {
+                    ctx.stats_mut().record_rule("nla_polynomial_normalize");
+                    return RewriteResult::Rewritten(new_term);
                 }
             }
         }
@@ -588,22 +587,22 @@ impl NlaRewriter {
         }
 
         // Try polynomial normalization
-        if self.config.enable_normalization {
-            if let Some(poly) = self.term_to_polynomial(term, manager) {
-                let normalized = poly.normalize();
-                if self.config.enable_gcd_reduction {
-                    let reduced = normalized.reduce_by_gcd();
-                    let new_term = self.polynomial_to_term(&reduced, manager);
-                    if new_term != term {
-                        ctx.stats_mut().record_rule("nla_polynomial_normalize");
-                        return RewriteResult::Rewritten(new_term);
-                    }
-                } else {
-                    let new_term = self.polynomial_to_term(&normalized, manager);
-                    if new_term != term {
-                        ctx.stats_mut().record_rule("nla_polynomial_normalize");
-                        return RewriteResult::Rewritten(new_term);
-                    }
+        if self.config.enable_normalization
+            && let Some(poly) = self.term_to_polynomial(term, manager)
+        {
+            let normalized = poly.normalize();
+            if self.config.enable_gcd_reduction {
+                let reduced = normalized.reduce_by_gcd();
+                let new_term = self.polynomial_to_term(&reduced, manager);
+                if new_term != term {
+                    ctx.stats_mut().record_rule("nla_polynomial_normalize");
+                    return RewriteResult::Rewritten(new_term);
+                }
+            } else {
+                let new_term = self.polynomial_to_term(&normalized, manager);
+                if new_term != term {
+                    ctx.stats_mut().record_rule("nla_polynomial_normalize");
+                    return RewriteResult::Rewritten(new_term);
                 }
             }
         }
@@ -628,23 +627,21 @@ impl NlaRewriter {
         }
 
         // x - 0 = x
-        if let Some(t) = manager.get(rhs) {
-            if let TermKind::IntConst(n) = &t.kind {
-                if n.is_zero() {
-                    ctx.stats_mut().record_rule("nla_sub_zero");
-                    return RewriteResult::Rewritten(lhs);
-                }
-            }
+        if let Some(t) = manager.get(rhs)
+            && let TermKind::IntConst(n) = &t.kind
+            && n.is_zero()
+        {
+            ctx.stats_mut().record_rule("nla_sub_zero");
+            return RewriteResult::Rewritten(lhs);
         }
 
         // 0 - x = -x
-        if let Some(t) = manager.get(lhs) {
-            if let TermKind::IntConst(n) = &t.kind {
-                if n.is_zero() {
-                    ctx.stats_mut().record_rule("nla_zero_sub");
-                    return RewriteResult::Rewritten(manager.mk_neg(rhs));
-                }
-            }
+        if let Some(t) = manager.get(lhs)
+            && let TermKind::IntConst(n) = &t.kind
+            && n.is_zero()
+        {
+            ctx.stats_mut().record_rule("nla_zero_sub");
+            return RewriteResult::Rewritten(manager.mk_neg(rhs));
         }
 
         RewriteResult::Unchanged(term)
@@ -660,21 +657,20 @@ impl NlaRewriter {
         let term = manager.mk_neg(arg);
 
         // --x = x
-        if let Some(t) = manager.get(arg) {
-            if let TermKind::Neg(inner) = &t.kind {
-                ctx.stats_mut().record_rule("nla_double_neg");
-                return RewriteResult::Rewritten(*inner);
-            }
+        if let Some(t) = manager.get(arg)
+            && let TermKind::Neg(inner) = &t.kind
+        {
+            ctx.stats_mut().record_rule("nla_double_neg");
+            return RewriteResult::Rewritten(*inner);
         }
 
         // -0 = 0
-        if let Some(t) = manager.get(arg) {
-            if let TermKind::IntConst(n) = &t.kind {
-                if n.is_zero() {
-                    ctx.stats_mut().record_rule("nla_neg_zero");
-                    return RewriteResult::Rewritten(manager.mk_int(0));
-                }
-            }
+        if let Some(t) = manager.get(arg)
+            && let TermKind::IntConst(n) = &t.kind
+            && n.is_zero()
+        {
+            ctx.stats_mut().record_rule("nla_neg_zero");
+            return RewriteResult::Rewritten(manager.mk_int(0));
         }
 
         RewriteResult::Unchanged(term)

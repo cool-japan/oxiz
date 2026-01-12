@@ -426,10 +426,10 @@ impl CharSolver {
             CharConstraint::ToUpper(result) => {
                 if let Some(c) = char::from_u32(cp) {
                     let upper: Vec<char> = c.to_uppercase().collect();
-                    if upper.len() == 1 {
-                        if let Some(CharValue::Known(result_cp)) = self.assignments.get(result) {
-                            return upper[0] as u32 == *result_cp;
-                        }
+                    if upper.len() == 1
+                        && let Some(CharValue::Known(result_cp)) = self.assignments.get(result)
+                    {
+                        return upper[0] as u32 == *result_cp;
                     }
                 }
                 true
@@ -437,10 +437,10 @@ impl CharSolver {
             CharConstraint::ToLower(result) => {
                 if let Some(c) = char::from_u32(cp) {
                     let lower: Vec<char> = c.to_lowercase().collect();
-                    if lower.len() == 1 {
-                        if let Some(CharValue::Known(result_cp)) = self.assignments.get(result) {
-                            return lower[0] as u32 == *result_cp;
-                        }
+                    if lower.len() == 1
+                        && let Some(CharValue::Known(result_cp)) = self.assignments.get(result)
+                    {
+                        return lower[0] as u32 == *result_cp;
                     }
                 }
                 true
@@ -457,10 +457,10 @@ impl CharSolver {
             if let CharConstraint::Eq(cp) = constraint {
                 return Some(CharValue::Known(*cp));
             }
-            if let CharConstraint::EqVar(other) = constraint {
-                if let Some(CharValue::Known(cp)) = self.assignments.get(other) {
-                    return Some(CharValue::Known(*cp));
-                }
+            if let CharConstraint::EqVar(other) = constraint
+                && let Some(CharValue::Known(cp)) = self.assignments.get(other)
+            {
+                return Some(CharValue::Known(*cp));
             }
         }
 
@@ -1287,10 +1287,10 @@ impl AdvancedCharSolver {
 
         // Assign values from domains
         for (&var, domain) in &self.domains {
-            if let Some(cp) = domain.min() {
-                if self.base.get_value(var).is_none() {
-                    self.base.assign(var, CharValue::Known(cp));
-                }
+            if let Some(cp) = domain.min()
+                && self.base.get_value(var).is_none()
+            {
+                self.base.assign(var, CharValue::Known(cp));
             }
         }
 
@@ -1314,30 +1314,30 @@ impl AdvancedCharSolver {
             // Propagate equality constraints
             for (&var, constraints) in &self.base.constraints {
                 for constraint in constraints {
-                    if let CharConstraint::EqVar(other) = constraint {
-                        if let (Some(d1), Some(d2)) = (
+                    if let CharConstraint::EqVar(other) = constraint
+                        && let (Some(d1), Some(d2)) = (
                             self.domains.get(&var).cloned(),
                             self.domains.get(other).cloned(),
-                        ) {
-                            let mut new_d1 = d1.clone();
-                            new_d1.intersect(&d2);
+                        )
+                    {
+                        let mut new_d1 = d1.clone();
+                        new_d1.intersect(&d2);
 
-                            let mut new_d2 = d2.clone();
-                            new_d2.intersect(&d1);
+                        let mut new_d2 = d2.clone();
+                        new_d2.intersect(&d1);
 
-                            if let Some(dom) = self.domains.get_mut(&var) {
-                                if dom.size() != new_d1.size() {
-                                    *dom = new_d1;
-                                    changed = true;
-                                }
-                            }
+                        if let Some(dom) = self.domains.get_mut(&var)
+                            && dom.size() != new_d1.size()
+                        {
+                            *dom = new_d1;
+                            changed = true;
+                        }
 
-                            if let Some(dom) = self.domains.get_mut(other) {
-                                if dom.size() != new_d2.size() {
-                                    *dom = new_d2;
-                                    changed = true;
-                                }
-                            }
+                        if let Some(dom) = self.domains.get_mut(other)
+                            && dom.size() != new_d2.size()
+                        {
+                            *dom = new_d2;
+                            changed = true;
                         }
                     }
                 }
@@ -1526,12 +1526,12 @@ impl CharNormalizer {
             let cp = decomposed[i];
 
             // Try to compose with next character
-            if i + 1 < decomposed.len() {
-                if let Some(composed) = self.compose(cp, decomposed[i + 1]) {
-                    result.push(composed);
-                    i += 2;
-                    continue;
-                }
+            if i + 1 < decomposed.len()
+                && let Some(composed) = self.compose(cp, decomposed[i + 1])
+            {
+                result.push(composed);
+                i += 2;
+                continue;
             }
 
             result.push(cp);

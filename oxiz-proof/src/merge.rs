@@ -121,12 +121,12 @@ pub fn slice_proof(proof: &Proof, target: ProofNodeId) -> Proof {
     while let Some(node_id) = queue.pop_front() {
         dependencies.push(node_id);
 
-        if let Some(node) = proof.get_node(node_id) {
-            if let ProofStep::Inference { premises, .. } = &node.step {
-                for &premise in premises.iter() {
-                    if visited.insert(premise) {
-                        queue.push_back(premise);
-                    }
+        if let Some(node) = proof.get_node(node_id)
+            && let ProofStep::Inference { premises, .. } = &node.step
+        {
+            for &premise in premises.iter() {
+                if visited.insert(premise) {
+                    queue.push_back(premise);
                 }
             }
         }

@@ -131,12 +131,12 @@ impl EGraph {
 
     /// Find the canonical representative of an e-class (with path compression)
     pub fn find(&mut self, id: EClassId) -> EClassId {
-        if let Some(&parent) = self.unionfind.get(&id) {
-            if parent != id {
-                let root = self.find(parent);
-                self.unionfind.insert(id, root);
-                return root;
-            }
+        if let Some(&parent) = self.unionfind.get(&id)
+            && parent != id
+        {
+            let root = self.find(parent);
+            self.unionfind.insert(id, root);
+            return root;
         }
         id
     }

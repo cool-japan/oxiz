@@ -294,21 +294,21 @@ impl IntervalSet {
         // Handle unbounded intervals
         for interval in &self.intervals {
             // If unbounded below, try 0 or a negative integer
-            if interval.lo.is_neg_inf() {
-                if let Bound::Finite(hi) = &interval.hi {
-                    let val = hi.floor() - BigRational::one();
-                    if interval.contains(&val) {
-                        return Some(val);
-                    }
+            if interval.lo.is_neg_inf()
+                && let Bound::Finite(hi) = &interval.hi
+            {
+                let val = hi.floor() - BigRational::one();
+                if interval.contains(&val) {
+                    return Some(val);
                 }
             }
             // If unbounded above, try 0 or a positive integer
-            if interval.hi.is_pos_inf() {
-                if let Bound::Finite(lo) = &interval.lo {
-                    let val = lo.ceil() + BigRational::one();
-                    if interval.contains(&val) {
-                        return Some(val);
-                    }
+            if interval.hi.is_pos_inf()
+                && let Bound::Finite(lo) = &interval.lo
+            {
+                let val = lo.ceil() + BigRational::one();
+                if interval.contains(&val) {
+                    return Some(val);
                 }
             }
         }
@@ -328,10 +328,10 @@ impl IntervalSet {
             if let Bound::Finite(lo) = &interval.lo {
                 result.push(lo.clone());
             }
-            if let Bound::Finite(hi) = &interval.hi {
-                if Some(hi) != interval.lo.as_finite() {
-                    result.push(hi.clone());
-                }
+            if let Bound::Finite(hi) = &interval.hi
+                && Some(hi) != interval.lo.as_finite()
+            {
+                result.push(hi.clone());
             }
         }
         result.sort();

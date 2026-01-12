@@ -469,12 +469,12 @@ impl ChcSystem {
             result.push(pred);
 
             for rule in self.rules_by_body.get(&pred).into_iter().flatten() {
-                if let Some(head_pred) = self.get_rule(*rule).and_then(|r| r.head_predicate()) {
-                    if let Some(deg) = in_degree.get_mut(&head_pred) {
-                        *deg = deg.saturating_sub(1);
-                        if *deg == 0 {
-                            queue.push(head_pred);
-                        }
+                if let Some(head_pred) = self.get_rule(*rule).and_then(|r| r.head_predicate())
+                    && let Some(deg) = in_degree.get_mut(&head_pred)
+                {
+                    *deg = deg.saturating_sub(1);
+                    if *deg == 0 {
+                        queue.push(head_pred);
                     }
                 }
             }

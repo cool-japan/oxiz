@@ -235,10 +235,10 @@ impl TheoryCombiner {
             self.term_to_theory.insert(term, theory_idx);
 
             // If it's a variable, register it with Nelson-Oppen
-            if let Some(t) = manager.get(term) {
-                if matches!(t.kind, TermKind::Var(_)) {
-                    self.nelson_oppen.register_var(term, theory_idx);
-                }
+            if let Some(t) = manager.get(term)
+                && matches!(t.kind, TermKind::Var(_))
+            {
+                self.nelson_oppen.register_var(term, theory_idx);
             }
         }
 

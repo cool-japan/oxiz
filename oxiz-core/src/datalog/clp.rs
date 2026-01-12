@@ -265,10 +265,10 @@ impl Domain {
                     (None, Some(b)) => Some(*b),
                     (None, None) => None,
                 };
-                if let (Some(min), Some(max)) = (new_min, new_max) {
-                    if min > max {
-                        return Domain::Empty;
-                    }
+                if let (Some(min), Some(max)) = (new_min, new_max)
+                    && min > max
+                {
+                    return Domain::Empty;
                 }
                 Domain::Integer {
                     min: new_min,
@@ -481,10 +481,10 @@ impl ClpSolver {
 
         // Try to assign unassigned variables from singleton domains
         for var in &unassigned {
-            if let Some(domain) = self.store.domain(*var) {
-                if let Some(value) = domain.singleton_value() {
-                    self.assignment.insert(*var, value.clone());
-                }
+            if let Some(domain) = self.store.domain(*var)
+                && let Some(value) = domain.singleton_value()
+            {
+                self.assignment.insert(*var, value.clone());
             }
         }
 
@@ -517,10 +517,10 @@ impl ClpSolver {
                 .unwrap_or_default();
 
             for idx in constraint_indices {
-                if let Some(constraint) = self.store.constraints.get(idx) {
-                    if !self.propagate_constraint(constraint.clone()) {
-                        return false;
-                    }
+                if let Some(constraint) = self.store.constraints.get(idx)
+                    && !self.propagate_constraint(constraint.clone())
+                {
+                    return false;
                 }
             }
         }

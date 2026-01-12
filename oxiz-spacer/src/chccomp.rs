@@ -148,12 +148,11 @@ impl<'a> ChcCompParser<'a> {
             "Real" => self.terms.sorts.real_sort,
             _ => {
                 // Check for BitVec
-                if let Some(width_str) = name.strip_prefix("(_ BitVec ") {
-                    if let Some(width_str) = width_str.strip_suffix(')') {
-                        if let Ok(width) = width_str.trim().parse::<u32>() {
-                            return self.terms.sorts.bitvec(width);
-                        }
-                    }
+                if let Some(width_str) = name.strip_prefix("(_ BitVec ")
+                    && let Some(width_str) = width_str.strip_suffix(')')
+                    && let Ok(width) = width_str.trim().parse::<u32>()
+                {
+                    return self.terms.sorts.bitvec(width);
                 }
                 // Default to Bool for unknown sorts
                 self.terms.sorts.bool_sort

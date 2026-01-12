@@ -176,10 +176,10 @@ pub(crate) fn run_files(ctx: &mut Context, args: &Args, verbosity: Verbosity) {
                 tracker.add_entry(entry);
             }
         }
-        if let Err(e) = tracker.save() {
-            if verbosity >= Verbosity::Normal {
-                eprintln_colored(args, &format!("Warning: Failed to save benchmarks: {}", e));
-            }
+        if let Err(e) = tracker.save()
+            && verbosity >= Verbosity::Normal
+        {
+            eprintln_colored(args, &format!("Warning: Failed to save benchmarks: {}", e));
         }
     }
 
@@ -510,19 +510,19 @@ fn process_single_file(
         };
 
         // Check cache first
-        if let Some(cache_ref) = cache {
-            if let Some(cached_entry) = cache_ref.get(&script) {
-                return SolverResult {
-                    file: Some(file.display().to_string()),
-                    result: cached_entry.result.clone(),
-                    error: if cached_entry.result.starts_with("(error") {
-                        Some(cached_entry.result)
-                    } else {
-                        None
-                    },
-                    time_ms: cached_entry.time_ms,
-                };
-            }
+        if let Some(cache_ref) = cache
+            && let Some(cached_entry) = cache_ref.get(&script)
+        {
+            return SolverResult {
+                file: Some(file.display().to_string()),
+                result: cached_entry.result.clone(),
+                error: if cached_entry.result.starts_with("(error") {
+                    Some(cached_entry.result)
+                } else {
+                    None
+                },
+                time_ms: cached_entry.time_ms,
+            };
         }
 
         let result = execute_and_format(ctx, &script, args);

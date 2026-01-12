@@ -50,33 +50,32 @@ impl ResourceManager {
     #[must_use]
     pub fn check_limits(&self, stats: &Statistics) -> LimitStatus {
         // Check time limit
-        if let Some(time_limit) = self.limits.time_limit {
-            if let Some(start) = self.start_time {
-                if start.elapsed() > time_limit {
-                    return LimitStatus::TimeExceeded;
-                }
-            }
+        if let Some(time_limit) = self.limits.time_limit
+            && let Some(start) = self.start_time
+            && start.elapsed() > time_limit
+        {
+            return LimitStatus::TimeExceeded;
         }
 
         // Check decision limit
-        if let Some(decision_limit) = self.limits.decision_limit {
-            if stats.decisions >= decision_limit {
-                return LimitStatus::DecisionExceeded;
-            }
+        if let Some(decision_limit) = self.limits.decision_limit
+            && stats.decisions >= decision_limit
+        {
+            return LimitStatus::DecisionExceeded;
         }
 
         // Check conflict limit
-        if let Some(conflict_limit) = self.limits.conflict_limit {
-            if stats.conflicts >= conflict_limit {
-                return LimitStatus::ConflictExceeded;
-            }
+        if let Some(conflict_limit) = self.limits.conflict_limit
+            && stats.conflicts >= conflict_limit
+        {
+            return LimitStatus::ConflictExceeded;
         }
 
         // Check memory limit
-        if let Some(memory_limit) = self.limits.memory_limit {
-            if stats.memory_used >= memory_limit {
-                return LimitStatus::MemoryExceeded;
-            }
+        if let Some(memory_limit) = self.limits.memory_limit
+            && stats.memory_used >= memory_limit
+        {
+            return LimitStatus::MemoryExceeded;
         }
 
         LimitStatus::Ok

@@ -161,19 +161,19 @@ impl Inprocessor {
 
             // Find candidate clauses that might be subsumed by clause_c
             // by looking at clauses that contain the first literal of C
-            if let Some(&first_lit) = clause_c.literals().first() {
-                if let Some(candidates) = self.literal_watch.get(&first_lit) {
-                    for &candidate_id in candidates {
-                        if candidate_id == clause_c.id() {
-                            continue; // Skip self
-                        }
+            if let Some(&first_lit) = clause_c.literals().first()
+                && let Some(candidates) = self.literal_watch.get(&first_lit)
+            {
+                for &candidate_id in candidates {
+                    if candidate_id == clause_c.id() {
+                        continue; // Skip self
+                    }
 
-                        if let Some(clause_d) = clauses.iter().find(|c| c.id() == candidate_id) {
-                            if Self::subsumes(clause_c.literals(), clause_d.literals()) {
-                                subsumptions.push((clause_d.id(), clause_c.id()));
-                                self.stats.subsumed_clauses += 1;
-                            }
-                        }
+                    if let Some(clause_d) = clauses.iter().find(|c| c.id() == candidate_id)
+                        && Self::subsumes(clause_c.literals(), clause_d.literals())
+                    {
+                        subsumptions.push((clause_d.id(), clause_c.id()));
+                        self.stats.subsumed_clauses += 1;
                     }
                 }
             }
@@ -231,7 +231,7 @@ impl Inprocessor {
         self.stats.inprocess_calls += 1;
 
         // Check if we should run inprocessing
-        conflicts % self.config.inprocess_interval == 0
+        conflicts.is_multiple_of(self.config.inprocess_interval)
     }
 }
 

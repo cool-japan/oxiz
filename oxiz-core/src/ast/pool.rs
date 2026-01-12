@@ -127,12 +127,12 @@ impl TermPool {
     /// Returns a global index that can be used to retrieve the term later.
     pub fn alloc(&mut self, term: Term) -> usize {
         // Try to allocate in the last chunk first (hot path)
-        if let Some(last_chunk) = self.chunks.last_mut() {
-            if let Some(_idx) = last_chunk.try_alloc(term.clone()) {
-                let global_idx = self.total_terms;
-                self.total_terms += 1;
-                return global_idx;
-            }
+        if let Some(last_chunk) = self.chunks.last_mut()
+            && let Some(_idx) = last_chunk.try_alloc(term.clone())
+        {
+            let global_idx = self.total_terms;
+            self.total_terms += 1;
+            return global_idx;
         }
 
         // Last chunk is full, allocate a new chunk

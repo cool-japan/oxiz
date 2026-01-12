@@ -63,7 +63,7 @@ impl DynamicLbdManager {
     /// Check if it's time to update LBDs
     #[must_use]
     pub fn should_update(&self) -> bool {
-        self.conflicts % self.update_interval == 0
+        self.conflicts.is_multiple_of(self.update_interval)
     }
 
     /// Compute LBD for a clause given variable decision levels
@@ -109,24 +109,24 @@ impl DynamicLbdManager {
         let new_lbd = self.compute_lbd(&lits, level);
 
         // Update if improved
-        if new_lbd < old_lbd {
-            if let Some(clause) = clauses.get_mut(clause_id) {
-                clause.lbd = new_lbd;
+        if new_lbd < old_lbd
+            && let Some(clause) = clauses.get_mut(clause_id)
+        {
+            clause.lbd = new_lbd;
 
-                // Promote to Core tier if LBD is very low (glue clause)
-                if new_lbd <= 2 && clause.tier != ClauseTier::Core {
-                    clause.promote_to_core();
-                    self.stats.tier_promotions += 1;
-                }
-                // Promote from Local to Mid if LBD improved significantly
-                else if new_lbd < old_lbd && clause.tier == ClauseTier::Local {
-                    clause.tier = ClauseTier::Mid;
-                    self.stats.tier_promotions += 1;
-                }
-
-                self.stats.lbd_improved += 1;
-                return true;
+            // Promote to Core tier if LBD is very low (glue clause)
+            if new_lbd <= 2 && clause.tier != ClauseTier::Core {
+                clause.promote_to_core();
+                self.stats.tier_promotions += 1;
             }
+            // Promote from Local to Mid if LBD improved significantly
+            else if new_lbd < old_lbd && clause.tier == ClauseTier::Local {
+                clause.tier = ClauseTier::Mid;
+                self.stats.tier_promotions += 1;
+            }
+
+            self.stats.lbd_improved += 1;
+            return true;
         }
 
         false

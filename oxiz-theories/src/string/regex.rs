@@ -259,10 +259,10 @@ impl Regex {
         if min == 0 && max == Some(0) {
             return Self::epsilon();
         }
-        if let Some(m) = max {
-            if m < min {
-                return Self::none();
-            }
+        if let Some(m) = max
+            && m < min
+        {
+            return Self::none();
         }
         if matches!(r.op, RegexOp::None) && min > 0 {
             return Self::none();

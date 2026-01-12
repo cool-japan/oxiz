@@ -291,14 +291,14 @@ impl QeLiteSolver {
             // φ ∧ (x = t) or (x = t) ∧ φ
             TermKind::And(args) => {
                 for arg in args.iter() {
-                    if let Some(t) = manager.get(*arg) {
-                        if let TermKind::Eq(a, b) = &t.kind {
-                            if *a == var && !self.contains_var(*b, var, manager) {
-                                return Some(*b);
-                            }
-                            if *b == var && !self.contains_var(*a, var, manager) {
-                                return Some(*a);
-                            }
+                    if let Some(t) = manager.get(*arg)
+                        && let TermKind::Eq(a, b) = &t.kind
+                    {
+                        if *a == var && !self.contains_var(*b, var, manager) {
+                            return Some(*b);
+                        }
+                        if *b == var && !self.contains_var(*a, var, manager) {
+                            return Some(*a);
                         }
                     }
                 }
@@ -318,16 +318,15 @@ impl QeLiteSolver {
         let t = manager.get(body)?;
 
         // For ∀x. (x = t → φ), we can substitute t for x in φ
-        if let TermKind::Implies(antecedent, _consequent) = &t.kind {
-            if let Some(ant_t) = manager.get(*antecedent) {
-                if let TermKind::Eq(a, b) = &ant_t.kind {
-                    if *a == var && !self.contains_var(*b, var, manager) {
-                        return Some(*b);
-                    }
-                    if *b == var && !self.contains_var(*a, var, manager) {
-                        return Some(*a);
-                    }
-                }
+        if let TermKind::Implies(antecedent, _consequent) = &t.kind
+            && let Some(ant_t) = manager.get(*antecedent)
+            && let TermKind::Eq(a, b) = &ant_t.kind
+        {
+            if *a == var && !self.contains_var(*b, var, manager) {
+                return Some(*b);
+            }
+            if *b == var && !self.contains_var(*a, var, manager) {
+                return Some(*a);
             }
         }
 

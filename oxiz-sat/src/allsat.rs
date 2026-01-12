@@ -228,10 +228,10 @@ impl AllSatEnumerator {
 
         loop {
             // Check if we've reached the limit
-            if let Some(max) = self.config.max_models {
-                if self.models.len() >= max {
-                    return EnumerationResult::Complete(self.models.clone());
-                }
+            if let Some(max) = self.config.max_models
+                && self.models.len() >= max
+            {
+                return EnumerationResult::Complete(self.models.clone());
             }
 
             // Solve
@@ -298,10 +298,10 @@ impl AllSatEnumerator {
             }
 
             // Check if we should include this variable
-            if let Some(ref project_vars) = self.config.project_vars {
-                if !project_vars.contains(&var) {
-                    continue;
-                }
+            if let Some(ref project_vars) = self.config.project_vars
+                && !project_vars.contains(&var)
+            {
+                continue;
             }
 
             // Add literal to model

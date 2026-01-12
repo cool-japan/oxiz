@@ -185,11 +185,11 @@ fn collect_topological(
     }
     visited.insert(node_id);
 
-    if let Some(node) = proof.get_node(node_id) {
-        if let ProofStep::Inference { premises, .. } = &node.step {
-            for &premise in premises {
-                collect_topological(proof, premise, order, visited);
-            }
+    if let Some(node) = proof.get_node(node_id)
+        && let ProofStep::Inference { premises, .. } = &node.step
+    {
+        for &premise in premises {
+            collect_topological(proof, premise, order, visited);
         }
     }
 

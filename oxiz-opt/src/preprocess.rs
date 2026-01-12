@@ -467,13 +467,12 @@ impl Preprocessor {
                             break;
                         } else if unassigned_count == 1 {
                             // Unit clause - propagate
-                            if let Some(new_unit) = unassigned_lit {
-                                if let std::collections::hash_map::Entry::Vacant(e) =
+                            if let Some(new_unit) = unassigned_lit
+                                && let std::collections::hash_map::Entry::Vacant(e) =
                                     assignment.entry(new_unit.var())
-                                {
-                                    e.insert(!new_unit.sign());
-                                    unit_queue.push(new_unit);
-                                }
+                            {
+                                e.insert(!new_unit.sign());
+                                unit_queue.push(new_unit);
                             }
                         }
                     }

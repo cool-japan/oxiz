@@ -1,0 +1,50 @@
+[package]
+name = "oxiz"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Next-Generation SMT Solver in Pure Rust"
+keywords = ["smt", "solver", "sat", "verification", "logic"]
+categories = ["algorithms", "science", "mathematics"]
+
+[lints]
+workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+# Core modules - always included
+oxiz-core = { workspace = true }
+oxiz-math = { workspace = true }
+
+# Solver modules - optional
+oxiz-sat = { workspace = true, optional = true }
+oxiz-theories = { workspace = true, optional = true }
+oxiz-solver = { workspace = true, optional = true }
+oxiz-nlsat = { workspace = true, optional = true }
+oxiz-opt = { workspace = true, optional = true }
+oxiz-spacer = { workspace = true, optional = true }
+oxiz-proof = { workspace = true, optional = true }
+
+[dev-dependencies]
+num-bigint = { workspace = true }
+
+[features]
+default = ["solver"]
+
+# Core solver functionality
+solver = ["dep:oxiz-sat", "dep:oxiz-theories", "dep:oxiz-solver"]
+
+# Advanced features
+nlsat = ["dep:oxiz-nlsat", "solver"]
+optimization = ["dep:oxiz-opt", "solver"]
+spacer = ["dep:oxiz-spacer", "solver"]
+proof = ["dep:oxiz-proof", "solver"]
+
+# Convenience groupings
+standard = ["solver", "nlsat", "optimization", "proof"]
+full = ["standard", "spacer"]

@@ -422,10 +422,10 @@ impl Polynomial {
     /// Make all leading coefficients positive
     #[allow(dead_code)]
     pub fn make_monic(&self) -> Polynomial {
-        if let Some(lc) = self.leading_coeff() {
-            if lc.is_negative() {
-                return self.neg();
-            }
+        if let Some(lc) = self.leading_coeff()
+            && lc.is_negative()
+        {
+            return self.neg();
         }
         self.clone()
     }

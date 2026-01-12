@@ -130,11 +130,11 @@ impl DatatypeRewriter {
                 constructor, args, ..
             } => {
                 // Check if this selector corresponds to a field of this constructor
-                if let Some(index) = self.find_selector_index(*constructor, selector) {
-                    if index < args.len() {
-                        ctx.stats_mut().record_rule("dt_selector_constructor");
-                        return RewriteResult::Rewritten(args[index]);
-                    }
+                if let Some(index) = self.find_selector_index(*constructor, selector)
+                    && index < args.len()
+                {
+                    ctx.stats_mut().record_rule("dt_selector_constructor");
+                    return RewriteResult::Rewritten(args[index]);
                 }
                 RewriteResult::Unchanged(manager.mk_dt_selector(&sel_str, arg, result_sort))
             }

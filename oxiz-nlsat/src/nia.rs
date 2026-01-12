@@ -370,10 +370,10 @@ impl NiaSolver {
                 continue; // Skip real variables
             }
 
-            if let Some(value) = model.arith_value(var) {
-                if !self.is_near_integer(value) {
-                    return false;
-                }
+            if let Some(value) = model.arith_value(var)
+                && !self.is_near_integer(value)
+            {
+                return false;
             }
         }
         true

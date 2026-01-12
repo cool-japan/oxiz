@@ -47,89 +47,89 @@ impl OxizBackend {
             let trimmed = line.trim();
 
             // Match declare-const: (declare-const <name> <sort>)
-            if trimmed.starts_with("(declare-const ") {
-                if let Some(name_start) = trimmed.find("declare-const ") {
-                    let after_keyword = &trimmed[name_start + 14..];
-                    if let Some(name_end) = after_keyword.find(char::is_whitespace) {
-                        let name = after_keyword[..name_end].trim().to_string();
-                        let start_col = line.find(&name).unwrap_or(0) as u32;
+            if trimmed.starts_with("(declare-const ")
+                && let Some(name_start) = trimmed.find("declare-const ")
+            {
+                let after_keyword = &trimmed[name_start + 14..];
+                if let Some(name_end) = after_keyword.find(char::is_whitespace) {
+                    let name = after_keyword[..name_end].trim().to_string();
+                    let start_col = line.find(&name).unwrap_or(0) as u32;
 
-                        symbols.insert(
-                            name.clone(),
-                            SymbolInfo {
-                                name,
-                                kind: SymbolKind::CONSTANT,
-                                range: Range {
-                                    start: Position {
-                                        line: line_num as u32,
-                                        character: start_col,
-                                    },
-                                    end: Position {
-                                        line: line_num as u32,
-                                        character: start_col + name_end as u32,
-                                    },
+                    symbols.insert(
+                        name.clone(),
+                        SymbolInfo {
+                            name,
+                            kind: SymbolKind::CONSTANT,
+                            range: Range {
+                                start: Position {
+                                    line: line_num as u32,
+                                    character: start_col,
+                                },
+                                end: Position {
+                                    line: line_num as u32,
+                                    character: start_col + name_end as u32,
                                 },
                             },
-                        );
-                    }
+                        },
+                    );
                 }
             }
 
             // Match declare-fun: (declare-fun <name> (<args>) <return>)
-            if trimmed.starts_with("(declare-fun ") {
-                if let Some(name_start) = trimmed.find("declare-fun ") {
-                    let after_keyword = &trimmed[name_start + 12..];
-                    if let Some(name_end) = after_keyword.find(char::is_whitespace) {
-                        let name = after_keyword[..name_end].trim().to_string();
-                        let start_col = line.find(&name).unwrap_or(0) as u32;
+            if trimmed.starts_with("(declare-fun ")
+                && let Some(name_start) = trimmed.find("declare-fun ")
+            {
+                let after_keyword = &trimmed[name_start + 12..];
+                if let Some(name_end) = after_keyword.find(char::is_whitespace) {
+                    let name = after_keyword[..name_end].trim().to_string();
+                    let start_col = line.find(&name).unwrap_or(0) as u32;
 
-                        symbols.insert(
-                            name.clone(),
-                            SymbolInfo {
-                                name,
-                                kind: SymbolKind::FUNCTION,
-                                range: Range {
-                                    start: Position {
-                                        line: line_num as u32,
-                                        character: start_col,
-                                    },
-                                    end: Position {
-                                        line: line_num as u32,
-                                        character: start_col + name_end as u32,
-                                    },
+                    symbols.insert(
+                        name.clone(),
+                        SymbolInfo {
+                            name,
+                            kind: SymbolKind::FUNCTION,
+                            range: Range {
+                                start: Position {
+                                    line: line_num as u32,
+                                    character: start_col,
+                                },
+                                end: Position {
+                                    line: line_num as u32,
+                                    character: start_col + name_end as u32,
                                 },
                             },
-                        );
-                    }
+                        },
+                    );
                 }
             }
 
             // Match define-fun: (define-fun <name> ...)
-            if trimmed.starts_with("(define-fun ") {
-                if let Some(name_start) = trimmed.find("define-fun ") {
-                    let after_keyword = &trimmed[name_start + 11..];
-                    if let Some(name_end) = after_keyword.find(char::is_whitespace) {
-                        let name = after_keyword[..name_end].trim().to_string();
-                        let start_col = line.find(&name).unwrap_or(0) as u32;
+            if trimmed.starts_with("(define-fun ")
+                && let Some(name_start) = trimmed.find("define-fun ")
+            {
+                let after_keyword = &trimmed[name_start + 11..];
+                if let Some(name_end) = after_keyword.find(char::is_whitespace) {
+                    let name = after_keyword[..name_end].trim().to_string();
+                    let start_col = line.find(&name).unwrap_or(0) as u32;
 
-                        symbols.insert(
-                            name.clone(),
-                            SymbolInfo {
-                                name,
-                                kind: SymbolKind::FUNCTION,
-                                range: Range {
-                                    start: Position {
-                                        line: line_num as u32,
-                                        character: start_col,
-                                    },
-                                    end: Position {
-                                        line: line_num as u32,
-                                        character: start_col + name_end as u32,
-                                    },
+                    symbols.insert(
+                        name.clone(),
+                        SymbolInfo {
+                            name,
+                            kind: SymbolKind::FUNCTION,
+                            range: Range {
+                                start: Position {
+                                    line: line_num as u32,
+                                    character: start_col,
+                                },
+                                end: Position {
+                                    line: line_num as u32,
+                                    character: start_col + name_end as u32,
                                 },
                             },
-                        );
-                    }
+                        },
+                    );
                 }
             }
         }

@@ -125,14 +125,13 @@ impl ArrayRewriter {
 
             // store(a, i, select(a, i)) → a  (storing same value from array)
             _ => {
-                if let Some(val_term) = manager.get(value) {
-                    if let TermKind::Select(sel_array, sel_idx) = &val_term.kind {
-                        if self.terms_equal(*sel_array, array) && self.terms_equal(*sel_idx, index)
-                        {
-                            ctx.stats_mut().record_rule("array_store_select_same");
-                            return RewriteResult::Rewritten(array);
-                        }
-                    }
+                if let Some(val_term) = manager.get(value)
+                    && let TermKind::Select(sel_array, sel_idx) = &val_term.kind
+                    && self.terms_equal(*sel_array, array)
+                    && self.terms_equal(*sel_idx, index)
+                {
+                    ctx.stats_mut().record_rule("array_store_select_same");
+                    return RewriteResult::Rewritten(array);
                 }
                 RewriteResult::Unchanged(manager.mk_store(array, index, value))
             }

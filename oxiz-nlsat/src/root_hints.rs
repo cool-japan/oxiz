@@ -190,10 +190,11 @@ impl RootHintsCache {
         let poly_hints = PolynomialRootHints::new(hash, variable, limited_hints);
 
         // Check if we need to evict
-        if self.cache.len() >= self.config.max_polynomials && !self.cache.contains_key(&hash) {
-            if let Some(old_hash) = self.lru.pop_back() {
-                self.cache.remove(&old_hash);
-            }
+        if self.cache.len() >= self.config.max_polynomials
+            && !self.cache.contains_key(&hash)
+            && let Some(old_hash) = self.lru.pop_back()
+        {
+            self.cache.remove(&old_hash);
         }
 
         self.cache.insert(hash, poly_hints);
@@ -237,14 +238,14 @@ impl RootHintsCache {
 
         let hash = Self::hash_polynomial(poly, variable);
 
-        if let Some(hints) = self.cache.get_mut(&hash) {
-            if let Some(hint) = hints.hints.get_mut(root_index) {
-                hint.lower = new_lower;
-                hint.upper = new_upper;
-                hint.refinement_level += 1;
-                self.stats.num_refinements += 1;
-                return true;
-            }
+        if let Some(hints) = self.cache.get_mut(&hash)
+            && let Some(hint) = hints.hints.get_mut(root_index)
+        {
+            hint.lower = new_lower;
+            hint.upper = new_upper;
+            hint.refinement_level += 1;
+            self.stats.num_refinements += 1;
+            return true;
         }
 
         false

@@ -102,10 +102,10 @@ impl StringExpr {
 
     /// Check if this is a single variable
     pub fn as_var(&self) -> Option<u32> {
-        if self.atoms.len() == 1 {
-            if let StringAtom::Var(id) = &self.atoms[0] {
-                return Some(*id);
-            }
+        if self.atoms.len() == 1
+            && let StringAtom::Var(id) = &self.atoms[0]
+        {
+            return Some(*id);
         }
         None
     }
@@ -301,11 +301,11 @@ impl StringSolver {
     /// Add a string disequality
     pub fn add_disequality(&mut self, lhs: StringExpr, rhs: StringExpr, origin: TermId) {
         // Check for immediate conflict if both are the same constant
-        if let (Some(l), Some(r)) = (lhs.as_const(), rhs.as_const()) {
-            if l == r {
-                self.current_conflict = Some(vec![origin]);
-                return;
-            }
+        if let (Some(l), Some(r)) = (lhs.as_const(), rhs.as_const())
+            && l == r
+        {
+            self.current_conflict = Some(vec![origin]);
+            return;
         }
         self.diseqs.push((lhs, rhs, origin));
     }
@@ -347,33 +347,33 @@ impl StringSolver {
     /// Add prefix constraint: str.prefixof(prefix, s)
     pub fn add_prefix(&mut self, prefix: StringExpr, s: StringExpr, origin: TermId) {
         // Check for immediate conflict
-        if let (Some(p), Some(s_str)) = (prefix.as_const(), s.as_const()) {
-            if !s_str.starts_with(p) {
-                self.current_conflict = Some(vec![origin]);
-                return;
-            }
+        if let (Some(p), Some(s_str)) = (prefix.as_const(), s.as_const())
+            && !s_str.starts_with(p)
+        {
+            self.current_conflict = Some(vec![origin]);
+            return;
         }
         self.prefixes.push((prefix, s, origin));
     }
 
     /// Add suffix constraint: str.suffixof(suffix, s)
     pub fn add_suffix(&mut self, suffix: StringExpr, s: StringExpr, origin: TermId) {
-        if let (Some(suf), Some(s_str)) = (suffix.as_const(), s.as_const()) {
-            if !s_str.ends_with(suf) {
-                self.current_conflict = Some(vec![origin]);
-                return;
-            }
+        if let (Some(suf), Some(s_str)) = (suffix.as_const(), s.as_const())
+            && !s_str.ends_with(suf)
+        {
+            self.current_conflict = Some(vec![origin]);
+            return;
         }
         self.suffixes.push((suffix, s, origin));
     }
 
     /// Add contains constraint: str.contains(s, substr)
     pub fn add_contains(&mut self, s: StringExpr, substr: StringExpr, origin: TermId) {
-        if let (Some(s_str), Some(sub)) = (s.as_const(), substr.as_const()) {
-            if !s_str.contains(sub) {
-                self.current_conflict = Some(vec![origin]);
-                return;
-            }
+        if let (Some(s_str), Some(sub)) = (s.as_const(), substr.as_const())
+            && !s_str.contains(sub)
+        {
+            self.current_conflict = Some(vec![origin]);
+            return;
         }
         self.contains.push((s, substr, origin));
     }
@@ -576,10 +576,10 @@ impl StringSolver {
     /// Check disequality constraints
     fn check_diseqs(&self) -> Option<Vec<TermId>> {
         for (lhs, rhs, origin) in &self.diseqs {
-            if let (Some(l), Some(r)) = (self.eval_expr(lhs), self.eval_expr(rhs)) {
-                if l == r {
-                    return Some(vec![*origin]);
-                }
+            if let (Some(l), Some(r)) = (self.eval_expr(lhs), self.eval_expr(rhs))
+                && l == r
+            {
+                return Some(vec![*origin]);
             }
         }
         None
@@ -640,21 +640,21 @@ impl StringSolver {
         for lc in &self.lengths {
             if let Some(value) = self.assignments.get(&lc.var) {
                 let len = value.len() as i64;
-                if let Some(eq) = lc.equal {
-                    if len != eq {
-                        // Find origin term - would need to track this
-                        continue;
-                    }
+                if let Some(eq) = lc.equal
+                    && len != eq
+                {
+                    // Find origin term - would need to track this
+                    continue;
                 }
-                if let Some(lo) = lc.lower {
-                    if len < lo {
-                        continue;
-                    }
+                if let Some(lo) = lc.lower
+                    && len < lo
+                {
+                    continue;
                 }
-                if let Some(hi) = lc.upper {
-                    if len > hi {
-                        continue;
-                    }
+                if let Some(hi) = lc.upper
+                    && len > hi
+                {
+                    continue;
                 }
             }
         }
@@ -664,10 +664,10 @@ impl StringSolver {
     /// Check prefix constraints
     fn check_prefixes(&self) -> Option<Vec<TermId>> {
         for (prefix, s, origin) in &self.prefixes {
-            if let (Some(p), Some(s_val)) = (self.eval_expr(prefix), self.eval_expr(s)) {
-                if !s_val.starts_with(&p) {
-                    return Some(vec![*origin]);
-                }
+            if let (Some(p), Some(s_val)) = (self.eval_expr(prefix), self.eval_expr(s))
+                && !s_val.starts_with(&p)
+            {
+                return Some(vec![*origin]);
             }
         }
         None
@@ -676,10 +676,10 @@ impl StringSolver {
     /// Check suffix constraints
     fn check_suffixes(&self) -> Option<Vec<TermId>> {
         for (suffix, s, origin) in &self.suffixes {
-            if let (Some(suf), Some(s_val)) = (self.eval_expr(suffix), self.eval_expr(s)) {
-                if !s_val.ends_with(&suf) {
-                    return Some(vec![*origin]);
-                }
+            if let (Some(suf), Some(s_val)) = (self.eval_expr(suffix), self.eval_expr(s))
+                && !s_val.ends_with(&suf)
+            {
+                return Some(vec![*origin]);
             }
         }
         None
@@ -688,10 +688,10 @@ impl StringSolver {
     /// Check contains constraints
     fn check_contains(&self) -> Option<Vec<TermId>> {
         for (s, substr, origin) in &self.contains {
-            if let (Some(s_val), Some(sub)) = (self.eval_expr(s), self.eval_expr(substr)) {
-                if !s_val.contains(&sub) {
-                    return Some(vec![*origin]);
-                }
+            if let (Some(s_val), Some(sub)) = (self.eval_expr(s), self.eval_expr(substr))
+                && !s_val.contains(&sub)
+            {
+                return Some(vec![*origin]);
             }
         }
         None

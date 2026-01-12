@@ -546,10 +546,10 @@ impl EMatchEngine {
                 // Function application pattern
                 if let Some(apps) = self.apps.get(func) {
                     for (_app_term, app_args) in apps {
-                        if app_args.len() == args.len() {
-                            if let Some(subst) = self.match_args(args, app_args, current_subst) {
-                                results.push(subst);
-                            }
+                        if app_args.len() == args.len()
+                            && let Some(subst) = self.match_args(args, app_args, current_subst)
+                        {
+                            results.push(subst);
                         }
                     }
                 }
@@ -585,12 +585,13 @@ impl EMatchEngine {
                     if let Some(apps) = self.apps.get(func) {
                         let mut matched = false;
                         for (app_term, app_args) in apps {
-                            if *app_term == ground_term && app_args.len() == args.len() {
-                                if let Some(new_subst) = self.match_args(args, app_args, &subst) {
-                                    subst = new_subst;
-                                    matched = true;
-                                    break;
-                                }
+                            if *app_term == ground_term
+                                && app_args.len() == args.len()
+                                && let Some(new_subst) = self.match_args(args, app_args, &subst)
+                            {
+                                subst = new_subst;
+                                matched = true;
+                                break;
                             }
                         }
                         if !matched {

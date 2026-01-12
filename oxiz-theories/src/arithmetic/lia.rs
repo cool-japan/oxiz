@@ -397,13 +397,13 @@ impl LiaSolver {
             }
 
             // Check for cycling (same rounded solution as before)
-            if let Some(ref prev) = prev_rounded {
-                if *prev == rounded {
-                    // Cycle detected - perturb the solution slightly
-                    // In a more sophisticated implementation, we would add random perturbations
-                    // For now, just bail out
-                    return Ok(None);
-                }
+            if let Some(ref prev) = prev_rounded
+                && *prev == rounded
+            {
+                // Cycle detected - perturb the solution slightly
+                // In a more sophisticated implementation, we would add random perturbations
+                // For now, just bail out
+                return Ok(None);
             }
 
             // Step 2: Project back to LP feasible region by solving:
@@ -421,10 +421,10 @@ impl LiaSolver {
                 let target_rational = Rational64::from_integer(target);
                 // Don't override bounds, but bias toward target if possible
                 // (This is a simplified version - full implementation needs objective function)
-                if let Some(ub) = self.simplex.get_upper(var) {
-                    if target_rational <= ub.value.real {
-                        // Target is within upper bound, good
-                    }
+                if let Some(ub) = self.simplex.get_upper(var)
+                    && target_rational <= ub.value.real
+                {
+                    // Target is within upper bound, good
                 }
             }
 
@@ -1355,7 +1355,7 @@ impl LiaSolver {
         }
 
         // Decay old conflict scores to prioritize recent conflicts
-        if self.num_conflicts % 100 == 0 {
+        if self.num_conflicts.is_multiple_of(100) {
             self.decay_conflict_scores();
         }
     }

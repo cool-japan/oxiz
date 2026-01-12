@@ -195,19 +195,19 @@ impl<'a> Lia2CardTactic<'a> {
         match data {
             CardExtractData::Le(lhs, rhs) => {
                 // x <= 1 pattern
-                if let (Some(var), Some(val)) = (self.get_var_name(lhs), self.get_int_const(rhs)) {
-                    if val == BigInt::one() {
-                        self.zero_one_vars.insert(var);
-                    }
+                if let (Some(var), Some(val)) = (self.get_var_name(lhs), self.get_int_const(rhs))
+                    && val == BigInt::one()
+                {
+                    self.zero_one_vars.insert(var);
                 }
             }
             CardExtractData::Ge(lhs, rhs) => {
                 // x >= 0 or 0 <= x pattern
-                if let (Some(var), Some(val)) = (self.get_var_name(lhs), self.get_int_const(rhs)) {
-                    if val.is_zero() {
-                        // Mark as potentially 0-1 (need <= 1 as well)
-                        self.zero_one_vars.insert(var);
-                    }
+                if let (Some(var), Some(val)) = (self.get_var_name(lhs), self.get_int_const(rhs))
+                    && val.is_zero()
+                {
+                    // Mark as potentially 0-1 (need <= 1 as well)
+                    self.zero_one_vars.insert(var);
                 }
             }
             CardExtractData::And(args) => {
@@ -264,53 +264,53 @@ impl<'a> Lia2CardTactic<'a> {
         match data {
             CardExtractData::Le(lhs, rhs) => {
                 // sum <= k → AtMost(k, vars)
-                if let (Some(vars), Some(k)) = (self.extract_sum(lhs), self.get_int_const(rhs)) {
-                    if vars.iter().all(|&v| self.is_zero_one_var(v)) {
-                        return Some(CardinalityConstraint::AtMost {
-                            k: k.to_usize().unwrap_or(usize::MAX),
-                            vars,
-                        });
-                    }
+                if let (Some(vars), Some(k)) = (self.extract_sum(lhs), self.get_int_const(rhs))
+                    && vars.iter().all(|&v| self.is_zero_one_var(v))
+                {
+                    return Some(CardinalityConstraint::AtMost {
+                        k: k.to_usize().unwrap_or(usize::MAX),
+                        vars,
+                    });
                 }
             }
             CardExtractData::Ge(lhs, rhs) => {
                 // sum >= k → AtLeast(k, vars)
-                if let (Some(vars), Some(k)) = (self.extract_sum(lhs), self.get_int_const(rhs)) {
-                    if vars.iter().all(|&v| self.is_zero_one_var(v)) {
-                        return Some(CardinalityConstraint::AtLeast {
-                            k: k.to_usize().unwrap_or(0),
-                            vars,
-                        });
-                    }
+                if let (Some(vars), Some(k)) = (self.extract_sum(lhs), self.get_int_const(rhs))
+                    && vars.iter().all(|&v| self.is_zero_one_var(v))
+                {
+                    return Some(CardinalityConstraint::AtLeast {
+                        k: k.to_usize().unwrap_or(0),
+                        vars,
+                    });
                 }
             }
             CardExtractData::Lt(lhs, rhs) => {
                 // sum < k → AtMost(k-1, vars)
-                if let (Some(vars), Some(k)) = (self.extract_sum(lhs), self.get_int_const(rhs)) {
-                    if vars.iter().all(|&v| self.is_zero_one_var(v)) {
-                        let k_minus_1 = (k - BigInt::one()).to_usize().unwrap_or(0);
-                        return Some(CardinalityConstraint::AtMost { k: k_minus_1, vars });
-                    }
+                if let (Some(vars), Some(k)) = (self.extract_sum(lhs), self.get_int_const(rhs))
+                    && vars.iter().all(|&v| self.is_zero_one_var(v))
+                {
+                    let k_minus_1 = (k - BigInt::one()).to_usize().unwrap_or(0);
+                    return Some(CardinalityConstraint::AtMost { k: k_minus_1, vars });
                 }
             }
             CardExtractData::Gt(lhs, rhs) => {
                 // sum > k → AtLeast(k+1, vars)
-                if let (Some(vars), Some(k)) = (self.extract_sum(lhs), self.get_int_const(rhs)) {
-                    if vars.iter().all(|&v| self.is_zero_one_var(v)) {
-                        let k_plus_1 = (k + BigInt::one()).to_usize().unwrap_or(usize::MAX);
-                        return Some(CardinalityConstraint::AtLeast { k: k_plus_1, vars });
-                    }
+                if let (Some(vars), Some(k)) = (self.extract_sum(lhs), self.get_int_const(rhs))
+                    && vars.iter().all(|&v| self.is_zero_one_var(v))
+                {
+                    let k_plus_1 = (k + BigInt::one()).to_usize().unwrap_or(usize::MAX);
+                    return Some(CardinalityConstraint::AtLeast { k: k_plus_1, vars });
                 }
             }
             CardExtractData::Eq(lhs, rhs) => {
                 // sum = k → Exactly(k, vars)
-                if let (Some(vars), Some(k)) = (self.extract_sum(lhs), self.get_int_const(rhs)) {
-                    if vars.iter().all(|&v| self.is_zero_one_var(v)) {
-                        return Some(CardinalityConstraint::Exactly {
-                            k: k.to_usize().unwrap_or(0),
-                            vars,
-                        });
-                    }
+                if let (Some(vars), Some(k)) = (self.extract_sum(lhs), self.get_int_const(rhs))
+                    && vars.iter().all(|&v| self.is_zero_one_var(v))
+                {
+                    return Some(CardinalityConstraint::Exactly {
+                        k: k.to_usize().unwrap_or(0),
+                        vars,
+                    });
                 }
             }
             _ => {}

@@ -169,27 +169,26 @@ impl RegexRewriter {
         }
 
         // Check if string is empty and regex is epsilon
-        if self.is_epsilon(re) {
-            if let Some(t) = manager.get(s) {
-                if let TermKind::StringLit(str_val) = &t.kind {
-                    if str_val.is_empty() {
-                        ctx.stats_mut().record_rule("regex_empty_in_epsilon");
-                        return RewriteResult::Rewritten(manager.mk_true());
-                    } else {
-                        ctx.stats_mut().record_rule("regex_nonempty_in_epsilon");
-                        return RewriteResult::Rewritten(manager.mk_false());
-                    }
-                }
+        if self.is_epsilon(re)
+            && let Some(t) = manager.get(s)
+            && let TermKind::StringLit(str_val) = &t.kind
+        {
+            if str_val.is_empty() {
+                ctx.stats_mut().record_rule("regex_empty_in_epsilon");
+                return RewriteResult::Rewritten(manager.mk_true());
+            } else {
+                ctx.stats_mut().record_rule("regex_nonempty_in_epsilon");
+                return RewriteResult::Rewritten(manager.mk_false());
             }
         }
 
         // Check if string is a constant - might be able to evaluate
-        if let Some(t) = manager.get(s) {
-            if let TermKind::StringLit(str_val) = &t.kind {
-                // For constant strings, we could potentially evaluate the regex match
-                // But this requires a regex engine - we'll leave it for now
-                let _ = str_val; // Silence unused warning
-            }
+        if let Some(t) = manager.get(s)
+            && let TermKind::StringLit(str_val) = &t.kind
+        {
+            // For constant strings, we could potentially evaluate the regex match
+            // But this requires a regex engine - we'll leave it for now
+            let _ = str_val; // Silence unused warning
         }
 
         RewriteResult::Unchanged(term)
@@ -206,56 +205,56 @@ impl RegexRewriter {
         let term = manager.mk_eq(lhs, rhs);
 
         // Check for str.in_re(s, re) = true/false patterns
-        if let Some(t_lhs) = manager.get(lhs) {
-            if let TermKind::StrInRe(_s, re) = &t_lhs.kind {
-                // str.in_re(s, re) = true -> str.in_re(s, re)
-                if let Some(t_rhs) = manager.get(rhs) {
-                    if matches!(t_rhs.kind, TermKind::True) {
-                        ctx.stats_mut().record_rule("regex_eq_true");
-                        return RewriteResult::Rewritten(lhs);
-                    }
-                    // str.in_re(s, re) = false -> not(str.in_re(s, re))
-                    if matches!(t_rhs.kind, TermKind::False) {
-                        ctx.stats_mut().record_rule("regex_eq_false");
-                        let not_lhs = manager.mk_not(lhs);
-                        return RewriteResult::Rewritten(not_lhs);
-                    }
+        if let Some(t_lhs) = manager.get(lhs)
+            && let TermKind::StrInRe(_s, re) = &t_lhs.kind
+        {
+            // str.in_re(s, re) = true -> str.in_re(s, re)
+            if let Some(t_rhs) = manager.get(rhs) {
+                if matches!(t_rhs.kind, TermKind::True) {
+                    ctx.stats_mut().record_rule("regex_eq_true");
+                    return RewriteResult::Rewritten(lhs);
                 }
+                // str.in_re(s, re) = false -> not(str.in_re(s, re))
+                if matches!(t_rhs.kind, TermKind::False) {
+                    ctx.stats_mut().record_rule("regex_eq_false");
+                    let not_lhs = manager.mk_not(lhs);
+                    return RewriteResult::Rewritten(not_lhs);
+                }
+            }
 
-                // str.in_re(s, empty) = anything -> false = anything
-                if self.is_empty(*re) {
-                    ctx.stats_mut().record_rule("regex_eq_in_empty");
-                    let false_term = manager.mk_false();
-                    let new_eq = manager.mk_eq(false_term, rhs);
-                    return RewriteResult::Rewritten(new_eq);
-                }
+            // str.in_re(s, empty) = anything -> false = anything
+            if self.is_empty(*re) {
+                ctx.stats_mut().record_rule("regex_eq_in_empty");
+                let false_term = manager.mk_false();
+                let new_eq = manager.mk_eq(false_term, rhs);
+                return RewriteResult::Rewritten(new_eq);
             }
         }
 
         // Same check for rhs
-        if let Some(t_rhs) = manager.get(rhs) {
-            if let TermKind::StrInRe(_s, re) = &t_rhs.kind {
-                // true = str.in_re(s, re) -> str.in_re(s, re)
-                if let Some(t_lhs) = manager.get(lhs) {
-                    if matches!(t_lhs.kind, TermKind::True) {
-                        ctx.stats_mut().record_rule("regex_eq_true");
-                        return RewriteResult::Rewritten(rhs);
-                    }
-                    // false = str.in_re(s, re) -> not(str.in_re(s, re))
-                    if matches!(t_lhs.kind, TermKind::False) {
-                        ctx.stats_mut().record_rule("regex_eq_false");
-                        let not_rhs = manager.mk_not(rhs);
-                        return RewriteResult::Rewritten(not_rhs);
-                    }
+        if let Some(t_rhs) = manager.get(rhs)
+            && let TermKind::StrInRe(_s, re) = &t_rhs.kind
+        {
+            // true = str.in_re(s, re) -> str.in_re(s, re)
+            if let Some(t_lhs) = manager.get(lhs) {
+                if matches!(t_lhs.kind, TermKind::True) {
+                    ctx.stats_mut().record_rule("regex_eq_true");
+                    return RewriteResult::Rewritten(rhs);
                 }
+                // false = str.in_re(s, re) -> not(str.in_re(s, re))
+                if matches!(t_lhs.kind, TermKind::False) {
+                    ctx.stats_mut().record_rule("regex_eq_false");
+                    let not_rhs = manager.mk_not(rhs);
+                    return RewriteResult::Rewritten(not_rhs);
+                }
+            }
 
-                // anything = str.in_re(s, empty) -> anything = false
-                if self.is_empty(*re) {
-                    ctx.stats_mut().record_rule("regex_eq_in_empty");
-                    let false_term = manager.mk_false();
-                    let new_eq = manager.mk_eq(lhs, false_term);
-                    return RewriteResult::Rewritten(new_eq);
-                }
+            // anything = str.in_re(s, empty) -> anything = false
+            if self.is_empty(*re) {
+                ctx.stats_mut().record_rule("regex_eq_in_empty");
+                let false_term = manager.mk_false();
+                let new_eq = manager.mk_eq(lhs, false_term);
+                return RewriteResult::Rewritten(new_eq);
             }
         }
 
@@ -271,19 +270,19 @@ impl RegexRewriter {
     ) -> RewriteResult {
         let term = manager.mk_not(arg);
 
-        if let Some(t) = manager.get(arg) {
-            if let TermKind::StrInRe(_s, re) = &t.kind {
-                // not(str.in_re(s, empty)) -> true
-                if self.is_empty(*re) {
-                    ctx.stats_mut().record_rule("regex_not_in_empty");
-                    return RewriteResult::Rewritten(manager.mk_true());
-                }
+        if let Some(t) = manager.get(arg)
+            && let TermKind::StrInRe(_s, re) = &t.kind
+        {
+            // not(str.in_re(s, empty)) -> true
+            if self.is_empty(*re) {
+                ctx.stats_mut().record_rule("regex_not_in_empty");
+                return RewriteResult::Rewritten(manager.mk_true());
+            }
 
-                // not(str.in_re(s, full)) -> false
-                if self.is_full(*re) {
-                    ctx.stats_mut().record_rule("regex_not_in_full");
-                    return RewriteResult::Rewritten(manager.mk_false());
-                }
+            // not(str.in_re(s, full)) -> false
+            if self.is_full(*re) {
+                ctx.stats_mut().record_rule("regex_not_in_full");
+                return RewriteResult::Rewritten(manager.mk_false());
             }
         }
 
@@ -301,13 +300,12 @@ impl RegexRewriter {
         let term = manager.mk_str_contains(s, substr);
 
         // str.contains(s, "") -> true
-        if let Some(t) = manager.get(substr) {
-            if let TermKind::StringLit(sub_str) = &t.kind {
-                if sub_str.is_empty() {
-                    ctx.stats_mut().record_rule("regex_contains_empty");
-                    return RewriteResult::Rewritten(manager.mk_true());
-                }
-            }
+        if let Some(t) = manager.get(substr)
+            && let TermKind::StringLit(sub_str) = &t.kind
+            && sub_str.is_empty()
+        {
+            ctx.stats_mut().record_rule("regex_contains_empty");
+            return RewriteResult::Rewritten(manager.mk_true());
         }
 
         // str.contains(s, s) -> true
@@ -330,13 +328,12 @@ impl RegexRewriter {
         let term = manager.mk_str_prefixof(prefix, s);
 
         // str.prefixof("", s) -> true
-        if let Some(t) = manager.get(prefix) {
-            if let TermKind::StringLit(pre_str) = &t.kind {
-                if pre_str.is_empty() {
-                    ctx.stats_mut().record_rule("regex_prefix_empty");
-                    return RewriteResult::Rewritten(manager.mk_true());
-                }
-            }
+        if let Some(t) = manager.get(prefix)
+            && let TermKind::StringLit(pre_str) = &t.kind
+            && pre_str.is_empty()
+        {
+            ctx.stats_mut().record_rule("regex_prefix_empty");
+            return RewriteResult::Rewritten(manager.mk_true());
         }
 
         // str.prefixof(s, s) -> true
@@ -346,14 +343,13 @@ impl RegexRewriter {
         }
 
         // If both are constants, we can evaluate
-        if let (Some(t_pre), Some(t_s)) = (manager.get(prefix), manager.get(s)) {
-            if let (TermKind::StringLit(pre_str), TermKind::StringLit(s_str)) =
+        if let (Some(t_pre), Some(t_s)) = (manager.get(prefix), manager.get(s))
+            && let (TermKind::StringLit(pre_str), TermKind::StringLit(s_str)) =
                 (&t_pre.kind, &t_s.kind)
-            {
-                let result = s_str.starts_with(pre_str.as_str());
-                ctx.stats_mut().record_rule("regex_prefix_const");
-                return RewriteResult::Rewritten(manager.mk_bool(result));
-            }
+        {
+            let result = s_str.starts_with(pre_str.as_str());
+            ctx.stats_mut().record_rule("regex_prefix_const");
+            return RewriteResult::Rewritten(manager.mk_bool(result));
         }
 
         RewriteResult::Unchanged(term)
@@ -370,13 +366,12 @@ impl RegexRewriter {
         let term = manager.mk_str_suffixof(suffix, s);
 
         // str.suffixof("", s) -> true
-        if let Some(t) = manager.get(suffix) {
-            if let TermKind::StringLit(suf_str) = &t.kind {
-                if suf_str.is_empty() {
-                    ctx.stats_mut().record_rule("regex_suffix_empty");
-                    return RewriteResult::Rewritten(manager.mk_true());
-                }
-            }
+        if let Some(t) = manager.get(suffix)
+            && let TermKind::StringLit(suf_str) = &t.kind
+            && suf_str.is_empty()
+        {
+            ctx.stats_mut().record_rule("regex_suffix_empty");
+            return RewriteResult::Rewritten(manager.mk_true());
         }
 
         // str.suffixof(s, s) -> true
@@ -386,14 +381,13 @@ impl RegexRewriter {
         }
 
         // If both are constants, we can evaluate
-        if let (Some(t_suf), Some(t_s)) = (manager.get(suffix), manager.get(s)) {
-            if let (TermKind::StringLit(suf_str), TermKind::StringLit(s_str)) =
+        if let (Some(t_suf), Some(t_s)) = (manager.get(suffix), manager.get(s))
+            && let (TermKind::StringLit(suf_str), TermKind::StringLit(s_str)) =
                 (&t_suf.kind, &t_s.kind)
-            {
-                let result = s_str.ends_with(suf_str.as_str());
-                ctx.stats_mut().record_rule("regex_suffix_const");
-                return RewriteResult::Rewritten(manager.mk_bool(result));
-            }
+        {
+            let result = s_str.ends_with(suf_str.as_str());
+            ctx.stats_mut().record_rule("regex_suffix_const");
+            return RewriteResult::Rewritten(manager.mk_bool(result));
         }
 
         RewriteResult::Unchanged(term)

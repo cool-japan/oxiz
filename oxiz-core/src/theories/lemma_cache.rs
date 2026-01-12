@@ -155,11 +155,11 @@ impl LemmaCache {
         let key = LemmaKey::new(lemma.hypotheses.clone(), lemma.conclusion);
 
         // Check if already cached
-        if let Some(existing) = self.lemmas.get(&key) {
-            if existing.iter().any(|l| l == &lemma) {
-                self.hits += 1;
-                return false; // Already cached
-            }
+        if let Some(existing) = self.lemmas.get(&key)
+            && existing.iter().any(|l| l == &lemma)
+        {
+            self.hits += 1;
+            return false; // Already cached
         }
 
         self.misses += 1;

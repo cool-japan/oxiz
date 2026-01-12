@@ -374,20 +374,21 @@ impl<'a> ExplainContext<'a> {
             }
 
             // Leading coefficient (when viewing as polynomial in var)
-            if let Some(lc) = leading_coefficient(poly, var) {
-                if !lc.is_constant() {
-                    result.push(lc);
-                }
+            if let Some(lc) = leading_coefficient(poly, var)
+                && !lc.is_constant()
+            {
+                result.push(lc);
             }
         }
 
         // For each pair of polynomials, compute resultant
         for i in 0..relevant.len() {
             for j in (i + 1)..relevant.len() {
-                if let Some(res) = resultant(relevant[i], relevant[j], var) {
-                    if !res.is_zero() && !res.is_constant() {
-                        result.push(res);
-                    }
+                if let Some(res) = resultant(relevant[i], relevant[j], var)
+                    && !res.is_zero()
+                    && !res.is_constant()
+                {
+                    result.push(res);
                 }
             }
         }
@@ -634,15 +635,15 @@ impl Cell {
         }
 
         for (i, p) in point.iter().enumerate() {
-            if let Some(lo) = &self.lower[i] {
-                if p < lo {
-                    return false;
-                }
+            if let Some(lo) = &self.lower[i]
+                && p < lo
+            {
+                return false;
             }
-            if let Some(hi) = &self.upper[i] {
-                if p > hi {
-                    return false;
-                }
+            if let Some(hi) = &self.upper[i]
+                && p > hi
+            {
+                return false;
             }
         }
 

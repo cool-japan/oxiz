@@ -132,21 +132,21 @@ impl EquivalentLiteralSubstitution {
 
         // Extract binary clauses and build implication graph
         for cid in clauses.iter_ids() {
-            if let Some(clause) = clauses.get(cid) {
-                if clause.len() == 2 {
-                    let lit0 = clause.lits[0];
-                    let lit1 = clause.lits[1];
+            if let Some(clause) = clauses.get(cid)
+                && clause.len() == 2
+            {
+                let lit0 = clause.lits[0];
+                let lit1 = clause.lits[1];
 
-                    // Binary clause (a v b) means: ~a => b and ~b => a
-                    let not_lit0_idx = (!lit0).code() as usize;
-                    let not_lit1_idx = (!lit1).code() as usize;
+                // Binary clause (a v b) means: ~a => b and ~b => a
+                let not_lit0_idx = (!lit0).code() as usize;
+                let not_lit1_idx = (!lit1).code() as usize;
 
-                    if !self.implications[not_lit0_idx].contains(&lit1) {
-                        self.implications[not_lit0_idx].push(lit1);
-                    }
-                    if !self.implications[not_lit1_idx].contains(&lit0) {
-                        self.implications[not_lit1_idx].push(lit0);
-                    }
+                if !self.implications[not_lit0_idx].contains(&lit1) {
+                    self.implications[not_lit0_idx].push(lit1);
+                }
+                if !self.implications[not_lit1_idx].contains(&lit0) {
+                    self.implications[not_lit1_idx].push(lit0);
                 }
             }
         }

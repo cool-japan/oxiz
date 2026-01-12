@@ -178,24 +178,24 @@ impl SubsumptionChecker {
         let mut rarest_lit = None;
 
         for &lit in new_clause.literals() {
-            if let Some(occurrences) = self.lit_to_clauses.get(&lit) {
-                if occurrences.len() < min_occurrences {
-                    min_occurrences = occurrences.len();
-                    rarest_lit = Some(lit);
-                }
+            if let Some(occurrences) = self.lit_to_clauses.get(&lit)
+                && occurrences.len() < min_occurrences
+            {
+                min_occurrences = occurrences.len();
+                rarest_lit = Some(lit);
             }
         }
 
-        if let Some(lit) = rarest_lit {
-            if let Some(clause_indices) = self.lit_to_clauses.get(&lit).cloned() {
-                for &idx in &clause_indices {
-                    // new_clause can only subsume clauses that are at least as large
-                    if existing[idx].len() >= new_clause.len()
-                        && self.subsumes(new_clause, &existing[idx])
-                    {
-                        subsumed.push(idx);
-                        self.stats.backward_subsumed += 1;
-                    }
+        if let Some(lit) = rarest_lit
+            && let Some(clause_indices) = self.lit_to_clauses.get(&lit).cloned()
+        {
+            for &idx in &clause_indices {
+                // new_clause can only subsume clauses that are at least as large
+                if existing[idx].len() >= new_clause.len()
+                    && self.subsumes(new_clause, &existing[idx])
+                {
+                    subsumed.push(idx);
+                    self.stats.backward_subsumed += 1;
                 }
             }
         }

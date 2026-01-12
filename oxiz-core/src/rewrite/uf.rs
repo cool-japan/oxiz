@@ -172,35 +172,37 @@ impl UfRewriter {
         manager: &mut TermManager,
     ) -> RewriteResult {
         // Try beta reduction if we have a definition
-        if self.config.enable_beta_reduction {
-            if let Some(result) = self.try_beta_reduction(func, args, manager) {
-                ctx.stats_mut().record_rule("uf_beta_reduction");
-                return RewriteResult::Rewritten(result);
-            }
+        if self.config.enable_beta_reduction
+            && let Some(result) = self.try_beta_reduction(func, args, manager)
+        {
+            ctx.stats_mut().record_rule("uf_beta_reduction");
+            return RewriteResult::Rewritten(result);
         }
 
         // Try inlining
-        if self.config.enable_inlining {
-            if let Some(result) = self.try_inline(func, args, 0, manager) {
-                ctx.stats_mut().record_rule("uf_inline");
-                return RewriteResult::Rewritten(result);
-            }
+        if self.config.enable_inlining
+            && let Some(result) = self.try_inline(func, args, 0, manager)
+        {
+            ctx.stats_mut().record_rule("uf_inline");
+            return RewriteResult::Rewritten(result);
         }
 
         // Normalize commutative arguments
-        if self.config.enable_arg_normalization && self.is_commutative(func) && args.len() == 2 {
-            if let Some(result) = self.normalize_commutative(func, args, sort, manager) {
-                ctx.stats_mut().record_rule("uf_commutative_normalize");
-                return RewriteResult::Rewritten(result);
-            }
+        if self.config.enable_arg_normalization
+            && self.is_commutative(func)
+            && args.len() == 2
+            && let Some(result) = self.normalize_commutative(func, args, sort, manager)
+        {
+            ctx.stats_mut().record_rule("uf_commutative_normalize");
+            return RewriteResult::Rewritten(result);
         }
 
         // Flatten associative applications
-        if self.is_associative(func) {
-            if let Some(result) = self.flatten_associative(func, args, sort, manager) {
-                ctx.stats_mut().record_rule("uf_associative_flatten");
-                return RewriteResult::Rewritten(result);
-            }
+        if self.is_associative(func)
+            && let Some(result) = self.flatten_associative(func, args, sort, manager)
+        {
+            ctx.stats_mut().record_rule("uf_associative_flatten");
+            return RewriteResult::Rewritten(result);
         }
 
         // Check congruence cache
@@ -613,18 +615,16 @@ impl UfRewriter {
         let mut changed = false;
 
         for &arg in args.iter() {
-            if let Some(t) = manager.get(arg) {
-                if let TermKind::Apply {
+            if let Some(t) = manager.get(arg)
+                && let TermKind::Apply {
                     func: inner_func,
                     args: inner_args,
                 } = &t.kind
-                {
-                    if *inner_func == func {
-                        flattened.extend(inner_args.iter().copied());
-                        changed = true;
-                        continue;
-                    }
-                }
+                && *inner_func == func
+            {
+                flattened.extend(inner_args.iter().copied());
+                changed = true;
+                continue;
             }
             flattened.push(arg);
         }
@@ -670,11 +670,11 @@ impl UfRewriter {
                 args: args2,
             },
         ) = (&t_lhs.kind, &t_rhs.kind)
+            && f1 == f2
+            && args1 == args2
         {
-            if f1 == f2 && args1 == args2 {
-                ctx.stats_mut().record_rule("uf_congruence_true");
-                return RewriteResult::Rewritten(manager.mk_true());
-            }
+            ctx.stats_mut().record_rule("uf_congruence_true");
+            return RewriteResult::Rewritten(manager.mk_true());
         }
 
         RewriteResult::Unchanged(term)

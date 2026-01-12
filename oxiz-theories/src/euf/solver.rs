@@ -280,27 +280,27 @@ impl EufSolver {
                     let canonical_args = self.canonicalize_args(func, &args);
 
                     let sig = (func, canonical_args);
-                    if let Some(&existing) = self.sig_table.get(&sig) {
-                        if !self.uf.same(user, existing) {
-                            // Congruence: merge user with existing
-                            // Record congruence edge in proof forest
-                            self.proof_forest[user as usize].push(MergeEdge {
-                                other: existing,
-                                reason: MergeReason::Congruence {
-                                    term1: user,
-                                    term2: existing,
-                                },
-                            });
-                            self.proof_forest[existing as usize].push(MergeEdge {
-                                other: user,
-                                reason: MergeReason::Congruence {
-                                    term1: user,
-                                    term2: existing,
-                                },
-                            });
+                    if let Some(&existing) = self.sig_table.get(&sig)
+                        && !self.uf.same(user, existing)
+                    {
+                        // Congruence: merge user with existing
+                        // Record congruence edge in proof forest
+                        self.proof_forest[user as usize].push(MergeEdge {
+                            other: existing,
+                            reason: MergeReason::Congruence {
+                                term1: user,
+                                term2: existing,
+                            },
+                        });
+                        self.proof_forest[existing as usize].push(MergeEdge {
+                            other: user,
+                            reason: MergeReason::Congruence {
+                                term1: user,
+                                term2: existing,
+                            },
+                        });
 
-                            self.pending.push((user, existing, TermId::new(0)));
-                        }
+                        self.pending.push((user, existing, TermId::new(0)));
                     }
                 }
             }

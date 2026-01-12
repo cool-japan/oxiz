@@ -330,10 +330,11 @@ impl PobQueue {
     pub fn pop(&mut self) -> Option<PobId> {
         while let Some(priority) = self.heap.pop() {
             // Check if this POB is still valid (not closed)
-            if let Some(pob) = self.get(priority.id) {
-                if !pob.is_closed() && pob.level() == priority.level {
-                    return Some(priority.id);
-                }
+            if let Some(pob) = self.get(priority.id)
+                && !pob.is_closed()
+                && pob.level() == priority.level
+            {
+                return Some(priority.id);
             }
         }
         None
@@ -342,10 +343,11 @@ impl PobQueue {
     /// Peek at the highest priority POB without removing
     pub fn peek(&self) -> Option<PobId> {
         for priority in self.heap.iter() {
-            if let Some(pob) = self.get(priority.id) {
-                if !pob.is_closed() && pob.level() == priority.level {
-                    return Some(priority.id);
-                }
+            if let Some(pob) = self.get(priority.id)
+                && !pob.is_closed()
+                && pob.level() == priority.level
+            {
+                return Some(priority.id);
             }
         }
         None
@@ -353,25 +355,25 @@ impl PobQueue {
 
     /// Re-queue a POB (e.g., after level change)
     pub fn requeue(&mut self, id: PobId) {
-        if let Some(pob) = self.get(id) {
-            if !pob.is_closed() {
-                self.heap.push(PobPriority {
-                    level: pob.level(),
-                    depth: pob.depth(),
-                    id,
-                });
-            }
+        if let Some(pob) = self.get(id)
+            && !pob.is_closed()
+        {
+            self.heap.push(PobPriority {
+                level: pob.level(),
+                depth: pob.depth(),
+                id,
+            });
         }
     }
 
     /// Close a POB with a blocking lemma
     pub fn close(&mut self, id: PobId, lemma: LemmaId) {
-        if let Some(pob) = self.get_mut(id) {
-            if !pob.is_closed() {
-                pob.close(lemma);
-                // Decrement open POB count
-                self.open_pobs_count.fetch_sub(1, AtomicOrdering::Relaxed);
-            }
+        if let Some(pob) = self.get_mut(id)
+            && !pob.is_closed()
+        {
+            pob.close(lemma);
+            // Decrement open POB count
+            self.open_pobs_count.fetch_sub(1, AtomicOrdering::Relaxed);
         }
     }
 
@@ -544,10 +546,11 @@ impl PobManager {
     /// Pop the highest priority POB globally
     pub fn pop(&mut self) -> Option<PobId> {
         while let Some(priority) = self.global_queue.pop() {
-            if let Some(pob) = self.get(priority.id) {
-                if !pob.is_closed() && pob.level() == priority.level {
-                    return Some(priority.id);
-                }
+            if let Some(pob) = self.get(priority.id)
+                && !pob.is_closed()
+                && pob.level() == priority.level
+            {
+                return Some(priority.id);
             }
         }
         None

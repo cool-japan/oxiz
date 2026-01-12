@@ -66,6 +66,9 @@ pub trait TheoryCallback {
     /// Called after propagation is complete to do a full theory check
     fn final_check(&mut self) -> TheoryCheckResult;
 
+    /// Called when the decision level increases
+    fn on_new_level(&mut self, _level: u32) {}
+
     /// Called when backtracking
     fn on_backtrack(&mut self, level: u32);
 }
@@ -613,7 +616,7 @@ impl Solver {
                     self.conflicts_since_deletion = 0;
 
                     // Vivification after clause database reduction (at level 0 after restart)
-                    if self.stats.restarts % 10 == 0 {
+                    if self.stats.restarts.is_multiple_of(10) {
                         let saved_level = self.trail.decision_level();
                         if saved_level == 0 {
                             self.vivify_clauses();
@@ -987,16 +990,14 @@ impl Solver {
             let is_learned = clause.learned;
 
             // Record clause usage for tier promotion and bump activity (if it's a learned clause)
-            if is_learned {
-                if let Some(clause_mut) = self.clauses.get_mut(reason_clause) {
-                    clause_mut.record_usage();
-                    // Promote to Core if LBD ≤ 2 (GLUE clause)
-                    if clause_mut.lbd <= 2 {
-                        clause_mut.promote_to_core();
-                    }
-                    // Bump clause activity (MapleSAT-style)
-                    clause_mut.activity += self.clause_bump_increment;
+            if is_learned && let Some(clause_mut) = self.clauses.get_mut(reason_clause) {
+                clause_mut.record_usage();
+                // Promote to Core if LBD ≤ 2 (GLUE clause)
+                if clause_mut.lbd <= 2 {
+                    clause_mut.promote_to_core();
                 }
+                // Bump clause activity (MapleSAT-style)
+                clause_mut.activity += self.clause_bump_increment;
             }
 
             let Some(clause) = self.clauses.get(reason_clause) else {
@@ -1100,7 +1101,7 @@ impl Solver {
         } else if self.config.use_chb_branching {
             // Use CHB branching
             // Rebuild heap periodically to reflect score changes
-            if self.stats.decisions % 100 == 0 {
+            if self.stats.decisions.is_multiple_of(100) {
                 self.chb.rebuild_heap();
             }
 
@@ -1182,31 +1183,27 @@ impl Solver {
             let var = lit.var();
 
             // Check if this literal can be strengthened
-            if let Reason::Propagation(reason_id) = self.trail.reason(var) {
-                if let Some(reason_clause) = self.clauses.get(reason_id) {
-                    // Check if the reason clause is binary and enables strengthening
-                    if reason_clause.lits.len() == 2 {
-                        // Binary reason: one literal is lit, the other is the implied literal
-                        let other_lit = if reason_clause.lits[0] == lit.negate() {
-                            reason_clause.lits[1]
-                        } else if reason_clause.lits[1] == lit.negate() {
-                            reason_clause.lits[0]
-                        } else {
-                            // Keep the literal
-                            self.learnt[j] = lit;
-                            j += 1;
-                            continue;
-                        };
+            if let Reason::Propagation(reason_id) = self.trail.reason(var)
+                && let Some(reason_clause) = self.clauses.get(reason_id)
+                && reason_clause.lits.len() == 2
+            {
+                // Binary reason: one literal is lit, the other is the implied literal
+                let other_lit = if reason_clause.lits[0] == lit.negate() {
+                    reason_clause.lits[1]
+                } else if reason_clause.lits[1] == lit.negate() {
+                    reason_clause.lits[0]
+                } else {
+                    // Keep the literal
+                    self.learnt[j] = lit;
+                    j += 1;
+                    continue;
+                };
 
-                        // If other_lit is already in the learned clause at level 0,
-                        // we can remove lit
-                        if self.trail.level(other_lit.var()) == 0
-                            && self.seen[other_lit.var().index()]
-                        {
-                            // Skip this literal (strengthened)
-                            continue;
-                        }
-                    }
+                // If other_lit is already in the learned clause at level 0,
+                // we can remove lit
+                if self.trail.level(other_lit.var()) == 0 && self.seen[other_lit.var().index()] {
+                    // Skip this literal (strengthened)
+                    continue;
                 }
             }
 
@@ -1770,6 +1767,8 @@ impl Solver {
             if let Some(var) = self.pick_branch_var() {
                 self.stats.decisions += 1;
                 self.trail.new_decision_level();
+                let new_level = self.trail.decision_level();
+                theory.on_new_level(new_level);
 
                 let polarity = if self.rand_bool(self.config.random_polarity_prob) {
                     self.rand_bool(0.5)
@@ -1864,25 +1863,24 @@ impl Solver {
             if self.seen[var.index()] {
                 counter -= 1;
 
-                if counter > 0 {
+                if counter > 0
+                    && let Reason::Propagation(reason_clause) = self.trail.reason(var)
+                    && let Some(clause) = self.clauses.get(reason_clause)
+                {
                     // Get reason and process its literals
-                    if let Reason::Propagation(reason_clause) = self.trail.reason(var) {
-                        if let Some(clause) = self.clauses.get(reason_clause) {
-                            for &lit in &clause.lits[1..] {
-                                let reason_var = lit.var();
-                                let level = self.trail.level(reason_var);
+                    for &lit in &clause.lits[1..] {
+                        let reason_var = lit.var();
+                        let level = self.trail.level(reason_var);
 
-                                if !self.seen[reason_var.index()] && level > 0 {
-                                    self.seen[reason_var.index()] = true;
-                                    self.vsids.bump(reason_var);
-                                    self.chb.bump(reason_var);
+                        if !self.seen[reason_var.index()] && level > 0 {
+                            self.seen[reason_var.index()] = true;
+                            self.vsids.bump(reason_var);
+                            self.chb.bump(reason_var);
 
-                                    if level == current_level {
-                                        counter += 1;
-                                    } else {
-                                        self.learnt.push(lit.negate());
-                                    }
-                                }
+                            if level == current_level {
+                                counter += 1;
+                            } else {
+                                self.learnt.push(lit.negate());
                             }
                         }
                     }
@@ -2213,16 +2211,15 @@ impl Solver {
                 // Backtrack
                 self.backtrack(saved_level);
 
-                if conflict {
+                if conflict
+                    && let Some(clause) = self.clauses.get_mut(clause_id)
+                    && clause.lits.len() > 2
+                {
                     // The literal at skip_idx is implied by the rest
                     // We can remove it from the clause (vivification succeeded)
-                    if let Some(clause) = self.clauses.get_mut(clause_id) {
-                        if clause.lits.len() > 2 {
-                            clause.lits.remove(skip_idx);
-                            vivified_count += 1;
-                            break; // Done with this clause
-                        }
-                    }
+                    clause.lits.remove(skip_idx);
+                    vivified_count += 1;
+                    break; // Done with this clause
                 }
             }
         }
@@ -2268,10 +2265,12 @@ impl Solver {
         let mut candidates: Vec<(ClauseId, u32)> = Vec::new();
 
         for &clause_id in &self.learned_clause_ids {
-            if let Some(clause) = self.clauses.get(clause_id) {
-                if !clause.deleted && clause.lits.len() > 3 && clause.lbd > 2 {
-                    candidates.push((clause_id, clause.lbd));
-                }
+            if let Some(clause) = self.clauses.get(clause_id)
+                && !clause.deleted
+                && clause.lits.len() > 3
+                && clause.lbd > 2
+            {
+                candidates.push((clause_id, clause.lbd));
             }
         }
 

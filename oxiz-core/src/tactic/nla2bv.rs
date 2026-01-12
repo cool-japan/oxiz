@@ -296,82 +296,82 @@ impl<'a> Nla2BvTactic<'a> {
         match op {
             CompOp::Le => {
                 // x <= c => x.upper = c
-                if let Some(var) = self.get_var_name(lhs) {
-                    if let Some(c) = self.get_int_const(rhs) {
-                        self.var_bounds
-                            .entry(var)
-                            .or_insert_with(VarBounds::new)
-                            .update_upper(c);
-                    }
+                if let Some(var) = self.get_var_name(lhs)
+                    && let Some(c) = self.get_int_const(rhs)
+                {
+                    self.var_bounds
+                        .entry(var)
+                        .or_insert_with(VarBounds::new)
+                        .update_upper(c);
                 }
                 // c <= x => x.lower = c
-                if let Some(var) = self.get_var_name(rhs) {
-                    if let Some(c) = self.get_int_const(lhs) {
-                        self.var_bounds
-                            .entry(var)
-                            .or_insert_with(VarBounds::new)
-                            .update_lower(c);
-                    }
+                if let Some(var) = self.get_var_name(rhs)
+                    && let Some(c) = self.get_int_const(lhs)
+                {
+                    self.var_bounds
+                        .entry(var)
+                        .or_insert_with(VarBounds::new)
+                        .update_lower(c);
                 }
             }
             CompOp::Lt => {
                 // x < c => x.upper = c - 1
-                if let Some(var) = self.get_var_name(lhs) {
-                    if let Some(c) = self.get_int_const(rhs) {
-                        self.var_bounds
-                            .entry(var)
-                            .or_insert_with(VarBounds::new)
-                            .update_upper(c - 1);
-                    }
+                if let Some(var) = self.get_var_name(lhs)
+                    && let Some(c) = self.get_int_const(rhs)
+                {
+                    self.var_bounds
+                        .entry(var)
+                        .or_insert_with(VarBounds::new)
+                        .update_upper(c - 1);
                 }
                 // c < x => x.lower = c + 1
-                if let Some(var) = self.get_var_name(rhs) {
-                    if let Some(c) = self.get_int_const(lhs) {
-                        self.var_bounds
-                            .entry(var)
-                            .or_insert_with(VarBounds::new)
-                            .update_lower(c + 1);
-                    }
+                if let Some(var) = self.get_var_name(rhs)
+                    && let Some(c) = self.get_int_const(lhs)
+                {
+                    self.var_bounds
+                        .entry(var)
+                        .or_insert_with(VarBounds::new)
+                        .update_lower(c + 1);
                 }
             }
             CompOp::Ge => {
                 // x >= c => x.lower = c
-                if let Some(var) = self.get_var_name(lhs) {
-                    if let Some(c) = self.get_int_const(rhs) {
-                        self.var_bounds
-                            .entry(var)
-                            .or_insert_with(VarBounds::new)
-                            .update_lower(c);
-                    }
+                if let Some(var) = self.get_var_name(lhs)
+                    && let Some(c) = self.get_int_const(rhs)
+                {
+                    self.var_bounds
+                        .entry(var)
+                        .or_insert_with(VarBounds::new)
+                        .update_lower(c);
                 }
                 // c >= x => x.upper = c
-                if let Some(var) = self.get_var_name(rhs) {
-                    if let Some(c) = self.get_int_const(lhs) {
-                        self.var_bounds
-                            .entry(var)
-                            .or_insert_with(VarBounds::new)
-                            .update_upper(c);
-                    }
+                if let Some(var) = self.get_var_name(rhs)
+                    && let Some(c) = self.get_int_const(lhs)
+                {
+                    self.var_bounds
+                        .entry(var)
+                        .or_insert_with(VarBounds::new)
+                        .update_upper(c);
                 }
             }
             CompOp::Gt => {
                 // x > c => x.lower = c + 1
-                if let Some(var) = self.get_var_name(lhs) {
-                    if let Some(c) = self.get_int_const(rhs) {
-                        self.var_bounds
-                            .entry(var)
-                            .or_insert_with(VarBounds::new)
-                            .update_lower(c + 1);
-                    }
+                if let Some(var) = self.get_var_name(lhs)
+                    && let Some(c) = self.get_int_const(rhs)
+                {
+                    self.var_bounds
+                        .entry(var)
+                        .or_insert_with(VarBounds::new)
+                        .update_lower(c + 1);
                 }
                 // c > x => x.upper = c - 1
-                if let Some(var) = self.get_var_name(rhs) {
-                    if let Some(c) = self.get_int_const(lhs) {
-                        self.var_bounds
-                            .entry(var)
-                            .or_insert_with(VarBounds::new)
-                            .update_upper(c - 1);
-                    }
+                if let Some(var) = self.get_var_name(rhs)
+                    && let Some(c) = self.get_int_const(lhs)
+                {
+                    self.var_bounds
+                        .entry(var)
+                        .or_insert_with(VarBounds::new)
+                        .update_upper(c - 1);
                 }
             }
         }
@@ -386,46 +386,46 @@ impl<'a> Nla2BvTactic<'a> {
         match &t.kind {
             // !(x <= c) => x > c => x >= c + 1
             TermKind::Le(lhs, rhs) => {
-                if let Some(var) = self.get_var_name(*lhs) {
-                    if let Some(c) = self.get_int_const(*rhs) {
-                        self.var_bounds
-                            .entry(var)
-                            .or_insert_with(VarBounds::new)
-                            .update_lower(c + 1);
-                    }
+                if let Some(var) = self.get_var_name(*lhs)
+                    && let Some(c) = self.get_int_const(*rhs)
+                {
+                    self.var_bounds
+                        .entry(var)
+                        .or_insert_with(VarBounds::new)
+                        .update_lower(c + 1);
                 }
             }
             // !(x < c) => x >= c
             TermKind::Lt(lhs, rhs) => {
-                if let Some(var) = self.get_var_name(*lhs) {
-                    if let Some(c) = self.get_int_const(*rhs) {
-                        self.var_bounds
-                            .entry(var)
-                            .or_insert_with(VarBounds::new)
-                            .update_lower(c.clone());
-                    }
+                if let Some(var) = self.get_var_name(*lhs)
+                    && let Some(c) = self.get_int_const(*rhs)
+                {
+                    self.var_bounds
+                        .entry(var)
+                        .or_insert_with(VarBounds::new)
+                        .update_lower(c.clone());
                 }
             }
             // !(x >= c) => x < c => x <= c - 1
             TermKind::Ge(lhs, rhs) => {
-                if let Some(var) = self.get_var_name(*lhs) {
-                    if let Some(c) = self.get_int_const(*rhs) {
-                        self.var_bounds
-                            .entry(var)
-                            .or_insert_with(VarBounds::new)
-                            .update_upper(c - 1);
-                    }
+                if let Some(var) = self.get_var_name(*lhs)
+                    && let Some(c) = self.get_int_const(*rhs)
+                {
+                    self.var_bounds
+                        .entry(var)
+                        .or_insert_with(VarBounds::new)
+                        .update_upper(c - 1);
                 }
             }
             // !(x > c) => x <= c
             TermKind::Gt(lhs, rhs) => {
-                if let Some(var) = self.get_var_name(*lhs) {
-                    if let Some(c) = self.get_int_const(*rhs) {
-                        self.var_bounds
-                            .entry(var)
-                            .or_insert_with(VarBounds::new)
-                            .update_upper(c.clone());
-                    }
+                if let Some(var) = self.get_var_name(*lhs)
+                    && let Some(c) = self.get_int_const(*rhs)
+                {
+                    self.var_bounds
+                        .entry(var)
+                        .or_insert_with(VarBounds::new)
+                        .update_upper(c.clone());
                 }
             }
             _ => {}

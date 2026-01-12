@@ -1856,15 +1856,15 @@ impl<'a> Printer<'a> {
 
         // Print variable assignments as define-fun declarations
         for (term_id, value) in model.assignments() {
-            if let Some(term) = self.manager.get(*term_id) {
-                if let crate::ast::TermKind::Var(name_spur) = term.kind {
-                    let var_name = self.manager.resolve_str(name_spur);
-                    let _ = write!(w, "  (define-fun {} () ", var_name);
-                    self.write_sort(w, term.sort);
-                    let _ = write!(w, " ");
-                    self.write_model_value(w, value);
-                    let _ = writeln!(w, ")");
-                }
+            if let Some(term) = self.manager.get(*term_id)
+                && let crate::ast::TermKind::Var(name_spur) = term.kind
+            {
+                let var_name = self.manager.resolve_str(name_spur);
+                let _ = write!(w, "  (define-fun {} () ", var_name);
+                self.write_sort(w, term.sort);
+                let _ = write!(w, " ");
+                self.write_model_value(w, value);
+                let _ = writeln!(w, ")");
             }
         }
 

@@ -159,10 +159,10 @@ impl TermGraph {
         }
 
         if self.nodes.contains_key(&term) {
-            if self.config.track_occurrences {
-                if let Some(node) = self.nodes.get_mut(&term) {
-                    node.occurrences += 1;
-                }
+            if self.config.track_occurrences
+                && let Some(node) = self.nodes.get_mut(&term)
+            {
+                node.occurrences += 1;
             }
             return;
         }

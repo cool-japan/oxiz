@@ -115,12 +115,11 @@ pub fn infer_term_sort(term: &Term, manager: &TermManager) -> Result<SortId> {
 
         // Array operations
         TermKind::Select(array, _) => {
-            if let Some(array_term) = manager.get(*array) {
-                if let Some(sort) = manager.sorts.get(array_term.sort) {
-                    if let SortKind::Array { range, .. } = sort.kind {
-                        return Ok(range);
-                    }
-                }
+            if let Some(array_term) = manager.get(*array)
+                && let Some(sort) = manager.sorts.get(array_term.sort)
+                && let SortKind::Array { range, .. } = sort.kind
+            {
+                return Ok(range);
             }
             Err(OxizError::Internal(
                 "Cannot infer sort for array select".to_string(),

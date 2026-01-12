@@ -82,17 +82,17 @@ impl BinaryImplicationGraph {
 
         // Extract binary clauses
         for cid in clauses.iter_ids() {
-            if let Some(clause) = clauses.get(cid) {
-                if clause.len() == 2 {
-                    self.stats.binary_clauses_analyzed += 1;
+            if let Some(clause) = clauses.get(cid)
+                && clause.len() == 2
+            {
+                self.stats.binary_clauses_analyzed += 1;
 
-                    let a = clause.lits[0];
-                    let b = clause.lits[1];
+                let a = clause.lits[0];
+                let b = clause.lits[1];
 
-                    // Binary clause (a v b) means: ~a => b and ~b => a
-                    self.add_implication(!a, b);
-                    self.add_implication(!b, a);
-                }
+                // Binary clause (a v b) means: ~a => b and ~b => a
+                self.add_implication(!a, b);
+                self.add_implication(!b, a);
             }
         }
     }
@@ -286,15 +286,15 @@ impl BinaryImplicationGraph {
         // Remove redundant binary clauses from database
         let clause_ids: Vec<_> = clauses.iter_ids().collect();
         for cid in clause_ids {
-            if let Some(clause) = clauses.get(cid) {
-                if clause.len() == 2 {
-                    let a = clause.lits[0];
-                    let b = clause.lits[1];
+            if let Some(clause) = clauses.get(cid)
+                && clause.len() == 2
+            {
+                let a = clause.lits[0];
+                let b = clause.lits[1];
 
-                    // Check if this binary clause is redundant
-                    if redundant.contains(&(!a, b)) || redundant.contains(&(!b, a)) {
-                        clauses.remove(cid);
-                    }
+                // Check if this binary clause is redundant
+                if redundant.contains(&(!a, b)) || redundant.contains(&(!b, a)) {
+                    clauses.remove(cid);
                 }
             }
         }

@@ -2525,10 +2525,10 @@ impl WasmSolver {
             let chunk_script = chunk.join("\n");
             match self.execute(&chunk_script) {
                 Ok(output) => {
-                    if let Some(s) = output.as_string() {
-                        if !s.trim().is_empty() {
-                            result_parts.push(s);
-                        }
+                    if let Some(s) = output.as_string()
+                        && !s.trim().is_empty()
+                    {
+                        result_parts.push(s);
                     }
                 }
                 Err(e) => return Err(e),
@@ -2628,10 +2628,10 @@ impl WasmSolver {
             let chunk_script = chunk.join("\n");
             match self.execute(&chunk_script) {
                 Ok(output) => {
-                    if let Some(s) = output.as_string() {
-                        if !s.trim().is_empty() {
-                            result_parts.push(s);
-                        }
+                    if let Some(s) = output.as_string()
+                        && !s.trim().is_empty()
+                    {
+                        result_parts.push(s);
                     }
                 }
                 Err(e) => return Err(e),
@@ -3673,7 +3673,7 @@ pub fn init() {
 ///
 /// # Returns
 ///
-/// A version string in semver format (e.g., "0.1.0")
+/// A version string in semver format (e.g., "0.1.1")
 ///
 /// # Example (JavaScript)
 ///

@@ -157,13 +157,12 @@ impl Simplifier {
                     }
 
                     // Check for contradictions: and(x, not(x)) => false
-                    if let Some(arg_term) = manager.get(simplified) {
-                        if let TermKind::Not(inner) = arg_term.kind {
-                            if simplified_args.contains(&inner) || seen.contains_key(&inner) {
-                                self.stats.contradictions_found += 1;
-                                return manager.mk_false();
-                            }
-                        }
+                    if let Some(arg_term) = manager.get(simplified)
+                        && let TermKind::Not(inner) = arg_term.kind
+                        && (simplified_args.contains(&inner) || seen.contains_key(&inner))
+                    {
+                        self.stats.contradictions_found += 1;
+                        return manager.mk_false();
                     }
                     // Check if we already have not(arg) in the list
                     let neg = manager.mk_not(simplified);
@@ -231,13 +230,12 @@ impl Simplifier {
                     }
 
                     // Check for tautologies: or(x, not(x)) => true
-                    if let Some(arg_term) = manager.get(simplified) {
-                        if let TermKind::Not(inner) = arg_term.kind {
-                            if simplified_args.contains(&inner) || seen.contains_key(&inner) {
-                                self.stats.tautologies_detected += 1;
-                                return manager.mk_true();
-                            }
-                        }
+                    if let Some(arg_term) = manager.get(simplified)
+                        && let TermKind::Not(inner) = arg_term.kind
+                        && (simplified_args.contains(&inner) || seen.contains_key(&inner))
+                    {
+                        self.stats.tautologies_detected += 1;
+                        return manager.mk_true();
                     }
                     // Check if we already have not(arg) in the list
                     let neg = manager.mk_not(simplified);
@@ -273,35 +271,35 @@ impl Simplifier {
                 let rhs_simplified = self.simplify(*rhs, manager);
 
                 // false => x  =  true
-                if let Some(lhs_term) = manager.get(lhs_simplified) {
-                    if matches!(lhs_term.kind, TermKind::False) {
-                        self.stats.const_propagations += 1;
-                        return manager.mk_true();
-                    }
+                if let Some(lhs_term) = manager.get(lhs_simplified)
+                    && matches!(lhs_term.kind, TermKind::False)
+                {
+                    self.stats.const_propagations += 1;
+                    return manager.mk_true();
                 }
 
                 // true => x  =  x
-                if let Some(lhs_term) = manager.get(lhs_simplified) {
-                    if matches!(lhs_term.kind, TermKind::True) {
-                        self.stats.terms_eliminated += 1;
-                        return rhs_simplified;
-                    }
+                if let Some(lhs_term) = manager.get(lhs_simplified)
+                    && matches!(lhs_term.kind, TermKind::True)
+                {
+                    self.stats.terms_eliminated += 1;
+                    return rhs_simplified;
                 }
 
                 // x => true  =  true
-                if let Some(rhs_term) = manager.get(rhs_simplified) {
-                    if matches!(rhs_term.kind, TermKind::True) {
-                        self.stats.const_propagations += 1;
-                        return manager.mk_true();
-                    }
+                if let Some(rhs_term) = manager.get(rhs_simplified)
+                    && matches!(rhs_term.kind, TermKind::True)
+                {
+                    self.stats.const_propagations += 1;
+                    return manager.mk_true();
                 }
 
                 // x => false  =  not(x)
-                if let Some(rhs_term) = manager.get(rhs_simplified) {
-                    if matches!(rhs_term.kind, TermKind::False) {
-                        self.stats.terms_eliminated += 1;
-                        return manager.mk_not(lhs_simplified);
-                    }
+                if let Some(rhs_term) = manager.get(rhs_simplified)
+                    && matches!(rhs_term.kind, TermKind::False)
+                {
+                    self.stats.terms_eliminated += 1;
+                    return manager.mk_not(lhs_simplified);
                 }
 
                 if lhs_simplified == *lhs && rhs_simplified == *rhs {
@@ -317,19 +315,19 @@ impl Simplifier {
                 let else_simplified = self.simplify(*else_br, manager);
 
                 // ite(true, x, y) => x
-                if let Some(cond_term) = manager.get(cond_simplified) {
-                    if matches!(cond_term.kind, TermKind::True) {
-                        self.stats.const_propagations += 1;
-                        return then_simplified;
-                    }
+                if let Some(cond_term) = manager.get(cond_simplified)
+                    && matches!(cond_term.kind, TermKind::True)
+                {
+                    self.stats.const_propagations += 1;
+                    return then_simplified;
                 }
 
                 // ite(false, x, y) => y
-                if let Some(cond_term) = manager.get(cond_simplified) {
-                    if matches!(cond_term.kind, TermKind::False) {
-                        self.stats.const_propagations += 1;
-                        return else_simplified;
-                    }
+                if let Some(cond_term) = manager.get(cond_simplified)
+                    && matches!(cond_term.kind, TermKind::False)
+                {
+                    self.stats.const_propagations += 1;
+                    return else_simplified;
                 }
 
                 // ite(c, x, x) => x

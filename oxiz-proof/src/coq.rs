@@ -127,15 +127,15 @@ impl CoqExporter {
         }
 
         // Final theorem
-        if let Some(root_id) = proof.root() {
-            if let Some(root_ident) = self.node_to_ident.get(&root_id) {
-                output.push_str("\n(* Main result *)\n");
-                output.push_str("Theorem main_result : exists P, P.\n");
-                output.push_str("Proof.\n");
-                output.push_str(&format!("  exists {}.\n", root_ident));
-                output.push_str(&format!("  apply {}.\n", root_ident));
-                output.push_str("Qed.\n");
-            }
+        if let Some(root_id) = proof.root()
+            && let Some(root_ident) = self.node_to_ident.get(&root_id)
+        {
+            output.push_str("\n(* Main result *)\n");
+            output.push_str("Theorem main_result : exists P, P.\n");
+            output.push_str("Proof.\n");
+            output.push_str(&format!("  exists {}.\n", root_ident));
+            output.push_str(&format!("  apply {}.\n", root_ident));
+            output.push_str("Qed.\n");
         }
 
         output

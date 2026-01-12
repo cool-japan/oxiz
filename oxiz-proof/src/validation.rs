@@ -171,11 +171,11 @@ impl FormatValidator {
         path.push(node_id.to_string());
 
         // Visit premises
-        if let Some(node) = proof.get_node(node_id) {
-            if let crate::proof::ProofStep::Inference { premises, .. } = &node.step {
-                for &premise_id in premises.iter() {
-                    Self::visit_node(proof, premise_id, visiting, visited, path)?;
-                }
+        if let Some(node) = proof.get_node(node_id)
+            && let crate::proof::ProofStep::Inference { premises, .. } = &node.step
+        {
+            for &premise_id in premises.iter() {
+                Self::visit_node(proof, premise_id, visiting, visited, path)?;
             }
         }
 

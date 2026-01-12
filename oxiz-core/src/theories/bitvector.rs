@@ -170,16 +170,14 @@ impl BitVectorTheory {
 
     /// Add a term to the theory and extract bitvector operations
     pub fn add_term(&mut self, term: TermId, manager: &TermManager, sort_manager: &SortManager) {
-        if let Some(t) = manager.get(term) {
-            // Check if this is a bitvector term
-            if let Some(sort) = sort_manager.get(t.sort) {
-                if let SortKind::BitVec(width) = sort.kind {
-                    self.register_bitvector(term, width);
+        if let Some(t) = manager.get(term)
+            && let Some(sort) = sort_manager.get(t.sort)
+            && let SortKind::BitVec(width) = sort.kind
+        {
+            self.register_bitvector(term, width);
 
-                    // Generate axioms based on term structure
-                    self.generate_axioms_for_term(term, &t.kind, width, manager);
-                }
-            }
+            // Generate axioms based on term structure
+            self.generate_axioms_for_term(term, &t.kind, width, manager);
         }
     }
 
@@ -235,10 +233,10 @@ impl BitVectorTheory {
             }
             TermKind::BvNot(inner) => {
                 // Check for double negation
-                if let Some(inner_term) = manager.get(*inner) {
-                    if let TermKind::BvNot(_) = inner_term.kind {
-                        self.add_axiom(BitVectorAxiom::NotInvolution { term });
-                    }
+                if let Some(inner_term) = manager.get(*inner)
+                    && let TermKind::BvNot(_) = inner_term.kind
+                {
+                    self.add_axiom(BitVectorAxiom::NotInvolution { term });
                 }
             }
             _ => {}

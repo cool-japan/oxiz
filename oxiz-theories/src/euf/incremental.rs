@@ -517,10 +517,10 @@ impl EGraph {
             // Rebuild memo table
             self.memo.clear();
             for node in state.memo_keys {
-                if let Some(&class) = self.memo.get(&node) {
-                    if (class.raw() as usize) < self.classes.len() {
-                        self.memo.insert(node, class);
-                    }
+                if let Some(&class) = self.memo.get(&node)
+                    && (class.raw() as usize) < self.classes.len()
+                {
+                    self.memo.insert(node, class);
                 }
             }
 

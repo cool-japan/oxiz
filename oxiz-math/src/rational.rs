@@ -974,10 +974,10 @@ pub fn is_square_free(n: &BigInt) -> bool {
     let mut prev: Option<BigInt> = None;
 
     for factor in factors {
-        if let Some(ref p) = prev {
-            if &factor == p {
-                return false; // Found repeated factor
-            }
+        if let Some(ref p) = prev
+            && &factor == p
+        {
+            return false; // Found repeated factor
         }
         prev = Some(factor);
     }

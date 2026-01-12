@@ -233,10 +233,10 @@ impl UtvpiSolver {
         for edge in self.graph.all_edges() {
             if let Some(&dist_from) = self.distances.get(&edge.from) {
                 let new_dist = dist_from + edge.weight;
-                if let Some(&dist_to) = self.distances.get(&edge.to) {
-                    if new_dist < dist_to {
-                        return Err(self.extract_cycle(edge));
-                    }
+                if let Some(&dist_to) = self.distances.get(&edge.to)
+                    && new_dist < dist_to
+                {
+                    return Err(self.extract_cycle(edge));
                 }
             }
         }

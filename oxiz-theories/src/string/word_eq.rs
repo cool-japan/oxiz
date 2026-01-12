@@ -629,10 +629,10 @@ impl WordEqSolver {
     /// Detect the reason for a conflict
     fn detect_conflict_reason(&self, eq: &WordEquation) -> ConflictReason {
         // Check for constant mismatch
-        if let (Some(l), Some(r)) = (eq.lhs.first_char(), eq.rhs.first_char()) {
-            if l != r {
-                return ConflictReason::ConstantMismatch(l.to_string(), r.to_string());
-            }
+        if let (Some(l), Some(r)) = (eq.lhs.first_char(), eq.rhs.first_char())
+            && l != r
+        {
+            return ConflictReason::ConstantMismatch(l.to_string(), r.to_string());
         }
 
         // Check for empty mismatch
@@ -647,10 +647,10 @@ impl WordEqSolver {
     fn extract_vars(&self, eq: &WordEquation) -> Vec<u32> {
         let mut vars = Vec::new();
         for atom in eq.lhs.atoms.iter().chain(eq.rhs.atoms.iter()) {
-            if let StringAtom::Var(v) = atom {
-                if !vars.contains(v) {
-                    vars.push(*v);
-                }
+            if let StringAtom::Var(v) = atom
+                && !vars.contains(v)
+            {
+                vars.push(*v);
             }
         }
         vars

@@ -129,11 +129,11 @@ impl HybridSolver {
                 self.best_cost = cost.clone();
 
                 // Check if we should switch to exact
-                if let Some(ref threshold) = self.config.switch_threshold {
-                    if cost <= *threshold {
-                        // Cost is good enough, try exact solver to prove optimality
-                        return self.run_exact_phase();
-                    }
+                if let Some(ref threshold) = self.config.switch_threshold
+                    && cost <= *threshold
+                {
+                    // Cost is good enough, try exact solver to prove optimality
+                    return self.run_exact_phase();
                 }
 
                 self.stats.final_cost = Some(cost);

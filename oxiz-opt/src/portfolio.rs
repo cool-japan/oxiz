@@ -320,21 +320,21 @@ impl PortfolioSolver {
                 if result.is_ok() {
                     let cost = solver.cost().clone();
 
-                    if let Ok(mut best) = best_cost.lock() {
-                        if cost < *best {
-                            *best = cost.clone();
+                    if let Ok(mut best) = best_cost.lock()
+                        && cost < *best
+                    {
+                        *best = cost.clone();
 
-                            // Update best algorithm
-                            if let Ok(mut best_alg) = best_algorithm.lock() {
-                                *best_alg = Some(algorithm);
-                            }
+                        // Update best algorithm
+                        if let Ok(mut best_alg) = best_algorithm.lock() {
+                            *best_alg = Some(algorithm);
+                        }
 
-                            // Update best model
-                            if let Some(model) = solver.best_model() {
-                                if let Ok(mut best_mdl) = best_model.lock() {
-                                    *best_mdl = Some(model.to_vec());
-                                }
-                            }
+                        // Update best model
+                        if let Some(model) = solver.best_model()
+                            && let Ok(mut best_mdl) = best_model.lock()
+                        {
+                            *best_mdl = Some(model.to_vec());
                         }
                     }
                 }
@@ -353,10 +353,10 @@ impl PortfolioSolver {
                 self.algorithm_costs.insert(algorithm, cost.clone());
 
                 // Track the best result
-                if let Ok(best) = best_cost.lock() {
-                    if cost == *best {
-                        best_result = res;
-                    }
+                if let Ok(best) = best_cost.lock()
+                    && cost == *best
+                {
+                    best_result = res;
                 }
             }
         }
@@ -370,10 +370,10 @@ impl PortfolioSolver {
             self.stats.best_algorithm = *alg;
         }
 
-        if let Ok(cost) = best_cost.lock() {
-            if *cost != Weight::Infinite {
-                self.stats.best_cost = Some(cost.clone());
-            }
+        if let Ok(cost) = best_cost.lock()
+            && *cost != Weight::Infinite
+        {
+            self.stats.best_cost = Some(cost.clone());
         }
 
         if let Ok(model) = best_model.lock() {

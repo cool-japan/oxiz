@@ -2,8 +2,8 @@
 
 Next-Generation SMT Solver in Pure Rust
 
-[![Crates.io](https://img.shields.io/crates/v/oxiz-solver.svg)](https://crates.io/crates/oxiz-solver)
-[![Documentation](https://docs.rs/oxiz-solver/badge.svg)](https://docs.rs/oxiz-solver)
+[![Crates.io](https://img.shields.io/crates/v/oxiz.svg)](https://crates.io/crates/oxiz)
+[![Documentation](https://docs.rs/oxiz/badge.svg)](https://docs.rs/oxiz)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE)
 
 ## About This Project
@@ -38,6 +38,7 @@ OxiZ is a high-performance Satisfiability Modulo Theories (SMT) solver written e
 
 ```
 oxiz/
+├── oxiz/           # Meta-crate (unified API)
 ├── oxiz-core/      # Core AST, sorts, SMT-LIB parser, tactics, rewriters
 ├── oxiz-math/      # Mathematical algorithms (polynomials, matrices, LP)
 ├── oxiz-sat/       # CDCL SAT solver with VSIDS/LRB/VMTF
@@ -55,10 +56,24 @@ oxiz/
 
 ### Installation
 
-```bash
+```toml
 # Add to your Cargo.toml
 [dependencies]
-oxiz-solver = "0.1"
+oxiz = "0.1.1"  # Default includes solver
+```
+
+Or with specific features:
+
+```toml
+[dependencies]
+oxiz = { version = "0.1.1", features = ["nlsat", "optimization"] }
+```
+
+For all features:
+
+```toml
+[dependencies]
+oxiz = { version = "0.1.1", features = ["full"] }
 ```
 
 ### Building from Source
@@ -77,6 +92,24 @@ cargo nextest run --all-features
 
 ### Using the CLI
 
+After installation:
+
+```bash
+# Install from crates.io
+cargo install oxiz-cli
+
+# Solve an SMT-LIB2 file
+oxiz input.smt2
+
+# Interactive mode
+oxiz --interactive
+
+# With verbose output
+oxiz -v input.smt2
+```
+
+Or run directly from source:
+
 ```bash
 # Solve an SMT-LIB2 file
 cargo run --release -p oxiz-cli -- input.smt2
@@ -91,7 +124,7 @@ cargo run --release -p oxiz-cli -- -v input.smt2
 ### Library Usage
 
 ```rust
-use oxiz_solver::Context;
+use oxiz::solver::Context;
 
 fn main() {
     let mut ctx = Context::new();

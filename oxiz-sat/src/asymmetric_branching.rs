@@ -202,13 +202,13 @@ impl AsymmetricBranching {
             if let Some(clause) = clauses.get(id) {
                 let lits: SmallVec<[Lit; 8]> = clause.lits.iter().copied().collect();
 
-                if let Some(new_lits) = self.strengthen_clause(&lits, clauses) {
-                    if new_lits.len() < lits.len() {
-                        // Remove old clause and add strengthened version
-                        clauses.remove(id);
-                        clauses.add_learned(new_lits);
-                        strengthened_count += 1;
-                    }
+                if let Some(new_lits) = self.strengthen_clause(&lits, clauses)
+                    && new_lits.len() < lits.len()
+                {
+                    // Remove old clause and add strengthened version
+                    clauses.remove(id);
+                    clauses.add_learned(new_lits);
+                    strengthened_count += 1;
                 }
             }
         }

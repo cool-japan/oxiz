@@ -205,17 +205,17 @@ impl DatalogEngine {
     /// Add a rule
     pub fn add_rule(&mut self, mut rule: Rule) -> RuleId {
         // Resolve relation references
-        if let Some(name) = rule.head().relation() {
-            if let Some(&id) = self.relation_names.get(&name) {
-                rule.head_mut().set_relation_id(id);
-            }
+        if let Some(name) = rule.head().relation()
+            && let Some(&id) = self.relation_names.get(&name)
+        {
+            rule.head_mut().set_relation_id(id);
         }
 
         for atom in rule.body_mut() {
-            if let Some(name) = atom.relation() {
-                if let Some(&id) = self.relation_names.get(&name) {
-                    atom.set_relation_id(id);
-                }
+            if let Some(name) = atom.relation()
+                && let Some(&id) = self.relation_names.get(&name)
+            {
+                atom.set_relation_id(id);
             }
         }
 
@@ -294,11 +294,11 @@ impl DatalogEngine {
                 // Positive deps: same or lower stratum
                 if let Some(deps) = positive_deps.get(&rel) {
                     for &dep in deps {
-                        if let Some(&dep_stratum) = stratum_map.get(&dep) {
-                            if dep_stratum > current {
-                                stratum_map.insert(rel, dep_stratum);
-                                changed = true;
-                            }
+                        if let Some(&dep_stratum) = stratum_map.get(&dep)
+                            && dep_stratum > current
+                        {
+                            stratum_map.insert(rel, dep_stratum);
+                            changed = true;
                         }
                     }
                 }
@@ -306,11 +306,11 @@ impl DatalogEngine {
                 // Negative deps: strictly lower stratum
                 if let Some(deps) = negative_deps.get(&rel) {
                     for &dep in deps {
-                        if let Some(&dep_stratum) = stratum_map.get(&dep) {
-                            if dep_stratum >= stratum_map[&rel] {
-                                stratum_map.insert(rel, dep_stratum + 1);
-                                changed = true;
-                            }
+                        if let Some(&dep_stratum) = stratum_map.get(&dep)
+                            && dep_stratum >= stratum_map[&rel]
+                        {
+                            stratum_map.insert(rel, dep_stratum + 1);
+                            changed = true;
                         }
                     }
                 }
@@ -346,12 +346,11 @@ impl DatalogEngine {
             // Find recursive deps within stratum
             let mut recursive_deps = HashSet::new();
             for &rule_id in &rules {
-                if let Some(rule) = self.rules.get(&rule_id) {
-                    if rule.is_recursive() {
-                        if let Some(rel) = rule.head().relation() {
-                            recursive_deps.insert(rel);
-                        }
-                    }
+                if let Some(rule) = self.rules.get(&rule_id)
+                    && rule.is_recursive()
+                    && let Some(rel) = rule.head().relation()
+                {
+                    recursive_deps.insert(rel);
                 }
             }
 
@@ -448,10 +447,10 @@ impl DatalogEngine {
             };
 
             // Insert derived tuples
-            if let Some(rel_id) = head_id {
-                if let Some(rel) = self.relations.get_mut(&rel_id) {
-                    new_tuples += rel.insert_all(derived);
-                }
+            if let Some(rel_id) = head_id
+                && let Some(rel) = self.relations.get_mut(&rel_id)
+            {
+                new_tuples += rel.insert_all(derived);
             }
         }
 
@@ -580,10 +579,10 @@ impl DatalogEngine {
         for binding in bindings {
             // Try to match each tuple in relation
             for tuple in relation.iter() {
-                if let Some(extended) = self.match_tuple(atom.terms(), tuple, &binding) {
-                    if atom.kind() == AtomKind::Positive {
-                        new_bindings.push(extended);
-                    }
+                if let Some(extended) = self.match_tuple(atom.terms(), tuple, &binding)
+                    && atom.kind() == AtomKind::Positive
+                {
+                    new_bindings.push(extended);
                 }
             }
 

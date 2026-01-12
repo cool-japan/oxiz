@@ -2,7 +2,6 @@
 name = "oxiz-nlsat"
 version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -25,7 +24,7 @@ num_cpus.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
-criterion = "0.5"
+criterion.workspace = true
 
 [[bench]]
 name = "nlsat_benchmarks"

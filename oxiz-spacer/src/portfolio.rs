@@ -187,10 +187,10 @@ impl PortfolioSolver {
 
         for strategy in &self.strategies {
             // Check global timeout
-            if let Some(global_timeout) = self.global_timeout {
-                if global_start.elapsed() >= global_timeout {
-                    return Err(PortfolioError::Timeout(global_timeout));
-                }
+            if let Some(global_timeout) = self.global_timeout
+                && global_start.elapsed() >= global_timeout
+            {
+                return Err(PortfolioError::Timeout(global_timeout));
             }
 
             strategies_tried += 1;
@@ -242,14 +242,14 @@ impl PortfolioSolver {
             }
 
             // Check strategy-specific timeout
-            if let Some(budget) = strategy.time_budget {
-                if strategy_start.elapsed() >= budget {
-                    tracing::debug!(
-                        "Strategy '{}' exceeded time budget {:?}",
-                        strategy.name,
-                        budget
-                    );
-                }
+            if let Some(budget) = strategy.time_budget
+                && strategy_start.elapsed() >= budget
+            {
+                tracing::debug!(
+                    "Strategy '{}' exceeded time budget {:?}",
+                    strategy.name,
+                    budget
+                );
             }
         }
 

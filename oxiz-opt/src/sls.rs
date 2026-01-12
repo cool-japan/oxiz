@@ -398,10 +398,10 @@ impl SlsSolver {
 
         for var in 1..=self.num_vars {
             // Skip tabu variables
-            if let Some(&tabu_iter) = self.tabu.get(&var) {
-                if self.stats.flips - tabu_iter < self.config.tabu_tenure {
-                    continue;
-                }
+            if let Some(&tabu_iter) = self.tabu.get(&var)
+                && self.stats.flips - tabu_iter < self.config.tabu_tenure
+            {
+                continue;
             }
 
             // Try flipping this variable

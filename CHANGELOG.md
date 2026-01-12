@@ -5,6 +5,52 @@ All notable changes to OxiZ will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-01-12
+
+### Added
+- **New meta-crate `oxiz`**: Unified API with feature flags for modular usage
+  - `default = ["solver"]`: Core SMT solving functionality
+  - `nlsat`: Nonlinear real arithmetic solver
+  - `optimization`: MaxSMT and optimization features
+  - `spacer`: CHC solver for program verification
+  - `proof`: Proof generation and checking
+  - `standard`: All common features except SPACER
+  - `full`: All features enabled
+- Workspace-level lints configuration for consistent code quality
+
+### Changed
+- Removed redundant `rust-version` from workspace (Edition 2024 already requires Rust 1.85+)
+- Updated README with meta-crate usage examples
+- Updated crates.io badges to point to `oxiz` meta-crate
+- Updated CDN documentation with 0.1.1 URLs
+
+### Documentation
+- Added comprehensive API documentation to meta-crate
+- Created oxiz/README.md with feature flag guide
+- Updated installation instructions across all documentation
+
+### Fixed
+
+#### MBQI (Model-Based Quantifier Instantiation)
+- **Added missing comparison handlers**: Implemented `Gt`, `Ge`, and `Le` evaluation in `evaluate_under_model()`. Previously only `Lt` was supported, causing quantifier instantiation failures.
+
+#### CDCL(T) Theory Propagation
+- **Fixed simplex constraint handling**: `add_le()` now properly substitutes basic variables before adding constraints to the tableau, matching the behavior of `add_strict_lt()`. This resolves contradictory constraint satisfaction issues.
+- **Fixed incremental solving**: `ArithSolver::push()` and `pop()` now correctly call `simplex.push()` and `simplex.pop()`, enabling proper backtracking in incremental solving scenarios.
+- **Fixed theory-SAT synchronization**: Added `on_new_level()` callback to `TheoryCallback` trait. The SAT solver now notifies theory solvers when entering new decision levels, allowing proper theory state management and preventing stale state bugs.
+
+#### Bitvector Theory
+- **Basic bitvector support**: Integrated bitvector comparisons (`BvUlt`, `BvUle`, `BvSlt`, `BvSle`) by treating them as bounded integer comparisons. This enables arithmetic reasoning over bitvectors for common use cases.
+- **BitVecConst handling**: Added support for bitvector constants in arithmetic constraint parsing, treating them as integer values.
+
+### Changed
+- **Code quality**: Eliminated all compiler warnings, achieving clippy clean status with `-D warnings` flag.
+- **Test coverage**: All 84 solver tests passing (100% success rate).
+
+### Compatibility
+- **Breaking changes**: None. This is a backwards-compatible bug-fix release.
+- **Verified with**: Legalis formal verification framework (467/467 tests passing).
+
 ## [0.1.0] - 2026-01-12
 
 ### Initial Release

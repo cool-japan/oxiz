@@ -1818,16 +1818,14 @@ impl ClauseSimplifier {
             }
 
             // Check if this clause subsumes any other
-            if let Some(&lit) = clause_a.first() {
-                if let Some(candidates) = self.occurrences.get(&lit) {
-                    for &j in candidates {
-                        if i != j
-                            && !self.deleted.contains(&j)
-                            && self.subsumes(clause_a, &clauses[j])
-                        {
-                            to_delete.push(j);
-                            self.deleted.insert(j);
-                        }
+            if let Some(&lit) = clause_a.first()
+                && let Some(candidates) = self.occurrences.get(&lit)
+            {
+                for &j in candidates {
+                    if i != j && !self.deleted.contains(&j) && self.subsumes(clause_a, &clauses[j])
+                    {
+                        to_delete.push(j);
+                        self.deleted.insert(j);
                     }
                 }
             }

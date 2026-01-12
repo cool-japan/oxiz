@@ -252,10 +252,10 @@ impl SpecialRelationSolver {
     /// Compute transitive closure of a relation
     pub fn compute_closure(&mut self, relation: Spur) -> Option<HashSet<RelationEdge>> {
         // Check if cached
-        if let Some(closure) = self.closures.get(&relation) {
-            if !closure.is_empty() {
-                return Some(closure.clone());
-            }
+        if let Some(closure) = self.closures.get(&relation)
+            && !closure.is_empty()
+        {
+            return Some(closure.clone());
         }
 
         let edges = self.edges.get(&relation)?.clone();

@@ -289,12 +289,13 @@ impl ClauseTierManager {
         while self.stats.local_clauses > self.config.local_max_size {
             if let Some(clause_id) = self.local_queue.pop_front() {
                 // Check if clause still exists and is in Local tier
-                if let Some(&tier) = self.clause_tiers.get(&clause_id) {
-                    if tier == ClauseTier::Local && clauses.contains_key(&clause_id) {
-                        to_delete.push(clause_id);
-                        self.remove_clause(clause_id);
-                        self.stats.local_deleted += 1;
-                    }
+                if let Some(&tier) = self.clause_tiers.get(&clause_id)
+                    && tier == ClauseTier::Local
+                    && clauses.contains_key(&clause_id)
+                {
+                    to_delete.push(clause_id);
+                    self.remove_clause(clause_id);
+                    self.stats.local_deleted += 1;
                 }
             } else {
                 break;

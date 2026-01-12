@@ -192,21 +192,21 @@ impl TemplateIdentifier {
         for (i, &node_id) in nodes.iter().enumerate() {
             node_to_id.insert(node_id, i);
 
-            if let Some(node) = proof.get_node(node_id) {
-                if let ProofStep::Inference { rule, premises, .. } = &node.step {
-                    // Map premises to template IDs
-                    let premise_ids: Vec<usize> = premises
-                        .iter()
-                        .filter_map(|&p| node_to_id.get(&p).copied())
-                        .collect();
+            if let Some(node) = proof.get_node(node_id)
+                && let ProofStep::Inference { rule, premises, .. } = &node.step
+            {
+                // Map premises to template IDs
+                let premise_ids: Vec<usize> = premises
+                    .iter()
+                    .filter_map(|&p| node_to_id.get(&p).copied())
+                    .collect();
 
-                    steps.push(TemplateStep {
-                        id: i,
-                        rule: rule.clone(),
-                        premise_ids,
-                        conclusion_pattern: self.abstract_conclusion(node.conclusion()),
-                    });
-                }
+                steps.push(TemplateStep {
+                    id: i,
+                    rule: rule.clone(),
+                    premise_ids,
+                    conclusion_pattern: self.abstract_conclusion(node.conclusion()),
+                });
             }
         }
 

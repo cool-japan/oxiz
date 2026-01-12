@@ -247,15 +247,15 @@ pub fn solve_portfolio_custom(
 
             let strategy_start = Instant::now();
 
-            if let Ok(output) = ctx.execute_script(&script) {
-                if !solved.swap(true, Ordering::SeqCst) {
-                    let result = PortfolioResult {
-                        strategy_name: strategy.name.to_string(),
-                        output,
-                        time_ms: strategy_start.elapsed().as_millis(),
-                    };
-                    let _ = tx.send(result);
-                }
+            if let Ok(output) = ctx.execute_script(&script)
+                && !solved.swap(true, Ordering::SeqCst)
+            {
+                let result = PortfolioResult {
+                    strategy_name: strategy.name.to_string(),
+                    output,
+                    time_ms: strategy_start.elapsed().as_millis(),
+                };
+                let _ = tx.send(result);
             }
         });
 

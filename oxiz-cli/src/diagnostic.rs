@@ -204,19 +204,19 @@ fn check_symbols(script: &str) -> Vec<DiagnosticIssue> {
     // Extract declared symbols
     for line in script.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with("(declare-const") || trimmed.starts_with("(declare-fun") {
-            if let Some(symbol) = extract_symbol_from_declaration(trimmed) {
-                if declared_symbols.contains(&symbol) {
-                    issues.push(DiagnosticIssue {
-                        severity: IssueSeverity::Warning,
-                        category: IssueCategory::Symbol,
-                        description: format!("Symbol '{}' declared multiple times", symbol),
-                        location: None,
-                        suggestion: Some("Remove duplicate declarations".to_string()),
-                    });
-                }
-                declared_symbols.insert(symbol);
+        if (trimmed.starts_with("(declare-const") || trimmed.starts_with("(declare-fun"))
+            && let Some(symbol) = extract_symbol_from_declaration(trimmed)
+        {
+            if declared_symbols.contains(&symbol) {
+                issues.push(DiagnosticIssue {
+                    severity: IssueSeverity::Warning,
+                    category: IssueCategory::Symbol,
+                    description: format!("Symbol '{}' declared multiple times", symbol),
+                    location: None,
+                    suggestion: Some("Remove duplicate declarations".to_string()),
+                });
             }
+            declared_symbols.insert(symbol);
         }
     }
 
@@ -269,10 +269,10 @@ fn check_types(script: &str) -> Vec<DiagnosticIssue> {
     // Extract type information from declarations
     for line in script.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with("(declare-const") {
-            if let Some((symbol, ty)) = extract_symbol_and_type(trimmed) {
-                symbol_types.insert(symbol, ty);
-            }
+        if trimmed.starts_with("(declare-const")
+            && let Some((symbol, ty)) = extract_symbol_and_type(trimmed)
+        {
+            symbol_types.insert(symbol, ty);
         }
     }
 
@@ -560,10 +560,10 @@ fn count_symbols(script: &str) -> usize {
 
     for line in script.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with("(declare-const") || trimmed.starts_with("(declare-fun") {
-            if let Some(symbol) = extract_symbol_from_declaration(trimmed) {
-                symbols.insert(symbol);
-            }
+        if (trimmed.starts_with("(declare-const") || trimmed.starts_with("(declare-fun"))
+            && let Some(symbol) = extract_symbol_from_declaration(trimmed)
+        {
+            symbols.insert(symbol);
         }
     }
 

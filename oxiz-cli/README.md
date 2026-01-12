@@ -4,15 +4,19 @@ Command-line interface for OxiZ SMT solver.
 
 ## Installation
 
+From crates.io:
+
 ```bash
-cargo install --path .
+cargo install oxiz-cli
 ```
 
 Or build from source:
 
 ```bash
+git clone https://github.com/cool-japan/oxiz
+cd oxiz/oxiz-cli
 cargo build --release
-cp target/release/oxiz-cli /usr/local/bin/oxiz
+# Binary will be at: target/release/oxiz
 ```
 
 ## Usage
@@ -21,22 +25,22 @@ cp target/release/oxiz-cli /usr/local/bin/oxiz
 
 ```bash
 # Solve a single file
-oxiz-cli input.smt2
+oxiz input.smt2
 
 # Solve multiple files
-oxiz-cli file1.smt2 file2.smt2 file3.smt2
+oxiz file1.smt2 file2.smt2 file3.smt2
 
 # Read from stdin
-cat input.smt2 | oxiz-cli -
+cat input.smt2 | oxiz -
 ```
 
 ### Interactive Mode
 
 ```bash
-oxiz-cli --interactive
+oxiz --interactive
 
 # Or use short flag
-oxiz-cli -i
+oxiz -i
 ```
 
 In interactive mode, enter SMT-LIB2 commands directly:
@@ -54,7 +58,7 @@ oxiz> (exit)
 
 ```
 USAGE:
-    oxiz-cli [OPTIONS] [FILES]...
+    oxiz [OPTIONS] [FILES]...
 
 ARGS:
     <FILES>...    Input SMT-LIB2 files (use - for stdin)
@@ -78,7 +82,7 @@ echo '
 (assert (> x 0))
 (assert (< x 10))
 (check-sat)
-' | oxiz-cli -
+' | oxiz -
 ```
 
 Output:
@@ -95,7 +99,7 @@ echo '
 (assert (> x 10))
 (assert (< x 5))
 (check-sat)
-' | oxiz-cli -
+' | oxiz -
 ```
 
 Output:

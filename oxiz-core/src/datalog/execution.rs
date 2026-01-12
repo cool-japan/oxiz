@@ -502,13 +502,13 @@ impl<'a> ScopedTimer<'a> {
 impl Drop for ScopedTimer<'_> {
     fn drop(&mut self) {
         let elapsed = self.start.elapsed();
-        if let Some(_rule_id) = self.rule_id {
-            if self.context.trace_enabled {
-                self.context.trace_event(
-                    TraceEventKind::RuleEnd,
-                    TraceData::Duration(elapsed.as_micros() as u64),
-                );
-            }
+        if let Some(_rule_id) = self.rule_id
+            && self.context.trace_enabled
+        {
+            self.context.trace_event(
+                TraceEventKind::RuleEnd,
+                TraceData::Duration(elapsed.as_micros() as u64),
+            );
         }
     }
 }

@@ -201,15 +201,16 @@ impl DimacsCnf {
         for line in lines {
             let trimmed = line.trim();
             // Look for patterns like: (define-fun v1 () Bool true)
-            if trimmed.contains("define-fun") && trimmed.contains("Bool") {
-                if let Some(var_start) = trimmed.find("v") {
-                    let after_v = &trimmed[var_start + 1..];
-                    if let Some(space_idx) = after_v.find(char::is_whitespace) {
-                        if let Ok(var_num) = after_v[..space_idx].parse::<usize>() {
-                            let is_true = trimmed.contains("true");
-                            var_values.insert(var_num, is_true);
-                        }
-                    }
+            if trimmed.contains("define-fun")
+                && trimmed.contains("Bool")
+                && let Some(var_start) = trimmed.find("v")
+            {
+                let after_v = &trimmed[var_start + 1..];
+                if let Some(space_idx) = after_v.find(char::is_whitespace)
+                    && let Ok(var_num) = after_v[..space_idx].parse::<usize>()
+                {
+                    let is_true = trimmed.contains("true");
+                    var_values.insert(var_num, is_true);
                 }
             }
         }

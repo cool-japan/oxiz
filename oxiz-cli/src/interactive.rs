@@ -247,7 +247,12 @@ impl Highlighter for SmtHighlighter {
         std::borrow::Cow::Owned(result)
     }
 
-    fn highlight_char(&self, _line: &str, _pos: usize, _forced: bool) -> bool {
+    fn highlight_char(
+        &self,
+        _line: &str,
+        _pos: usize,
+        _kind: rustyline::highlight::CmdKind,
+    ) -> bool {
         true
     }
 }

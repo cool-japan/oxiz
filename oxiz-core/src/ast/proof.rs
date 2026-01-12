@@ -287,11 +287,11 @@ impl Proof {
         let mut stack = vec![self.root];
 
         while let Some(node_id) = stack.pop() {
-            if reachable.insert(node_id) {
-                if let Some(node) = self.nodes.get(&node_id) {
-                    for &premise_id in &node.premises {
-                        stack.push(premise_id);
-                    }
+            if reachable.insert(node_id)
+                && let Some(node) = self.nodes.get(&node_id)
+            {
+                for &premise_id in &node.premises {
+                    stack.push(premise_id);
                 }
             }
         }
@@ -372,11 +372,11 @@ impl Proof {
         let mut stack = vec![self.root];
 
         while let Some(node_id) = stack.pop() {
-            if used.insert(node_id) {
-                if let Some(node) = self.nodes.get(&node_id) {
-                    for &premise_id in &node.premises {
-                        stack.push(premise_id);
-                    }
+            if used.insert(node_id)
+                && let Some(node) = self.nodes.get(&node_id)
+            {
+                for &premise_id in &node.premises {
+                    stack.push(premise_id);
                 }
             }
         }

@@ -228,10 +228,10 @@ impl QuantifierRewriter {
         }
 
         // Eliminate unused variables
-        if self.elim_unused_vars {
-            if let Some(result) = self.elim_unused_forall(vars, body, patterns, ctx, manager) {
-                return result;
-            }
+        if self.elim_unused_vars
+            && let Some(result) = self.elim_unused_forall(vars, body, patterns, ctx, manager)
+        {
+            return result;
         }
 
         let vars_vec: Vec<(Spur, SortId)> = vars.iter().cloned().collect();
@@ -301,10 +301,10 @@ impl QuantifierRewriter {
         }
 
         // Eliminate unused variables
-        if self.elim_unused_vars {
-            if let Some(result) = self.elim_unused_exists(vars, body, patterns, ctx, manager) {
-                return result;
-            }
+        if self.elim_unused_vars
+            && let Some(result) = self.elim_unused_exists(vars, body, patterns, ctx, manager)
+        {
+            return result;
         }
 
         let vars_vec: Vec<(Spur, SortId)> = vars.iter().cloned().collect();

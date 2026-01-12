@@ -245,10 +245,10 @@ impl TermManager {
                 return rhs;
             }
         }
-        if let Some(term) = self.get(rhs) {
-            if let TermKind::True = term.kind {
-                return self.true_id;
-            }
+        if let Some(term) = self.get(rhs)
+            && let TermKind::True = term.kind
+        {
+            return self.true_id;
         }
 
         let sort = self.sorts.bool_sort;

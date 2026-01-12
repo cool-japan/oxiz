@@ -120,7 +120,7 @@ impl LocalSearch {
         self.assignment.resize(num_vars, false);
 
         for i in 0..num_vars {
-            self.assignment[i] = self.rand() % 2 == 0;
+            self.assignment[i] = self.rand().is_multiple_of(2);
         }
     }
 

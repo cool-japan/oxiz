@@ -339,7 +339,7 @@ impl Worker {
         // For now, implement a simple heuristic:
         // - Assume half of POBs can be blocked
         // - Generate a trivial lemma for blocked POBs
-        let blocked = work_item.pob_id.0 % 2 == 0;
+        let blocked = work_item.pob_id.0.is_multiple_of(2);
 
         // Generate a lemma ID if blocked
         // In reality, this would be extracted from UNSAT core and added to frames
@@ -510,12 +510,12 @@ impl<'a> DistributedCoordinator<'a> {
 
         loop {
             // Check for timeout
-            if let Some(timeout) = self.config.timeout {
-                if monitor_start.elapsed() >= timeout {
-                    tracing::warn!("Distributed solving timed out");
-                    self.shared.set_result(SpacerResult::Unknown);
-                    break;
-                }
+            if let Some(timeout) = self.config.timeout
+                && monitor_start.elapsed() >= timeout
+            {
+                tracing::warn!("Distributed solving timed out");
+                self.shared.set_result(SpacerResult::Unknown);
+                break;
             }
 
             // Process messages from workers

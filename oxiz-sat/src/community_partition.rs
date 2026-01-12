@@ -31,10 +31,10 @@ impl CommunityPartition {
         let mut partitions: Vec<Vec<usize>> = vec![Vec::new(); num_communities];
 
         for (idx, clause) in clauses.iter().enumerate() {
-            if let Some(primary_comm) = Self::get_primary_community(clause, &communities) {
-                if primary_comm < num_communities {
-                    partitions[primary_comm].push(idx);
-                }
+            if let Some(primary_comm) = Self::get_primary_community(clause, &communities)
+                && primary_comm < num_communities
+            {
+                partitions[primary_comm].push(idx);
             }
         }
 

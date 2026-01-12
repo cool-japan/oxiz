@@ -360,15 +360,14 @@ impl ArithRewriter {
         if let (Some(l), Some(r)) = (
             self.get_rat_constant(lhs, manager),
             self.get_rat_constant(rhs, manager),
-        ) {
-            if !r.is_zero() {
-                let result = l / r;
-                ctx.stats_mut().record_rule("arith_div_const");
-                if result.is_integer() {
-                    return RewriteResult::Rewritten(manager.mk_int(*result.numer()));
-                } else {
-                    return RewriteResult::Rewritten(manager.mk_real(result));
-                }
+        ) && !r.is_zero()
+        {
+            let result = l / r;
+            ctx.stats_mut().record_rule("arith_div_const");
+            if result.is_integer() {
+                return RewriteResult::Rewritten(manager.mk_int(*result.numer()));
+            } else {
+                return RewriteResult::Rewritten(manager.mk_real(result));
             }
         }
 
@@ -399,12 +398,11 @@ impl ArithRewriter {
         if let (Some(l), Some(r)) = (
             self.get_int_constant(lhs, manager),
             self.get_int_constant(rhs, manager),
-        ) {
-            if r != 0 {
-                let result = l % r;
-                ctx.stats_mut().record_rule("arith_mod_const");
-                return RewriteResult::Rewritten(manager.mk_int(result));
-            }
+        ) && r != 0
+        {
+            let result = l % r;
+            ctx.stats_mut().record_rule("arith_mod_const");
+            return RewriteResult::Rewritten(manager.mk_int(result));
         }
 
         RewriteResult::Unchanged(manager.mk_mod(lhs, rhs))

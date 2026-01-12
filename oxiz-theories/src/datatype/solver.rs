@@ -272,11 +272,11 @@ impl DatatypeSolver {
 
         if let Some((sort_name, cons_tag)) = dt_info {
             self.register_term(result, &sort_name);
-            if let Some(tag) = cons_tag {
-                if let Some(info) = self.term_info.get_mut(&result) {
-                    info.constructor = Some(tag);
-                    info.fields = args.iter().map(|&t| Some(t)).collect();
-                }
+            if let Some(tag) = cons_tag
+                && let Some(info) = self.term_info.get_mut(&result)
+            {
+                info.constructor = Some(tag);
+                info.fields = args.iter().map(|&t| Some(t)).collect();
             }
         }
         self.constructor_apps
@@ -330,10 +330,10 @@ impl DatatypeSolver {
             .and_then(|dt| dt.get_constructor(constructor))
             .map(|c| c.tag);
 
-        if let Some(tag) = cons_tag {
-            if let Some(info) = self.term_info.get_mut(&term) {
-                info.constructor = Some(tag);
-            }
+        if let Some(tag) = cons_tag
+            && let Some(info) = self.term_info.get_mut(&term)
+        {
+            info.constructor = Some(tag);
         }
     }
 
@@ -346,16 +346,13 @@ impl DatatypeSolver {
                 let lhs_info = self.term_info.get(&constraint.lhs);
                 let rhs_info = self.term_info.get(&constraint.rhs);
 
-                if let (Some(lhs), Some(rhs)) = (lhs_info, rhs_info) {
-                    if lhs.datatype == rhs.datatype {
-                        if let (Some(lhs_cons), Some(rhs_cons)) = (lhs.constructor, rhs.constructor)
-                        {
-                            if lhs_cons != rhs_cons {
-                                // Different constructors cannot be equal
-                                return Some(vec![constraint.reason]);
-                            }
-                        }
-                    }
+                if let (Some(lhs), Some(rhs)) = (lhs_info, rhs_info)
+                    && lhs.datatype == rhs.datatype
+                    && let (Some(lhs_cons), Some(rhs_cons)) = (lhs.constructor, rhs.constructor)
+                    && lhs_cons != rhs_cons
+                {
+                    // Different constructors cannot be equal
+                    return Some(vec![constraint.reason]);
                 }
             } else {
                 // Disequality constraint
@@ -363,11 +360,11 @@ impl DatatypeSolver {
                 if let (Some((lhs_cons, lhs_args)), Some((rhs_cons, rhs_args))) = (
                     self.constructor_apps.get(&constraint.lhs),
                     self.constructor_apps.get(&constraint.rhs),
-                ) {
-                    if lhs_cons == rhs_cons && lhs_args == rhs_args {
-                        // Same constructor with same arguments must be equal
-                        return Some(vec![constraint.reason]);
-                    }
+                ) && lhs_cons == rhs_cons
+                    && lhs_args == rhs_args
+                {
+                    // Same constructor with same arguments must be equal
+                    return Some(vec![constraint.reason]);
                 }
             }
         }
@@ -375,24 +372,23 @@ impl DatatypeSolver {
         // Check for injectivity conflicts
         // If cons(a1, ..., an) = cons(b1, ..., bn) then ai = bi for all i
         for constraint in &self.constraints {
-            if constraint.is_eq {
-                if let (Some((lhs_cons, lhs_args)), Some((rhs_cons, rhs_args))) = (
+            if constraint.is_eq
+                && let (Some((lhs_cons, lhs_args)), Some((rhs_cons, rhs_args))) = (
                     self.constructor_apps.get(&constraint.lhs),
                     self.constructor_apps.get(&constraint.rhs),
-                ) {
-                    if lhs_cons == rhs_cons {
-                        // Same constructor, check if any arguments are known to be different
-                        for (la, ra) in lhs_args.iter().zip(rhs_args.iter()) {
-                            // Check if we have a disequality constraint between these
-                            for neq in &self.constraints {
-                                if !neq.is_eq
-                                    && ((neq.lhs == *la && neq.rhs == *ra)
-                                        || (neq.lhs == *ra && neq.rhs == *la))
-                                {
-                                    // Arguments differ, but constructors are equal - conflict
-                                    return Some(vec![constraint.reason, neq.reason]);
-                                }
-                            }
+                )
+                && lhs_cons == rhs_cons
+            {
+                // Same constructor, check if any arguments are known to be different
+                for (la, ra) in lhs_args.iter().zip(rhs_args.iter()) {
+                    // Check if we have a disequality constraint between these
+                    for neq in &self.constraints {
+                        if !neq.is_eq
+                            && ((neq.lhs == *la && neq.rhs == *ra)
+                                || (neq.lhs == *ra && neq.rhs == *la))
+                        {
+                            // Arguments differ, but constructors are equal - conflict
+                            return Some(vec![constraint.reason, neq.reason]);
                         }
                     }
                 }
@@ -414,15 +410,15 @@ impl DatatypeSolver {
             for (sel_result, (sel_name, sel_arg)) in &self.selector_apps {
                 if sel_arg == term {
                     // Find which field this selector extracts
-                    if let Some(dt) = self.find_datatype_for_constructor(cons_name) {
-                        if let Some(cons) = dt.get_constructor(cons_name) {
-                            for (idx, field) in cons.fields.iter().enumerate() {
-                                if &field.name == sel_name {
-                                    // Propagate: sel_result = args[idx]
-                                    if let Some(&arg) = args.get(idx) {
-                                        propagations.push((*sel_result, vec![*term, arg]));
-                                    }
-                                }
+                    if let Some(dt) = self.find_datatype_for_constructor(cons_name)
+                        && let Some(cons) = dt.get_constructor(cons_name)
+                    {
+                        for (idx, field) in cons.fields.iter().enumerate() {
+                            if &field.name == sel_name
+                                && let Some(&arg) = args.get(idx)
+                            {
+                                // Propagate: sel_result = args[idx]
+                                propagations.push((*sel_result, vec![*term, arg]));
                             }
                         }
                     }

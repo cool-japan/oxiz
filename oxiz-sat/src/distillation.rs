@@ -93,11 +93,11 @@ impl Distillation {
             self.stats.clauses_distilled += 1;
 
             // Check if clause became unit or empty
-            if let Some(clause) = clauses.get(clause_id) {
-                if clause.len() <= 1 {
-                    self.stats.clauses_deleted += 1;
-                    return true;
-                }
+            if let Some(clause) = clauses.get(clause_id)
+                && clause.len() <= 1
+            {
+                self.stats.clauses_deleted += 1;
+                return true;
             }
         }
 

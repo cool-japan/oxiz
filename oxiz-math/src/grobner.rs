@@ -366,10 +366,10 @@ fn f5_criterion(sig: &Signature, basis: &[LabeledPoly]) -> bool {
         if p.signature.cmp(sig) != std::cmp::Ordering::Greater {
             // Found a polynomial with signature <= sig
             // Check if its leading monomial divides the signature monomial
-            if let Some(lm) = p.polynomial.leading_monomial() {
-                if sig.monomial.div(lm).is_some() {
-                    return true;
-                }
+            if let Some(lm) = p.polynomial.leading_monomial()
+                && sig.monomial.div(lm).is_some()
+            {
+                return true;
             }
         }
     }

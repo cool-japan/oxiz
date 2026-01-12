@@ -128,10 +128,11 @@ impl CuttingPlaneGenerator {
                 let frac = self.fractional_part(value);
 
                 // Only generate cut if value is fractional
-                if frac > self.tolerance && frac < (1.0 - self.tolerance) {
-                    if let Some(cut) = self.generate_gomory_cut_for_var(var, value, frac) {
-                        cuts.push(cut);
-                    }
+                if frac > self.tolerance
+                    && frac < (1.0 - self.tolerance)
+                    && let Some(cut) = self.generate_gomory_cut_for_var(var, value, frac)
+                {
+                    cuts.push(cut);
                 }
             }
         }

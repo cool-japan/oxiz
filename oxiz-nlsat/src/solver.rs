@@ -605,7 +605,7 @@ impl NlsatSolver {
 
                 // Check if we should reorder variables
                 if self.config.dynamic_reordering
-                    && self.stats.conflicts % self.config.reorder_frequency == 0
+                    && self.stats.conflicts.is_multiple_of(self.config.reorder_frequency)
                 {
                     self.dynamic_reorder();
                 }
@@ -735,10 +735,10 @@ impl NlsatSolver {
                 // The false literal (false_lit) should be one of lit0 or lit1.
                 // We want to ensure the false literal is at position 1 so position 0 is the "other" watch.
                 // If lit0 is the false one, swap positions.
-                if lit0 == false_lit {
-                    if let Some(clause) = self.clauses.get_mut(clause_id) {
-                        clause.swap(0, 1);
-                    }
+                if lit0 == false_lit
+                    && let Some(clause) = self.clauses.get_mut(clause_id)
+                {
+                    clause.swap(0, 1);
                 }
 
                 // After potential swap, re-read the literals
@@ -1221,10 +1221,11 @@ impl NlsatSolver {
     /// Make a decision.
     fn decide(&mut self) -> Option<Literal> {
         // Random decision
-        if self.config.random_decisions && self.random() < self.config.random_freq {
-            if let Some(lit) = self.random_decision() {
-                return Some(lit);
-            }
+        if self.config.random_decisions
+            && self.random() < self.config.random_freq
+            && let Some(lit) = self.random_decision()
+        {
+            return Some(lit);
         }
 
         // VSIDS-like decision: pick the unassigned variable with highest activity
@@ -1274,7 +1275,7 @@ impl NlsatSolver {
 
         let idx = (self.random_int() as usize) % unassigned.len();
         let var = unassigned[idx];
-        let positive = self.random_int() % 2 == 0;
+        let positive = self.random_int().is_multiple_of(2);
 
         Some(if positive {
             Literal::positive(var)
@@ -1355,10 +1356,10 @@ impl NlsatSolver {
                 // Substitute all assigned variables except `var`
                 let mut sub_poly = factor.poly.clone();
                 for v in factor.poly.vars() {
-                    if v != var {
-                        if let Some(val) = self.assignment.arith_value(v) {
-                            sub_poly = sub_poly.substitute(v, &Polynomial::constant(val.clone()));
-                        }
+                    if v != var
+                        && let Some(val) = self.assignment.arith_value(v)
+                    {
+                        sub_poly = sub_poly.substitute(v, &Polynomial::constant(val.clone()));
                     }
                 }
 
@@ -2114,16 +2115,16 @@ fn integer_sqrt(n: &num_bigint::BigInt) -> Option<num_bigint::BigInt> {
     }
 
     // For small numbers, use f64
-    if let Some(n_f64) = n.to_f64() {
-        if n_f64 < 1e15 {
-            let sqrt = n_f64.sqrt();
-            let sqrt_int = sqrt.round() as i64;
-            let candidate = num_bigint::BigInt::from(sqrt_int);
-            if &candidate * &candidate == *n {
-                return Some(candidate);
-            }
-            return None;
+    if let Some(n_f64) = n.to_f64()
+        && n_f64 < 1e15
+    {
+        let sqrt = n_f64.sqrt();
+        let sqrt_int = sqrt.round() as i64;
+        let candidate = num_bigint::BigInt::from(sqrt_int);
+        if &candidate * &candidate == *n {
+            return Some(candidate);
         }
+        return None;
     }
 
     // Newton's method for large numbers

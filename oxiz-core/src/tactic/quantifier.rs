@@ -157,32 +157,31 @@ impl PatternMatcher {
 
     /// Add a pattern for a quantifier
     pub fn add_pattern(&mut self, quantifier: TermId, manager: &TermManager) {
-        if let Some(term) = manager.get(quantifier) {
-            if let TermKind::Forall {
+        if let Some(term) = manager.get(quantifier)
+            && let TermKind::Forall {
                 vars,
                 body,
                 patterns,
             } = &term.kind
-            {
-                if patterns.is_empty() {
-                    // No explicit patterns - use heuristic trigger inference
-                    // For now, just use the body as a fallback (not ideal)
+        {
+            if patterns.is_empty() {
+                // No explicit patterns - use heuristic trigger inference
+                // For now, just use the body as a fallback (not ideal)
+                self.patterns.push(Pattern {
+                    quantifier,
+                    triggers: SmallVec::new(),
+                    bound_vars: vars.clone(),
+                    body: *body,
+                });
+            } else {
+                // Use explicit patterns
+                for pattern in patterns {
                     self.patterns.push(Pattern {
                         quantifier,
-                        triggers: SmallVec::new(),
+                        triggers: pattern.clone(),
                         bound_vars: vars.clone(),
                         body: *body,
                     });
-                } else {
-                    // Use explicit patterns
-                    for pattern in patterns {
-                        self.patterns.push(Pattern {
-                            quantifier,
-                            triggers: pattern.clone(),
-                            bound_vars: vars.clone(),
-                            body: *body,
-                        });
-                    }
                 }
             }
         }
@@ -567,10 +566,10 @@ impl<'a> QuantifierInstantiationTactic<'a> {
 
         impl TermVisitor for QuantifierCollector {
             fn visit_pre(&mut self, term_id: TermId, manager: &TermManager) -> VisitorAction {
-                if let Some(term) = manager.get(term_id) {
-                    if matches!(term.kind, TermKind::Forall { .. }) {
-                        self.quantifiers.push(term_id);
-                    }
+                if let Some(term) = manager.get(term_id)
+                    && matches!(term.kind, TermKind::Forall { .. })
+                {
+                    self.quantifiers.push(term_id);
                 }
                 VisitorAction::Continue
             }
@@ -675,11 +674,11 @@ pub fn contains_quantifier(term_id: TermId, manager: &TermManager) -> bool {
 
     impl TermVisitor for QuantifierChecker {
         fn visit_pre(&mut self, term_id: TermId, manager: &TermManager) -> VisitorAction {
-            if let Some(term) = manager.get(term_id) {
-                if matches!(term.kind, TermKind::Forall { .. } | TermKind::Exists { .. }) {
-                    self.found = true;
-                    return VisitorAction::Stop;
-                }
+            if let Some(term) = manager.get(term_id)
+                && matches!(term.kind, TermKind::Forall { .. } | TermKind::Exists { .. })
+            {
+                self.found = true;
+                return VisitorAction::Stop;
             }
             VisitorAction::Continue
         }
@@ -896,15 +895,15 @@ impl<'a> DerTactic<'a> {
         // This is handled by the above
 
         // Look for implication pattern: x ≠ t → ψ which is x = t ∨ ψ
-        if let Some(term) = self.manager.get(body) {
-            if let TermKind::Implies(lhs, rhs) = &term.kind {
-                let lhs = *lhs;
-                let rhs = *rhs;
-                // Check if lhs is x ≠ t (i.e., Not(Eq(x, t)))
-                if let Some(eq) = self.extract_diseq_var(lhs, &bound_var_names) {
-                    // x ≠ t → ψ is equivalent to x = t ∨ ψ
-                    return self.eliminate_variable_with_substitute(vars, rhs, patterns, &eq);
-                }
+        if let Some(term) = self.manager.get(body)
+            && let TermKind::Implies(lhs, rhs) = &term.kind
+        {
+            let lhs = *lhs;
+            let rhs = *rhs;
+            // Check if lhs is x ≠ t (i.e., Not(Eq(x, t)))
+            if let Some(eq) = self.extract_diseq_var(lhs, &bound_var_names) {
+                // x ≠ t → ψ is equivalent to x = t ∨ ψ
+                return self.eliminate_variable_with_substitute(vars, rhs, patterns, &eq);
             }
         }
 
@@ -1042,14 +1041,14 @@ impl<'a> DerTactic<'a> {
     ) -> Option<EliminableEquality> {
         let term = self.manager.get(term_id)?;
 
-        if let TermKind::Not(inner) = &term.kind {
-            if let Some((var_name, substitute)) = self.extract_eq_var(*inner, bound_vars) {
-                return Some(EliminableEquality {
-                    var_name,
-                    substitute,
-                    is_positive: false,
-                });
-            }
+        if let TermKind::Not(inner) = &term.kind
+            && let Some((var_name, substitute)) = self.extract_eq_var(*inner, bound_vars)
+        {
+            return Some(EliminableEquality {
+                var_name,
+                substitute,
+                is_positive: false,
+            });
         }
 
         None
@@ -1079,21 +1078,21 @@ impl<'a> DerTactic<'a> {
         bound_vars: &FxHashSet<Spur>,
     ) -> Option<(Spur, TermId)> {
         // Check if lhs is a bound variable and rhs doesn't contain it
-        if let Some(lhs_term) = self.manager.get(lhs) {
-            if let TermKind::Var(name) = &lhs_term.kind {
-                if bound_vars.contains(name) && !self.term_contains_var(rhs, *name) {
-                    return Some((*name, rhs));
-                }
-            }
+        if let Some(lhs_term) = self.manager.get(lhs)
+            && let TermKind::Var(name) = &lhs_term.kind
+            && bound_vars.contains(name)
+            && !self.term_contains_var(rhs, *name)
+        {
+            return Some((*name, rhs));
         }
 
         // Check if rhs is a bound variable and lhs doesn't contain it
-        if let Some(rhs_term) = self.manager.get(rhs) {
-            if let TermKind::Var(name) = &rhs_term.kind {
-                if bound_vars.contains(name) && !self.term_contains_var(lhs, *name) {
-                    return Some((*name, lhs));
-                }
-            }
+        if let Some(rhs_term) = self.manager.get(rhs)
+            && let TermKind::Var(name) = &rhs_term.kind
+            && bound_vars.contains(name)
+            && !self.term_contains_var(lhs, *name)
+        {
+            return Some((*name, lhs));
         }
 
         None
@@ -1108,13 +1107,12 @@ impl<'a> DerTactic<'a> {
 
         impl TermVisitor for VarChecker {
             fn visit_pre(&mut self, term_id: TermId, manager: &TermManager) -> VisitorAction {
-                if let Some(term) = manager.get(term_id) {
-                    if let TermKind::Var(name) = &term.kind {
-                        if *name == self.var_name {
-                            self.found = true;
-                            return VisitorAction::Stop;
-                        }
-                    }
+                if let Some(term) = manager.get(term_id)
+                    && let TermKind::Var(name) = &term.kind
+                    && *name == self.var_name
+                {
+                    self.found = true;
+                    return VisitorAction::Stop;
                 }
                 VisitorAction::Continue
             }
@@ -1296,24 +1294,22 @@ impl<'a> DerTactic<'a> {
 
     /// Check if a term is an equality involving a specific variable
     fn is_equality_for_var(&self, term_id: TermId, var_name: Spur) -> bool {
-        if let Some(term) = self.manager.get(term_id) {
-            if let TermKind::Eq(lhs, rhs) = &term.kind {
-                // Check lhs
-                if let Some(lhs_term) = self.manager.get(*lhs) {
-                    if let TermKind::Var(name) = &lhs_term.kind {
-                        if *name == var_name {
-                            return true;
-                        }
-                    }
-                }
-                // Check rhs
-                if let Some(rhs_term) = self.manager.get(*rhs) {
-                    if let TermKind::Var(name) = &rhs_term.kind {
-                        if *name == var_name {
-                            return true;
-                        }
-                    }
-                }
+        if let Some(term) = self.manager.get(term_id)
+            && let TermKind::Eq(lhs, rhs) = &term.kind
+        {
+            // Check lhs
+            if let Some(lhs_term) = self.manager.get(*lhs)
+                && let TermKind::Var(name) = &lhs_term.kind
+                && *name == var_name
+            {
+                return true;
+            }
+            // Check rhs
+            if let Some(rhs_term) = self.manager.get(*rhs)
+                && let TermKind::Var(name) = &rhs_term.kind
+                && *name == var_name
+            {
+                return true;
             }
         }
         false

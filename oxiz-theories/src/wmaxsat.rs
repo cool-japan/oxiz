@@ -74,20 +74,20 @@ impl SoftClause {
         for &lit in &self.literals {
             let var = lit.abs();
             let pol = lit > 0;
-            if let Some(&val) = assignment.get(&var) {
-                if val == pol {
-                    return true;
-                }
+            if let Some(&val) = assignment.get(&var)
+                && val == pol
+            {
+                return true;
             }
         }
         // Also check relaxation literal
         if let Some(relax) = self.relaxation_lit {
             let var = relax.abs();
             let pol = relax > 0;
-            if let Some(&val) = assignment.get(&var) {
-                if val == pol {
-                    return true;
-                }
+            if let Some(&val) = assignment.get(&var)
+                && val == pol
+            {
+                return true;
             }
         }
         false
@@ -326,10 +326,10 @@ impl WMaxSatSolver {
 
     /// Check if the current assignment respects the cost bound
     pub fn check(&self) -> WMaxSatResult {
-        if let Some(bound) = self.cost_bound {
-            if self.stats.current_cost > bound {
-                return WMaxSatResult::Unsat;
-            }
+        if let Some(bound) = self.cost_bound
+            && self.stats.current_cost > bound
+        {
+            return WMaxSatResult::Unsat;
         }
         WMaxSatResult::Sat
     }
@@ -372,26 +372,26 @@ impl WMaxSatSolver {
 
     /// Get conflict clause when cost bound is exceeded
     pub fn get_conflict(&self) -> Option<Vec<LitId>> {
-        if let Some(bound) = self.cost_bound {
-            if self.stats.current_cost > bound {
-                // The conflict is: the conjunction of assignments that falsified clauses
-                let mut conflict = Vec::new();
-                for clause_id in &self.falsified {
-                    if let Some(clause) = self.soft_clauses.iter().find(|c| c.id == *clause_id) {
-                        // Add negation of the literals that falsified this clause
-                        for &lit in &clause.literals {
-                            let var = lit.abs();
-                            if let Some(&val) = self.assignment.get(&var) {
-                                let assigned_lit = if val { var } else { -var };
-                                if !conflict.contains(&-assigned_lit) {
-                                    conflict.push(-assigned_lit);
-                                }
+        if let Some(bound) = self.cost_bound
+            && self.stats.current_cost > bound
+        {
+            // The conflict is: the conjunction of assignments that falsified clauses
+            let mut conflict = Vec::new();
+            for clause_id in &self.falsified {
+                if let Some(clause) = self.soft_clauses.iter().find(|c| c.id == *clause_id) {
+                    // Add negation of the literals that falsified this clause
+                    for &lit in &clause.literals {
+                        let var = lit.abs();
+                        if let Some(&val) = self.assignment.get(&var) {
+                            let assigned_lit = if val { var } else { -var };
+                            if !conflict.contains(&-assigned_lit) {
+                                conflict.push(-assigned_lit);
                             }
                         }
                     }
                 }
-                return Some(conflict);
             }
+            return Some(conflict);
         }
         None
     }

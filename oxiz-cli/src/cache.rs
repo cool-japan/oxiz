@@ -94,17 +94,16 @@ impl ResultCache {
 
         // Check disk cache
         let cache_file = self.cache_file_path(&hash);
-        if cache_file.exists() {
-            if let Ok(contents) = fs::read_to_string(&cache_file) {
-                if let Ok(mut entry) = serde_json::from_str::<CacheEntry>(&contents) {
-                    // Update last access time for LRU
-                    entry.last_access = now;
+        if cache_file.exists()
+            && let Ok(contents) = fs::read_to_string(&cache_file)
+            && let Ok(mut entry) = serde_json::from_str::<CacheEntry>(&contents)
+        {
+            // Update last access time for LRU
+            entry.last_access = now;
 
-                    // Add to memory cache with LRU eviction if needed
-                    self.insert_with_lru_eviction(hash, entry.clone());
-                    return Some(entry);
-                }
-            }
+            // Add to memory cache with LRU eviction if needed
+            self.insert_with_lru_eviction(hash, entry.clone());
+            return Some(entry);
         }
 
         None

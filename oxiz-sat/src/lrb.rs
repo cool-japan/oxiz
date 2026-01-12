@@ -135,7 +135,7 @@ impl LRB {
     pub fn on_conflict(&mut self) {
         self.conflicts += 1;
 
-        if self.conflicts % self.interval == 0 {
+        if self.conflicts.is_multiple_of(self.interval) {
             self.update_participation();
         }
     }

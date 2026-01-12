@@ -182,17 +182,18 @@ impl DenseDiffLogic {
             // Find next node in the cycle
             let mut found = false;
             for j in 0..self.num_vars {
-                if self.dist[current][j] < infinity() && j != current {
-                    if let Some(constraint_idx) = self.edge_constraint[current][j] {
-                        // Check if this edge is part of a path back to start
-                        let via_j = self.dist[current][j] + self.dist[j][start];
-                        if via_j < infinity() {
-                            cycle_edges.push(constraint_idx);
-                            total_weight += self.dist[current][j];
-                            current = j;
-                            found = true;
-                            break;
-                        }
+                if self.dist[current][j] < infinity()
+                    && j != current
+                    && let Some(constraint_idx) = self.edge_constraint[current][j]
+                {
+                    // Check if this edge is part of a path back to start
+                    let via_j = self.dist[current][j] + self.dist[j][start];
+                    if via_j < infinity() {
+                        cycle_edges.push(constraint_idx);
+                        total_weight += self.dist[current][j];
+                        current = j;
+                        found = true;
+                        break;
                     }
                 }
             }

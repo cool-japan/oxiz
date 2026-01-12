@@ -179,10 +179,11 @@ impl SeqEvaluator {
             }
             SeqExpr::At(s, i) => {
                 if let (SeqResult::String(s), Some(i)) = (self.eval_seq(s), self.eval_int(i)) {
-                    if i >= 0 && (i as usize) < s.len() {
-                        if let Some(c) = s.chars().nth(i as usize) {
-                            return SeqResult::String(c.to_string());
-                        }
+                    if i >= 0
+                        && (i as usize) < s.len()
+                        && let Some(c) = s.chars().nth(i as usize)
+                    {
+                        return SeqResult::String(c.to_string());
                     }
                     SeqResult::String(String::new())
                 } else {
@@ -191,10 +192,10 @@ impl SeqEvaluator {
             }
             SeqExpr::Unit(code) => {
                 if let Some(code) = self.eval_int(code) {
-                    if (0..=0x10FFFF).contains(&code) {
-                        if let Some(c) = char::from_u32(code as u32) {
-                            return SeqResult::String(c.to_string());
-                        }
+                    if (0..=0x10FFFF).contains(&code)
+                        && let Some(c) = char::from_u32(code as u32)
+                    {
+                        return SeqResult::String(c.to_string());
                     }
                     SeqResult::String(String::new())
                 } else {
@@ -658,18 +659,17 @@ impl SeqRewriter {
                 let s = self.simplify(*s);
 
                 // If s is a literal and start/len are literals, compute directly
-                if let SeqExpr::Literal(s_str) = &s {
-                    if let (IntExpr::Literal(start_val), IntExpr::Literal(len_val)) =
+                if let SeqExpr::Literal(s_str) = &s
+                    && let (IntExpr::Literal(start_val), IntExpr::Literal(len_val)) =
                         (&*start, &*len)
-                    {
-                        let start_idx = (*start_val).max(0) as usize;
-                        let len_val = (*len_val).max(0) as usize;
-                        if start_idx >= s_str.len() {
-                            return SeqExpr::Literal(String::new());
-                        }
-                        let end_idx = (start_idx + len_val).min(s_str.len());
-                        return SeqExpr::Literal(s_str[start_idx..end_idx].to_string());
+                {
+                    let start_idx = (*start_val).max(0) as usize;
+                    let len_val = (*len_val).max(0) as usize;
+                    if start_idx >= s_str.len() {
+                        return SeqExpr::Literal(String::new());
                     }
+                    let end_idx = (start_idx + len_val).min(s_str.len());
+                    return SeqExpr::Literal(s_str[start_idx..end_idx].to_string());
                 }
 
                 SeqExpr::Extract(Box::new(s), start, len)
@@ -720,10 +720,11 @@ impl SeqRewriter {
                 let s = self.simplify(*s);
 
                 if let (SeqExpr::Literal(s_str), IntExpr::Literal(i_val)) = (&s, &*i) {
-                    if *i_val >= 0 && (*i_val as usize) < s_str.len() {
-                        if let Some(c) = s_str.chars().nth(*i_val as usize) {
-                            return SeqExpr::Literal(c.to_string());
-                        }
+                    if *i_val >= 0
+                        && (*i_val as usize) < s_str.len()
+                        && let Some(c) = s_str.chars().nth(*i_val as usize)
+                    {
+                        return SeqExpr::Literal(c.to_string());
                     }
                     return SeqExpr::Literal(String::new());
                 }
@@ -732,10 +733,11 @@ impl SeqRewriter {
             }
             SeqExpr::Unit(code) => {
                 if let IntExpr::Literal(c) = &*code {
-                    if *c >= 0 && *c <= 0x10FFFF {
-                        if let Some(ch) = char::from_u32(*c as u32) {
-                            return SeqExpr::Literal(ch.to_string());
-                        }
+                    if *c >= 0
+                        && *c <= 0x10FFFF
+                        && let Some(ch) = char::from_u32(*c as u32)
+                    {
+                        return SeqExpr::Literal(ch.to_string());
                     }
                     return SeqExpr::Literal(String::new());
                 }

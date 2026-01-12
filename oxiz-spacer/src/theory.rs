@@ -42,10 +42,10 @@ impl TheoryIntegration {
             }
 
             // Check if the term's sort is an array sort
-            if let Some(sort) = manager.sorts.get(t.sort) {
-                if matches!(sort.kind, SortKind::Array { .. }) {
-                    return true;
-                }
+            if let Some(sort) = manager.sorts.get(t.sort)
+                && matches!(sort.kind, SortKind::Array { .. })
+            {
+                return true;
             }
         }
 
@@ -80,10 +80,10 @@ impl TheoryIntegration {
             }
 
             // Check if the term's sort is a bitvector sort
-            if let Some(sort) = manager.sorts.get(t.sort) {
-                if matches!(sort.kind, SortKind::BitVec(_)) {
-                    return true;
-                }
+            if let Some(sort) = manager.sorts.get(t.sort)
+                && matches!(sort.kind, SortKind::BitVec(_))
+            {
+                return true;
             }
         }
 

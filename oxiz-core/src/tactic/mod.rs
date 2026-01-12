@@ -230,22 +230,22 @@ impl<'a> PropagateValuesTactic<'a> {
         let mut subst: FxHashMap<TermId, TermId> = FxHashMap::default();
 
         for &assertion in &goal.assertions {
-            if let Some(term) = self.manager.get(assertion) {
-                if let TermKind::Eq(lhs, rhs) = &term.kind {
-                    let lhs_term = self.manager.get(*lhs);
-                    let rhs_term = self.manager.get(*rhs);
+            if let Some(term) = self.manager.get(assertion)
+                && let TermKind::Eq(lhs, rhs) = &term.kind
+            {
+                let lhs_term = self.manager.get(*lhs);
+                let rhs_term = self.manager.get(*rhs);
 
-                    match (lhs_term.map(|t| &t.kind), rhs_term.map(|t| &t.kind)) {
-                        // x = constant
-                        (Some(TermKind::Var(_)), Some(k)) if is_constant(k) => {
-                            subst.insert(*lhs, *rhs);
-                        }
-                        // constant = x
-                        (Some(k), Some(TermKind::Var(_))) if is_constant(k) => {
-                            subst.insert(*rhs, *lhs);
-                        }
-                        _ => {}
+                match (lhs_term.map(|t| &t.kind), rhs_term.map(|t| &t.kind)) {
+                    // x = constant
+                    (Some(TermKind::Var(_)), Some(k)) if is_constant(k) => {
+                        subst.insert(*lhs, *rhs);
                     }
+                    // constant = x
+                    (Some(k), Some(TermKind::Var(_))) if is_constant(k) => {
+                        subst.insert(*rhs, *lhs);
+                    }
+                    _ => {}
                 }
             }
         }
@@ -842,30 +842,30 @@ impl<'a> CtxSolverSimplifyTactic<'a> {
                 continue;
             }
 
-            if let Some(term) = self.manager.get(assertion) {
-                if let TermKind::Eq(lhs, rhs) = &term.kind {
-                    let lhs_term = self.manager.get(*lhs);
-                    let rhs_term = self.manager.get(*rhs);
+            if let Some(term) = self.manager.get(assertion)
+                && let TermKind::Eq(lhs, rhs) = &term.kind
+            {
+                let lhs_term = self.manager.get(*lhs);
+                let rhs_term = self.manager.get(*rhs);
 
-                    match (lhs_term.map(|t| &t.kind), rhs_term.map(|t| &t.kind)) {
-                        // x = constant
-                        (Some(TermKind::Var(_)), Some(k)) if is_constant(k) => {
+                match (lhs_term.map(|t| &t.kind), rhs_term.map(|t| &t.kind)) {
+                    // x = constant
+                    (Some(TermKind::Var(_)), Some(k)) if is_constant(k) => {
+                        subst.insert(*lhs, *rhs);
+                    }
+                    // constant = x
+                    (Some(k), Some(TermKind::Var(_))) if is_constant(k) => {
+                        subst.insert(*rhs, *lhs);
+                    }
+                    // x = y (prefer lower term ID as representative)
+                    (Some(TermKind::Var(_)), Some(TermKind::Var(_))) => {
+                        if lhs.0 > rhs.0 {
                             subst.insert(*lhs, *rhs);
-                        }
-                        // constant = x
-                        (Some(k), Some(TermKind::Var(_))) if is_constant(k) => {
+                        } else {
                             subst.insert(*rhs, *lhs);
                         }
-                        // x = y (prefer lower term ID as representative)
-                        (Some(TermKind::Var(_)), Some(TermKind::Var(_))) => {
-                            if lhs.0 > rhs.0 {
-                                subst.insert(*lhs, *rhs);
-                            } else {
-                                subst.insert(*rhs, *lhs);
-                            }
-                        }
-                        _ => {}
                     }
+                    _ => {}
                 }
             }
         }
@@ -1383,10 +1383,10 @@ impl<'a> SplitTactic<'a> {
 
         // Prefer variables over complex terms
         for &candidate in &unique {
-            if let Some(term) = self.manager.get(candidate) {
-                if matches!(term.kind, TermKind::Var(_)) {
-                    return Some(candidate);
-                }
+            if let Some(term) = self.manager.get(candidate)
+                && matches!(term.kind, TermKind::Var(_))
+            {
+                return Some(candidate);
             }
         }
 
@@ -1473,10 +1473,10 @@ impl<'a> EliminateUnconstrainedTactic<'a> {
         for &assertion in &goal.assertions {
             let subterms = collect_subterms(assertion, self.manager);
             for term_id in subterms {
-                if let Some(term) = self.manager.get(term_id) {
-                    if matches!(term.kind, TermKind::Var(_)) {
-                        *counts.entry(term_id).or_insert(0) += 1;
-                    }
+                if let Some(term) = self.manager.get(term_id)
+                    && matches!(term.kind, TermKind::Var(_))
+                {
+                    *counts.entry(term_id).or_insert(0) += 1;
                 }
             }
         }
@@ -1748,33 +1748,32 @@ impl<'a> SolveEqsTactic<'a> {
             let rhs_kind = self.manager.get(rhs).map(|t| t.kind.clone());
 
             // Case 1: x = expr (where x doesn't appear in expr)
-            if let Some(TermKind::Var(_)) = &lhs_kind {
-                if !self.var_occurs_in(lhs, rhs) {
-                    return Some((lhs, rhs));
-                }
+            if let Some(TermKind::Var(_)) = &lhs_kind
+                && !self.var_occurs_in(lhs, rhs)
+            {
+                return Some((lhs, rhs));
             }
 
             // Case 2: expr = x (where x doesn't appear in expr)
-            if let Some(TermKind::Var(_)) = &rhs_kind {
-                if !self.var_occurs_in(rhs, lhs) {
-                    return Some((rhs, lhs));
-                }
+            if let Some(TermKind::Var(_)) = &rhs_kind
+                && !self.var_occurs_in(rhs, lhs)
+            {
+                return Some((rhs, lhs));
             }
 
             // Case 3: Handle linear addition: (x + a) = b => x = b - a
-            if let Some(TermKind::Add(args)) = lhs_kind.clone() {
-                if let Some((var, result)) = self.solve_linear_add_concrete(&args, rhs) {
-                    return Some((var, result));
-                }
+            if let Some(TermKind::Add(args)) = lhs_kind.clone()
+                && let Some((var, result)) = self.solve_linear_add_concrete(&args, rhs)
+            {
+                return Some((var, result));
             }
 
             // Case 4: Handle subtraction: (x - a) = b => x = b + a
-            if let Some(TermKind::Sub(minuend, subtrahend)) = lhs_kind {
-                if let Some((var, result)) =
+            if let Some(TermKind::Sub(minuend, subtrahend)) = lhs_kind
+                && let Some((var, result)) =
                     self.solve_linear_sub_concrete(minuend, subtrahend, rhs)
-                {
-                    return Some((var, result));
-                }
+            {
+                return Some((var, result));
             }
         }
 
@@ -1830,12 +1829,13 @@ impl<'a> SolveEqsTactic<'a> {
     ) -> Option<(TermId, TermId)> {
         let minuend_term = self.manager.get(minuend)?;
 
-        if let TermKind::Var(_) = &minuend_term.kind {
-            if !self.var_occurs_in(minuend, subtrahend) && !self.var_occurs_in(minuend, rhs) {
-                // x = rhs + subtrahend
-                let result = self.manager.mk_add([rhs, subtrahend]);
-                return Some((minuend, result));
-            }
+        if let TermKind::Var(_) = &minuend_term.kind
+            && !self.var_occurs_in(minuend, subtrahend)
+            && !self.var_occurs_in(minuend, rhs)
+        {
+            // x = rhs + subtrahend
+            let result = self.manager.mk_add([rhs, subtrahend]);
+            return Some((minuend, result));
         }
         None
     }
@@ -2777,16 +2777,16 @@ impl ScriptableTactic {
             }
 
             // Check if script returned modified assertions
-            if let Some(new_assertions) = map.get("assertions") {
-                if let Some(arr) = new_assertions.clone().try_cast::<rhai::Array>() {
-                    let new_ids: Vec<TermId> = arr
-                        .iter()
-                        .filter_map(|v| v.as_int().ok().map(|i| TermId(i as u32)))
-                        .collect();
+            if let Some(new_assertions) = map.get("assertions")
+                && let Some(arr) = new_assertions.clone().try_cast::<rhai::Array>()
+            {
+                let new_ids: Vec<TermId> = arr
+                    .iter()
+                    .filter_map(|v| v.as_int().ok().map(|i| TermId(i as u32)))
+                    .collect();
 
-                    if new_ids != goal.assertions {
-                        return Ok(TacticResult::SubGoals(vec![Goal::new(new_ids)]));
-                    }
+                if new_ids != goal.assertions {
+                    return Ok(TacticResult::SubGoals(vec![Goal::new(new_ids)]));
                 }
             }
         }
@@ -2830,16 +2830,16 @@ impl Tactic for ScriptableTactic {
             }
 
             // Check if script returned modified assertions
-            if let Some(new_assertions) = map.get("assertions") {
-                if let Some(arr) = new_assertions.clone().try_cast::<rhai::Array>() {
-                    let new_ids: Vec<TermId> = arr
-                        .iter()
-                        .filter_map(|v| v.as_int().ok().map(|i| TermId(i as u32)))
-                        .collect();
+            if let Some(new_assertions) = map.get("assertions")
+                && let Some(arr) = new_assertions.clone().try_cast::<rhai::Array>()
+            {
+                let new_ids: Vec<TermId> = arr
+                    .iter()
+                    .filter_map(|v| v.as_int().ok().map(|i| TermId(i as u32)))
+                    .collect();
 
-                    if new_ids != goal.assertions {
-                        return Ok(TacticResult::SubGoals(vec![Goal::new(new_ids)]));
-                    }
+                if new_ids != goal.assertions {
+                    return Ok(TacticResult::SubGoals(vec![Goal::new(new_ids)]));
                 }
             }
         }

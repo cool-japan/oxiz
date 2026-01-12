@@ -345,17 +345,17 @@ impl BvRewriter {
         }
 
         // x * 1 → x
-        if let Some((v, _)) = self.get_bv_const(lhs, manager) {
-            if v == BigInt::from(1) {
-                ctx.stats_mut().record_rule("bv_mul_one");
-                return RewriteResult::Rewritten(rhs);
-            }
+        if let Some((v, _)) = self.get_bv_const(lhs, manager)
+            && v == BigInt::from(1)
+        {
+            ctx.stats_mut().record_rule("bv_mul_one");
+            return RewriteResult::Rewritten(rhs);
         }
-        if let Some((v, _)) = self.get_bv_const(rhs, manager) {
-            if v == BigInt::from(1) {
-                ctx.stats_mut().record_rule("bv_mul_one");
-                return RewriteResult::Rewritten(lhs);
-            }
+        if let Some((v, _)) = self.get_bv_const(rhs, manager)
+            && v == BigInt::from(1)
+        {
+            ctx.stats_mut().record_rule("bv_mul_one");
+            return RewriteResult::Rewritten(lhs);
         }
 
         // Constant folding
@@ -513,30 +513,27 @@ impl BvRewriter {
         }
 
         // extract(concat(x, y), h, l) simplification
-        if self.simplify_extract_concat {
-            if let TermKind::BvConcat(lhs_part, rhs_part) = &t.kind {
-                // Check the widths of the parts
-                if let (Some(_lw), Some(rw)) = (
-                    self.get_width(*lhs_part, manager),
-                    self.get_width(*rhs_part, manager),
-                ) {
-                    // concat(lhs, rhs): rhs is lower bits [0..rw), lhs is upper bits [rw..rw+lw)
-                    if high < rw {
-                        // Extraction entirely from rhs
-                        ctx.stats_mut().record_rule("bv_extract_concat_rhs");
-                        return RewriteResult::Rewritten(
-                            manager.mk_bv_extract(high, low, *rhs_part),
-                        );
-                    } else if low >= rw {
-                        // Extraction entirely from lhs
-                        ctx.stats_mut().record_rule("bv_extract_concat_lhs");
-                        return RewriteResult::Rewritten(manager.mk_bv_extract(
-                            high - rw,
-                            low - rw,
-                            *lhs_part,
-                        ));
-                    }
-                }
+        if self.simplify_extract_concat
+            && let TermKind::BvConcat(lhs_part, rhs_part) = &t.kind
+            // Check the widths of the parts
+            && let (Some(_lw), Some(rw)) = (
+                self.get_width(*lhs_part, manager),
+                self.get_width(*rhs_part, manager),
+            )
+        {
+            // concat(lhs, rhs): rhs is lower bits [0..rw), lhs is upper bits [rw..rw+lw)
+            if high < rw {
+                // Extraction entirely from rhs
+                ctx.stats_mut().record_rule("bv_extract_concat_rhs");
+                return RewriteResult::Rewritten(manager.mk_bv_extract(high, low, *rhs_part));
+            } else if low >= rw {
+                // Extraction entirely from lhs
+                ctx.stats_mut().record_rule("bv_extract_concat_lhs");
+                return RewriteResult::Rewritten(manager.mk_bv_extract(
+                    high - rw,
+                    low - rw,
+                    *lhs_part,
+                ));
             }
         }
 

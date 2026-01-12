@@ -247,16 +247,15 @@ impl PatternExtractor {
         let trimmed = conclusion.trim();
 
         // Check for quantifiers
-        if trimmed.starts_with("forall") || trimmed.starts_with("exists") {
-            if let Some((quantifier, rest)) = trimmed.split_once(' ') {
-                if let Some((var, body)) = rest.split_once('.') {
-                    return PatternStructure::Quantified {
-                        quantifier: quantifier.to_string(),
-                        var: var.trim().to_string(),
-                        body: Box::new(Self::parse_conclusion_structure(body.trim())),
-                    };
-                }
-            }
+        if (trimmed.starts_with("forall") || trimmed.starts_with("exists"))
+            && let Some((quantifier, rest)) = trimmed.split_once(' ')
+            && let Some((var, body)) = rest.split_once('.')
+        {
+            return PatternStructure::Quantified {
+                quantifier: quantifier.to_string(),
+                var: var.trim().to_string(),
+                body: Box::new(Self::parse_conclusion_structure(body.trim())),
+            };
         }
 
         // Check for binary operators
@@ -275,19 +274,19 @@ impl PatternExtractor {
         }
 
         // Check for function application
-        if let Some(pos) = trimmed.find('(') {
-            if trimmed.ends_with(')') {
-                let func = &trimmed[..pos];
-                let args_str = &trimmed[pos + 1..trimmed.len() - 1];
-                let args = args_str
-                    .split(',')
-                    .map(|a| Self::parse_conclusion_structure(a.trim()))
-                    .collect();
-                return PatternStructure::App {
-                    func: func.trim().to_string(),
-                    args,
-                };
-            }
+        if let Some(pos) = trimmed.find('(')
+            && trimmed.ends_with(')')
+        {
+            let func = &trimmed[..pos];
+            let args_str = &trimmed[pos + 1..trimmed.len() - 1];
+            let args = args_str
+                .split(',')
+                .map(|a| Self::parse_conclusion_structure(a.trim()))
+                .collect();
+            return PatternStructure::App {
+                func: func.trim().to_string(),
+                args,
+            };
         }
 
         // Default: atom

@@ -174,12 +174,12 @@ impl ProofSimplifier {
         for id in node_ids {
             if let Some(node) = proof.get_node(id) {
                 let conclusion = node.conclusion().to_string();
-                if let Some(simplified) = self.simplify_conclusion_double_neg(&conclusion) {
-                    if simplified != conclusion {
-                        // Update the conclusion
-                        if proof.update_conclusion(id, simplified) {
-                            count += 1;
-                        }
+                if let Some(simplified) = self.simplify_conclusion_double_neg(&conclusion)
+                    && simplified != conclusion
+                {
+                    // Update the conclusion
+                    if proof.update_conclusion(id, simplified) {
+                        count += 1;
                     }
                 }
             }
@@ -196,10 +196,11 @@ impl ProofSimplifier {
         for id in node_ids {
             if let Some(node) = proof.get_node(id) {
                 let conclusion = node.conclusion().to_string();
-                if let Some(simplified) = self.apply_demorgan_to_conclusion(&conclusion) {
-                    if simplified != conclusion && proof.update_conclusion(id, simplified) {
-                        count += 1;
-                    }
+                if let Some(simplified) = self.apply_demorgan_to_conclusion(&conclusion)
+                    && simplified != conclusion
+                    && proof.update_conclusion(id, simplified)
+                {
+                    count += 1;
                 }
             }
         }
@@ -215,10 +216,11 @@ impl ProofSimplifier {
         for id in node_ids {
             if let Some(node) = proof.get_node(id) {
                 let conclusion = node.conclusion().to_string();
-                if let Some(simplified) = self.remove_identities_from_conclusion(&conclusion) {
-                    if simplified != conclusion && proof.update_conclusion(id, simplified) {
-                        count += 1;
-                    }
+                if let Some(simplified) = self.remove_identities_from_conclusion(&conclusion)
+                    && simplified != conclusion
+                    && proof.update_conclusion(id, simplified)
+                {
+                    count += 1;
                 }
             }
         }
@@ -299,26 +301,28 @@ impl ProofSimplifier {
         let s = conclusion.trim();
 
         // Match: (and p true) → p
-        if (s.contains(" true)") || s.contains(" true ))")) && s.starts_with("(and ") {
-            if let Some((left, right)) = self.extract_binary_args(&s[5..]) {
-                if right.trim() == "true" {
-                    return Some(left.to_string());
-                }
-                if left.trim() == "true" {
-                    return Some(right.to_string());
-                }
+        if (s.contains(" true)") || s.contains(" true ))"))
+            && s.starts_with("(and ")
+            && let Some((left, right)) = self.extract_binary_args(&s[5..])
+        {
+            if right.trim() == "true" {
+                return Some(left.to_string());
+            }
+            if left.trim() == "true" {
+                return Some(right.to_string());
             }
         }
 
         // Match: (or p false) → p
-        if (s.contains(" false)") || s.contains(" false ))")) && s.starts_with("(or ") {
-            if let Some((left, right)) = self.extract_binary_args(&s[4..]) {
-                if right.trim() == "false" {
-                    return Some(left.to_string());
-                }
-                if left.trim() == "false" {
-                    return Some(right.to_string());
-                }
+        if (s.contains(" false)") || s.contains(" false ))"))
+            && s.starts_with("(or ")
+            && let Some((left, right)) = self.extract_binary_args(&s[4..])
+        {
+            if right.trim() == "false" {
+                return Some(left.to_string());
+            }
+            if left.trim() == "false" {
+                return Some(right.to_string());
             }
         }
 
@@ -329,15 +333,15 @@ impl ProofSimplifier {
         let s = conclusion.trim();
 
         // Check for patterns like: (or p (not p))
-        if let Some(stripped) = s.strip_prefix("(or ") {
-            if let Some((left, right)) = self.extract_binary_args(stripped) {
-                // Check if right is (not left) or left is (not right)
-                if right.trim() == format!("(not {})", left.trim()) {
-                    return true;
-                }
-                if left.trim() == format!("(not {})", right.trim()) {
-                    return true;
-                }
+        if let Some(stripped) = s.strip_prefix("(or ")
+            && let Some((left, right)) = self.extract_binary_args(stripped)
+        {
+            // Check if right is (not left) or left is (not right)
+            if right.trim() == format!("(not {})", left.trim()) {
+                return true;
+            }
+            if left.trim() == format!("(not {})", right.trim()) {
+                return true;
             }
         }
 

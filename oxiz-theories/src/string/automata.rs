@@ -760,10 +760,10 @@ impl ConstraintAutomaton {
             if s.len() < *min {
                 return false;
             }
-            if let Some(max) = max {
-                if s.len() > *max {
-                    return false;
-                }
+            if let Some(max) = max
+                && s.len() > *max
+            {
+                return false;
             }
         }
 
@@ -796,10 +796,10 @@ impl ConstraintAutomaton {
 
         while let Some((state, path)) = queue.pop_front() {
             // Check length constraints
-            if let Some((_, Some(max))) = &self.length_bounds {
-                if path.len() > *max {
-                    continue;
-                }
+            if let Some((_, Some(max))) = &self.length_bounds
+                && path.len() > *max
+            {
+                continue;
             }
 
             if self.accepts(&path) {

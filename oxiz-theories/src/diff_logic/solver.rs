@@ -262,11 +262,11 @@ impl DiffLogicSolver {
         }
 
         // Ensure distances are computed
-        if !self.distances_valid {
-            if let DiffLogicResult::Conflict(c) = self.check() {
-                results.push(DiffLogicResult::Conflict(c));
-                return results;
-            }
+        if !self.distances_valid
+            && let DiffLogicResult::Conflict(c) = self.check()
+        {
+            results.push(DiffLogicResult::Conflict(c));
+            return results;
         }
 
         // Theory propagation: if dist[x] - dist[y] ≤ c is tighter
@@ -282,10 +282,10 @@ impl DiffLogicSolver {
     pub fn get_value(&mut self, term: TermId) -> Option<Rational64> {
         self.stats.model_queries += 1;
 
-        if !self.distances_valid {
-            if let DiffLogicResult::Conflict(_) = self.check() {
-                return None;
-            }
+        if !self.distances_valid
+            && let DiffLogicResult::Conflict(_) = self.check()
+        {
+            return None;
         }
 
         if let Some(var) = self.graph.get_var(term) {
@@ -299,17 +299,17 @@ impl DiffLogicSolver {
     pub fn get_model(&mut self) -> HashMap<TermId, Rational64> {
         let mut model = HashMap::new();
 
-        if !self.distances_valid {
-            if let DiffLogicResult::Conflict(_) = self.check() {
-                return model;
-            }
+        if !self.distances_valid
+            && let DiffLogicResult::Conflict(_) = self.check()
+        {
+            return model;
         }
 
         for (var, dist) in &self.distances {
-            if !var.is_source() {
-                if let Some(term) = self.graph.get_term(*var) {
-                    model.insert(term, *dist);
-                }
+            if !var.is_source()
+                && let Some(term) = self.graph.get_term(*var)
+            {
+                model.insert(term, *dist);
             }
         }
 
@@ -377,10 +377,10 @@ impl DiffLogicSolver {
     /// Check if a potential constraint would cause a conflict
     pub fn would_conflict(&mut self, x: TermId, y: TermId, c: Rational64, strict: bool) -> bool {
         // Quick check: get current bounds and see if new constraint conflicts
-        if !self.distances_valid {
-            if let DiffLogicResult::Conflict(_) = self.check() {
-                return true;
-            }
+        if !self.distances_valid
+            && let DiffLogicResult::Conflict(_) = self.check()
+        {
+            return true;
         }
 
         let x_var = self.graph.get_var(x);

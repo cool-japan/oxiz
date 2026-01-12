@@ -208,15 +208,15 @@ impl ObjectiveBox {
         }
 
         for i in 0..self.lower.len() {
-            if let Some(ref lo) = self.lower[i] {
-                if &point.values[i] < lo {
-                    return false;
-                }
+            if let Some(ref lo) = self.lower[i]
+                && &point.values[i] < lo
+            {
+                return false;
             }
-            if let Some(ref hi) = self.upper[i] {
-                if &point.values[i] > hi {
-                    return false;
-                }
+            if let Some(ref hi) = self.upper[i]
+                && &point.values[i] > hi
+            {
+                return false;
             }
         }
         true
@@ -225,10 +225,10 @@ impl ObjectiveBox {
     /// Check if this box is empty (lower > upper for some dimension)
     pub fn is_empty(&self) -> bool {
         for i in 0..self.lower.len() {
-            if let (Some(lo), Some(hi)) = (&self.lower[i], &self.upper[i]) {
-                if lo > hi {
-                    return true;
-                }
+            if let (Some(lo), Some(hi)) = (&self.lower[i], &self.upper[i])
+                && lo > hi
+            {
+                return true;
             }
         }
         false

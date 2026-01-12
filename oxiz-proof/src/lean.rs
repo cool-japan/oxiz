@@ -148,16 +148,16 @@ impl LeanExporter {
         }
 
         // Final theorem
-        if let Some(root_id) = proof.root() {
-            if let Some(root_ident) = self.node_to_ident.get(&root_id) {
-                output.push_str("-- Main result\n");
-                if self.use_lean4 {
-                    output.push_str("theorem main_result : ∃ P, P := by\n");
-                    output.push_str(&format!("  use {}\n", root_ident));
-                } else {
-                    output.push_str("theorem main_result : ∃ P, P :=\n");
-                    output.push_str(&format!("⟨{}, _⟩\n", root_ident));
-                }
+        if let Some(root_id) = proof.root()
+            && let Some(root_ident) = self.node_to_ident.get(&root_id)
+        {
+            output.push_str("-- Main result\n");
+            if self.use_lean4 {
+                output.push_str("theorem main_result : ∃ P, P := by\n");
+                output.push_str(&format!("  use {}\n", root_ident));
+            } else {
+                output.push_str("theorem main_result : ∃ P, P :=\n");
+                output.push_str(&format!("⟨{}, _⟩\n", root_ident));
             }
         }
 

@@ -807,10 +807,10 @@ impl XorPropagator {
         // Set up watches
         let (w0, w1) = clause.get_watched();
         self.watches.entry(w0).or_default().push(clause_id);
-        if let Some(w1) = w1 {
-            if w0 != w1 {
-                self.watches.entry(w1).or_default().push(clause_id);
-            }
+        if let Some(w1) = w1
+            && w0 != w1
+        {
+            self.watches.entry(w1).or_default().push(clause_id);
         }
 
         self.clauses.push(clause);

@@ -135,12 +135,12 @@ impl ProofCompressor {
 
         // BFS to find all reachable nodes
         while let Some(node_id) = queue.pop_front() {
-            if let Some(node) = proof.get_node(node_id) {
-                if let ProofStep::Inference { premises, .. } = &node.step {
-                    for &premise_id in premises {
-                        if reachable.insert(premise_id) {
-                            queue.push_back(premise_id);
-                        }
+            if let Some(node) = proof.get_node(node_id)
+                && let ProofStep::Inference { premises, .. } = &node.step
+            {
+                for &premise_id in premises {
+                    if reachable.insert(premise_id) {
+                        queue.push_back(premise_id);
                     }
                 }
             }
@@ -203,13 +203,12 @@ impl ProofCompressor {
 
             if is_trivial {
                 // Skip this node, map to its premise
-                if let ProofStep::Inference { premises, .. } = &node.step {
-                    if let Some(&premise_id) = premises.first() {
-                        if let Some(&mapped_premise) = id_map.get(&premise_id) {
-                            id_map.insert(node.id, mapped_premise);
-                            continue;
-                        }
-                    }
+                if let ProofStep::Inference { premises, .. } = &node.step
+                    && let Some(&premise_id) = premises.first()
+                    && let Some(&mapped_premise) = id_map.get(&premise_id)
+                {
+                    id_map.insert(node.id, mapped_premise);
+                    continue;
                 }
             }
 
@@ -258,12 +257,12 @@ pub fn trim_to_conclusion(proof: &Proof, conclusion_id: ProofNodeId) -> Proof {
 
     // BFS backward through premises
     while let Some(node_id) = queue.pop_front() {
-        if let Some(node) = proof.get_node(node_id) {
-            if let ProofStep::Inference { premises, .. } = &node.step {
-                for &premise_id in premises {
-                    if needed.insert(premise_id) {
-                        queue.push_back(premise_id);
-                    }
+        if let Some(node) = proof.get_node(node_id)
+            && let ProofStep::Inference { premises, .. } = &node.step
+        {
+            for &premise_id in premises {
+                if needed.insert(premise_id) {
+                    queue.push_back(premise_id);
                 }
             }
         }
@@ -313,12 +312,12 @@ pub fn get_dependency_cone(proof: &Proof, node_id: ProofNodeId) -> Vec<ProofNode
     deps.insert(node_id);
 
     while let Some(id) = queue.pop_front() {
-        if let Some(node) = proof.get_node(id) {
-            if let ProofStep::Inference { premises, .. } = &node.step {
-                for &premise_id in premises {
-                    if deps.insert(premise_id) {
-                        queue.push_back(premise_id);
-                    }
+        if let Some(node) = proof.get_node(id)
+            && let ProofStep::Inference { premises, .. } = &node.step
+        {
+            for &premise_id in premises {
+                if deps.insert(premise_id) {
+                    queue.push_back(premise_id);
                 }
             }
         }

@@ -1148,10 +1148,10 @@ impl MaxSatSolver {
             let mut assumptions: Vec<Lit> = Vec::new();
 
             for &id in &soft_ids {
-                if !soft_to_group.contains_key(&id) {
-                    if let Some(&block_var) = blocking_vars.get(&id) {
-                        assumptions.push(Lit::neg(block_var));
-                    }
+                if !soft_to_group.contains_key(&id)
+                    && let Some(&block_var) = blocking_vars.get(&id)
+                {
+                    assumptions.push(Lit::neg(block_var));
                 }
             }
 

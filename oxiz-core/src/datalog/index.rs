@@ -196,14 +196,14 @@ impl Index for HashIndex {
     }
 
     fn remove(&mut self, key: &IndexKey, tuple_id: TupleId) -> bool {
-        if let Some(set) = self.data.get_mut(key) {
-            if set.remove(&tuple_id) {
-                self.entry_count -= 1;
-                if set.is_empty() {
-                    self.data.remove(key);
-                }
-                return true;
+        if let Some(set) = self.data.get_mut(key)
+            && set.remove(&tuple_id)
+        {
+            self.entry_count -= 1;
+            if set.is_empty() {
+                self.data.remove(key);
             }
+            return true;
         }
         false
     }
@@ -286,14 +286,14 @@ impl Index for BTreeIndex {
     }
 
     fn remove(&mut self, key: &IndexKey, tuple_id: TupleId) -> bool {
-        if let Some(set) = self.data.get_mut(key) {
-            if set.remove(&tuple_id) {
-                self.entry_count -= 1;
-                if set.is_empty() {
-                    self.data.remove(key);
-                }
-                return true;
+        if let Some(set) = self.data.get_mut(key)
+            && set.remove(&tuple_id)
+        {
+            self.entry_count -= 1;
+            if set.is_empty() {
+                self.data.remove(key);
             }
+            return true;
         }
         false
     }
@@ -416,11 +416,11 @@ impl Index for BitmapIndex {
     }
 
     fn remove(&mut self, key: &IndexKey, tuple_id: TupleId) -> bool {
-        if let Some(bitmap) = self.bitmaps.get_mut(key) {
-            if Self::clear_bit(bitmap, tuple_id.0) {
-                self.entry_count -= 1;
-                return true;
-            }
+        if let Some(bitmap) = self.bitmaps.get_mut(key)
+            && Self::clear_bit(bitmap, tuple_id.0)
+        {
+            self.entry_count -= 1;
+            return true;
         }
         false
     }

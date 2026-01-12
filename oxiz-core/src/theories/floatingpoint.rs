@@ -164,16 +164,14 @@ impl FloatingPointTheory {
 
     /// Add a term to the theory and extract floating-point operations
     pub fn add_term(&mut self, term: TermId, manager: &TermManager, sort_manager: &SortManager) {
-        if let Some(t) = manager.get(term) {
-            // Check if this is a floating-point term
-            if let Some(sort) = sort_manager.get(t.sort) {
-                if matches!(sort.kind, SortKind::FloatingPoint { .. }) {
-                    self.register_float(term, t.sort);
+        if let Some(t) = manager.get(term)
+            && let Some(sort) = sort_manager.get(t.sort)
+            && matches!(sort.kind, SortKind::FloatingPoint { .. })
+        {
+            self.register_float(term, t.sort);
 
-                    // Generate axioms based on term structure
-                    self.generate_axioms_for_term(term, &t.kind, manager);
-                }
-            }
+            // Generate axioms based on term structure
+            self.generate_axioms_for_term(term, &t.kind, manager);
         }
     }
 
@@ -214,10 +212,10 @@ impl FloatingPointTheory {
             }
             TermKind::FpNeg(inner) => {
                 // Check for double negation
-                if let Some(inner_term) = manager.get(*inner) {
-                    if let TermKind::FpNeg(_) = inner_term.kind {
-                        self.add_axiom(FloatingPointAxiom::NegInvolution { term });
-                    }
+                if let Some(inner_term) = manager.get(*inner)
+                    && let TermKind::FpNeg(_) = inner_term.kind
+                {
+                    self.add_axiom(FloatingPointAxiom::NegInvolution { term });
                 }
             }
             TermKind::FpAbs(_) => {

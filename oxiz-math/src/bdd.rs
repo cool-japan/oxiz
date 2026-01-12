@@ -270,15 +270,15 @@ impl BddManager {
 
         // Find the top variable
         let mut top_var = cond_node.var;
-        if let Some(n) = then_n {
-            if n.var < top_var {
-                top_var = n.var;
-            }
+        if let Some(n) = then_n
+            && n.var < top_var
+        {
+            top_var = n.var;
         }
-        if let Some(n) = else_n {
-            if n.var < top_var {
-                top_var = n.var;
-            }
+        if let Some(n) = else_n
+            && n.var < top_var
+        {
+            top_var = n.var;
         }
 
         // Cofactors

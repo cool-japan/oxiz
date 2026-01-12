@@ -371,6 +371,24 @@ impl Simplex {
 
     /// Add a constraint: expr <= 0
     pub fn add_le(&mut self, mut expr: LinExpr, reason: u32) {
+        // First, substitute any basic variables in expr with their non-basic expressions
+        // This ensures the new constraint is properly integrated into the tableau
+        let mut substituted_expr = LinExpr::constant(expr.constant);
+        for (var, coef) in &expr.terms {
+            if let Some(basic_expr) = self.tableau.get(var).cloned() {
+                // var is basic, substitute: var = basic_expr
+                // Add coef * basic_expr to substituted_expr
+                substituted_expr.add_constant(coef * basic_expr.constant);
+                for (inner_var, inner_coef) in &basic_expr.terms {
+                    substituted_expr.add_term(*inner_var, coef * inner_coef);
+                }
+            } else {
+                // var is non-basic, add directly
+                substituted_expr.add_term(*var, *coef);
+            }
+        }
+        expr = substituted_expr;
+
         // Introduce slack variable: expr + s = 0, s >= 0
         let slack = self.new_slack();
         expr.add_term(slack, Rational64::one());
@@ -404,6 +422,24 @@ impl Simplex {
     /// Add a strict constraint: expr < 0
     /// Uses infinitesimals: expr + s = 0 with s > 0
     pub fn add_strict_lt(&mut self, mut expr: LinExpr, reason: u32) {
+        // First, substitute any basic variables in expr with their non-basic expressions
+        // This ensures the new constraint is properly integrated into the tableau
+        let mut substituted_expr = LinExpr::constant(expr.constant);
+        for (var, coef) in &expr.terms {
+            if let Some(basic_expr) = self.tableau.get(var).cloned() {
+                // var is basic, substitute: var = basic_expr
+                // Add coef * basic_expr to substituted_expr
+                substituted_expr.add_constant(coef * basic_expr.constant);
+                for (inner_var, inner_coef) in &basic_expr.terms {
+                    substituted_expr.add_term(*inner_var, coef * inner_coef);
+                }
+            } else {
+                // var is non-basic, add directly
+                substituted_expr.add_term(*var, *coef);
+            }
+        }
+        expr = substituted_expr;
+
         // Introduce slack variable: expr + s = 0, s > 0 (strict)
         let slack = self.new_slack();
         expr.add_term(slack, Rational64::one());
@@ -432,10 +468,10 @@ impl Simplex {
     pub fn check(&mut self) -> Result<(), Vec<u32>> {
         // Check for trivially infeasible bounds
         for i in 0..self.assignment.len() {
-            if let (Some(lo), Some(hi)) = (&self.lower[i], &self.upper[i]) {
-                if lo.value > hi.value {
-                    return Err(vec![lo.reason, hi.reason]);
-                }
+            if let (Some(lo), Some(hi)) = (&self.lower[i], &self.upper[i])
+                && lo.value > hi.value
+            {
+                return Err(vec![lo.reason, hi.reason]);
             }
         }
 
@@ -650,16 +686,16 @@ impl Simplex {
             let idx = *var as usize;
             let val = self.assignment[idx];
 
-            if let Some(lo) = self.lower[idx] {
-                if val < lo.value {
-                    return Some((*var, lo));
-                }
+            if let Some(lo) = self.lower[idx]
+                && val < lo.value
+            {
+                return Some((*var, lo));
             }
 
-            if let Some(hi) = self.upper[idx] {
-                if val > hi.value {
-                    return Some((*var, hi));
-                }
+            if let Some(hi) = self.upper[idx]
+                && val > hi.value
+            {
+                return Some((*var, hi));
             }
         }
         None
@@ -965,18 +1001,16 @@ impl Simplex {
                     // For each non-basic variable:
                     // - If coef > 0, we need to increase it, so its upper bound blocks us
                     // - If coef < 0, we need to decrease it, so its lower bound blocks us
-                    if *coef > Rational64::zero() {
-                        if let Some(hi) = &self.upper[var_idx] {
-                            if !reasons.contains(&hi.reason) {
-                                reasons.push(hi.reason);
-                            }
-                        }
-                    } else if *coef < Rational64::zero() {
-                        if let Some(lo) = &self.lower[var_idx] {
-                            if !reasons.contains(&lo.reason) {
-                                reasons.push(lo.reason);
-                            }
-                        }
+                    if *coef > Rational64::zero()
+                        && let Some(hi) = &self.upper[var_idx]
+                        && !reasons.contains(&hi.reason)
+                    {
+                        reasons.push(hi.reason);
+                    } else if *coef < Rational64::zero()
+                        && let Some(lo) = &self.lower[var_idx]
+                        && !reasons.contains(&lo.reason)
+                    {
+                        reasons.push(lo.reason);
                     }
                 }
                 BoundType::Upper => {
@@ -984,18 +1018,16 @@ impl Simplex {
                     // For each non-basic variable:
                     // - If coef > 0, we need to decrease it, so its lower bound blocks us
                     // - If coef < 0, we need to increase it, so its upper bound blocks us
-                    if *coef > Rational64::zero() {
-                        if let Some(lo) = &self.lower[var_idx] {
-                            if !reasons.contains(&lo.reason) {
-                                reasons.push(lo.reason);
-                            }
-                        }
-                    } else if *coef < Rational64::zero() {
-                        if let Some(hi) = &self.upper[var_idx] {
-                            if !reasons.contains(&hi.reason) {
-                                reasons.push(hi.reason);
-                            }
-                        }
+                    if *coef > Rational64::zero()
+                        && let Some(lo) = &self.lower[var_idx]
+                        && !reasons.contains(&lo.reason)
+                    {
+                        reasons.push(lo.reason);
+                    } else if *coef < Rational64::zero()
+                        && let Some(hi) = &self.upper[var_idx]
+                        && !reasons.contains(&hi.reason)
+                    {
+                        reasons.push(hi.reason);
                     }
                 }
                 _ => {}
@@ -1174,34 +1206,34 @@ impl Simplex {
         let mut changed = false;
 
         // If this is a basic variable, check its expression
-        if let Some(expr) = self.tableau.get(&var).cloned() {
-            if let Some(prop) = self.derive_basic_bound(var, &expr) {
-                if prop.is_lower {
-                    let should_update = match &self.lower[idx] {
-                        None => true,
-                        Some(existing) => prop.value > existing.value,
-                    };
-                    if should_update {
-                        self.lower[idx] = Some(Bound {
-                            kind: BoundType::Lower,
-                            value: prop.value,
-                            reason: prop.reasons.first().copied().unwrap_or(0),
-                        });
-                        changed = true;
-                    }
-                } else {
-                    let should_update = match &self.upper[idx] {
-                        None => true,
-                        Some(existing) => prop.value < existing.value,
-                    };
-                    if should_update {
-                        self.upper[idx] = Some(Bound {
-                            kind: BoundType::Upper,
-                            value: prop.value,
-                            reason: prop.reasons.first().copied().unwrap_or(0),
-                        });
-                        changed = true;
-                    }
+        if let Some(expr) = self.tableau.get(&var).cloned()
+            && let Some(prop) = self.derive_basic_bound(var, &expr)
+        {
+            if prop.is_lower {
+                let should_update = match &self.lower[idx] {
+                    None => true,
+                    Some(existing) => prop.value > existing.value,
+                };
+                if should_update {
+                    self.lower[idx] = Some(Bound {
+                        kind: BoundType::Lower,
+                        value: prop.value,
+                        reason: prop.reasons.first().copied().unwrap_or(0),
+                    });
+                    changed = true;
+                }
+            } else {
+                let should_update = match &self.upper[idx] {
+                    None => true,
+                    Some(existing) => prop.value < existing.value,
+                };
+                if should_update {
+                    self.upper[idx] = Some(Bound {
+                        kind: BoundType::Upper,
+                        value: prop.value,
+                        reason: prop.reasons.first().copied().unwrap_or(0),
+                    });
+                    changed = true;
                 }
             }
         }

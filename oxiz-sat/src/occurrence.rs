@@ -92,10 +92,10 @@ impl OccurrenceList {
     pub fn remove(&mut self, lit: Lit, clause_id: ClauseId) {
         let idx = lit.code() as usize;
 
-        if idx < self.occurrences.len() {
-            if let Some(pos) = self.occurrences[idx].iter().position(|&id| id == clause_id) {
-                self.occurrences[idx].swap_remove(pos);
-            }
+        if idx < self.occurrences.len()
+            && let Some(pos) = self.occurrences[idx].iter().position(|&id| id == clause_id)
+        {
+            self.occurrences[idx].swap_remove(pos);
         }
     }
 

@@ -127,18 +127,18 @@ impl IsabelleExporter {
         }
 
         // Final theorem
-        if let Some(root_id) = proof.root() {
-            if let Some(root_ident) = self.node_to_ident.get(&root_id) {
-                output.push_str("(* Main result *)\n");
-                output.push_str("theorem main_result: \"∃P. P\"\n");
-                output.push_str("proof -\n");
-                output.push_str(&format!(
-                    "  have \"{}\" by (rule {})\n",
-                    root_ident, root_ident
-                ));
-                output.push_str("  then show ?thesis by blast\n");
-                output.push_str("qed\n\n");
-            }
+        if let Some(root_id) = proof.root()
+            && let Some(root_ident) = self.node_to_ident.get(&root_id)
+        {
+            output.push_str("(* Main result *)\n");
+            output.push_str("theorem main_result: \"∃P. P\"\n");
+            output.push_str("proof -\n");
+            output.push_str(&format!(
+                "  have \"{}\" by (rule {})\n",
+                root_ident, root_ident
+            ));
+            output.push_str("  then show ?thesis by blast\n");
+            output.push_str("qed\n\n");
         }
 
         output.push_str("end\n");

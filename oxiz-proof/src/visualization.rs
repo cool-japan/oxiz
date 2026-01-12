@@ -106,10 +106,10 @@ impl ProofVisualizer {
         if visited.contains(&node_id) {
             return Ok(());
         }
-        if let Some(max_depth) = self.max_depth {
-            if depth >= max_depth {
-                return Ok(());
-            }
+        if let Some(max_depth) = self.max_depth
+            && depth >= max_depth
+        {
+            return Ok(());
         }
 
         visited.insert(node_id);
@@ -156,10 +156,10 @@ impl ProofVisualizer {
         is_last: bool,
         depth: usize,
     ) -> io::Result<()> {
-        if let Some(max_depth) = self.max_depth {
-            if depth >= max_depth {
-                return Ok(());
-            }
+        if let Some(max_depth) = self.max_depth
+            && depth >= max_depth
+        {
+            return Ok(());
         }
 
         let connector = if is_last { "└─" } else { "├─" };
@@ -204,10 +204,10 @@ impl ProofVisualizer {
         indent: usize,
         depth: usize,
     ) -> io::Result<()> {
-        if let Some(max_depth) = self.max_depth {
-            if depth >= max_depth {
-                return Ok(());
-            }
+        if let Some(max_depth) = self.max_depth
+            && depth >= max_depth
+        {
+            return Ok(());
         }
 
         let indent_str = "  ".repeat(indent);
@@ -251,10 +251,10 @@ impl ProofVisualizer {
         indent: usize,
         depth: usize,
     ) -> io::Result<()> {
-        if let Some(max_depth) = self.max_depth {
-            if depth >= max_depth {
-                return Ok(());
-            }
+        if let Some(max_depth) = self.max_depth
+            && depth >= max_depth
+        {
+            return Ok(());
         }
 
         let indent_str = "  ".repeat(indent);

@@ -192,10 +192,10 @@ impl DatatypeTheory {
                 }
                 _ => {
                     // Check if this is a datatype variable
-                    if let Some(sort) = sort_manager.get(t.sort) {
-                        if matches!(sort.kind, SortKind::Datatype(_)) {
-                            self.register_datatype(term, t.sort);
-                        }
+                    if let Some(sort) = sort_manager.get(t.sort)
+                        && matches!(sort.kind, SortKind::Datatype(_))
+                    {
+                        self.register_datatype(term, t.sort);
                     }
                 }
             }
@@ -211,13 +211,13 @@ impl DatatypeTheory {
         sort_manager: &SortManager,
     ) {
         // Get all constructors for this datatype
-        if let Some(sort_obj) = sort_manager.get(sort) {
-            if let SortKind::Datatype(dt_name) = sort_obj.kind {
-                // Would iterate through other constructors and generate distinctness axioms
-                // For now, we just record the potential for distinctness
-                // This is a placeholder - a full implementation would access the datatype definition
-                let _ = (dt_name, cons_name);
-            }
+        if let Some(sort_obj) = sort_manager.get(sort)
+            && let SortKind::Datatype(dt_name) = sort_obj.kind
+        {
+            // Would iterate through other constructors and generate distinctness axioms
+            // For now, we just record the potential for distinctness
+            // This is a placeholder - a full implementation would access the datatype definition
+            let _ = (dt_name, cons_name);
         }
     }
 

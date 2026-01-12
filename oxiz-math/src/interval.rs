@@ -394,16 +394,16 @@ impl Interval {
         if self.is_empty() {
             return None;
         }
-        if self.is_point() {
-            if let Bound::Finite(r) = &self.lo {
-                return Some(if r.is_positive() {
-                    1
-                } else if r.is_negative() {
-                    -1
-                } else {
-                    0
-                });
-            }
+        if self.is_point()
+            && let Bound::Finite(r) = &self.lo
+        {
+            return Some(if r.is_positive() {
+                1
+            } else if r.is_negative() {
+                -1
+            } else {
+                0
+            });
         }
         if self.is_positive() {
             Some(1)
@@ -606,7 +606,7 @@ impl Interval {
             return self.clone();
         }
 
-        if n % 2 == 0 {
+        if n.is_multiple_of(2) {
             // Even power: result is non-negative
             // [a,b]^n depends on whether interval contains 0
             if self.contains_zero() {

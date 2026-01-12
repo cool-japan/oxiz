@@ -101,13 +101,13 @@ impl ArrayTheory {
                     self.register_select(term, *array, *index);
 
                     // Check if array is a store and generate axioms
-                    if let Some(array_term) = manager.get(*array) {
-                        if let TermKind::Store(base_array, store_idx, store_val) = array_term.kind {
-                            // Generate read-over-write axioms
-                            self.generate_read_over_write_axioms(
-                                *array, base_array, store_idx, store_val, *index,
-                            );
-                        }
+                    if let Some(array_term) = manager.get(*array)
+                        && let TermKind::Store(base_array, store_idx, store_val) = array_term.kind
+                    {
+                        // Generate read-over-write axioms
+                        self.generate_read_over_write_axioms(
+                            *array, base_array, store_idx, store_val, *index,
+                        );
                     }
                 }
                 TermKind::Store(array, index, value) => {
@@ -123,10 +123,10 @@ impl ArrayTheory {
                 TermKind::Var(_) => {
                     // Check if this is an array variable
                     let sort_id = t.sort;
-                    if let Some(sort) = sort_manager.get(sort_id) {
-                        if matches!(sort.kind, SortKind::Array { .. }) {
-                            self.register_array(term, sort_id);
-                        }
+                    if let Some(sort) = sort_manager.get(sort_id)
+                        && matches!(sort.kind, SortKind::Array { .. })
+                    {
+                        self.register_array(term, sort_id);
                     }
                 }
                 _ => {}

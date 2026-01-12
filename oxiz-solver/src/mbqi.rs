@@ -359,18 +359,18 @@ impl MBQISolver {
             let evaluated = self.evaluate_under_model(ground_body, model, manager);
 
             // Check if this is a counterexample (evaluates to false for ∀x.φ(x))
-            if let Some(t) = manager.get(evaluated) {
-                if matches!(t.kind, TermKind::False) {
-                    results.push(Instantiation {
-                        quantifier: quant.term,
-                        substitution: subst,
-                        result: ground_body,
-                    });
+            if let Some(t) = manager.get(evaluated)
+                && matches!(t.kind, TermKind::False)
+            {
+                results.push(Instantiation {
+                    quantifier: quant.term,
+                    substitution: subst,
+                    result: ground_body,
+                });
 
-                    // Limit counterexamples per quantifier per round
-                    if results.len() >= 5 {
-                        break;
-                    }
+                // Limit counterexamples per quantifier per round
+                if results.len() >= 5 {
+                    break;
                 }
             }
         }
@@ -703,13 +703,70 @@ impl MBQISolver {
                 let lhs_t = manager.get(eval_lhs).cloned();
                 let rhs_t = manager.get(eval_rhs).cloned();
 
-                if let (Some(l), Some(r)) = (lhs_t, rhs_t) {
-                    if let (TermKind::IntConst(a), TermKind::IntConst(b)) = (&l.kind, &r.kind) {
-                        if a < b {
-                            return manager.mk_true();
-                        } else {
-                            return manager.mk_false();
-                        }
+                if let (Some(l), Some(r)) = (lhs_t, rhs_t)
+                    && let (TermKind::IntConst(a), TermKind::IntConst(b)) = (&l.kind, &r.kind)
+                {
+                    if a < b {
+                        return manager.mk_true();
+                    } else {
+                        return manager.mk_false();
+                    }
+                }
+
+                term
+            }
+            TermKind::Le(lhs, rhs) => {
+                let eval_lhs = self.evaluate_under_model(*lhs, model, manager);
+                let eval_rhs = self.evaluate_under_model(*rhs, model, manager);
+
+                let lhs_t = manager.get(eval_lhs).cloned();
+                let rhs_t = manager.get(eval_rhs).cloned();
+
+                if let (Some(l), Some(r)) = (lhs_t, rhs_t)
+                    && let (TermKind::IntConst(a), TermKind::IntConst(b)) = (&l.kind, &r.kind)
+                {
+                    if a <= b {
+                        return manager.mk_true();
+                    } else {
+                        return manager.mk_false();
+                    }
+                }
+
+                term
+            }
+            TermKind::Gt(lhs, rhs) => {
+                let eval_lhs = self.evaluate_under_model(*lhs, model, manager);
+                let eval_rhs = self.evaluate_under_model(*rhs, model, manager);
+
+                let lhs_t = manager.get(eval_lhs).cloned();
+                let rhs_t = manager.get(eval_rhs).cloned();
+
+                if let (Some(l), Some(r)) = (lhs_t, rhs_t)
+                    && let (TermKind::IntConst(a), TermKind::IntConst(b)) = (&l.kind, &r.kind)
+                {
+                    if a > b {
+                        return manager.mk_true();
+                    } else {
+                        return manager.mk_false();
+                    }
+                }
+
+                term
+            }
+            TermKind::Ge(lhs, rhs) => {
+                let eval_lhs = self.evaluate_under_model(*lhs, model, manager);
+                let eval_rhs = self.evaluate_under_model(*rhs, model, manager);
+
+                let lhs_t = manager.get(eval_lhs).cloned();
+                let rhs_t = manager.get(eval_rhs).cloned();
+
+                if let (Some(l), Some(r)) = (lhs_t, rhs_t)
+                    && let (TermKind::IntConst(a), TermKind::IntConst(b)) = (&l.kind, &r.kind)
+                {
+                    if a >= b {
+                        return manager.mk_true();
+                    } else {
+                        return manager.mk_false();
                     }
                 }
 
@@ -738,11 +795,11 @@ impl MBQISolver {
             // Look for any model value with matching sort
             let mut found = None;
             for (&term, &_value) in model {
-                if let Some(t) = manager.get(term) {
-                    if t.sort == sort {
-                        found = Some(term);
-                        break;
-                    }
+                if let Some(t) = manager.get(term)
+                    && t.sort == sort
+                {
+                    found = Some(term);
+                    break;
                 }
             }
 

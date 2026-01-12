@@ -443,20 +443,20 @@ impl OmtSolver {
             let upper = self.upper_bounds[obj_idx].as_ref();
 
             // Check if we've converged
-            if let (Some(l), Some(u)) = (lower, upper) {
-                if l >= u {
-                    // For integers, check if we're done
-                    if let (Weight::Int(li), Weight::Int(ui)) = (l, u) {
-                        if li >= ui {
-                            break;
-                        }
-                    }
-                    // For rationals, use precision check
-                    if let (Weight::Rational(lr), Weight::Rational(ur)) = (l, u) {
-                        let diff = ur - lr;
-                        if diff.abs() < BigRational::new(BigInt::one(), BigInt::from(1000000)) {
-                            break;
-                        }
+            if let (Some(l), Some(u)) = (lower, upper)
+                && l >= u
+            {
+                // For integers, check if we're done
+                if let (Weight::Int(li), Weight::Int(ui)) = (l, u)
+                    && li >= ui
+                {
+                    break;
+                }
+                // For rationals, use precision check
+                if let (Weight::Rational(lr), Weight::Rational(ur)) = (l, u) {
+                    let diff = ur - lr;
+                    if diff.abs() < BigRational::new(BigInt::one(), BigInt::from(1000000)) {
+                        break;
                     }
                 }
             }
