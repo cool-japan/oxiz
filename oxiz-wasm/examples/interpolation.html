@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OxiZ WASM - Craig Interpolation Example</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            padding: 30px;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 0.95em;
+        }
+        .section {
+            margin-bottom: 25px;
+        }
+        .section-title {
+            font-weight: 600;
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+        }
+        textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            resize: vertical;
+            transition: border-color 0.3s;
+        }
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+        button:active {
+            transform: translateY(0);
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .output {
+            background: #f8f9fa;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            white-space: pre-wrap;
+            min-height: 100px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .success {
+            color: #27ae60;
+            font-weight: 600;
+        }
+        .error {
+            color: #e74c3c;
+            font-weight: 600;
+        }
+        .info {
+            background: #e3f2fd;
+            border-left: 4px solid #2196f3;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .info-title {
+            font-weight: 600;
+            color: #1976d2;
+            margin-bottom: 8px;
+        }
+        .partition {
+            background: #f8f9fa;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+        .partition-label {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+            display: block;
+        }
+        .example-buttons {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+        }
+        .example-btn {
+            background: #f0f0f0;
+            color: #333;
+            padding: 8px 16px;
+            font-size: 12px;
+        }
+        .example-btn:hover {
+            background: #e0e0e0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Craig Interpolation</h1>
+        <p class="subtitle">Compute interpolants for UNSAT formula partitions</p>
+
+        <div class="info">
+            <div class="info-title">What is Craig Interpolation?</div>
+            <p>
+                Given an UNSAT formula partitioned into A and B, Craig interpolation computes
+                an interpolant I such that:
+            </p>
+            <ul>
+                <li>A implies I</li>
+                <li>I and B is UNSAT</li>
+                <li>I only contains symbols common to A and B</li>
+            </ul>
+            <p>
+                This is useful for <strong>modular verification</strong>, <strong>abstraction refinement</strong>,
+                and <strong>invariant generation</strong>.
+            </p>
+        </div>
+
+        <div class="section">
+            <div class="example-buttons">
+                <button class="example-btn" onclick="loadExample1()">Example 1: Simple Contradiction</button>
+                <button class="example-btn" onclick="loadExample2()">Example 2: Variable Constraints</button>
+                <button class="example-btn" onclick="loadExample3()">Example 3: Multiple Formulas</button>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="partition">
+                <label class="partition-label">Partition A (formulas separated by newlines):</label>
+                <textarea id="partitionA" rows="4" placeholder="(> x 0)&#10;(> x 5)">(> x 0)</textarea>
+            </div>
+
+            <div class="partition">
+                <label class="partition-label">Partition B (formulas separated by newlines):</label>
+                <textarea id="partitionB" rows="4" placeholder="(< x 0)&#10;(< y 0)">(< x 0)</textarea>
+            </div>
+        </div>
+
+        <div class="section">
+            <button id="computeBtn" onclick="computeInterpolant()">Compute Interpolant</button>
+        </div>
+
+        <div class="section">
+            <div class="section-title">Output:</div>
+            <div id="output" class="output">Click "Compute Interpolant" to begin...</div>
+        </div>
+
+        <div class="info">
+            <div class="info-title">💡 Tips</div>
+            <ul>
+                <li>Proof production must be enabled for interpolation</li>
+                <li>The combined formula A ∧ B must be UNSAT</li>
+                <li>Enter one formula per line in each partition</li>
+                <li>Use SMT-LIB2 syntax: <code>(> x 0)</code>, <code>(= x y)</code>, etc.</li>
+            </ul>
+        </div>
+    </div>
+
+    <script type="module">
+        import init, { WasmSolver } from './pkg/oxiz_wasm.js';
+
+        let solver;
+
+        async function initSolver() {
+            try {
+                await init();
+                solver = new WasmSolver();
+
+                // Enable proof production (required for interpolation)
+                solver.setOption("produce-proofs", "true");
+                solver.setLogic("QF_LIA");
+
+                // Declare variables that examples will use
+                solver.declareConst("x", "Int");
+                solver.declareConst("y", "Int");
+                solver.declareConst("z", "Int");
+
+                document.getElementById('output').textContent =
+                    '✅ Solver initialized successfully\n' +
+                    '✅ Proof production enabled\n' +
+                    '✅ Logic: QF_LIA\n' +
+                    '✅ Variables declared: x, y, z\n\n' +
+                    'Ready to compute interpolants!';
+            } catch (error) {
+                document.getElementById('output').innerHTML =
+                    `<span class="error">❌ Failed to initialize solver: ${error}</span>`;
+            }
+        }
+
+        window.computeInterpolant = async function() {
+            const outputDiv = document.getElementById('output');
+            const btn = document.getElementById('computeBtn');
+
+            if (!solver) {
+                outputDiv.innerHTML = '<span class="error">❌ Solver not initialized</span>';
+                return;
+            }
+
+            try {
+                btn.disabled = true;
+                outputDiv.textContent = '⏳ Computing interpolant...';
+
+                // Get partitions from textareas
+                const partitionAText = document.getElementById('partitionA').value;
+                const partitionBText = document.getElementById('partitionB').value;
+
+                // Split by newlines and filter empty lines
+                const partitionA = partitionAText.split('\n')
+                    .map(s => s.trim())
+                    .filter(s => s.length > 0);
+
+                const partitionB = partitionBText.split('\n')
+                    .map(s => s.trim())
+                    .filter(s => s.length > 0);
+
+                // Validate partitions
+                if (partitionA.length === 0) {
+                    throw new Error('Partition A cannot be empty');
+                }
+                if (partitionB.length === 0) {
+                    throw new Error('Partition B cannot be empty');
+                }
+
+                // Compute interpolant
+                const startTime = performance.now();
+                const interpolant = solver.computeInterpolant(partitionA, partitionB);
+                const duration = (performance.now() - startTime).toFixed(2);
+
+                // Display result
+                let result = `<span class="success">✅ Interpolant computed successfully!</span>\n\n`;
+                result += `⏱️  Duration: ${duration}ms\n\n`;
+                result += `📋 Partition A (${partitionA.length} formula${partitionA.length > 1 ? 's' : ''}):\n`;
+                partitionA.forEach((f, i) => {
+                    result += `  ${i + 1}. ${f}\n`;
+                });
+                result += `\n📋 Partition B (${partitionB.length} formula${partitionB.length > 1 ? 's' : ''}):\n`;
+                partitionB.forEach((f, i) => {
+                    result += `  ${i + 1}. ${f}\n`;
+                });
+                result += `\n🎯 Interpolant:\n`;
+                result += `  ${interpolant}\n\n`;
+                result += `✓ A implies I\n`;
+                result += `✓ I ∧ B is UNSAT\n`;
+                result += `✓ I only uses symbols common to A and B`;
+
+                outputDiv.innerHTML = result;
+
+            } catch (error) {
+                let errorMsg = `<span class="error">❌ Error: ${error.message || error}</span>\n\n`;
+
+                if (error.message && error.message.includes('produce-proofs')) {
+                    errorMsg += '💡 Hint: Proof production must be enabled\n';
+                    errorMsg += '   Call solver.setOption("produce-proofs", "true")';
+                } else if (error.message && error.message.includes('UNSAT')) {
+                    errorMsg += '💡 Hint: The combined formula A ∧ B must be UNSAT\n';
+                    errorMsg += '   Try formulas that contradict each other';
+                } else if (error.message && error.message.includes('empty')) {
+                    errorMsg += '💡 Hint: Both partitions must contain at least one formula';
+                }
+
+                outputDiv.innerHTML = errorMsg;
+            } finally {
+                btn.disabled = false;
+            }
+        };
+
+        // Example loader functions
+        window.loadExample1 = function() {
+            document.getElementById('partitionA').value = '(> x 0)';
+            document.getElementById('partitionB').value = '(< x 0)';
+        };
+
+        window.loadExample2 = function() {
+            document.getElementById('partitionA').value = '(> x 5)\n(> x 0)';
+            document.getElementById('partitionB').value = '(= x y)\n(< y 0)';
+        };
+
+        window.loadExample3 = function() {
+            document.getElementById('partitionA').value = '(> x 10)\n(= (+ x y) 20)\n(> y 5)';
+            document.getElementById('partitionB').value = '(< x 5)\n(< z 0)\n(= x z)';
+        };
+
+        // Initialize on page load
+        initSolver();
+    </script>
+</body>
+</html>

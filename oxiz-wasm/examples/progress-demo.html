@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OxiZ WASM - Progress Callback Demo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .container {
+            max-width: 800px;
+            width: 100%;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        header h1 {
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .section {
+            margin-bottom: 30px;
+        }
+
+        .section h2 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+        }
+
+        textarea {
+            width: 100%;
+            height: 200px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            padding: 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            resize: vertical;
+            background: #f8f9fa;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+
+        button:hover:not(:disabled) {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        button.secondary {
+            background: #6c757d;
+        }
+
+        button.secondary:hover:not(:disabled) {
+            background: #5a6268;
+        }
+
+        .progress-container {
+            margin-bottom: 20px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border: 2px solid #e0e0e0;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 40px;
+            background: #e0e0e0;
+            border-radius: 20px;
+            overflow: hidden;
+            position: relative;
+            margin-bottom: 10px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            width: 0%;
+            transition: width 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+        }
+
+        .progress-text {
+            text-align: center;
+            color: #666;
+            font-size: 0.9em;
+        }
+
+        .output {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            min-height: 150px;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .output.success {
+            border-left: 4px solid #28a745;
+        }
+
+        .output.error {
+            border-left: 4px solid #dc3545;
+        }
+
+        .status {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 0.9em;
+            font-weight: 600;
+            margin-bottom: 15px;
+        }
+
+        .status.loading {
+            background: #ffc107;
+            color: #000;
+        }
+
+        .status.ready {
+            background: #28a745;
+            color: white;
+        }
+
+        .status.error {
+            background: #dc3545;
+            color: white;
+        }
+
+        .info-box {
+            background: #e7f3ff;
+            border-left: 4px solid #2196f3;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+        }
+
+        .info-box h3 {
+            color: #1976d2;
+            margin-bottom: 8px;
+            font-size: 1.1em;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .stat-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            border: 1px solid #e0e0e0;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .stat-label {
+            font-size: 0.8em;
+            color: #666;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎯 Progress Callback Demo</h1>
+            <p>Demonstrating async execution with real-time progress updates</p>
+            <div style="margin-top: 15px;">
+                <span class="status" id="status">Loading...</span>
+            </div>
+        </header>
+
+        <div class="content">
+            <div class="info-box">
+                <h3>About This Demo</h3>
+                <p>This demo showcases the <code>executeWithProgress()</code> method, which provides real-time progress updates during script execution. This is particularly useful for long-running SMT problems where you want to keep the user informed.</p>
+            </div>
+
+            <div class="section">
+                <h2>📝 SMT-LIB2 Script</h2>
+                <textarea id="input" placeholder="Enter SMT-LIB2 script..."></textarea>
+                <div class="button-group">
+                    <button onclick="executeWithProgress()" id="executeBtn">
+                        🚀 Execute with Progress
+                    </button>
+                    <button onclick="executeWithoutProgress()" class="secondary">
+                        ⚡ Execute (No Progress)
+                    </button>
+                    <button onclick="loadLargeExample()" class="secondary">
+                        📦 Load Large Example
+                    </button>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>📊 Progress</h2>
+                <div class="progress-container" id="progressContainer" style="display: none;">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill">0%</div>
+                    </div>
+                    <div class="progress-text" id="progressText">Ready to execute...</div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>📤 Output</h2>
+                <div class="output" id="output">Ready! Load an example or write your own script.</div>
+            </div>
+
+            <div class="stats" id="stats" style="display: none;">
+                <div class="stat-card">
+                    <div class="stat-value" id="statTime">-</div>
+                    <div class="stat-label">Execution Time (ms)</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="statLines">-</div>
+                    <div class="stat-label">Lines Processed</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="statUpdates">-</div>
+                    <div class="stat-label">Progress Updates</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import init, { WasmSolver } from '../pkg/oxiz_wasm.js';
+
+        let solver = null;
+        let isReady = false;
+
+        // Initialize WASM
+        async function initWasm() {
+            const statusEl = document.getElementById('status');
+            statusEl.className = 'status loading';
+            statusEl.innerHTML = '<span class="spinner"></span> Loading WASM...';
+
+            try {
+                await init();
+                solver = new WasmSolver();
+                isReady = true;
+
+                statusEl.className = 'status ready';
+                statusEl.textContent = 'Ready!';
+
+                // Load default example
+                loadLargeExample();
+            } catch (error) {
+                statusEl.className = 'status error';
+                statusEl.textContent = 'Failed to load';
+                updateOutput('Error loading WASM: ' + error.message, 'error');
+            }
+        }
+
+        function updateOutput(text, type = 'success') {
+            const output = document.getElementById('output');
+            output.textContent = text;
+            output.className = 'output ' + type;
+        }
+
+        function showProgress(current, total) {
+            const container = document.getElementById('progressContainer');
+            const fill = document.getElementById('progressFill');
+            const text = document.getElementById('progressText');
+
+            container.style.display = 'block';
+
+            const percent = Math.round((current / total) * 100);
+            fill.style.width = percent + '%';
+            fill.textContent = percent + '%';
+            text.textContent = `Processing: ${current} / ${total} lines`;
+        }
+
+        function hideProgress() {
+            document.getElementById('progressContainer').style.display = 'none';
+        }
+
+        function showStats(time, lines, updates) {
+            const stats = document.getElementById('stats');
+            stats.style.display = 'grid';
+            document.getElementById('statTime').textContent = time.toFixed(2);
+            document.getElementById('statLines').textContent = lines;
+            document.getElementById('statUpdates').textContent = updates;
+        }
+
+        window.executeWithProgress = async function() {
+            if (!isReady) {
+                updateOutput('Solver not ready yet. Please wait...', 'error');
+                return;
+            }
+
+            const input = document.getElementById('input').value;
+            if (!input.trim()) {
+                updateOutput('Please enter an SMT-LIB2 script', 'error');
+                return;
+            }
+
+            const executeBtn = document.getElementById('executeBtn');
+            executeBtn.disabled = true;
+            executeBtn.innerHTML = '<span class="spinner"></span> Executing...';
+
+            try {
+                solver.reset();
+                showProgress(0, 1);
+
+                let progressUpdates = 0;
+                const startTime = performance.now();
+
+                const result = await solver.executeWithProgress(input, (current, total) => {
+                    progressUpdates++;
+                    showProgress(current, total);
+                });
+
+                const endTime = performance.now();
+                const elapsed = endTime - startTime;
+
+                const lines = input.split('\n').length;
+                showStats(elapsed, lines, progressUpdates);
+
+                updateOutput(result, 'success');
+            } catch (error) {
+                updateOutput('Error: ' + error.message || error, 'error');
+            } finally {
+                executeBtn.disabled = false;
+                executeBtn.textContent = '🚀 Execute with Progress';
+                setTimeout(hideProgress, 2000);
+            }
+        };
+
+        window.executeWithoutProgress = async function() {
+            if (!isReady) {
+                updateOutput('Solver not ready yet. Please wait...', 'error');
+                return;
+            }
+
+            const input = document.getElementById('input').value;
+            if (!input.trim()) {
+                updateOutput('Please enter an SMT-LIB2 script', 'error');
+                return;
+            }
+
+            hideProgress();
+
+            try {
+                solver.reset();
+                const startTime = performance.now();
+
+                const result = await solver.executeAsync(input);
+
+                const endTime = performance.now();
+                const elapsed = endTime - startTime;
+
+                const lines = input.split('\n').length;
+                showStats(elapsed, lines, 0);
+
+                updateOutput(result, 'success');
+            } catch (error) {
+                updateOutput('Error: ' + error.message || error, 'error');
+            }
+        };
+
+        window.loadLargeExample = function() {
+            // Generate a larger example script
+            const lines = [];
+            lines.push('(set-logic QF_LIA)');
+
+            // Declare 50 constants
+            for (let i = 0; i < 50; i++) {
+                lines.push(`(declare-const x${i} Int)`);
+            }
+
+            // Add constraints
+            for (let i = 0; i < 50; i++) {
+                lines.push(`(assert (>= x${i} 0))`);
+                lines.push(`(assert (<= x${i} 100))`);
+            }
+
+            // Add relationships
+            for (let i = 0; i < 49; i++) {
+                lines.push(`(assert (< x${i} x${i+1}))`);
+            }
+
+            lines.push('(check-sat)');
+            lines.push('(get-model)');
+
+            document.getElementById('input').value = lines.join('\n');
+            updateOutput('Large example loaded. Click "Execute with Progress" to see progress updates!');
+        };
+
+        // Initialize on page load
+        initWasm();
+    </script>
+</body>
+</html>

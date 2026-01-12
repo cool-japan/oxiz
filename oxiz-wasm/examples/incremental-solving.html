@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OxiZ WASM - Incremental Solving</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 900px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            border-bottom: 3px solid #FF9800;
+            padding-bottom: 10px;
+        }
+        .step {
+            margin: 20px 0;
+            padding: 15px;
+            background: #f9f9f9;
+            border-left: 4px solid #FF9800;
+            border-radius: 5px;
+        }
+        .result {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+        }
+        .sat { background: #d4edda; color: #155724; }
+        .unsat { background: #f8d7da; color: #721c24; }
+        button {
+            background: #FF9800;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 20px;
+        }
+        button:hover { background: #F57C00; }
+        pre {
+            background: #f4f4f4;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-size: 13px;
+        }
+        .explanation {
+            background: #e8f5e9;
+            padding: 15px;
+            border-left: 4px solid #4CAF50;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔄 OxiZ WASM - Incremental Solving</h1>
+
+        <div class="explanation">
+            <strong>What is Incremental Solving?</strong><br>
+            Incremental solving allows you to add constraints progressively and check
+            satisfiability multiple times without restarting. This is efficient for
+            exploring different scenarios.
+        </div>
+
+        <h2>Scenario: Finding valid age ranges</h2>
+        <p>We'll check if there exists a person whose age satisfies progressively stricter constraints.</p>
+
+        <button onclick="runIncrementalSolving()">Run Incremental Analysis</button>
+
+        <div id="output"></div>
+    </div>
+
+    <script type="module">
+        import init, { WasmSolver } from '../pkg/oxiz_wasm.js';
+
+        let solverReady = false;
+
+        async function initSolver() {
+            try {
+                await init();
+                solverReady = true;
+                console.log('Solver initialized');
+            } catch (err) {
+                document.getElementById('output').innerHTML =
+                    `<div class="result unsat">Error initializing solver: ${err}</div>`;
+            }
+        }
+
+        window.runIncrementalSolving = async function() {
+            const output = document.getElementById('output');
+
+            if (!solverReady) {
+                await initSolver();
+            }
+
+            try {
+                const solver = new WasmSolver();
+                solver.setLogic("QF_LIA");
+                solver.setOption("produce-models", "true");
+
+                let html = '<div style="margin-top: 20px;">';
+
+                // Initial setup
+                solver.declareConst("age", "Int");
+                html += `<div class="step">
+                    <strong>Step 1: Base constraint</strong>
+                    <pre>(declare-const age Int)
+(assert (&gt;= age 0))  ; Age must be non-negative</pre>`;
+
+                solver.assertFormula("(>= age 0)");
+                let result = solver.checkSat();
+                html += `<div class="result ${result}">Result: ${result.toUpperCase()}`;
+                if (result === "sat") {
+                    const model = solver.getModel();
+                    html += ` - Example: age = ${model.age.value}`;
+                }
+                html += `</div></div>`;
+
+                // Add more constraints using push/pop
+                html += `<div class="step">
+                    <strong>Step 2: Add upper bound</strong>
+                    <pre>(push)
+(assert (&lt;= age 120))  ; Age must be at most 120</pre>`;
+
+                solver.push();
+                solver.assertFormula("(<= age 120)");
+                result = solver.checkSat();
+                html += `<div class="result ${result}">Result: ${result.toUpperCase()}`;
+                if (result === "sat") {
+                    const model = solver.getModel();
+                    html += ` - Example: age = ${model.age.value}`;
+                }
+                html += `</div></div>`;
+
+                // Add narrower constraint
+                html += `<div class="step">
+                    <strong>Step 3: Narrow to adult range</strong>
+                    <pre>(push)
+(assert (&gt;= age 18))   ; Must be adult
+(assert (&lt;= age 65))   ; Below retirement</pre>`;
+
+                solver.push();
+                solver.assertFormula("(>= age 18)");
+                solver.assertFormula("(<= age 65)");
+                result = solver.checkSat();
+                html += `<div class="result ${result}">Result: ${result.toUpperCase()}`;
+                if (result === "sat") {
+                    const model = solver.getModel();
+                    html += ` - Example: age = ${model.age.value}`;
+                }
+                html += `</div></div>`;
+
+                // Try impossible constraint
+                html += `<div class="step">
+                    <strong>Step 4: Add impossible constraint</strong>
+                    <pre>(push)
+(assert (&lt; age 18))    ; Contradicts previous (&gt;= age 18)</pre>`;
+
+                solver.push();
+                solver.assertFormula("(< age 18)");
+                result = solver.checkSat();
+                html += `<div class="result ${result}">Result: ${result.toUpperCase()}`;
+                html += ` - No solution (contradiction!)`;
+                html += `</div></div>`;
+
+                // Backtrack and try different path
+                html += `<div class="step">
+                    <strong>Step 5: Backtrack and try different constraint</strong>
+                    <pre>(pop)   ; Remove (&lt; age 18)
+(assert (&gt; age 50))    ; Must be over 50</pre>`;
+
+                solver.pop();
+                solver.assertFormula("(> age 50)");
+                result = solver.checkSat();
+                html += `<div class="result ${result}">Result: ${result.toUpperCase()}`;
+                if (result === "sat") {
+                    const model = solver.getModel();
+                    html += ` - Example: age = ${model.age.value} (between 51 and 65)`;
+                }
+                html += `</div></div>`;
+
+                html += `<div class="explanation" style="margin-top: 20px;">
+                    <strong>Key Takeaway:</strong><br>
+                    Incremental solving with push/pop allows efficient exploration of
+                    constraint combinations without restarting the solver each time.
+                    This is much faster than creating new solver instances!
+                </div>`;
+
+                html += '</div>';
+                output.innerHTML = html;
+
+            } catch (err) {
+                output.innerHTML = `<div class="result unsat">Error: ${err.message || err}</div>`;
+            }
+        };
+
+        // Initialize on load
+        initSolver();
+    </script>
+</body>
+</html>

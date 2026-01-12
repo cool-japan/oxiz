@@ -1,0 +1,20 @@
+{
+  "name": "oxiz-wasm-typescript-examples",
+  "version": "0.1.0",
+  "description": "TypeScript examples for OxiZ WASM",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/basic.js",
+    "dev": "tsc && node dist/basic.js",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "oxiz-wasm": "file:../../pkg"
+  }
+}

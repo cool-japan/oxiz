@@ -1,0 +1,25 @@
+[package]
+name = "oxiz-spacer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Property Directed Reachability (PDR/IC3) engine for OxiZ - Horn clause solving"
+keywords = ["smt", "pdr", "ic3", "horn", "verification"]
+categories = ["algorithms", "development-tools::testing"]
+
+[dependencies]
+oxiz-core.workspace = true
+oxiz-solver.workspace = true
+smallvec.workspace = true
+rustc-hash.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+indexmap.workspace = true
+num-bigint.workspace = true
+num-rational.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

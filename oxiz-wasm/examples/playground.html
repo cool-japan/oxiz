@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OxiZ WASM Playground - Interactive SMT Solver Demo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        header p {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            padding: 20px;
+        }
+
+        @media (max-width: 968px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .panel {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            border: 1px solid #e0e0e0;
+        }
+
+        .panel h2 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.5em;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .examples-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .example-btn {
+            background: white;
+            border: 2px solid #667eea;
+            color: #667eea;
+            padding: 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9em;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+
+        .example-btn:hover {
+            background: #667eea;
+            color: white;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        }
+
+        textarea {
+            width: 100%;
+            height: 300px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            padding: 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            resize: vertical;
+            margin-bottom: 15px;
+            background: white;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 15px;
+        }
+
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+
+        button:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        button.secondary {
+            background: #6c757d;
+        }
+
+        button.secondary:hover {
+            background: #5a6268;
+        }
+
+        button.danger {
+            background: #dc3545;
+        }
+
+        button.danger:hover {
+            background: #c82333;
+        }
+
+        .output {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            min-height: 200px;
+            max-height: 500px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .output.success {
+            border-left: 4px solid #28a745;
+        }
+
+        .output.error {
+            border-left: 4px solid #dc3545;
+        }
+
+        .output.info {
+            border-left: 4px solid #17a2b8;
+        }
+
+        .status {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 0.9em;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+
+        .status.loading {
+            background: #ffc107;
+            color: #000;
+        }
+
+        .status.ready {
+            background: #28a745;
+            color: white;
+        }
+
+        .status.error {
+            background: #dc3545;
+            color: white;
+        }
+
+        .info-box {
+            background: #e7f3ff;
+            border-left: 4px solid #2196f3;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 4px;
+        }
+
+        .info-box h3 {
+            color: #1976d2;
+            margin-bottom: 8px;
+        }
+
+        .info-box ul {
+            margin-left: 20px;
+        }
+
+        .info-box li {
+            margin: 5px 0;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 15px;
+            border-radius: 6px;
+            border: 1px solid #e0e0e0;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.8em;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .stat-label {
+            font-size: 0.9em;
+            color: #666;
+            margin-top: 5px;
+        }
+
+        .feature-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .feature {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            border: 2px solid #e0e0e0;
+            transition: all 0.3s;
+        }
+
+        .feature:hover {
+            border-color: #667eea;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+        }
+
+        .feature h3 {
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        footer {
+            background: #2c3e50;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+
+        footer a {
+            color: #667eea;
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🦀 OxiZ WASM Playground</h1>
+            <p>Interactive SMT Solver in Your Browser - Pure Rust, Zero Dependencies</p>
+            <div style="margin-top: 15px;">
+                <span class="status" id="status">Loading...</span>
+            </div>
+        </header>
+
+        <div style="padding: 20px; background: #fff;">
+            <div class="info-box">
+                <h3>🚀 What is OxiZ?</h3>
+                <p>OxiZ is a pure Rust SMT (Satisfiability Modulo Theories) solver compiled to WebAssembly.
+                   It brings powerful constraint solving capabilities directly to your browser, with no server required!</p>
+                <ul>
+                    <li><strong>Pure Rust</strong> - No C/C++ dependencies, fully safe and modern</li>
+                    <li><strong>Browser-native</strong> - Runs entirely in your browser, no backend needed</li>
+                    <li><strong>Fast & Efficient</strong> - Optimized WASM binary under 2MB</li>
+                    <li><strong>SMT-LIB2 Compatible</strong> - Standard SMT-LIB2 syntax support</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <!-- Left Panel: Input -->
+            <div class="panel">
+                <h2>📝 SMT-LIB2 Input</h2>
+
+                <div class="info-box">
+                    <h3>Example Problems</h3>
+                    <p>Click to load an example:</p>
+                </div>
+
+                <div class="examples-grid">
+                    <button class="example-btn" onclick="loadExample('simple')">Simple SAT</button>
+                    <button class="example-btn" onclick="loadExample('unsat')">UNSAT Example</button>
+                    <button class="example-btn" onclick="loadExample('arithmetic')">Arithmetic</button>
+                    <button class="example-btn" onclick="loadExample('bitvector')">Bitvectors</button>
+                    <button class="example-btn" onclick="loadExample('incremental')">Incremental</button>
+                    <button class="example-btn" onclick="loadExample('quantifier')">Quantifiers</button>
+                    <button class="example-btn" onclick="loadExample('optimization')">Optimization</button>
+                    <button class="example-btn" onclick="loadExample('interpolation')">Interpolation</button>
+                </div>
+
+                <textarea id="input" placeholder="Enter SMT-LIB2 script here...">(set-logic QF_LIA)
+(declare-const x Int)
+(declare-const y Int)
+(assert (> x 0))
+(assert (> y 0))
+(assert (< (+ x y) 10))
+(check-sat)
+(get-model)</textarea>
+
+                <div class="button-group">
+                    <button onclick="solve()" id="solveBtn">
+                        <span id="solveText">🚀 Solve</span>
+                    </button>
+                    <button onclick="solveAsync()" class="secondary">
+                        ⚡ Solve Async
+                    </button>
+                    <button onclick="clearAll()" class="danger">
+                        🗑️ Clear
+                    </button>
+                </div>
+
+                <div class="button-group">
+                    <button onclick="validate()" class="secondary">
+                        ✅ Validate Only
+                    </button>
+                    <button onclick="simplify()" class="secondary">
+                        🔄 Simplify
+                    </button>
+                    <button onclick="showStats()" class="secondary">
+                        📊 Statistics
+                    </button>
+                </div>
+            </div>
+
+            <!-- Right Panel: Output -->
+            <div class="panel">
+                <h2>📤 Output</h2>
+                <div class="output info" id="output">Ready to solve! Load an example or write your own SMT-LIB2 script.</div>
+
+                <div class="stats" id="stats" style="display: none;">
+                    <div class="stat-card">
+                        <div class="stat-value" id="statTime">-</div>
+                        <div class="stat-label">Solve Time (ms)</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="statAssertions">-</div>
+                        <div class="stat-label">Assertions</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="statResult">-</div>
+                        <div class="stat-label">Result</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Features Section -->
+        <div style="padding: 20px; background: #f8f9fa;">
+            <h2 style="text-align: center; color: #667eea; margin-bottom: 20px;">✨ Features</h2>
+            <div class="feature-list">
+                <div class="feature">
+                    <h3>🎯 Multiple Theories</h3>
+                    <p>Support for LIA, LRA, QF_BV, and more SMT theories</p>
+                </div>
+                <div class="feature">
+                    <h3>⚡ Async Solving</h3>
+                    <p>Non-blocking async API for long-running problems</p>
+                </div>
+                <div class="feature">
+                    <h3>📊 Optimization</h3>
+                    <p>MaxSMT and optimization objectives (min/max)</p>
+                </div>
+                <div class="feature">
+                    <h3>🔍 Model Extraction</h3>
+                    <p>Get models, unsat cores, and proofs</p>
+                </div>
+                <div class="feature">
+                    <h3>🔄 Incremental Solving</h3>
+                    <p>Push/pop contexts for efficient solving</p>
+                </div>
+                <div class="feature">
+                    <h3>🎨 Formula Builders</h3>
+                    <p>TypeScript-friendly API for building formulas</p>
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            <p>Built with 🦀 Rust and ❤️ by the OxiZ Team</p>
+            <p style="margin-top: 10px;">
+                <a href="https://github.com/cool-japan/oxiz" target="_blank">GitHub</a> |
+                <a href="https://www.npmjs.com/package/oxiz-wasm" target="_blank">NPM</a> |
+                <a href="https://docs.rs/oxiz" target="_blank">Documentation</a>
+            </p>
+        </footer>
+    </div>
+
+    <script type="module">
+        // Load OxiZ WASM module
+        import init, { WasmSolver, version } from '../pkg/oxiz_wasm.js';
+
+        let solver = null;
+        let isReady = false;
+
+        // Initialize WASM
+        async function initWasm() {
+            const statusEl = document.getElementById('status');
+            statusEl.className = 'status loading';
+            statusEl.innerHTML = '<span class="spinner"></span> Loading WASM...';
+
+            try {
+                await init();
+                solver = new WasmSolver();
+                isReady = true;
+
+                const ver = version();
+                statusEl.className = 'status ready';
+                statusEl.textContent = `Ready! (v${ver})`;
+
+                updateOutput('✅ OxiZ WASM loaded successfully!\n\nVersion: ' + ver + '\n\nReady to solve problems.', 'success');
+            } catch (error) {
+                statusEl.className = 'status error';
+                statusEl.textContent = 'Failed to load';
+                updateOutput('❌ Error loading WASM: ' + error.message, 'error');
+            }
+        }
+
+        function updateOutput(text, type = 'info') {
+            const output = document.getElementById('output');
+            output.textContent = text;
+            output.className = 'output ' + type;
+        }
+
+        function showStats(time, assertions, result) {
+            const statsDiv = document.getElementById('stats');
+            statsDiv.style.display = 'grid';
+            document.getElementById('statTime').textContent = time.toFixed(2);
+            document.getElementById('statAssertions').textContent = assertions;
+            document.getElementById('statResult').textContent = result;
+        }
+
+        window.solve = function() {
+            if (!isReady) {
+                updateOutput('⚠️ Solver not ready yet. Please wait...', 'error');
+                return;
+            }
+
+            const input = document.getElementById('input').value;
+            const solveBtn = document.getElementById('solveBtn');
+            const solveText = document.getElementById('solveText');
+
+            solveBtn.disabled = true;
+            solveText.innerHTML = '<span class="spinner"></span> Solving...';
+
+            try {
+                const startTime = performance.now();
+                solver.reset();
+                const result = solver.execute(input);
+                const endTime = performance.now();
+                const elapsed = endTime - startTime;
+
+                updateOutput(result, 'success');
+
+                try {
+                    const stats = solver.getStatistics();
+                    const statsObj = JSON.parse(stats);
+                    showStats(elapsed, statsObj.assertions || 0, result.split('\n')[0]);
+                } catch (e) {
+                    // Stats not available
+                }
+            } catch (error) {
+                updateOutput('❌ Error: ' + error.message, 'error');
+            } finally {
+                solveBtn.disabled = false;
+                solveText.textContent = '🚀 Solve';
+            }
+        };
+
+        window.solveAsync = async function() {
+            if (!isReady) {
+                updateOutput('⚠️ Solver not ready yet. Please wait...', 'error');
+                return;
+            }
+
+            const input = document.getElementById('input').value;
+            updateOutput('⏳ Solving asynchronously...', 'info');
+
+            try {
+                const startTime = performance.now();
+                solver.reset();
+                const result = await solver.executeAsync(input);
+                const endTime = performance.now();
+                const elapsed = endTime - startTime;
+
+                updateOutput(result, 'success');
+
+                try {
+                    const stats = solver.getStatistics();
+                    const statsObj = JSON.parse(stats);
+                    showStats(elapsed, statsObj.assertions || 0, result.split('\n')[0]);
+                } catch (e) {
+                    // Stats not available
+                }
+            } catch (error) {
+                updateOutput('❌ Error: ' + error.message, 'error');
+            }
+        };
+
+        window.validate = function() {
+            if (!isReady) return;
+
+            const input = document.getElementById('input').value;
+            try {
+                solver.reset();
+                const lines = input.split('\n').filter(l => l.trim());
+
+                for (const line of lines) {
+                    if (line.trim().startsWith('(assert')) {
+                        const formula = line.match(/\(assert\s+(.+)\)/)?.[1];
+                        if (formula) {
+                            solver.validateFormula(formula);
+                        }
+                    }
+                }
+
+                updateOutput('✅ Validation passed! All formulas are well-formed.', 'success');
+            } catch (error) {
+                updateOutput('❌ Validation failed: ' + error.message, 'error');
+            }
+        };
+
+        window.simplify = function() {
+            if (!isReady) return;
+
+            const input = document.getElementById('input').value;
+            try {
+                solver.reset();
+                solver.execute(input);
+                const simplified = solver.simplify('(and (> x 0) (< x 10))');
+                updateOutput('Simplified formula:\n\n' + simplified, 'info');
+            } catch (error) {
+                updateOutput('❌ Error: ' + error.message, 'error');
+            }
+        };
+
+        window.showStats = function() {
+            if (!isReady) return;
+
+            try {
+                const stats = solver.getStatistics();
+                const info = solver.getInfo();
+
+                updateOutput('📊 Solver Statistics:\n\n' + stats + '\n\n📋 Solver Info:\n\n' + info, 'info');
+            } catch (error) {
+                updateOutput('❌ Error: ' + error.message, 'error');
+            }
+        };
+
+        window.clearAll = function() {
+            document.getElementById('input').value = '';
+            updateOutput('Ready to solve! Load an example or write your own SMT-LIB2 script.', 'info');
+            document.getElementById('stats').style.display = 'none';
+            if (isReady) {
+                solver.reset();
+            }
+        };
+
+        window.loadExample = function(name) {
+            const examples = {
+                simple: `(set-logic QF_LIA)
+(declare-const x Int)
+(declare-const y Int)
+(assert (> x 0))
+(assert (> y 0))
+(assert (< (+ x y) 10))
+(check-sat)
+(get-model)`,
+
+                unsat: `(set-logic QF_LIA)
+(declare-const x Int)
+(assert (> x 5))
+(assert (< x 3))
+(check-sat)`,
+
+                arithmetic: `(set-logic QF_LRA)
+(declare-const a Real)
+(declare-const b Real)
+(declare-const c Real)
+(assert (= (+ a b) 10.5))
+(assert (= (* b 2) a))
+(assert (> c (+ a b)))
+(check-sat)
+(get-model)`,
+
+                bitvector: `(set-logic QF_BV)
+(declare-const x (_ BitVec 8))
+(declare-const y (_ BitVec 8))
+(assert (= (bvadd x y) #x0F))
+(assert (bvugt x #x00))
+(check-sat)
+(get-model)`,
+
+                incremental: `(set-logic QF_LIA)
+(declare-const x Int)
+(assert (> x 0))
+(push 1)
+(assert (< x 10))
+(check-sat)
+(pop 1)
+(push 1)
+(assert (> x 100))
+(check-sat)
+(pop 1)`,
+
+                quantifier: `(set-logic LIA)
+(declare-const x Int)
+(assert (forall ((y Int)) (=> (> y 0) (> (+ x y) x))))
+(check-sat)`,
+
+                optimization: `(set-logic QF_LIA)
+(declare-const x Int)
+(declare-const y Int)
+(assert (>= x 0))
+(assert (>= y 0))
+(assert (<= (+ x y) 100))
+(maximize (+ (* 3 x) (* 2 y)))
+(check-sat)
+(get-model)`,
+
+                interpolation: `(set-logic QF_LIA)
+(declare-const x Int)
+(declare-const y Int)
+(assert (and (> x 0) (< x 10)))
+(assert (and (> y 5) (< y 15)))
+(assert (> x y))
+(check-sat)`
+            };
+
+            const example = examples[name];
+            if (example) {
+                document.getElementById('input').value = example;
+                updateOutput(`Loaded ${name} example. Click "Solve" to run.`, 'info');
+            }
+        };
+
+        // Initialize on page load
+        initWasm();
+
+        // Make solver accessible for debugging
+        window.solver = solver;
+    </script>
+</body>
+</html>

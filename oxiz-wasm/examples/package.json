@@ -1,0 +1,19 @@
+{
+  "name": "oxiz-wasm-examples",
+  "version": "1.0.0",
+  "description": "Examples for OxiZ WASM SMT Solver",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "run:js": "node basic.js",
+    "run:ts": "ts-node basic.ts"
+  },
+  "dependencies": {
+    "oxiz-wasm": "file:../pkg"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "ts-node": "^10.9.0"
+  }
+}

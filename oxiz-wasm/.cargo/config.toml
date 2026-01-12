@@ -1,0 +1,52 @@
+# Cargo configuration for oxiz-wasm
+
+[build]
+# Enable incremental compilation for faster rebuilds during development
+incremental = true
+
+# Target for WASM builds
+[target.wasm32-unknown-unknown]
+rustflags = [
+  # Optimize for size in WASM
+  "-C", "opt-level=z",
+  # Enable link-time optimization
+  "-C", "lto=fat",
+  # Use a single codegen unit for better optimization
+  "-C", "codegen-units=1",
+  # Strip debug symbols to reduce binary size
+  "-C", "strip=symbols",
+]
+
+# Development profile
+[profile.dev]
+# Faster compilation during development
+incremental = true
+opt-level = 0
+
+# Release profile optimized for WASM binary size
+[profile.release]
+# Optimize aggressively for size
+opt-level = "z"
+# Enable link-time optimization across all crates
+lto = "fat"
+# Use single codegen unit for maximum optimization
+codegen-units = 1
+# Strip debug info and symbols
+strip = true
+# Abort on panic (smaller binary, WASM doesn't support unwinding well)
+panic = "abort"
+
+# Custom profile for development with some optimization
+[profile.dev-opt]
+inherits = "dev"
+opt-level = 1
+incremental = true
+
+# Alias for common commands
+[alias]
+# Build for web target
+wasm-build = "build --target wasm32-unknown-unknown --release"
+# Run all tests
+test-all = "test --all-features"
+# Check without building
+quick-check = "check --all-targets --all-features"

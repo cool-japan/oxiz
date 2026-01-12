@@ -1,0 +1,10 @@
+# Fuzzing artifacts and corpus
+artifacts/
+corpus/
+*.profraw
+*.profdata
+coverage/
+
+# Build artifacts
+target/
+Cargo.lock

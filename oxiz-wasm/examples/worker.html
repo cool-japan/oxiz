@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OxiZ WASM - WebWorker Example</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        button {
+            background: #0066cc;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-right: 10px;
+        }
+        button:hover {
+            background: #0052a3;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .output {
+            background: #f8f8f8;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+            margin-top: 10px;
+            font-family: 'Courier New', monospace;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .info {
+            background: #e7f3ff;
+            border-left: 4px solid #0066cc;
+            padding: 10px;
+            margin-bottom: 20px;
+        }
+        #counter {
+            font-size: 48px;
+            font-weight: bold;
+            color: #0066cc;
+            text-align: center;
+            margin: 20px 0;
+        }
+        .status {
+            padding: 10px;
+            margin-top: 10px;
+            border-radius: 4px;
+        }
+        .status.running {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+        }
+        .status.completed {
+            background: #d4edda;
+            border-left: 4px solid #28a745;
+        }
+        .status.error {
+            background: #f8d7da;
+            border-left: 4px solid #dc3545;
+        }
+    </style>
+</head>
+<body>
+    <h1>OxiZ WASM - WebWorker Example</h1>
+
+    <div class="info">
+        <strong>WebWorker Demo:</strong> This example demonstrates how OxiZ WASM can run in a Web Worker
+        to keep the UI responsive during long-running solver operations. Notice that the counter
+        continues incrementing smoothly even while the solver is working.
+    </div>
+
+    <div class="container">
+        <h2>UI Responsiveness Test</h2>
+        <p>This counter proves the UI remains responsive:</p>
+        <div id="counter">0</div>
+        <button onclick="toggleCounter()" id="counterBtn">Stop Counter</button>
+    </div>
+
+    <div class="container">
+        <h2>Solver in Web Worker</h2>
+        <p>Run the SMT solver in a background worker thread:</p>
+        <button onclick="runWorkerExample()" id="runBtn">Run Solver in Worker</button>
+        <button onclick="cancelWorker()" id="cancelBtn" disabled>Cancel</button>
+
+        <div id="status"></div>
+        <div class="output" id="output"></div>
+    </div>
+
+    <script>
+        let counterRunning = true;
+        let counterValue = 0;
+        let worker = null;
+
+        // Counter to demonstrate UI responsiveness
+        function updateCounter() {
+            if (counterRunning) {
+                counterValue++;
+                document.getElementById('counter').textContent = counterValue;
+            }
+            requestAnimationFrame(updateCounter);
+        }
+        updateCounter();
+
+        function toggleCounter() {
+            counterRunning = !counterRunning;
+            document.getElementById('counterBtn').textContent = counterRunning ? 'Stop Counter' : 'Start Counter';
+        }
+
+        function setStatus(message, type = 'running') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.className = `status ${type}`;
+            statusDiv.textContent = message;
+        }
+
+        function log(message, isError = false) {
+            const output = document.getElementById('output');
+            const line = document.createElement('div');
+            line.style.color = isError ? '#cc0000' : '#006400';
+            line.textContent = message;
+            output.appendChild(line);
+            output.scrollTop = output.scrollHeight;
+        }
+
+        function runWorkerExample() {
+            document.getElementById('output').innerHTML = '';
+            document.getElementById('runBtn').disabled = true;
+            document.getElementById('cancelBtn').disabled = false;
+
+            setStatus('Initializing Web Worker...', 'running');
+            log('Starting solver in background thread...');
+
+            // Create a new worker
+            worker = new Worker('solver-worker.js', { type: 'module' });
+
+            worker.onmessage = function(e) {
+                const { type, message, result, error } = e.data;
+
+                switch(type) {
+                    case 'log':
+                        log(message);
+                        break;
+
+                    case 'status':
+                        setStatus(message, 'running');
+                        break;
+
+                    case 'result':
+                        setStatus('Solver completed successfully!', 'completed');
+                        log('=== Results ===');
+                        log(`Satisfiability: ${result.sat}`);
+                        if (result.model) {
+                            log('Model:');
+                            for (const [key, value] of Object.entries(result.model)) {
+                                log(`  ${key} = ${value.value} (${value.sort})`);
+                            }
+                        }
+                        document.getElementById('runBtn').disabled = false;
+                        document.getElementById('cancelBtn').disabled = true;
+                        break;
+
+                    case 'error':
+                        setStatus('Solver error!', 'error');
+                        log(`Error: ${error}`, true);
+                        document.getElementById('runBtn').disabled = false;
+                        document.getElementById('cancelBtn').disabled = true;
+                        break;
+
+                    case 'cancelled':
+                        setStatus('Solver cancelled by user', 'error');
+                        log('Operation was cancelled', true);
+                        document.getElementById('runBtn').disabled = false;
+                        document.getElementById('cancelBtn').disabled = true;
+                        break;
+                }
+            };
+
+            worker.onerror = function(error) {
+                setStatus('Worker error!', 'error');
+                log(`Worker error: ${error.message}`, true);
+                document.getElementById('runBtn').disabled = false;
+                document.getElementById('cancelBtn').disabled = true;
+            };
+
+            // Start the solver
+            worker.postMessage({ command: 'solve' });
+        }
+
+        function cancelWorker() {
+            if (worker) {
+                log('Sending cancellation request...');
+                worker.postMessage({ command: 'cancel' });
+            }
+        }
+    </script>
+</body>
+</html>

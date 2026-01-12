@@ -1,0 +1,215 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache target directory
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-target-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run tests
+        run: cargo test --verbose
+        working-directory: ./oxiz-wasm
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Run clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+        working-directory: ./oxiz-wasm
+
+  fmt:
+    name: Rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Run rustfmt
+        run: cargo fmt --all -- --check
+        working-directory: ./oxiz-wasm
+
+  wasm-test:
+    name: WASM Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Build WASM
+        run: wasm-pack build --target web
+        working-directory: ./oxiz-wasm
+
+      - name: Run WASM tests (headless Chrome)
+        run: wasm-pack test --headless --chrome
+        working-directory: ./oxiz-wasm
+        continue-on-error: true
+
+      - name: Run WASM tests (headless Firefox)
+        run: wasm-pack test --headless --firefox
+        working-directory: ./oxiz-wasm
+        continue-on-error: true
+
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install tarpaulin
+        run: cargo install cargo-tarpaulin
+
+      - name: Generate coverage
+        run: cargo tarpaulin --verbose --workspace --timeout 300 --out xml
+        working-directory: ./oxiz-wasm
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./oxiz-wasm/cobertura.xml
+          fail_ci_if_error: false
+
+  build-size:
+    name: WASM Binary Size Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Install wasm-opt
+        run: |
+          wget https://github.com/WebAssembly/binaryen/releases/download/version_116/binaryen-version_116-x86_64-linux.tar.gz
+          tar xzf binaryen-version_116-x86_64-linux.tar.gz
+          sudo mv binaryen-version_116/bin/wasm-opt /usr/local/bin/
+
+      - name: Build WASM (release)
+        run: wasm-pack build --target web --release
+        working-directory: ./oxiz-wasm
+
+      - name: Optimize with wasm-opt
+        run: wasm-opt -Oz -o pkg/oxiz_wasm_bg_opt.wasm pkg/oxiz_wasm_bg.wasm
+        working-directory: ./oxiz-wasm
+
+      - name: Check binary size
+        run: |
+          ORIGINAL_SIZE=$(stat -c%s pkg/oxiz_wasm_bg.wasm)
+          OPTIMIZED_SIZE=$(stat -c%s pkg/oxiz_wasm_bg_opt.wasm)
+          echo "Original size: $ORIGINAL_SIZE bytes"
+          echo "Optimized size: $OPTIMIZED_SIZE bytes"
+          echo "Reduction: $(( (ORIGINAL_SIZE - OPTIMIZED_SIZE) * 100 / ORIGINAL_SIZE ))%"
+
+          # Compress and check gzipped size
+          gzip -k pkg/oxiz_wasm_bg_opt.wasm
+          GZIPPED_SIZE=$(stat -c%s pkg/oxiz_wasm_bg_opt.wasm.gz)
+          echo "Gzipped size: $GZIPPED_SIZE bytes"
+
+          # Fail if optimized size is too large (e.g., > 2MB)
+          if [ $OPTIMIZED_SIZE -gt 2097152 ]; then
+            echo "::error::WASM binary too large: $OPTIMIZED_SIZE bytes (max 2MB)"
+            exit 1
+          fi
+        working-directory: ./oxiz-wasm
+
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+
+      - name: Run security audit
+        run: cargo audit
+        working-directory: ./oxiz-wasm
+        continue-on-error: true
+
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build documentation
+        run: cargo doc --no-deps --all-features
+        working-directory: ./oxiz-wasm
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+      - name: Check for broken links in docs
+        run: |
+          if [ -d "docs" ]; then
+            for file in docs/*.md; do
+              echo "Checking $file"
+              # Basic check for broken internal links
+              grep -o '\[.*\](.*)' "$file" || true
+            done
+          fi
+        working-directory: ./oxiz-wasm

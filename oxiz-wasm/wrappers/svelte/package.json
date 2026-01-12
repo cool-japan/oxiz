@@ -1,0 +1,41 @@
+{
+  "name": "@oxiz/svelte",
+  "version": "0.1.0",
+  "description": "Svelte wrapper for OxiZ WASM SMT Solver",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "svelte": "src/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "rollup -c",
+    "dev": "rollup -c -w",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "smt",
+    "solver",
+    "wasm",
+    "svelte",
+    "oxiz"
+  ],
+  "author": "OxiZ Contributors",
+  "license": "MIT",
+  "peerDependencies": {
+    "svelte": "^3.0.0 || ^4.0.0"
+  },
+  "dependencies": {
+    "oxiz-wasm": "^0.1.0"
+  },
+  "devDependencies": {
+    "@sveltejs/package": "^2.0.0",
+    "rollup": "^3.0.0",
+    "rollup-plugin-svelte": "^7.0.0",
+    "svelte": "^4.0.0",
+    "svelte-preprocess": "^5.0.0",
+    "typescript": "^5.0.0"
+  }
+}

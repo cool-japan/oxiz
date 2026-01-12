@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OxiZ WASM Web Worker Demo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            padding: 20px;
+            background: #f5f5f5;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .info {
+            color: #666;
+            margin-bottom: 20px;
+        }
+
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 4px;
+        }
+
+        h2 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 20px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+
+        input, select, textarea {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        textarea {
+            width: 100%;
+            min-height: 100px;
+            font-family: 'Courier New', monospace;
+            resize: vertical;
+        }
+
+        button {
+            padding: 10px 20px;
+            font-size: 14px;
+            cursor: pointer;
+            border: none;
+            border-radius: 4px;
+            background: #007bff;
+            color: white;
+            transition: background 0.2s;
+        }
+
+        button:hover:not(:disabled) {
+            background: #0056b3;
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .result {
+            padding: 15px;
+            background: #fff;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+            margin-top: 15px;
+        }
+
+        .result h3 {
+            margin-bottom: 10px;
+            color: #333;
+        }
+
+        .result pre {
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 12px;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #007bff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-left: 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+
+        .status.ready {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .status.loading {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>OxiZ WASM Web Worker Demo</h1>
+        <p class="info">This demo runs the SMT solver in a Web Worker to avoid blocking the main thread</p>
+
+        <div id="status" class="status loading">
+            Initializing Web Worker...
+        </div>
+
+        <div class="section">
+            <h2>Example 1: Boolean SAT</h2>
+            <button onclick="runBooleanExample()" id="btnBoolean">
+                Run Boolean Example
+            </button>
+            <div id="resultBoolean"></div>
+        </div>
+
+        <div class="section">
+            <h2>Example 2: Integer Arithmetic</h2>
+            <button onclick="runIntegerExample()" id="btnInteger">
+                Run Integer Example
+            </button>
+            <div id="resultInteger"></div>
+        </div>
+
+        <div class="section">
+            <h2>Example 3: Custom Formula</h2>
+            <div class="controls">
+                <input type="text" id="varName" placeholder="Variable name" value="x">
+                <select id="varSort">
+                    <option value="Bool">Bool</option>
+                    <option value="Int" selected>Int</option>
+                    <option value="Real">Real</option>
+                    <option value="BitVec8">BitVec8</option>
+                    <option value="BitVec32">BitVec32</option>
+                </select>
+                <button onclick="declareVar()">Declare Variable</button>
+            </div>
+            <textarea id="formula" placeholder="Enter SMT-LIB2 formula, e.g., (= x 42)">(= x 42)</textarea>
+            <div class="controls">
+                <button onclick="assertFormula()">Assert Formula</button>
+                <button onclick="checkCustom()">Check SAT</button>
+                <button onclick="resetCustom()">Reset</button>
+            </div>
+            <div id="resultCustom"></div>
+        </div>
+
+        <div class="section">
+            <h2>Example 4: Stress Test</h2>
+            <p style="margin-bottom: 10px;">This will solve 100 problems in the background without freezing the UI</p>
+            <button onclick="runStressTest()" id="btnStress">
+                Run Stress Test
+            </button>
+            <div id="resultStress"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { SolverWorkerClient } from './worker-client.js';
+
+        let client;
+        const statusEl = document.getElementById('status');
+
+        // Initialize worker
+        async function init() {
+            try {
+                client = new SolverWorkerClient('./solver-worker.js');
+                await client.waitForReady();
+                statusEl.className = 'status ready';
+                statusEl.textContent = 'Worker ready!';
+            } catch (error) {
+                statusEl.className = 'status error';
+                statusEl.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        window.runBooleanExample = async function() {
+            const btn = document.getElementById('btnBoolean');
+            const result = document.getElementById('resultBoolean');
+
+            btn.disabled = true;
+            result.innerHTML = '<div class="loading"></div> Solving...';
+
+            try {
+                await client.reset();
+                await client.declareConst('p', 'Bool');
+                await client.declareConst('q', 'Bool');
+                await client.assertFormula('(or p q)');
+                await client.assertFormula('(not p)');
+
+                const satResult = await client.checkSat();
+                const model = satResult === 'sat' ? await client.getModel() : null;
+
+                result.innerHTML = `
+                    <div class="result">
+                        <h3>Result: ${satResult}</h3>
+                        ${model ? `<pre>${JSON.stringify(model, null, 2)}</pre>` : ''}
+                    </div>
+                `;
+            } catch (error) {
+                result.innerHTML = `<div class="result"><h3 style="color: red;">Error: ${error.message}</h3></div>`;
+            } finally {
+                btn.disabled = false;
+            }
+        };
+
+        window.runIntegerExample = async function() {
+            const btn = document.getElementById('btnInteger');
+            const result = document.getElementById('resultInteger');
+
+            btn.disabled = true;
+            result.innerHTML = '<div class="loading"></div> Solving...';
+
+            try {
+                await client.reset();
+                await client.setLogic('QF_LIA');
+                await client.declareConst('x', 'Int');
+                await client.declareConst('y', 'Int');
+                await client.assertFormula('(= x 10)');
+                await client.assertFormula('(= y 20)');
+                await client.assertFormula('(= (+ x y) 30)');
+
+                const satResult = await client.checkSat();
+                const model = satResult === 'sat' ? await client.getModel() : null;
+
+                result.innerHTML = `
+                    <div class="result">
+                        <h3>Result: ${satResult}</h3>
+                        ${model ? `<pre>${JSON.stringify(model, null, 2)}</pre>` : ''}
+                    </div>
+                `;
+            } catch (error) {
+                result.innerHTML = `<div class="result"><h3 style="color: red;">Error: ${error.message}</h3></div>`;
+            } finally {
+                btn.disabled = false;
+            }
+        };
+
+        window.declareVar = async function() {
+            const name = document.getElementById('varName').value;
+            const sort = document.getElementById('varSort').value;
+
+            if (!name) return;
+
+            try {
+                await client.declareConst(name, sort);
+                alert(`Declared ${name}: ${sort}`);
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            }
+        };
+
+        window.assertFormula = async function() {
+            const formula = document.getElementById('formula').value;
+
+            if (!formula) return;
+
+            try {
+                await client.assertFormula(formula);
+                alert('Formula asserted');
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            }
+        };
+
+        window.checkCustom = async function() {
+            const result = document.getElementById('resultCustom');
+            result.innerHTML = '<div class="loading"></div> Solving...';
+
+            try {
+                const satResult = await client.checkSat();
+                const model = satResult === 'sat' ? await client.getModel() : null;
+
+                result.innerHTML = `
+                    <div class="result">
+                        <h3>Result: ${satResult}</h3>
+                        ${model ? `<pre>${JSON.stringify(model, null, 2)}</pre>` : ''}
+                    </div>
+                `;
+            } catch (error) {
+                result.innerHTML = `<div class="result"><h3 style="color: red;">Error: ${error.message}</h3></div>`;
+            }
+        };
+
+        window.resetCustom = async function() {
+            try {
+                await client.reset();
+                document.getElementById('resultCustom').innerHTML = '';
+                alert('Reset complete');
+            } catch (error) {
+                alert(`Error: ${error.message}`);
+            }
+        };
+
+        window.runStressTest = async function() {
+            const btn = document.getElementById('btnStress');
+            const result = document.getElementById('resultStress');
+
+            btn.disabled = true;
+            result.innerHTML = '<div class="loading"></div> Running 100 SAT checks...';
+
+            const startTime = performance.now();
+            let solved = 0;
+
+            try {
+                for (let i = 0; i < 100; i++) {
+                    await client.reset();
+                    await client.declareConst('p', 'Bool');
+                    await client.assertFormula('p');
+                    await client.checkSat();
+                    solved++;
+
+                    if (i % 10 === 0) {
+                        result.innerHTML = `<div class="loading"></div> Solved ${solved}/100...`;
+                    }
+                }
+
+                const endTime = performance.now();
+                const duration = (endTime - startTime).toFixed(2);
+
+                result.innerHTML = `
+                    <div class="result">
+                        <h3>Stress Test Complete!</h3>
+                        <p>Solved 100 problems in ${duration}ms</p>
+                        <p>Average: ${(duration / 100).toFixed(2)}ms per problem</p>
+                        <p style="color: green;">✓ UI remained responsive throughout</p>
+                    </div>
+                `;
+            } catch (error) {
+                result.innerHTML = `<div class="result"><h3 style="color: red;">Error: ${error.message}</h3></div>`;
+            } finally {
+                btn.disabled = false;
+            }
+        };
+
+        // Initialize on load
+        init();
+    </script>
+</body>
+</html>

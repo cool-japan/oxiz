@@ -1,0 +1,103 @@
+[workspace]
+resolver = "2"
+members = [
+    "oxiz-core",
+    "oxiz-math",
+    "oxiz-sat",
+    "oxiz-nlsat",
+    "oxiz-theories",
+    "oxiz-solver",
+    "oxiz-opt",
+    "oxiz-spacer",
+    "oxiz-proof",
+    "oxiz-wasm",
+    "oxiz-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+authors = ["COOLJAPAN OU (Team KitaSan)"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/cool-japan/oxiz"
+description = "Next-Generation SMT Solver in Pure Rust"
+keywords = ["smt", "solver", "sat", "verification", "logic"]
+categories = ["algorithms", "science", "mathematics"]
+
+[workspace.dependencies]
+# Core crates
+oxiz-core = { version = "0.1.0", path = "oxiz-core" }
+oxiz-math = { version = "0.1.0", path = "oxiz-math" }
+oxiz-sat = { version = "0.1.0", path = "oxiz-sat" }
+oxiz-nlsat = { version = "0.1.0", path = "oxiz-nlsat" }
+oxiz-theories = { version = "0.1.0", path = "oxiz-theories" }
+oxiz-solver = { version = "0.1.0", path = "oxiz-solver" }
+oxiz-opt = { version = "0.1.0", path = "oxiz-opt" }
+oxiz-spacer = { version = "0.1.0", path = "oxiz-spacer" }
+oxiz-proof = { version = "0.1.0", path = "oxiz-proof" }
+
+# Memory & Interning
+bumpalo = "3.19"
+indexmap = "2.13"
+lasso = "0.7"
+
+# Parsing
+winnow = "0.7"
+
+# E-graph / Rewriting
+egg = "0.9"
+
+# Parallelism
+rayon = "1.11"
+num_cpus = "1.17"
+
+# Logging & Tracing
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+# Error handling
+thiserror = "2.0"
+anyhow = "1.0"
+
+# CLI
+clap = { version = "4.5", features = ["derive", "cargo"] }
+clap_complete = "4.5"
+rustyline = "14.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+owo-colors = { version = "4.2", features = ["supports-colors"] }
+indicatif = "0.17"
+walkdir = "2.5"
+globset = "0.4"
+notify = "7.0"
+sysinfo = "0.33"
+dirs = "6.0"
+tower-lsp = "0.20"
+tokio = "1.49"
+
+# WASM
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+
+# Testing
+proptest = "1.9"
+criterion = "0.6"
+
+# Utilities
+smallvec = "1.15"
+rustc-hash = "2.1"
+num-rational = "0.4"
+num-bigint = "0.4"
+num-traits = "0.2"
+num-integer = "0.1"
+rand = "0.9"
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
+
+[profile.dev]
+opt-level = 1

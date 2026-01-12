@@ -1,0 +1,32 @@
+[package]
+name = "oxiz-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Core AST, Sorts, and Traits for OxiZ SMT Solver"
+keywords = ["smt", "ast", "logic"]
+categories = ["algorithms", "data-structures"]
+
+[dependencies]
+bumpalo = { workspace = true, features = ["collections"] }
+indexmap = { workspace = true }
+lasso = { version = "0.7", features = ["multi-threaded"] }
+winnow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+smallvec = { workspace = true }
+rustc-hash = { workspace = true }
+num-rational = { workspace = true }
+num-bigint = { workspace = true }
+num-traits = { workspace = true }
+num-integer = { workspace = true }
+rhai = { version = "1.23", features = ["sync"] }
+wide = "1.1"
+rayon = { workspace = true }
+parking_lot = "0.12"
+
+[dev-dependencies]
+proptest = { workspace = true }

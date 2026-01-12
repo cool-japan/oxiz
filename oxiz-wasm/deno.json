@@ -1,0 +1,14 @@
+{
+  "name": "@oxiz/wasm",
+  "version": "0.1.0",
+  "exports": "./pkg/oxiz_wasm.js",
+  "tasks": {
+    "test": "deno test --allow-read examples/deno-test.ts",
+    "bench": "deno run --allow-read examples/deno-bench.ts",
+    "example": "deno run --allow-read examples/deno-example.ts"
+  },
+  "compilerOptions": {
+    "lib": ["deno.window", "dom"],
+    "strict": true
+  }
+}

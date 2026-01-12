@@ -1,0 +1,39 @@
+[package]
+name = "oxiz-wasm-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.oxiz-wasm]
+path = ".."
+
+# Prevent this from being built in the workspace
+[[bin]]
+name = "fuzz_execute"
+path = "fuzz_targets/fuzz_execute.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_assert_formula"
+path = "fuzz_targets/fuzz_assert_formula.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_declare_const"
+path = "fuzz_targets/fuzz_declare_const.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_simplify"
+path = "fuzz_targets/fuzz_simplify.rs"
+test = false
+doc = false

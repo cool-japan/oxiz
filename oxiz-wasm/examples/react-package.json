@@ -1,0 +1,24 @@
+{
+  "name": "@oxiz/wasm-react",
+  "version": "0.1.0",
+  "description": "React hooks and components for OxiZ WASM SMT Solver",
+  "main": "react-wrapper.tsx",
+  "types": "react-wrapper.tsx",
+  "peerDependencies": {
+    "react": "^18.0.0",
+    "@oxiz/wasm": "^0.1.0"
+  },
+  "keywords": [
+    "smt",
+    "solver",
+    "wasm",
+    "react",
+    "hooks"
+  ],
+  "author": "OxiZ Contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cool-japan/oxiz"
+  }
+}

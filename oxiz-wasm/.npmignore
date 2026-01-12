@@ -1,0 +1,47 @@
+# Source files
+src/
+target/
+tests/
+benches/
+fuzz/
+
+# Build artifacts
+Cargo.toml
+Cargo.lock
+.cargo/
+
+# Development files
+.github/
+.gitignore
+rustfmt.toml
+
+# Documentation (included in README)
+docs/
+
+# Examples (link to repo instead)
+examples/
+wrappers/
+
+# Test files
+*.rs
+!pkg/**
+
+# CI/CD
+.travis.yml
+.circleci/
+azure-pipelines.yml
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary
+*.tmp
+*.bak

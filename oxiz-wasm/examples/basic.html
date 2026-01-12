@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OxiZ WASM Basic Example</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .example {
+            margin-bottom: 30px;
+        }
+        .example h2 {
+            color: #0066cc;
+            margin-top: 0;
+        }
+        button {
+            background: #0066cc;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-right: 10px;
+        }
+        button:hover {
+            background: #0052a3;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .output {
+            background: #f8f8f8;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+            margin-top: 10px;
+            font-family: 'Courier New', monospace;
+            white-space: pre-wrap;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .success {
+            color: #006400;
+        }
+        .error {
+            color: #cc0000;
+        }
+        textarea {
+            width: 100%;
+            min-height: 150px;
+            font-family: 'Courier New', monospace;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            resize: vertical;
+        }
+        .info {
+            background: #e7f3ff;
+            border-left: 4px solid #0066cc;
+            padding: 10px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>OxiZ WASM - SMT Solver Examples</h1>
+
+    <div class="info">
+        <strong>Note:</strong> This example demonstrates OxiZ WASM, a pure Rust SMT solver compiled to WebAssembly.
+        Open the browser console to see detailed output.
+    </div>
+
+    <div class="container">
+        <div class="example">
+            <h2>Example 1: Simple Boolean Satisfiability</h2>
+            <p>Check if the formula (p AND NOT q) is satisfiable.</p>
+            <button onclick="runExample1()">Run Example</button>
+            <div class="output" id="output1"></div>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="example">
+            <h2>Example 2: Integer Linear Arithmetic</h2>
+            <p>Find values for x and y where x &gt; 5 AND y &lt; 10 AND x + y = 12.</p>
+            <button onclick="runExample2()">Run Example</button>
+            <div class="output" id="output2"></div>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="example">
+            <h2>Example 3: Unsatisfiable Formula</h2>
+            <p>Try to satisfy: p AND NOT p (should be unsat).</p>
+            <button onclick="runExample3()">Run Example</button>
+            <div class="output" id="output3"></div>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="example">
+            <h2>Example 4: Async Solving</h2>
+            <p>Demonstrate async API for non-blocking operations.</p>
+            <button onclick="runExample4()">Run Example</button>
+            <button onclick="cancelExample4()" id="cancelBtn" disabled>Cancel</button>
+            <div class="output" id="output4"></div>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="example">
+            <h2>Example 5: Custom SMT-LIB2 Script</h2>
+            <p>Enter your own SMT-LIB2 script:</p>
+            <textarea id="customScript" placeholder="Enter SMT-LIB2 script here, e.g.:
+(set-logic QF_LIA)
+(declare-const x Int)
+(assert (> x 0))
+(check-sat)
+(get-model)"></textarea>
+            <button onclick="runExample5()">Execute Script</button>
+            <div class="output" id="output5"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        import init, { WasmSolver, version } from '../pkg/oxiz_wasm.js';
+
+        let solver = null;
+
+        async function initWasm() {
+            try {
+                await init();
+                console.log('OxiZ WASM initialized, version:', version());
+                solver = new WasmSolver();
+                document.body.style.opacity = '1';
+            } catch (error) {
+                console.error('Failed to initialize WASM:', error);
+                alert('Failed to initialize WASM module. Please ensure the pkg directory exists.');
+            }
+        }
+
+        function log(elementId, message, isError = false) {
+            const output = document.getElementById(elementId);
+            const span = document.createElement('span');
+            span.className = isError ? 'error' : 'success';
+            span.textContent = message + '\n';
+            output.appendChild(span);
+            console.log(message);
+        }
+
+        function clear(elementId) {
+            document.getElementById(elementId).innerHTML = '';
+        }
+
+        window.runExample1 = function() {
+            clear('output1');
+            try {
+                const solver = new WasmSolver();
+                solver.setLogic('QF_UF');
+
+                log('output1', '1. Declaring variables p and q...');
+                solver.declareConst('p', 'Bool');
+                solver.declareConst('q', 'Bool');
+
+                log('output1', '2. Asserting: (and p (not q))');
+                solver.assertFormula('(and p (not q))');
+
+                log('output1', '3. Checking satisfiability...');
+                const result = solver.checkSat();
+                log('output1', `Result: ${result}`);
+
+                if (result === 'sat') {
+                    log('output1', '4. Getting model...');
+                    const model = solver.getModel();
+                    log('output1', `p = ${model.p.value}`);
+                    log('output1', `q = ${model.q.value}`);
+                }
+            } catch (error) {
+                log('output1', `Error: ${error}`, true);
+            }
+        };
+
+        window.runExample2 = function() {
+            clear('output2');
+            try {
+                const solver = new WasmSolver();
+                solver.setLogic('QF_LIA');
+
+                log('output2', '1. Declaring integer variables x and y...');
+                solver.declareConst('x', 'Int');
+                solver.declareConst('y', 'Int');
+
+                log('output2', '2. Adding constraints:');
+                log('output2', '   - x > 5');
+                solver.assertFormula('(> x 5)');
+
+                log('output2', '   - y < 10');
+                solver.assertFormula('(< y 10)');
+
+                log('output2', '   - x + y = 12');
+                solver.assertFormula('(= (+ x y) 12)');
+
+                log('output2', '3. Checking satisfiability...');
+                const result = solver.checkSat();
+                log('output2', `Result: ${result}`);
+
+                if (result === 'sat') {
+                    log('output2', '4. Getting model...');
+                    const model = solver.getModel();
+                    log('output2', `x = ${model.x.value}`);
+                    log('output2', `y = ${model.y.value}`);
+                    log('output2', `Verification: ${model.x.value} + ${model.y.value} = ${parseInt(model.x.value) + parseInt(model.y.value)}`);
+                }
+            } catch (error) {
+                log('output2', `Error: ${error}`, true);
+            }
+        };
+
+        window.runExample3 = function() {
+            clear('output3');
+            try {
+                const solver = new WasmSolver();
+                solver.setLogic('QF_UF');
+
+                log('output3', '1. Declaring variable p...');
+                solver.declareConst('p', 'Bool');
+
+                log('output3', '2. Asserting contradictory constraints:');
+                log('output3', '   - p');
+                solver.assertFormula('p');
+
+                log('output3', '   - (not p)');
+                solver.assertFormula('(not p)');
+
+                log('output3', '3. Checking satisfiability...');
+                const result = solver.checkSat();
+                log('output3', `Result: ${result}`);
+
+                if (result === 'unsat') {
+                    log('output3', '4. Getting unsat core...');
+                    const core = solver.getUnsatCore();
+                    log('output3', `Unsat core: ${core}`);
+                }
+            } catch (error) {
+                log('output3', `Error: ${error}`, true);
+            }
+        };
+
+        let currentSolver4 = null;
+
+        window.runExample4 = async function() {
+            clear('output4');
+            document.getElementById('cancelBtn').disabled = false;
+
+            try {
+                currentSolver4 = new WasmSolver();
+                currentSolver4.setLogic('QF_LIA');
+
+                log('output4', '1. Declaring variables (async)...');
+                currentSolver4.declareConst('x', 'Int');
+                currentSolver4.declareConst('y', 'Int');
+
+                log('output4', '2. Adding constraints...');
+                currentSolver4.assertFormula('(> x 0)');
+                currentSolver4.assertFormula('(> y 0)');
+                currentSolver4.assertFormula('(< (+ x y) 100)');
+
+                log('output4', '3. Checking satisfiability (async)...');
+                const result = await currentSolver4.checkSatAsync();
+
+                if (currentSolver4.isCancelled()) {
+                    log('output4', 'Operation was cancelled!', true);
+                } else {
+                    log('output4', `Result: ${result}`);
+
+                    if (result === 'sat') {
+                        log('output4', '4. Getting model...');
+                        const model = currentSolver4.getModel();
+                        log('output4', `x = ${model.x.value}`);
+                        log('output4', `y = ${model.y.value}`);
+                    }
+                }
+            } catch (error) {
+                log('output4', `Error: ${error}`, true);
+            } finally {
+                document.getElementById('cancelBtn').disabled = true;
+                currentSolver4 = null;
+            }
+        };
+
+        window.cancelExample4 = function() {
+            if (currentSolver4) {
+                currentSolver4.cancel();
+                log('output4', 'Cancellation requested...', true);
+            }
+        };
+
+        window.runExample5 = async function() {
+            clear('output5');
+            try {
+                const script = document.getElementById('customScript').value;
+                if (!script.trim()) {
+                    log('output5', 'Please enter an SMT-LIB2 script', true);
+                    return;
+                }
+
+                const solver = new WasmSolver();
+                log('output5', 'Executing script...');
+                const result = await solver.executeAsync(script);
+                log('output5', 'Output:');
+                log('output5', result);
+            } catch (error) {
+                log('output5', `Error: ${error}`, true);
+            }
+        };
+
+        // Initialize WASM module on page load
+        initWasm();
+    </script>
+</body>
+</html>

@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OxiZ WASM - Performance Benchmarks</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        button {
+            background: #0066cc;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            background: #0052a3;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .results {
+            background: #f8f8f8;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            margin-top: 15px;
+            font-family: 'Courier New', monospace;
+        }
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #ddd;
+        }
+        .metric:last-child {
+            border-bottom: none;
+        }
+        .metric-label {
+            font-weight: bold;
+            color: #333;
+        }
+        .metric-value {
+            color: #0066cc;
+            font-weight: bold;
+        }
+        .chart {
+            margin-top: 20px;
+            height: 300px;
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            position: relative;
+        }
+        .bar {
+            background: #0066cc;
+            height: 30px;
+            margin: 5px 0;
+            display: flex;
+            align-items: center;
+            padding-left: 10px;
+            color: white;
+            font-weight: bold;
+            border-radius: 3px;
+        }
+        .info {
+            background: #e7f3ff;
+            border-left: 4px solid #0066cc;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .status.running {
+            background: #fff3cd;
+            color: #856404;
+        }
+        .status.completed {
+            background: #d4edda;
+            color: #155724;
+        }
+    </style>
+</head>
+<body>
+    <h1>OxiZ WASM Performance Benchmarks</h1>
+
+    <div class="info">
+        <strong>Performance Testing Suite</strong><br>
+        These benchmarks measure the performance of various SMT operations.
+        All times are in milliseconds. Lower is better.
+    </div>
+
+    <div class="container">
+        <h2>Quick Benchmarks</h2>
+        <button onclick="runAllBenchmarks()">Run All Benchmarks</button>
+        <button onclick="runBenchmark('init')">Initialization</button>
+        <button onclick="runBenchmark('declarations')">Declarations</button>
+        <button onclick="runBenchmark('assertions')">Assertions</button>
+        <button onclick="runBenchmark('solving')">SAT Solving</button>
+        <button onclick="runBenchmark('model')">Model Extraction</button>
+        <div id="status"></div>
+        <div id="results"></div>
+    </div>
+
+    <div class="container">
+        <h2>Scalability Test</h2>
+        <p>Tests how performance scales with problem size</p>
+        <button onclick="runScalabilityTest()">Run Scalability Test</button>
+        <div id="scalability-status"></div>
+        <div id="scalability-results"></div>
+    </div>
+
+    <script type="module">
+        import init, { WasmSolver, version } from '../pkg/oxiz_wasm.js';
+
+        let initialized = false;
+
+        async function ensureInit() {
+            if (!initialized) {
+                await init();
+                initialized = true;
+            }
+        }
+
+        function setStatus(message, type = 'running') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.className = `status ${type}`;
+            statusDiv.textContent = message;
+        }
+
+        function clearResults() {
+            document.getElementById('results').innerHTML = '';
+        }
+
+        function addResult(label, value, unit = 'ms') {
+            const resultsDiv = document.getElementById('results');
+            const metricDiv = document.createElement('div');
+            metricDiv.className = 'metric';
+            metricDiv.innerHTML = `
+                <span class="metric-label">${label}</span>
+                <span class="metric-value">${value.toFixed(3)} ${unit}</span>
+            `;
+            resultsDiv.appendChild(metricDiv);
+        }
+
+        window.runBenchmark = async function(benchmarkName) {
+            await ensureInit();
+            clearResults();
+            setStatus(`Running ${benchmarkName} benchmark...`, 'running');
+
+            let result;
+            switch(benchmarkName) {
+                case 'init':
+                    result = await benchmarkInitialization();
+                    break;
+                case 'declarations':
+                    result = await benchmarkDeclarations();
+                    break;
+                case 'assertions':
+                    result = await benchmarkAssertions();
+                    break;
+                case 'solving':
+                    result = await benchmarkSolving();
+                    break;
+                case 'model':
+                    result = await benchmarkModelExtraction();
+                    break;
+            }
+
+            for (const [label, time] of Object.entries(result)) {
+                addResult(label, time);
+            }
+
+            setStatus('Benchmark completed!', 'completed');
+        };
+
+        async function benchmarkInitialization() {
+            const iterations = 100;
+            const start = performance.now();
+
+            for (let i = 0; i < iterations; i++) {
+                const solver = new WasmSolver();
+                solver.free();
+            }
+
+            const end = performance.now();
+            const avgTime = (end - start) / iterations;
+
+            return {
+                'Average solver creation time': avgTime,
+                'Total time for 100 iterations': end - start
+            };
+        }
+
+        async function benchmarkDeclarations() {
+            const solver = new WasmSolver();
+            solver.setLogic('QF_LIA');
+
+            const counts = [10, 50, 100, 500];
+            const results = {};
+
+            for (const count of counts) {
+                const start = performance.now();
+
+                for (let i = 0; i < count; i++) {
+                    solver.declareConst(`x${i}`, 'Int');
+                }
+
+                const end = performance.now();
+                results[`${count} declarations`] = end - start;
+
+                solver.reset();
+                solver.setLogic('QF_LIA');
+            }
+
+            solver.free();
+            return results;
+        }
+
+        async function benchmarkAssertions() {
+            const solver = new WasmSolver();
+            solver.setLogic('QF_LIA');
+
+            const counts = [10, 50, 100, 200];
+            const results = {};
+
+            for (const count of counts) {
+                solver.declareConst('x', 'Int');
+
+                const start = performance.now();
+
+                for (let i = 0; i < count; i++) {
+                    solver.assertFormula(`(> x ${i})`);
+                }
+
+                const end = performance.now();
+                results[`${count} assertions`] = end - start;
+
+                solver.reset();
+                solver.setLogic('QF_LIA');
+            }
+
+            solver.free();
+            return results;
+        }
+
+        async function benchmarkSolving() {
+            const results = {};
+
+            // Benchmark 1: Simple SAT
+            {
+                const solver = new WasmSolver();
+                solver.setLogic('QF_UF');
+                solver.declareConst('p', 'Bool');
+                solver.assertFormula('p');
+
+                const start = performance.now();
+                solver.checkSat();
+                const end = performance.now();
+
+                results['Simple SAT check'] = end - start;
+                solver.free();
+            }
+
+            // Benchmark 2: Integer arithmetic
+            {
+                const solver = new WasmSolver();
+                solver.setLogic('QF_LIA');
+
+                for (let i = 0; i < 10; i++) {
+                    solver.declareConst(`x${i}`, 'Int');
+                }
+
+                solver.assertFormula('(and (> x0 0) (< x1 10) (= (+ x0 x1) x2))');
+
+                const start = performance.now();
+                solver.checkSat();
+                const end = performance.now();
+
+                results['Integer arithmetic SAT'] = end - start;
+                solver.free();
+            }
+
+            // Benchmark 3: UNSAT check
+            {
+                const solver = new WasmSolver();
+                solver.setLogic('QF_UF');
+                solver.declareConst('p', 'Bool');
+                solver.assertFormula('p');
+                solver.assertFormula('(not p)');
+
+                const start = performance.now();
+                solver.checkSat();
+                const end = performance.now();
+
+                results['Simple UNSAT check'] = end - start;
+                solver.free();
+            }
+
+            return results;
+        }
+
+        async function benchmarkModelExtraction() {
+            const solver = new WasmSolver();
+            solver.setLogic('QF_LIA');
+
+            const varCounts = [5, 10, 20, 50];
+            const results = {};
+
+            for (const count of varCounts) {
+                for (let i = 0; i < count; i++) {
+                    solver.declareConst(`x${i}`, 'Int');
+                }
+
+                solver.assertFormula('(> x0 0)');
+                solver.checkSat();
+
+                const start = performance.now();
+                const model = solver.getModel();
+                const end = performance.now();
+
+                results[`Model with ${count} variables`] = end - start;
+
+                solver.reset();
+                solver.setLogic('QF_LIA');
+            }
+
+            solver.free();
+            return results;
+        }
+
+        window.runAllBenchmarks = async function() {
+            await ensureInit();
+            clearResults();
+            setStatus('Running all benchmarks...', 'running');
+
+            const benchmarks = ['init', 'declarations', 'assertions', 'solving', 'model'];
+            const allResults = {};
+
+            for (const benchmark of benchmarks) {
+                const result = await window.runBenchmark(benchmark);
+                Object.assign(allResults, result);
+                await new Promise(resolve => setTimeout(resolve, 100)); // Small delay between benchmarks
+            }
+
+            setStatus('All benchmarks completed!', 'completed');
+        };
+
+        window.runScalabilityTest = async function() {
+            await ensureInit();
+
+            const statusDiv = document.getElementById('scalability-status');
+            const resultsDiv = document.getElementById('scalability-results');
+
+            statusDiv.className = 'status running';
+            statusDiv.textContent = 'Running scalability test...';
+            resultsDiv.innerHTML = '';
+
+            const results = [];
+            const sizes = [10, 20, 50, 100, 200, 500];
+
+            for (const size of sizes) {
+                const solver = new WasmSolver();
+                solver.setLogic('QF_LIA');
+
+                // Create variables
+                for (let i = 0; i < size; i++) {
+                    solver.declareConst(`x${i}`, 'Int');
+                }
+
+                // Add constraints
+                for (let i = 0; i < size; i++) {
+                    solver.assertFormula(`(> x${i} 0)`);
+                }
+
+                // Measure solve time
+                const start = performance.now();
+                solver.checkSat();
+                const end = performance.now();
+
+                results.push({
+                    size: size,
+                    time: end - start
+                });
+
+                solver.free();
+            }
+
+            // Display results as a chart
+            const maxTime = Math.max(...results.map(r => r.time));
+
+            for (const {size, time} of results) {
+                const barDiv = document.createElement('div');
+                const width = (time / maxTime) * 90; // 90% max width
+                barDiv.className = 'bar';
+                barDiv.style.width = `${width}%`;
+                barDiv.textContent = `${size} vars: ${time.toFixed(2)}ms`;
+                resultsDiv.appendChild(barDiv);
+            }
+
+            statusDiv.className = 'status completed';
+            statusDiv.textContent = 'Scalability test completed!';
+        };
+
+        // Initialize on load
+        window.addEventListener('load', async () => {
+            await ensureInit();
+            console.log('OxiZ WASM initialized, version:', version());
+        });
+    </script>
+</body>
+</html>

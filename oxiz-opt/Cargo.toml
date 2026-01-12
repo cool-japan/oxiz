@@ -1,0 +1,33 @@
+[package]
+name = "oxiz-opt"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Optimization engine for OxiZ (MaxSMT, OMT)"
+keywords = ["smt", "maxsmt", "optimization", "omt", "maxsat"]
+categories = ["algorithms", "mathematics"]
+
+[dependencies]
+oxiz-core.workspace = true
+oxiz-sat.workspace = true
+oxiz-solver.workspace = true
+num-rational.workspace = true
+num-bigint.workspace = true
+num-traits.workspace = true
+smallvec.workspace = true
+rustc-hash.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+rand.workspace = true
+rayon.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "opt_benchmarks"
+harness = false

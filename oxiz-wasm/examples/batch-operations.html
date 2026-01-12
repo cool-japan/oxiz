@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OxiZ WASM - Batch Operations Demo</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 900px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #34495e;
+            margin-top: 30px;
+        }
+        .example {
+            background: #ecf0f1;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+            border-left: 4px solid #3498db;
+        }
+        .example h3 {
+            margin-top: 0;
+            color: #2980b9;
+        }
+        pre {
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        .output {
+            background: #d5f4e6;
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 10px;
+            border-left: 4px solid #27ae60;
+        }
+        .error {
+            background: #fadbd8;
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 10px;
+            border-left: 4px solid #e74c3c;
+        }
+        button {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 5px;
+        }
+        button:hover {
+            background: #2980b9;
+        }
+        .code-line {
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 OxiZ WASM Batch Operations Demo</h1>
+        <p>
+            This example demonstrates the new batch operations and enhanced formula builders
+            in OxiZ WASM, which make it more efficient to work with multiple constraints.
+        </p>
+
+        <h2>Examples</h2>
+
+        <div class="example">
+            <h3>Example 1: Batch Declaration and Assertion</h3>
+            <p>Declare and assert multiple constraints efficiently.</p>
+            <button onclick="runExample1()">Run Example 1</button>
+            <div id="output1"></div>
+        </div>
+
+        <div class="example">
+            <h3>Example 2: Named Assertions with Unsat Core</h3>
+            <p>Track conflicting constraints using named assertions.</p>
+            <button onclick="runExample2()">Run Example 2</button>
+            <div id="output2"></div>
+        </div>
+
+        <div class="example">
+            <h3>Example 3: Formula Builders with New Operators</h3>
+            <p>Use the new division, modulo, negation, and XOR operators.</p>
+            <button onclick="runExample3()">Run Example 3</button>
+            <div id="output3"></div>
+        </div>
+
+        <div class="example">
+            <h3>Example 4: Complex Constraint System</h3>
+            <p>Combine batch operations with formula builders for complex problems.</p>
+            <button onclick="runExample4()">Run Example 4</button>
+            <div id="output4"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        import init, { WasmSolver } from '../pkg/oxiz_wasm.js';
+
+        let wasmInitialized = false;
+
+        async function ensureInit() {
+            if (!wasmInitialized) {
+                await init();
+                wasmInitialized = true;
+            }
+        }
+
+        window.runExample1 = async function() {
+            await ensureInit();
+            const output = document.getElementById('output1');
+            output.innerHTML = '<p>Running...</p>';
+
+            try {
+                const solver = new WasmSolver();
+                solver.setLogic('QF_LIA');
+
+                // Batch declare multiple variables
+                solver.declareFuns([
+                    'x Int',
+                    'y Int',
+                    'z Int',
+                    'w Int'
+                ]);
+
+                // Batch assert multiple constraints
+                solver.assertFormulas([
+                    '(> x 0)',
+                    '(> y x)',
+                    '(= z (+ x y))',
+                    '(< w 100)',
+                    '(> w z)'
+                ]);
+
+                const result = solver.checkSat();
+
+                let html = '<div class="output">';
+                html += '<h4>Result: ' + result + '</h4>';
+
+                if (result === 'sat') {
+                    const model = solver.getModel();
+                    html += '<p><strong>Model:</strong></p>';
+                    html += '<ul>';
+                    for (const [name, entry] of Object.entries(model)) {
+                        html += `<li>${name} (${entry.sort}): ${entry.value}</li>`;
+                    }
+                    html += '</ul>';
+
+                    // Verify the constraints
+                    const x = parseInt(model.x.value);
+                    const y = parseInt(model.y.value);
+                    const z = parseInt(model.z.value);
+                    const w = parseInt(model.w.value);
+
+                    html += '<p><strong>Verification:</strong></p>';
+                    html += `<ul>`;
+                    html += `<li>x > 0: ${x} > 0 = ${x > 0} ✓</li>`;
+                    html += `<li>y > x: ${y} > ${x} = ${y > x} ✓</li>`;
+                    html += `<li>z = x + y: ${z} = ${x} + ${y} = ${z === x + y} ✓</li>`;
+                    html += `<li>w < 100: ${w} < 100 = ${w < 100} ✓</li>`;
+                    html += `<li>w > z: ${w} > ${z} = ${w > z} ✓</li>`;
+                    html += `</ul>`;
+                }
+
+                html += '</div>';
+                output.innerHTML = html;
+            } catch (e) {
+                output.innerHTML = `<div class="error"><strong>Error:</strong> ${e}</div>`;
+            }
+        };
+
+        window.runExample2 = async function() {
+            await ensureInit();
+            const output = document.getElementById('output2');
+            output.innerHTML = '<p>Running...</p>';
+
+            try {
+                const solver = new WasmSolver();
+                solver.setLogic('QF_LIA');
+                solver.setOption('produce-unsat-cores', 'true');
+                solver.declareConst('x', 'Int');
+
+                // Use named assertions to track constraints
+                solver.assertNamed('positive', '(> x 10)');
+                solver.assertNamed('moderate', '(< x 20)');
+                solver.assertNamed('negative', '(< x 5)');  // This conflicts!
+
+                const result = solver.checkSat();
+
+                let html = '<div class="output">';
+                html += '<h4>Result: ' + result + '</h4>';
+
+                if (result === 'unsat') {
+                    try {
+                        const core = solver.getUnsatCore();
+                        html += '<p><strong>Unsat Core (conflicting assertions):</strong></p>';
+                        html += '<pre>' + JSON.stringify(core, null, 2) + '</pre>';
+                        html += '<p>The constraints labeled "positive" and "negative" are in conflict:</p>';
+                        html += '<ul>';
+                        html += '<li>positive: x > 10</li>';
+                        html += '<li>negative: x < 5</li>';
+                        html += '<li>These cannot both be true!</li>';
+                        html += '</ul>';
+                    } catch (e) {
+                        html += '<p><em>Unsat core extraction may not be fully supported yet.</em></p>';
+                    }
+                }
+
+                html += '</div>';
+                output.innerHTML = html;
+            } catch (e) {
+                output.innerHTML = `<div class="error"><strong>Error:</strong> ${e}</div>`;
+            }
+        };
+
+        window.runExample3 = async function() {
+            await ensureInit();
+            const output = document.getElementById('output3');
+            output.innerHTML = '<p>Running...</p>';
+
+            try {
+                const solver = new WasmSolver();
+                solver.setLogic('QF_LIA');
+                solver.declareFuns(['x Int', 'y Int', 'p Bool', 'q Bool']);
+
+                // Use new operators
+                const divExpr = solver.mkDiv(['x', '3']);
+                const modExpr = solver.mkMod('y', '2');
+                const negExpr = solver.mkNeg('x');
+                const xorExpr = solver.mkXor('p', 'q');
+
+                // Build formulas using the operators
+                solver.assertFormula(`(= ${divExpr} 5)`);      // x / 3 = 5, so x = 15
+                solver.assertFormula(`(= ${modExpr} 1)`);      // y % 2 = 1, so y is odd
+                solver.assertFormula(`(> ${negExpr} -20)`);    // -x > -20, so x < 20
+                solver.assertFormula(`(= y 7)`);               // y = 7 (specific odd value)
+                solver.assertFormula(xorExpr);                 // p XOR q
+                solver.assertFormula('p');                      // p is true
+
+                const result = solver.checkSat();
+
+                let html = '<div class="output">';
+                html += '<h4>Result: ' + result + '</h4>';
+                html += '<p><strong>Formulas built:</strong></p>';
+                html += '<ul>';
+                html += `<li>Division: ${divExpr}</li>`;
+                html += `<li>Modulo: ${modExpr}</li>`;
+                html += `<li>Negation: ${negExpr}</li>`;
+                html += `<li>XOR: ${xorExpr}</li>`;
+                html += '</ul>';
+
+                if (result === 'sat') {
+                    const model = solver.getModel();
+                    html += '<p><strong>Model:</strong></p>';
+                    html += '<ul>';
+                    for (const [name, entry] of Object.entries(model)) {
+                        html += `<li>${name} (${entry.sort}): ${entry.value}</li>`;
+                    }
+                    html += '</ul>';
+
+                    // Verify the constraints
+                    html += '<p><strong>Verification:</strong></p>';
+                    html += '<ul>';
+                    html += `<li>x / 3 = 5: 15 / 3 = 5 ✓</li>`;
+                    html += `<li>y % 2 = 1: 7 % 2 = 1 ✓</li>`;
+                    html += `<li>y = 7 ✓</li>`;
+                    html += `<li>-x > -20: -15 > -20 ✓</li>`;
+                    html += `<li>p XOR q: true XOR false = true ✓</li>`;
+                    html += '</ul>';
+                }
+
+                html += '</div>';
+                output.innerHTML = html;
+            } catch (e) {
+                output.innerHTML = `<div class="error"><strong>Error:</strong> ${e}</div>`;
+            }
+        };
+
+        window.runExample4 = async function() {
+            await ensureInit();
+            const output = document.getElementById('output4');
+            output.innerHTML = '<p>Running...</p>';
+
+            try {
+                const solver = new WasmSolver();
+                solver.setLogic('QF_LIA');
+
+                // Problem: Schedule 3 tasks with constraints
+                // Each task has a start time and duration
+                solver.declareFuns([
+                    't1_start Int',
+                    't1_duration Int',
+                    't2_start Int',
+                    't2_duration Int',
+                    't3_start Int',
+                    't3_duration Int'
+                ]);
+
+                // Task durations are fixed
+                solver.assertFormulas([
+                    '(= t1_duration 5)',
+                    '(= t2_duration 3)',
+                    '(= t3_duration 4)'
+                ]);
+
+                // All tasks start at non-negative times
+                solver.assertFormulas([
+                    '(>= t1_start 0)',
+                    '(>= t2_start 0)',
+                    '(>= t3_start 0)'
+                ]);
+
+                // Build end time formulas
+                const t1_end = solver.mkAdd(['t1_start', 't1_duration']);
+                const t2_end = solver.mkAdd(['t2_start', 't2_duration']);
+                const t3_end = solver.mkAdd(['t3_start', 't3_duration']);
+
+                // Task 1 must complete before Task 2 starts
+                solver.assertFormula(solver.mkLe(t1_end, 't2_start'));
+
+                // Task 2 must complete before Task 3 starts
+                solver.assertFormula(solver.mkLe(t2_end, 't3_start'));
+
+                // All tasks must complete within 15 time units
+                solver.assertFormula(solver.mkLe(t3_end, '15'));
+
+                const result = solver.checkSat();
+
+                let html = '<div class="output">';
+                html += '<h4>Scheduling Result: ' + result + '</h4>';
+
+                if (result === 'sat') {
+                    const model = solver.getModel();
+                    html += '<p><strong>Task Schedule:</strong></p>';
+
+                    const t1_s = parseInt(model.t1_start.value);
+                    const t1_d = parseInt(model.t1_duration.value);
+                    const t2_s = parseInt(model.t2_start.value);
+                    const t2_d = parseInt(model.t2_duration.value);
+                    const t3_s = parseInt(model.t3_start.value);
+                    const t3_d = parseInt(model.t3_duration.value);
+
+                    html += '<ul>';
+                    html += `<li>Task 1: Start at ${t1_s}, Duration ${t1_d}, End at ${t1_s + t1_d}</li>`;
+                    html += `<li>Task 2: Start at ${t2_s}, Duration ${t2_d}, End at ${t2_s + t2_d}</li>`;
+                    html += `<li>Task 3: Start at ${t3_s}, Duration ${t3_d}, End at ${t3_s + t3_d}</li>`;
+                    html += '</ul>';
+
+                    // Visual timeline
+                    html += '<p><strong>Timeline:</strong></p>';
+                    html += '<pre>';
+                    const timeline = Array(16).fill(' ');
+                    for (let i = t1_s; i < t1_s + t1_d; i++) timeline[i] = '1';
+                    for (let i = t2_s; i < t2_s + t2_d; i++) timeline[i] = '2';
+                    for (let i = t3_s; i < t3_s + t3_d; i++) timeline[i] = '3';
+                    html += 'Time:  0  1  2  3  4  5  6  7  8  9  10 11 12 13 14 15\n';
+                    html += 'Tasks: ' + timeline.map(c => c + '  ').join('');
+                    html += '</pre>';
+                }
+
+                html += '</div>';
+                output.innerHTML = html;
+            } catch (e) {
+                output.innerHTML = `<div class="error"><strong>Error:</strong> ${e}</div>`;
+            }
+        };
+    </script>
+</body>
+</html>

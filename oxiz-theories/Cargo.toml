@@ -1,0 +1,26 @@
+[package]
+name = "oxiz-theories"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Theory Solvers (EUF, Arithmetic, BitVectors) for OxiZ"
+keywords = ["smt", "theories", "euf", "arithmetic"]
+categories = ["algorithms", "mathematics"]
+
+[dependencies]
+oxiz-core = { workspace = true }
+oxiz-sat = { workspace = true }
+egg = { workspace = true }
+tracing = { workspace = true }
+smallvec = { workspace = true }
+rustc-hash = { workspace = true }
+num-rational = { workspace = true }
+num-bigint = { workspace = true }
+num-traits = { workspace = true }
+lasso = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OxiZ WASM Browser Tests</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            padding: 20px;
+            background: #f5f5f5;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+
+        .version {
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+
+        .controls {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+        }
+
+        button {
+            padding: 10px 20px;
+            font-size: 14px;
+            cursor: pointer;
+            border: none;
+            border-radius: 4px;
+            background: #007bff;
+            color: white;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: #0056b3;
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat {
+            padding: 15px;
+            border-radius: 4px;
+            text-align: center;
+        }
+
+        .stat.passed {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .stat.failed {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .stat.total {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+
+        .stat-number {
+            font-size: 32px;
+            font-weight: bold;
+            display: block;
+        }
+
+        .stat-label {
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .test-list {
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .test-item {
+            padding: 12px 15px;
+            border-bottom: 1px solid #ddd;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .test-item:last-child {
+            border-bottom: none;
+        }
+
+        .test-item.passed {
+            background: #f0f9f0;
+        }
+
+        .test-item.failed {
+            background: #fff5f5;
+        }
+
+        .test-status {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .test-status.passed {
+            background: #28a745;
+        }
+
+        .test-status.failed {
+            background: #dc3545;
+        }
+
+        .test-status.running {
+            background: #ffc107;
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .test-name {
+            flex: 1;
+            color: #333;
+        }
+
+        .test-error {
+            color: #dc3545;
+            font-size: 12px;
+            margin-left: 30px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .progress {
+            height: 4px;
+            background: #e9ecef;
+            border-radius: 2px;
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: #007bff;
+            transition: width 0.3s;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>OxiZ WASM Browser Tests</h1>
+        <div class="version" id="version">Loading...</div>
+
+        <div class="controls">
+            <button id="runTests" onclick="runTests()">Run All Tests</button>
+            <button id="clearResults" onclick="clearResults()">Clear Results</button>
+        </div>
+
+        <div class="progress" id="progressContainer" style="display: none;">
+            <div class="progress-bar" id="progressBar"></div>
+        </div>
+
+        <div class="stats" id="stats" style="display: none;">
+            <div class="stat total">
+                <span class="stat-number" id="totalTests">0</span>
+                <span class="stat-label">Total</span>
+            </div>
+            <div class="stat passed">
+                <span class="stat-number" id="passedTests">0</span>
+                <span class="stat-label">Passed</span>
+            </div>
+            <div class="stat failed">
+                <span class="stat-number" id="failedTests">0</span>
+                <span class="stat-label">Failed</span>
+            </div>
+        </div>
+
+        <div class="test-list" id="testList">
+            <div class="loading">Click "Run All Tests" to start</div>
+        </div>
+    </div>
+
+    <script type="module">
+        import init, { WasmSolver, version } from '../pkg/oxiz_wasm.js';
+
+        let wasmInitialized = false;
+        let WasmSolverClass;
+
+        async function initWasm() {
+            if (wasmInitialized) return;
+            await init();
+            WasmSolverClass = WasmSolver;
+            wasmInitialized = true;
+            document.getElementById('version').textContent = `Version: ${version()}`;
+        }
+
+        // Test framework
+        class TestRunner {
+            constructor() {
+                this.tests = [];
+                this.results = [];
+            }
+
+            test(name, fn) {
+                this.tests.push({ name, fn });
+            }
+
+            async run() {
+                this.results = [];
+                const testList = document.getElementById('testList');
+                const stats = document.getElementById('stats');
+                const progressContainer = document.getElementById('progressContainer');
+                const progressBar = document.getElementById('progressBar');
+
+                testList.innerHTML = '';
+                stats.style.display = 'grid';
+                progressContainer.style.display = 'block';
+
+                let passed = 0;
+                let failed = 0;
+
+                for (let i = 0; i < this.tests.length; i++) {
+                    const { name, fn } = this.tests[i];
+
+                    // Create test item
+                    const testItem = document.createElement('div');
+                    testItem.className = 'test-item';
+                    testItem.innerHTML = `
+                        <div class="test-status running"></div>
+                        <div class="test-name">${name}</div>
+                    `;
+                    testList.appendChild(testItem);
+
+                    // Update progress
+                    const progress = ((i + 1) / this.tests.length) * 100;
+                    progressBar.style.width = progress + '%';
+
+                    // Run test
+                    try {
+                        await fn();
+                        testItem.className = 'test-item passed';
+                        testItem.querySelector('.test-status').className = 'test-status passed';
+                        passed++;
+                    } catch (error) {
+                        testItem.className = 'test-item failed';
+                        testItem.querySelector('.test-status').className = 'test-status failed';
+                        const errorDiv = document.createElement('div');
+                        errorDiv.className = 'test-error';
+                        errorDiv.textContent = error.message;
+                        testItem.appendChild(errorDiv);
+                        failed++;
+                    }
+
+                    // Update stats
+                    document.getElementById('totalTests').textContent = i + 1;
+                    document.getElementById('passedTests').textContent = passed;
+                    document.getElementById('failedTests').textContent = failed;
+                }
+
+                progressContainer.style.display = 'none';
+            }
+        }
+
+        function assertEquals(actual, expected, message) {
+            if (actual !== expected) {
+                throw new Error(message || `Expected ${expected}, got ${actual}`);
+            }
+        }
+
+        function assertTrue(condition, message) {
+            if (!condition) {
+                throw new Error(message || 'Expected condition to be true');
+            }
+        }
+
+        function assertThrows(fn, message) {
+            let threw = false;
+            try {
+                fn();
+            } catch (e) {
+                threw = true;
+            }
+            if (!threw) {
+                throw new Error(message || 'Expected function to throw');
+            }
+        }
+
+        // Define tests
+        const runner = new TestRunner();
+
+        runner.test('Create new solver', () => {
+            const solver = new WasmSolverClass();
+            assertTrue(solver !== null);
+        });
+
+        runner.test('Check-sat on empty solver returns sat', () => {
+            const solver = new WasmSolverClass();
+            const result = solver.checkSat();
+            assertEquals(result, 'sat');
+        });
+
+        runner.test('Declare boolean constant', () => {
+            const solver = new WasmSolverClass();
+            solver.declareConst('p', 'Bool');
+            assertEquals(solver.checkSat(), 'sat');
+        });
+
+        runner.test('Declare integer constant', () => {
+            const solver = new WasmSolverClass();
+            solver.declareConst('x', 'Int');
+            assertEquals(solver.checkSat(), 'sat');
+        });
+
+        runner.test('Assert simple SAT formula', () => {
+            const solver = new WasmSolverClass();
+            solver.declareConst('p', 'Bool');
+            solver.assertFormula('p');
+            assertEquals(solver.checkSat(), 'sat');
+        });
+
+        runner.test('Assert contradictory formulas (UNSAT)', () => {
+            const solver = new WasmSolverClass();
+            solver.declareConst('p', 'Bool');
+            solver.assertFormula('p');
+            solver.assertFormula('(not p)');
+            assertEquals(solver.checkSat(), 'unsat');
+        });
+
+        runner.test('Integer arithmetic (SAT)', () => {
+            const solver = new WasmSolverClass();
+            solver.setLogic('QF_LIA');
+            solver.declareConst('x', 'Int');
+            solver.declareConst('y', 'Int');
+            solver.assertFormula('(= x 10)');
+            solver.assertFormula('(= y 20)');
+            solver.assertFormula('(= (+ x y) 30)');
+            assertEquals(solver.checkSat(), 'sat');
+        });
+
+        runner.test('Push and pop', () => {
+            const solver = new WasmSolverClass();
+            solver.declareConst('p', 'Bool');
+            solver.assertFormula('p');
+            solver.push();
+            solver.assertFormula('(not p)');
+            assertEquals(solver.checkSat(), 'unsat');
+            solver.pop();
+            assertEquals(solver.checkSat(), 'sat');
+        });
+
+        runner.test('Reset clears state', () => {
+            const solver = new WasmSolverClass();
+            solver.declareConst('x', 'Int');
+            solver.assertFormula('(= x 42)');
+            solver.reset();
+            assertEquals(solver.checkSat(), 'sat');
+        });
+
+        runner.test('Get model after SAT', () => {
+            const solver = new WasmSolverClass();
+            solver.declareConst('x', 'Int');
+            solver.assertFormula('(= x 42)');
+            solver.checkSat();
+            const model = solver.getModel();
+            assertTrue(model !== null);
+        });
+
+        runner.test('Simplify arithmetic', () => {
+            const solver = new WasmSolverClass();
+            const result = solver.simplify('(+ 1 2)');
+            assertEquals(result, '3');
+        });
+
+        runner.test('Simplify boolean', () => {
+            const solver = new WasmSolverClass();
+            const result = solver.simplify('(and true false)');
+            assertEquals(result, 'false');
+        });
+
+        runner.test('Set and get option', () => {
+            const solver = new WasmSolverClass();
+            solver.setOption('produce-models', 'true');
+            assertEquals(solver.getOption('produce-models'), 'true');
+        });
+
+        runner.test('Invalid sort throws error', () => {
+            const solver = new WasmSolverClass();
+            assertThrows(() => solver.declareConst('x', 'InvalidSort'));
+        });
+
+        runner.test('Empty script throws error', () => {
+            const solver = new WasmSolverClass();
+            assertThrows(() => solver.execute(''));
+        });
+
+        runner.test('Async check-sat', async () => {
+            const solver = new WasmSolverClass();
+            solver.declareConst('p', 'Bool');
+            solver.assertFormula('p');
+            const result = await solver.checkSatAsync();
+            assertEquals(result, 'sat');
+        });
+
+        runner.test('BitVector operations', () => {
+            const solver = new WasmSolverClass();
+            solver.setLogic('QF_BV');
+            solver.declareConst('bv1', 'BitVec8');
+            solver.declareConst('bv2', 'BitVec8');
+            solver.assertFormula('(= bv1 #b00000001)');
+            solver.assertFormula('(= bv2 #b00000010)');
+            assertEquals(solver.checkSat(), 'sat');
+        });
+
+        runner.test('Real arithmetic', () => {
+            const solver = new WasmSolverClass();
+            solver.setLogic('QF_LRA');
+            solver.declareConst('x', 'Real');
+            solver.assertFormula('(> x 0.0)');
+            solver.assertFormula('(< x 1.0)');
+            assertEquals(solver.checkSat(), 'sat');
+        });
+
+        runner.test('Multiple push/pop levels', () => {
+            const solver = new WasmSolverClass();
+            solver.declareConst('p', 'Bool');
+            solver.push();
+            solver.assertFormula('p');
+            assertEquals(solver.checkSat(), 'sat');
+            solver.push();
+            solver.assertFormula('(not p)');
+            assertEquals(solver.checkSat(), 'unsat');
+            solver.pop();
+            assertEquals(solver.checkSat(), 'sat');
+            solver.pop();
+            assertEquals(solver.checkSat(), 'sat');
+        });
+
+        runner.test('Get assertions', () => {
+            const solver = new WasmSolverClass();
+            solver.declareConst('p', 'Bool');
+            solver.assertFormula('p');
+            const assertions = solver.getAssertions();
+            assertTrue(assertions.includes('p'));
+        });
+
+        // Make runner available globally
+        window.testRunner = runner;
+        window.runTests = async function() {
+            await initWasm();
+            await runner.run();
+        };
+
+        window.clearResults = function() {
+            document.getElementById('testList').innerHTML = '<div class="loading">Click "Run All Tests" to start</div>';
+            document.getElementById('stats').style.display = 'none';
+        };
+
+        // Initialize WASM on load
+        initWasm();
+    </script>
+</body>
+</html>

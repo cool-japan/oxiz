@@ -1,0 +1,32 @@
+[package]
+name = "oxiz-solver"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Main CDCL(T) Solver API for OxiZ"
+keywords = ["smt", "solver", "cdcl"]
+categories = ["algorithms"]
+
+[dependencies]
+oxiz-core = { workspace = true }
+oxiz-sat = { workspace = true }
+oxiz-theories = { workspace = true }
+rayon = { workspace = true }
+tracing = { workspace = true }
+rustc-hash = { workspace = true }
+smallvec = { workspace = true }
+num-bigint = { workspace = true }
+num-rational = { workspace = true }
+num-traits = { workspace = true }
+lasso = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "solver_benchmarks"
+harness = false

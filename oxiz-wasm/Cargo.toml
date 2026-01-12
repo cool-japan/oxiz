@@ -1,0 +1,40 @@
+[package]
+name = "oxiz-wasm"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "WebAssembly bindings for OxiZ SMT Solver"
+keywords = ["smt", "wasm", "webassembly"]
+categories = ["wasm"]
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+oxiz-core = { workspace = true }
+oxiz-solver = { workspace = true }
+wasm-bindgen = { workspace = true }
+wasm-bindgen-futures = "0.4"
+js-sys = { workspace = true }
+console_error_panic_hook = "0.1"
+getrandom = { version = "0.3", features = ["wasm_js"] }
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
+criterion = "0.5"
+
+[[bench]]
+name = "performance"
+harness = false
+
+# Note: Profile settings should be configured in the workspace root Cargo.toml
+# For WASM binary size optimization, use:
+#   opt-level = "z"
+#   lto = true
+#   codegen-units = 1

@@ -1,0 +1,39 @@
+[package]
+name = "oxiz-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "CLI for OxiZ SMT Solver (SMT-LIB2 compliant)"
+keywords = ["smt", "cli", "smtlib"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "oxiz"
+path = "src/main.rs"
+
+[dependencies]
+oxiz-core = { workspace = true }
+oxiz-solver = { workspace = true }
+clap = { workspace = true }
+clap_complete = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+rustyline = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+owo-colors = { workspace = true }
+indicatif = { workspace = true }
+walkdir = { workspace = true }
+globset = { workspace = true }
+notify = { workspace = true }
+sysinfo = { workspace = true }
+rayon = { workspace = true }
+dirs = { workspace = true }
+tower-lsp = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+anyhow = { workspace = true }
+chrono = "0.4"

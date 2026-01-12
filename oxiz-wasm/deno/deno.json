@@ -1,0 +1,22 @@
+{
+  "name": "@oxiz/deno",
+  "version": "0.1.0",
+  "exports": "./mod.ts",
+  "tasks": {
+    "test": "deno test --allow-read",
+    "example:basic": "deno run --allow-read examples/basic.ts",
+    "example:incremental": "deno run --allow-read examples/incremental.ts"
+  },
+  "fmt": {
+    "useTabs": false,
+    "lineWidth": 100,
+    "indentWidth": 2,
+    "semiColons": true,
+    "singleQuote": false
+  },
+  "lint": {
+    "rules": {
+      "tags": ["recommended"]
+    }
+  }
+}

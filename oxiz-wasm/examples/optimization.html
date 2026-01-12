@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OxiZ WASM - Optimization Examples</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        h1 {
+            color: #667eea;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #764ba2;
+            margin-top: 30px;
+        }
+        .example {
+            background: #f8f9fa;
+            padding: 20px;
+            margin: 15px 0;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 5px;
+            transition: transform 0.2s;
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        button:active {
+            transform: translateY(0);
+        }
+        .result {
+            background: #e8f5e9;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+            border-left: 4px solid #4caf50;
+            font-family: 'Courier New', monospace;
+            white-space: pre-wrap;
+        }
+        .error {
+            background: #ffebee;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+            border-left: 4px solid #f44336;
+            font-family: 'Courier New', monospace;
+        }
+        code {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 15px;
+            display: block;
+            border-radius: 5px;
+            overflow-x: auto;
+            margin: 10px 0;
+        }
+        .description {
+            color: #666;
+            font-style: italic;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 OxiZ WASM - Optimization & MaxSMT Examples</h1>
+        <p>This page demonstrates the optimization capabilities of OxiZ, including:</p>
+        <ul>
+            <li><strong>Minimization</strong> - Find solutions that minimize an objective</li>
+            <li><strong>Maximization</strong> - Find solutions that maximize an objective</li>
+            <li><strong>MaxSMT</strong> - Satisfy as many soft constraints as possible</li>
+            <li><strong>Lexicographic optimization</strong> - Multiple objectives with priorities</li>
+        </ul>
+
+        <div class="example">
+            <h2>Example 1: Linear Programming (Minimization)</h2>
+            <p class="description">Minimize x + y subject to x ≥ 1, y ≥ 2, x + y ≤ 10</p>
+            <button onclick="runMinimization()">Run Minimization</button>
+            <div id="min-result"></div>
+            <code>solver.setLogic("QF_LIA");
+solver.declareConst("x", "Int");
+solver.declareConst("y", "Int");
+solver.assertFormula("(>= x 1)");
+solver.assertFormula("(>= y 2)");
+solver.assertFormula("(<= (+ x y) 10)");
+solver.minimize("(+ x y)");
+const result = solver.optimize();</code>
+        </div>
+
+        <div class="example">
+            <h2>Example 2: Linear Programming (Maximization)</h2>
+            <p class="description">Maximize 3x + 2y subject to x ≥ 0, y ≥ 0, x + y ≤ 10, 2x + y ≤ 15</p>
+            <button onclick="runMaximization()">Run Maximization</button>
+            <div id="max-result"></div>
+            <code>solver.setLogic("QF_LIA");
+solver.declareConst("x", "Int");
+solver.declareConst("y", "Int");
+solver.assertFormula("(>= x 0)");
+solver.assertFormula("(>= y 0)");
+solver.assertFormula("(<= (+ x y) 10)");
+solver.assertFormula("(<= (+ (* 2 x) y) 15)");
+solver.maximize("(+ (* 3 x) (* 2 y))");</code>
+        </div>
+
+        <div class="example">
+            <h2>Example 3: MaxSMT (Soft Constraints)</h2>
+            <p class="description">Satisfy as many preferences as possible with weighted importance</p>
+            <button onclick="runMaxSMT()">Run MaxSMT</button>
+            <div id="maxsmt-result"></div>
+            <code>solver.setLogic("QF_UF");
+solver.declareConst("likes_coffee", "Bool");
+solver.declareConst("likes_tea", "Bool");
+solver.declareConst("morning_person", "Bool");
+
+// Hard constraint: must like at least one
+solver.assertFormula("(or likes_coffee likes_tea)");
+
+// Soft constraints with weights
+solver.assertSoft("likes_coffee", "10");      // Strongly prefer coffee
+solver.assertSoft("(not likes_tea)", "5");    // Prefer not tea
+solver.assertSoft("morning_person", "3");     // Prefer being morning person</code>
+        </div>
+
+        <div class="example">
+            <h2>Example 4: Lexicographic Optimization</h2>
+            <p class="description">Optimize multiple objectives in priority order</p>
+            <button onclick="runLexicographic()">Run Lexicographic</button>
+            <div id="lex-result"></div>
+            <code>solver.setLogic("QF_LIA");
+solver.declareConst("quality", "Int");
+solver.declareConst("cost", "Int");
+solver.assertFormula("(>= quality 1)");
+solver.assertFormula("(>= cost 1)");
+solver.assertFormula("(<= quality 10)");
+solver.assertFormula("(<= cost 100)");
+
+// First priority: maximize quality
+solver.maximize("quality");
+// Second priority: minimize cost
+solver.minimize("cost");</code>
+        </div>
+
+        <div class="example">
+            <h2>Example 5: Resource Allocation</h2>
+            <p class="description">Allocate resources to maximize profit with constraints</p>
+            <button onclick="runResourceAllocation()">Run Resource Allocation</button>
+            <div id="resource-result"></div>
+            <code>// Allocate workers and machines to maximize profit
+// profit = 50*workers + 80*machines
+// Constraints: workers ≥ 2, machines ≥ 1, total ≤ 10</code>
+        </div>
+
+        <div class="example">
+            <h2>Example 6: Model Minimization</h2>
+            <p class="description">Get a minimal model with only specific variables of interest</p>
+            <button onclick="runModelMinimization()">Run Model Minimization</button>
+            <div id="minimal-result"></div>
+            <code>// When you have many variables but only care about a few
+solver.declareConst("x", "Int");
+solver.declareConst("y", "Int");
+solver.declareConst("z", "Int");
+solver.assertFormula("(= (+ x y z) 10)");
+
+// Get minimal model with only x and y (exclude z)
+const minimalModel = solver.getMinimalModel(["x", "y"]);</code>
+        </div>
+    </div>
+
+    <script type="module">
+        import init, { WasmSolver } from './pkg/oxiz_wasm.js';
+
+        let solver;
+
+        async function initWasm() {
+            try {
+                await init();
+                console.log("OxiZ WASM initialized successfully");
+            } catch (err) {
+                console.error("Failed to initialize WASM:", err);
+                document.body.innerHTML = `
+                    <div class="container">
+                        <div class="error">
+                            <h2>Failed to load WASM module</h2>
+                            <p>Error: ${err.message}</p>
+                            <p>Make sure you're running this from a web server (not file://)
+                               and that the pkg/ directory exists.</p>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        function displayResult(elementId, result, solver) {
+            const element = document.getElementById(elementId);
+            let html = '<div class="result">';
+
+            html += `<strong>Status:</strong> ${result.status}\n\n`;
+
+            if (result.status === "optimal") {
+                if (result.value) {
+                    html += `<strong>Optimal Value:</strong> ${result.value}\n\n`;
+                }
+
+                if (result.model) {
+                    html += `<strong>Model:</strong>\n`;
+                    for (const [key, value] of Object.entries(result.model)) {
+                        html += `  ${key} = ${value.value}\n`;
+                    }
+                }
+            } else if (result.status === "unsat") {
+                html += "No solution exists (constraints are unsatisfiable)";
+            } else if (result.status === "unbounded") {
+                html += "Objective is unbounded (no finite optimum)";
+            }
+
+            html += '</div>';
+            element.innerHTML = html;
+        }
+
+        function displayError(elementId, error) {
+            const element = document.getElementById(elementId);
+            element.innerHTML = `<div class="error"><strong>Error:</strong> ${error.message || error}</div>`;
+        }
+
+        window.runMinimization = async function() {
+            try {
+                solver = new WasmSolver();
+                solver.setLogic("QF_LIA");
+                solver.declareConst("x", "Int");
+                solver.declareConst("y", "Int");
+                solver.assertFormula("(>= x 1)");
+                solver.assertFormula("(>= y 2)");
+                solver.assertFormula("(<= (+ x y) 10)");
+                solver.minimize("(+ x y)");
+
+                const result = solver.optimize();
+                displayResult("min-result", result, solver);
+            } catch (err) {
+                displayError("min-result", err);
+            }
+        };
+
+        window.runMaximization = async function() {
+            try {
+                solver = new WasmSolver();
+                solver.setLogic("QF_LIA");
+                solver.declareConst("x", "Int");
+                solver.declareConst("y", "Int");
+                solver.assertFormula("(>= x 0)");
+                solver.assertFormula("(>= y 0)");
+                solver.assertFormula("(<= (+ x y) 10)");
+                solver.assertFormula("(<= (+ (* 2 x) y) 15)");
+                solver.maximize("(+ (* 3 x) (* 2 y))");
+
+                const result = solver.optimize();
+                displayResult("max-result", result, solver);
+            } catch (err) {
+                displayError("max-result", err);
+            }
+        };
+
+        window.runMaxSMT = async function() {
+            try {
+                solver = new WasmSolver();
+                solver.setLogic("QF_UF");
+                solver.declareConst("likes_coffee", "Bool");
+                solver.declareConst("likes_tea", "Bool");
+                solver.declareConst("morning_person", "Bool");
+
+                // Hard constraint
+                solver.assertFormula("(or likes_coffee likes_tea)");
+
+                // Soft constraints with weights
+                solver.assertSoft("likes_coffee", "10");
+                solver.assertSoft("(not likes_tea)", "5");
+                solver.assertSoft("morning_person", "3");
+
+                const result = solver.optimize();
+                displayResult("maxsmt-result", result, solver);
+            } catch (err) {
+                displayError("maxsmt-result", err);
+            }
+        };
+
+        window.runLexicographic = async function() {
+            try {
+                solver = new WasmSolver();
+                solver.setLogic("QF_LIA");
+                solver.declareConst("quality", "Int");
+                solver.declareConst("cost", "Int");
+                solver.assertFormula("(>= quality 1)");
+                solver.assertFormula("(>= cost 1)");
+                solver.assertFormula("(<= quality 10)");
+                solver.assertFormula("(<= cost 100)");
+
+                // First priority: maximize quality
+                solver.maximize("quality");
+                // Second priority: minimize cost
+                solver.minimize("cost");
+
+                const result = solver.optimize();
+                displayResult("lex-result", result, solver);
+            } catch (err) {
+                displayError("lex-result", err);
+            }
+        };
+
+        window.runResourceAllocation = async function() {
+            try {
+                solver = new WasmSolver();
+                solver.setLogic("QF_LIA");
+                solver.declareConst("workers", "Int");
+                solver.declareConst("machines", "Int");
+
+                // Constraints
+                solver.assertFormula("(>= workers 2)");
+                solver.assertFormula("(>= machines 1)");
+                solver.assertFormula("(<= (+ workers machines) 10)");
+
+                // Maximize profit: 50*workers + 80*machines
+                solver.maximize("(+ (* 50 workers) (* 80 machines))");
+
+                const result = solver.optimize();
+                displayResult("resource-result", result, solver);
+            } catch (err) {
+                displayError("resource-result", err);
+            }
+        };
+
+        window.runModelMinimization = async function() {
+            try {
+                solver = new WasmSolver();
+                solver.setLogic("QF_LIA");
+                solver.declareConst("x", "Int");
+                solver.declareConst("y", "Int");
+                solver.declareConst("z", "Int");
+                solver.declareConst("w", "Int");
+
+                solver.assertFormula("(= (+ x y z w) 20)");
+                solver.assertFormula("(= x 5)");
+                solver.assertFormula("(= y 7)");
+                solver.assertFormula("(= z 3)");
+
+                const satResult = solver.checkSat();
+
+                const element = document.getElementById("minimal-result");
+                let html = '<div class="result">';
+                html += `<strong>SAT Result:</strong> ${satResult}\n\n`;
+
+                if (satResult === "sat") {
+                    // Get full model
+                    const fullModel = solver.getModel();
+                    html += `<strong>Full Model (all variables):</strong>\n`;
+                    for (const [key, value] of Object.entries(fullModel)) {
+                        html += `  ${key} = ${value.value}\n`;
+                    }
+
+                    html += `\n<strong>Minimal Model (only x and y):</strong>\n`;
+                    // Get minimal model with only x and y
+                    const minimalModel = solver.getMinimalModel(["x", "y"]);
+                    for (const [key, value] of Object.entries(minimalModel)) {
+                        html += `  ${key} = ${value.value}\n`;
+                    }
+                    html += `\n<em>Note: z and w are excluded from minimal model</em>`;
+                }
+
+                html += '</div>';
+                element.innerHTML = html;
+            } catch (err) {
+                displayError("minimal-result", err);
+            }
+        };
+
+        // Initialize on page load
+        initWasm();
+    </script>
+</body>
+</html>

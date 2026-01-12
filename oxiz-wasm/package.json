@@ -1,0 +1,63 @@
+{
+  "name": "oxiz-wasm",
+  "version": "0.1.0",
+  "description": "WebAssembly bindings for OxiZ SMT Solver - Pure Rust SMT solving in the browser",
+  "main": "pkg/oxiz_wasm.js",
+  "types": "pkg/oxiz_wasm.d.ts",
+  "files": [
+    "pkg/oxiz_wasm.js",
+    "pkg/oxiz_wasm.d.ts",
+    "pkg/oxiz_wasm_bg.wasm",
+    "pkg/oxiz_wasm_bg.wasm.d.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "wasm-pack build --target web --release",
+    "build:nodejs": "wasm-pack build --target nodejs --release --out-dir pkg-nodejs",
+    "build:bundler": "wasm-pack build --target bundler --release --out-dir pkg-bundler",
+    "build:all": "npm run build && npm run build:nodejs && npm run build:bundler",
+    "optimize": "wasm-opt -Oz -o pkg/oxiz_wasm_bg.wasm pkg/oxiz_wasm_bg.wasm",
+    "test": "wasm-pack test --headless --chrome",
+    "test:firefox": "wasm-pack test --headless --firefox",
+    "prepublishOnly": "npm run build && npm run optimize"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cool-japan/oxiz.git",
+    "directory": "oxiz-wasm"
+  },
+  "keywords": [
+    "smt",
+    "sat",
+    "solver",
+    "wasm",
+    "webassembly",
+    "smt-lib",
+    "theorem-prover",
+    "constraint-solver",
+    "z3-alternative",
+    "pure-rust"
+  ],
+  "author": "OxiZ Contributors",
+  "license": "MIT OR Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/cool-japan/oxiz/issues"
+  },
+  "homepage": "https://github.com/cool-japan/oxiz/tree/main/oxiz-wasm#readme",
+  "devDependencies": {},
+  "dependencies": {},
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./pkg/oxiz_wasm.d.ts",
+      "import": "./pkg/oxiz_wasm.js",
+      "require": "./pkg-nodejs/oxiz_wasm.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

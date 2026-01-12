@@ -1,0 +1,39 @@
+[package]
+name = "oxiz-sat"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "High-performance CDCL SAT Solver for OxiZ"
+keywords = ["sat", "cdcl", "solver"]
+categories = ["algorithms"]
+
+[dependencies]
+oxiz-core = { workspace = true }
+tracing = { workspace = true }
+smallvec = { workspace = true }
+rustc-hash = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+# Profile-Guided Optimization (PGO) Configuration
+#
+# To use PGO for maximum performance:
+#
+# 1. Build with instrumentation:
+#    RUSTFLAGS="-Cprofile-generate=/tmp/pgo-data" cargo build --release
+#
+# 2. Run representative workload to generate profile data:
+#    ./target/release/oxiz-sat <your-benchmark-files>
+#
+# 3. Merge profile data:
+#    llvm-profdata merge -o /tmp/pgo-data/merged.profdata /tmp/pgo-data
+#
+# 4. Build with PGO:
+#    RUSTFLAGS="-Cprofile-use=/tmp/pgo-data/merged.profdata -Cllvm-args=-pgo-warn-missing-function" cargo build --release
+#
+# For SIMD optimizations, use:
+#    RUSTFLAGS="-C target-cpu=native" cargo build --release

@@ -1,0 +1,39 @@
+{
+  "name": "@oxiz/vue",
+  "version": "0.1.0",
+  "description": "Vue wrapper for OxiZ WASM SMT Solver",
+  "main": "dist/index.js",
+  "module": "dist/index.esm.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "rollup -c",
+    "dev": "rollup -c -w",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "smt",
+    "solver",
+    "wasm",
+    "vue",
+    "oxiz"
+  ],
+  "author": "OxiZ Contributors",
+  "license": "MIT",
+  "peerDependencies": {
+    "vue": "^3.0.0"
+  },
+  "dependencies": {
+    "oxiz-wasm": "^0.1.0"
+  },
+  "devDependencies": {
+    "@vue/compiler-sfc": "^3.0.0",
+    "rollup": "^3.0.0",
+    "rollup-plugin-typescript2": "^0.34.0",
+    "rollup-plugin-vue": "^6.0.0",
+    "typescript": "^5.0.0",
+    "vue": "^3.0.0"
+  }
+}
