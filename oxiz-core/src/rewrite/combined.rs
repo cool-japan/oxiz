@@ -343,7 +343,8 @@ impl CombinedRewriter {
             // Datatypes
             TermKind::DtConstructor { .. }
             | TermKind::DtTester { .. }
-            | TermKind::DtSelector { .. } => RewriterKind::Datatype,
+            | TermKind::DtSelector { .. }
+            | TermKind::Match { .. } => RewriterKind::Datatype,
 
             // Quantifiers
             TermKind::Forall { .. } | TermKind::Exists { .. } => RewriterKind::Quantifier,

@@ -16,6 +16,7 @@ path = "src/main.rs"
 [dependencies]
 oxiz-core = { workspace = true }
 oxiz-solver = { workspace = true }
+oxiz-proof = { workspace = true }
 clap = { workspace = true }
 clap_complete = { workspace = true }
 tracing = { workspace = true }
@@ -36,3 +37,7 @@ tower-lsp = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 anyhow = { workspace = true }
 chrono = "0.4"
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+rustc-hash = { workspace = true }

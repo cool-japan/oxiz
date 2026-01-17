@@ -605,7 +605,10 @@ impl NlsatSolver {
 
                 // Check if we should reorder variables
                 if self.config.dynamic_reordering
-                    && self.stats.conflicts.is_multiple_of(self.config.reorder_frequency)
+                    && self
+                        .stats
+                        .conflicts
+                        .is_multiple_of(self.config.reorder_frequency)
                 {
                     self.dynamic_reorder();
                 }

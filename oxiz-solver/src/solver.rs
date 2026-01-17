@@ -2405,6 +2405,12 @@ impl Solver {
                 let var = self.get_or_create_var(term);
                 Lit::pos(var)
             }
+            // Match expressions on datatypes
+            TermKind::Match { .. } => {
+                // Match expressions - theory terms
+                let var = self.get_or_create_var(term);
+                Lit::pos(var)
+            }
         }
     }
 

@@ -839,6 +839,37 @@ impl<'a> PrettyPrinter<'a> {
                 self.write_term(w, *arg, indent, depth + 1);
                 let _ = write!(w, ")");
             }
+            TermKind::Match { scrutinee, cases } => {
+                let _ = write!(w, "(match ");
+                self.write_term(w, *scrutinee, indent, depth + 1);
+                let _ = write!(w, " (");
+                for (i, case) in cases.iter().enumerate() {
+                    if i > 0 {
+                        let _ = write!(w, " ");
+                    }
+                    let _ = write!(w, "(");
+                    if let Some(ctor) = case.constructor {
+                        let ctor_name = self.manager.resolve_str(ctor);
+                        if case.bindings.is_empty() {
+                            let _ = write!(w, "{ctor_name}");
+                        } else {
+                            let _ = write!(w, "({ctor_name}");
+                            for binding in &case.bindings {
+                                let binding_name = self.manager.resolve_str(*binding);
+                                let _ = write!(w, " {binding_name}");
+                            }
+                            let _ = write!(w, ")");
+                        }
+                    } else if let Some(first_binding) = case.bindings.first() {
+                        let binding_name = self.manager.resolve_str(*first_binding);
+                        let _ = write!(w, "{binding_name}");
+                    }
+                    let _ = write!(w, " ");
+                    self.write_term(w, case.body, indent, depth + 1);
+                    let _ = write!(w, ")");
+                }
+                let _ = write!(w, "))");
+            }
         }
     }
 
@@ -1773,6 +1804,36 @@ impl<'a> Printer<'a> {
                 let _ = write!(w, "({name} ");
                 self.write_term(w, *arg);
                 let _ = write!(w, ")");
+            }
+
+            // Match expressions
+            TermKind::Match { scrutinee, cases } => {
+                let _ = write!(w, "(match ");
+                self.write_term(w, *scrutinee);
+                let _ = write!(w, " (");
+                for (i, case) in cases.iter().enumerate() {
+                    if i > 0 {
+                        let _ = write!(w, " ");
+                    }
+                    let _ = write!(w, "(");
+                    if let Some(constructor) = case.constructor {
+                        let _ = write!(w, "(");
+                        let name = self.manager.resolve_str(constructor);
+                        let _ = write!(w, "{name}");
+                        for binding in &case.bindings {
+                            let binding_name = self.manager.resolve_str(*binding);
+                            let _ = write!(w, " {binding_name}");
+                        }
+                        let _ = write!(w, ")");
+                    } else {
+                        // Wildcard pattern
+                        let _ = write!(w, "_");
+                    }
+                    let _ = write!(w, " ");
+                    self.write_term(w, case.body);
+                    let _ = write!(w, ")");
+                }
+                let _ = write!(w, "))");
             }
         }
     }

@@ -13,6 +13,8 @@ members = [
     "oxiz-proof",
     "oxiz-wasm",
     "oxiz-cli",
+    "oxiz-smtcomp",
+    "oxiz-py",
 ]
 
 [workspace.package]
@@ -47,6 +49,7 @@ oxiz-solver = { version = "0.1.1", path = "oxiz-solver" }
 oxiz-opt = { version = "0.1.1", path = "oxiz-opt" }
 oxiz-spacer = { version = "0.1.1", path = "oxiz-spacer" }
 oxiz-proof = { version = "0.1.1", path = "oxiz-proof" }
+oxiz-smtcomp = { version = "0.1.1", path = "oxiz-smtcomp" }
 
 # Memory & Interning
 bumpalo = "3.19"
@@ -87,6 +90,9 @@ sysinfo = "0.36"
 dirs = "6.0"
 tower-lsp = "0.20"
 tokio = "1.49"
+axum = { version = "0.8", features = ["ws"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors"] }
 
 # WASM
 wasm-bindgen = "0.2"

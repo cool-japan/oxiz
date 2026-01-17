@@ -521,6 +521,11 @@ impl<'a> BitBlastTactic<'a> {
                 TermKind::DtTester { arg, .. } | TermKind::DtSelector { arg, .. } => {
                     self.contains_bv_term(*arg)
                 }
+                // Match expressions
+                TermKind::Match { scrutinee, cases } => {
+                    self.contains_bv_term(*scrutinee)
+                        || cases.iter().any(|c| self.contains_bv_term(c.body))
+                }
             }
         } else {
             false

@@ -1,0 +1,173 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "SMT-LIB2",
+  "scopeName": "source.smtlib2",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#quoted-symbols" },
+    { "include": "#numbers" },
+    { "include": "#keywords" },
+    { "include": "#commands" },
+    { "include": "#sorts" },
+    { "include": "#operators" },
+    { "include": "#constants" },
+    { "include": "#logics" },
+    { "include": "#attributes" },
+    { "include": "#parentheses" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.semicolon.smtlib2",
+          "match": ";.*$"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.smtlib2",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.smtlib2",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "quoted-symbols": {
+      "patterns": [
+        {
+          "name": "string.quoted.other.smtlib2",
+          "begin": "\\|",
+          "end": "\\|"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hexadecimal.smtlib2",
+          "match": "#x[0-9a-fA-F]+"
+        },
+        {
+          "name": "constant.numeric.binary.smtlib2",
+          "match": "#b[01]+"
+        },
+        {
+          "name": "constant.numeric.decimal.smtlib2",
+          "match": "\\b\\d+\\.\\d+\\b"
+        },
+        {
+          "name": "constant.numeric.integer.smtlib2",
+          "match": "\\b\\d+\\b"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.smtlib2",
+          "match": "\\b(let|forall|exists|match|par|!)\\b"
+        },
+        {
+          "name": "keyword.other.smtlib2",
+          "match": "\\b(as|_|NUMERAL|DECIMAL|STRING)\\b"
+        }
+      ]
+    },
+    "commands": {
+      "patterns": [
+        {
+          "name": "keyword.other.command.smtlib2",
+          "match": "(?<=\\()\\s*(set-logic|set-option|set-info|declare-sort|define-sort|declare-const|declare-fun|declare-datatype|declare-datatypes|define-fun|define-fun-rec|define-funs-rec|push|pop|assert|check-sat|check-sat-assuming|get-assertions|get-proof|get-unsat-core|get-unsat-assumptions|get-value|get-assignment|get-option|get-info|get-model|reset|reset-assertions|exit|echo|simplify|display|eval)(?=\\s|\\))"
+        }
+      ]
+    },
+    "sorts": {
+      "patterns": [
+        {
+          "name": "support.type.smtlib2",
+          "match": "\\b(Int|Real|Bool|String|RegLan|RoundingMode|Float16|Float32|Float64|Float128|BitVec|Array|Set|Seq)\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.logical.smtlib2",
+          "match": "\\b(and|or|not|xor|=>|ite|implies)\\b"
+        },
+        {
+          "name": "keyword.operator.comparison.smtlib2",
+          "match": "\\b(=|distinct|<|>|<=|>=)\\b"
+        },
+        {
+          "name": "keyword.operator.arithmetic.smtlib2",
+          "match": "\\b(\\+|-|\\*|/|div|mod|abs|to_real|to_int|is_int)\\b"
+        },
+        {
+          "name": "keyword.operator.bitvector.smtlib2",
+          "match": "\\b(bvnot|bvand|bvor|bvnand|bvnor|bvxor|bvxnor|bvneg|bvadd|bvsub|bvmul|bvudiv|bvsdiv|bvurem|bvsrem|bvsmod|bvshl|bvlshr|bvashr|bvult|bvule|bvugt|bvuge|bvslt|bvsle|bvsgt|bvsge|concat|extract|repeat|zero_extend|sign_extend|rotate_left|rotate_right)\\b"
+        },
+        {
+          "name": "keyword.operator.array.smtlib2",
+          "match": "\\b(select|store)\\b"
+        },
+        {
+          "name": "keyword.operator.string.smtlib2",
+          "match": "\\b(str\\.[a-z_]+|re\\.[a-z_]+|str\\.len|str\\.\\+\\+|str\\.at|str\\.substr|str\\.prefixof|str\\.suffixof|str\\.contains|str\\.indexof|str\\.replace|str\\.replace_all|str\\.to_int|str\\.from_int|str\\.to_code|str\\.from_code|str\\.is_digit|str\\.<|str\\.<=|re\\.\\+|re\\.\\*|re\\.\\+\\+|re\\.range|re\\.union|re\\.inter|re\\.comp|re\\.diff|re\\.loop|re\\.none|re\\.all|re\\.allchar)\\b"
+        },
+        {
+          "name": "keyword.operator.fp.smtlib2",
+          "match": "\\b(fp|fp\\.abs|fp\\.neg|fp\\.add|fp\\.sub|fp\\.mul|fp\\.div|fp\\.fma|fp\\.sqrt|fp\\.rem|fp\\.roundToIntegral|fp\\.min|fp\\.max|fp\\.leq|fp\\.lt|fp\\.geq|fp\\.gt|fp\\.eq|fp\\.isNormal|fp\\.isSubnormal|fp\\.isZero|fp\\.isInfinite|fp\\.isNaN|fp\\.isNegative|fp\\.isPositive|to_fp|to_fp_unsigned|fp\\.to_ubv|fp\\.to_sbv|fp\\.to_real)\\b"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.boolean.smtlib2",
+          "match": "\\b(true|false)\\b"
+        },
+        {
+          "name": "constant.language.fp.smtlib2",
+          "match": "\\b(RNE|RNA|RTP|RTN|RTZ|\\+oo|-oo|\\+zero|-zero|NaN)\\b"
+        }
+      ]
+    },
+    "logics": {
+      "patterns": [
+        {
+          "name": "constant.language.logic.smtlib2",
+          "match": "\\b(QF_UF|QF_LIA|QF_LRA|QF_LIRA|QF_NIA|QF_NRA|QF_NIRA|QF_RDL|QF_IDL|QF_BV|QF_ABV|QF_AUFBV|QF_AUFLIA|QF_AUFNIA|QF_AX|QF_UFBV|QF_UFIDL|QF_UFLIA|QF_UFLRA|QF_UFNIA|QF_UFNRA|AUFLIA|AUFLIRA|AUFNIRA|LIA|LRA|NIA|NRA|UF|UFLIA|UFLRA|UFNIA|UFNRA|BV|ABV|AUFBV|HORN|ALL)\\b"
+        }
+      ]
+    },
+    "attributes": {
+      "patterns": [
+        {
+          "name": "entity.other.attribute-name.smtlib2",
+          "match": ":[a-zA-Z][a-zA-Z0-9_\\-]*"
+        }
+      ]
+    },
+    "parentheses": {
+      "patterns": [
+        {
+          "name": "punctuation.paren.open.smtlib2",
+          "match": "\\("
+        },
+        {
+          "name": "punctuation.paren.close.smtlib2",
+          "match": "\\)"
+        }
+      ]
+    }
+  }
+}

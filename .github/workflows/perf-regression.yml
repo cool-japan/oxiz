@@ -1,0 +1,155 @@
+name: Performance Regression
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  schedule:
+    # Run weekly on Sunday at midnight UTC
+    - cron: '0 0 * * 0'
+  workflow_dispatch:
+    inputs:
+      threshold:
+        description: 'Regression threshold percentage'
+        required: false
+        default: '10'
+      update_baseline:
+        description: 'Update baseline after run'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  regression-test:
+    name: Performance Regression Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-action@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-perf-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-perf-
+            ${{ runner.os }}-cargo-
+
+      - name: Build regression tests
+        run: |
+          cd bench/regression
+          cargo build --release
+
+      - name: Run regression tests
+        id: regression
+        run: |
+          cd bench/regression
+          THRESHOLD="${{ github.event.inputs.threshold || '10' }}"
+          cargo run --release -- --threshold "$THRESHOLD" --github 2>&1 | tee regression-output.txt
+          EXIT_CODE=${PIPESTATUS[0]}
+          echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+          exit $EXIT_CODE
+        continue-on-error: true
+
+      - name: Generate JSON report
+        if: always()
+        run: |
+          cd bench/regression
+          cargo run --release -- --json > regression-report.json 2>/dev/null || true
+
+      - name: Upload regression report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: regression-report
+          path: |
+            bench/regression/regression-output.txt
+            bench/regression/regression-report.json
+          retention-days: 30
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request' && steps.regression.outputs.exit_code != '0'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const output = fs.readFileSync('bench/regression/regression-output.txt', 'utf8');
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## Performance Regression Detected\n\n\`\`\`\n${output}\n\`\`\`\n\nPlease investigate the performance regression before merging.`
+            });
+
+      - name: Update baseline
+        if: github.event.inputs.update_baseline == 'true' && github.ref == 'refs/heads/main'
+        run: |
+          cd bench/regression
+          cargo run --release -- --update
+
+      - name: Commit baseline update
+        if: github.event.inputs.update_baseline == 'true' && github.ref == 'refs/heads/main'
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: Update performance baseline"
+          file_pattern: bench/regression/baseline.json
+
+      - name: Check regression result
+        if: steps.regression.outputs.exit_code != '0'
+        run: |
+          echo "Performance regression detected!"
+          exit 1
+
+  benchmark-criterion:
+    name: Criterion Benchmarks
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-action@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-bench-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-bench-
+            ${{ runner.os }}-cargo-
+
+      - name: Run Criterion benchmarks
+        run: |
+          cd bench/regression
+          cargo bench --no-run 2>/dev/null || echo "Criterion benchmarks not yet configured"
+
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: criterion-results
+          path: bench/regression/target/criterion
+          retention-days: 30
+          if-no-files-found: ignore
