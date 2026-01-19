@@ -37,9 +37,9 @@
 //! This is a simplified MPFR-like implementation suitable for SMT solving scenarios
 //! that require extended precision arithmetic.
 
-use num_bigint::{BigInt, BigUint, Sign};
+use num_bigint::BigUint;
 use num_integer::Integer;
-use num_traits::{One, Signed, ToPrimitive, Zero};
+use num_traits::{One, ToPrimitive, Zero};
 use std::cmp::Ordering;
 use std::fmt;
 use std::ops::{Add, Div, Mul, Neg, Sub};
@@ -326,39 +326,27 @@ impl ArbitraryFloat {
             return if self.sign { -0.0 } else { 0.0 };
         }
 
-        // Convert mantissa to f64
-        let mantissa_f64 = self.mantissa_to_f64();
+        // For f64 conversion, we need mantissa in [2^52, 2^53) and adjust exponent
+        // Current: value = mantissa * 2^exponent (mantissa has self.precision bits)
+        // Target: value = f64_mantissa * 2^f64_exp (f64_mantissa has 53 bits)
 
-        // Apply exponent
-        let result = if mantissa_f64 == 0.0 {
-            0.0
+        let precision_bits = self.precision.bits();
+        if precision_bits >= 53 {
+            // Shift mantissa to 53 bits
+            let shift = (precision_bits - 53) as usize;
+            let f64_mantissa = (&self.mantissa >> shift).to_f64().unwrap_or(0.0);
+            let f64_exponent = self.exponent + shift as i64;
+
+            let result = f64_mantissa * 2.0f64.powi(f64_exponent as i32);
+            if self.sign { -result } else { result }
         } else {
-            let exp_adjust = self.exponent as f64;
-            mantissa_f64 * (2.0f64).powf(exp_adjust)
-        };
-
-        if self.sign { -result } else { result }
-    }
-
-    /// Helper to convert mantissa to f64.
-    fn mantissa_to_f64(&self) -> f64 {
-        if self.mantissa.is_zero() {
-            return 0.0;
-        }
-
-        // Get the bit length
-        let bit_len = self.mantissa.bits() as i32;
-
-        // We need to get the top 53 bits (for f64 precision)
-        if bit_len <= 53 {
-            self.mantissa.to_f64().unwrap_or(0.0) / (1u64 << (53 - bit_len)) as f64
-        } else {
-            // Shift right to get top 53 bits
-            let shift = (bit_len - 53) as usize;
-            let top_bits = &self.mantissa >> shift;
-            top_bits.to_f64().unwrap_or(0.0) / (1u64 << 53) as f64 * 2.0f64.powi(shift as i32)
+            // Mantissa is smaller than 53 bits
+            let mantissa_f64 = self.mantissa.to_f64().unwrap_or(0.0);
+            let result = mantissa_f64 * 2.0f64.powi(self.exponent as i32);
+            if self.sign { -result } else { result }
         }
     }
+
 
     /// Normalize the mantissa to have the leading 1 in the correct position.
     fn normalize(&mut self, rounding: RoundingMode) {
@@ -524,8 +512,9 @@ impl ArbitraryFloat {
         }
 
         // Multiply mantissas and add exponents
+        // value = (m1 * m2) * 2^(e1 + e2)
         let result_mantissa = &self.mantissa * &other.mantissa;
-        let result_exponent = self.exponent + other.exponent + (self.precision.bits() as i64 - 1);
+        let result_exponent = self.exponent + other.exponent;
 
         let mut result = Self::new(
             result_sign,
@@ -593,10 +582,11 @@ impl ArbitraryFloat {
         let extra_bits = result_precision.bits() as usize + 10; // Extra bits for rounding
         let shifted_dividend = &self.mantissa << extra_bits;
         let result_mantissa = &shifted_dividend / &other.mantissa;
-        let result_exponent = self.exponent
-            - other.exponent
-            - (result_precision.bits() as i64 - 1)
-            - (extra_bits as i64);
+        // value = (dividend << extra_bits) / divisor * 2^exponent
+        //       = (m1 / m2) * 2^extra_bits * 2^exponent
+        // We want: (m1 / m2) * 2^(e1 - e2)
+        // So: exponent = e1 - e2 - extra_bits
+        let result_exponent = self.exponent - other.exponent - (extra_bits as i64);
 
         let mut result = Self::new(
             result_sign,
@@ -690,8 +680,8 @@ impl ArbitraryFloat {
         let exp_diff = self.exponent - other.exponent;
 
         if exp_diff >= 0 {
-            // self has larger exponent
-            let shifted_other = &other.mantissa << (exp_diff as usize);
+            // self has larger exponent - shift other's mantissa right
+            let shifted_other = &other.mantissa >> (exp_diff as usize);
             (
                 self.mantissa.clone(),
                 shifted_other,
@@ -700,9 +690,9 @@ impl ArbitraryFloat {
                 other.sign,
             )
         } else {
-            // other has larger exponent
+            // other has larger exponent - shift self's mantissa right
             let shift = (-exp_diff) as usize;
-            let shifted_self = &self.mantissa << shift;
+            let shifted_self = &self.mantissa >> shift;
             (
                 shifted_self,
                 other.mantissa.clone(),

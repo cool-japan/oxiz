@@ -1463,7 +1463,8 @@ mod tests {
     #[test]
     fn test_identity_operations() {
         // Test that I * x = x
-        let i = vec![1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
+        // Identity matrix in column-major order (BLAS convention)
+        let i = vec![1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
         let x = vec![1.0, 2.0, 3.0];
         let mut y = vec![0.0, 0.0, 0.0];
         dgemv(Transpose::NoTrans, 3, 3, 1.0, &i, &x, 0.0, &mut y);
