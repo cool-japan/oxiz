@@ -67,6 +67,30 @@ impl ObjectiveId {
     }
 }
 
+impl From<u32> for ObjectiveId {
+    fn from(id: u32) -> Self {
+        Self(id)
+    }
+}
+
+impl From<usize> for ObjectiveId {
+    fn from(id: usize) -> Self {
+        Self(id as u32)
+    }
+}
+
+impl From<ObjectiveId> for u32 {
+    fn from(id: ObjectiveId) -> Self {
+        id.0
+    }
+}
+
+impl From<ObjectiveId> for usize {
+    fn from(id: ObjectiveId) -> Self {
+        id.0 as usize
+    }
+}
+
 /// Kind of objective
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ObjectiveKind {
@@ -290,6 +314,82 @@ impl LinearObjective {
             }
         }
         result
+    }
+}
+
+impl Default for LinearObjective {
+    fn default() -> Self {
+        Self::zero()
+    }
+}
+
+impl From<BigRational> for LinearObjective {
+    /// Create a constant linear objective from a BigRational.
+    fn from(value: BigRational) -> Self {
+        Self::constant(value)
+    }
+}
+
+impl From<BigInt> for LinearObjective {
+    /// Create a constant linear objective from a BigInt.
+    fn from(value: BigInt) -> Self {
+        Self::constant(BigRational::from(value))
+    }
+}
+
+impl From<i64> for LinearObjective {
+    /// Create a constant linear objective from an i64.
+    fn from(value: i64) -> Self {
+        Self::constant(BigRational::from(BigInt::from(value)))
+    }
+}
+
+impl From<(u32, i64)> for LinearObjective {
+    /// Create a linear objective with a single term: coefficient * var.
+    ///
+    /// # Example
+    /// ```
+    /// use oxiz_opt::LinearObjective;
+    /// // Creates 3 * x_0
+    /// let obj: LinearObjective = (0u32, 3i64).into();
+    /// ```
+    fn from((var_id, coeff): (u32, i64)) -> Self {
+        Self::term(var_id, BigRational::from(BigInt::from(coeff)))
+    }
+}
+
+impl<const N: usize> From<[(u32, i64); N]> for LinearObjective {
+    /// Create a linear objective from an array of (variable_id, coefficient) pairs.
+    ///
+    /// # Example
+    /// ```
+    /// use oxiz_opt::LinearObjective;
+    /// // Creates 2*x_0 + 3*x_1
+    /// let obj: LinearObjective = [(0u32, 2i64), (1, 3)].into();
+    /// ```
+    fn from(terms: [(u32, i64); N]) -> Self {
+        let mut coefficients = FxHashMap::default();
+        for (var_id, coeff) in terms {
+            coefficients.insert(var_id, BigRational::from(BigInt::from(coeff)));
+        }
+        Self {
+            constant: BigRational::zero(),
+            coefficients,
+        }
+    }
+}
+
+impl From<Vec<(u32, i64)>> for LinearObjective {
+    /// Create a linear objective from a vector of (variable_id, coefficient) pairs.
+    fn from(terms: Vec<(u32, i64)>) -> Self {
+        let mut coefficients = FxHashMap::default();
+        for (var_id, coeff) in terms {
+            coefficients.insert(var_id, BigRational::from(BigInt::from(coeff)));
+        }
+        Self {
+            constant: BigRational::zero(),
+            coefficients,
+        }
     }
 }
 
@@ -720,5 +820,107 @@ mod tests {
 
         let mid = opt.next_binary_bound();
         assert_eq!(mid, Some(Weight::from(50)));
+    }
+
+    // Tests for From implementations
+
+    #[test]
+    fn test_objective_id_from_u32() {
+        let id: ObjectiveId = ObjectiveId::from(5u32);
+        assert_eq!(id.raw(), 5);
+    }
+
+    #[test]
+    fn test_objective_id_from_usize() {
+        let id: ObjectiveId = ObjectiveId::from(10usize);
+        assert_eq!(id.raw(), 10);
+    }
+
+    #[test]
+    fn test_objective_id_to_u32() {
+        let id = ObjectiveId::new(7);
+        let n: u32 = id.into();
+        assert_eq!(n, 7);
+    }
+
+    #[test]
+    fn test_objective_id_to_usize() {
+        let id = ObjectiveId::new(9);
+        let n: usize = id.into();
+        assert_eq!(n, 9);
+    }
+
+    #[test]
+    fn test_objective_id_roundtrip() {
+        let original = 42u32;
+        let id: ObjectiveId = original.into();
+        let back: u32 = id.into();
+        assert_eq!(original, back);
+    }
+
+    #[test]
+    fn test_linear_objective_from_bigrational() {
+        let r = BigRational::from(BigInt::from(5));
+        let obj: LinearObjective = r.clone().into();
+        assert!(obj.is_constant());
+        assert_eq!(obj.constant, r);
+    }
+
+    #[test]
+    fn test_linear_objective_from_bigint() {
+        let n = BigInt::from(10);
+        let obj: LinearObjective = n.clone().into();
+        assert!(obj.is_constant());
+        assert_eq!(obj.constant, BigRational::from(n));
+    }
+
+    #[test]
+    fn test_linear_objective_from_i64() {
+        let obj: LinearObjective = LinearObjective::from(42i64);
+        assert!(obj.is_constant());
+        assert_eq!(obj.constant, BigRational::from(BigInt::from(42)));
+    }
+
+    #[test]
+    fn test_linear_objective_from_single_term_tuple() {
+        let obj: LinearObjective = (0u32, 3i64).into();
+        assert!(!obj.is_constant());
+        assert_eq!(
+            obj.coefficients.get(&0),
+            Some(&BigRational::from(BigInt::from(3)))
+        );
+    }
+
+    #[test]
+    fn test_linear_objective_from_array() {
+        let obj: LinearObjective = [(0u32, 2i64), (1, 3), (2, -1)].into();
+        assert!(!obj.is_constant());
+        assert_eq!(
+            obj.coefficients.get(&0),
+            Some(&BigRational::from(BigInt::from(2)))
+        );
+        assert_eq!(
+            obj.coefficients.get(&1),
+            Some(&BigRational::from(BigInt::from(3)))
+        );
+        assert_eq!(
+            obj.coefficients.get(&2),
+            Some(&BigRational::from(BigInt::from(-1)))
+        );
+    }
+
+    #[test]
+    fn test_linear_objective_from_vec() {
+        let terms = vec![(0u32, 1i64), (1, 2), (2, 3)];
+        let obj: LinearObjective = terms.into();
+        assert!(!obj.is_constant());
+        assert_eq!(obj.coefficients.len(), 3);
+    }
+
+    #[test]
+    fn test_linear_objective_default() {
+        let obj = LinearObjective::default();
+        assert!(obj.is_constant());
+        assert!(obj.constant.is_zero());
     }
 }

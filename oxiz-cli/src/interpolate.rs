@@ -73,6 +73,7 @@ pub struct InterpolationStatistics {
 }
 
 /// Execute interpolation on a script
+#[allow(clippy::collapsible_if)]
 pub fn execute_interpolation(
     script: &str,
     format: InterpolateFormat,

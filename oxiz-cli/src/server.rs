@@ -344,6 +344,7 @@ async fn handle_version() -> impl IntoResponse {
 }
 
 /// Handle POST /model requests
+#[allow(clippy::collapsible_if)]
 async fn handle_model(
     State(state): State<Arc<ServerState>>,
     Json(request): Json<ModelRequest>,
@@ -515,6 +516,7 @@ fn determine_optimization_status(output: &[String]) -> String {
 }
 
 /// Extract model from solver output
+#[allow(clippy::collapsible_if)]
 fn extract_model(output: &[String]) -> Option<std::collections::HashMap<String, String>> {
     let mut model = std::collections::HashMap::new();
 

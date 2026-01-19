@@ -493,11 +493,20 @@ impl TptpParser {
             self.skip_whitespace();
             let right = self.parse_implies()?;
             Ok(TptpFormula::Implies(Box::new(left), Box::new(right)))
-        } else if self.try_consume("<=") {
-            // Reverse implies
-            self.skip_whitespace();
-            let right = self.parse_implies()?;
-            Ok(TptpFormula::Implies(Box::new(right), Box::new(left)))
+        } else if self.peek() == Some('<') {
+            // Check for reverse implies (<=) but not <=> or <~>
+            let next_chars: String = self.input[self.pos..].iter().take(3).collect();
+            if next_chars.starts_with("<=")
+                && !next_chars.starts_with("<=>")
+                && !next_chars.starts_with("<~>")
+            {
+                self.try_consume("<=");
+                self.skip_whitespace();
+                let right = self.parse_implies()?;
+                Ok(TptpFormula::Implies(Box::new(right), Box::new(left)))
+            } else {
+                Ok(left)
+            }
         } else {
             Ok(left)
         }
@@ -581,11 +590,21 @@ impl TptpParser {
             vars.push(var);
             self.skip_whitespace();
 
-            // Optional type annotation
-            if self.try_consume(":") {
-                self.skip_whitespace();
-                let _type = self.parse_identifier()?;
-                self.skip_whitespace();
+            // Optional type annotation - only if next char is ':' and not followed by ']'
+            // This distinguishes between `[X:Type]` (typed) and `[X]` (untyped)
+            if self.peek() == Some(':') && self.pos + 1 < self.input.len() {
+                // Look ahead to check if this is a type annotation or body separator
+                // Type annotation: [X:Type] or [X : Type]
+                // Body separator: [X]: formula
+                let next_non_ws = self.input[self.pos + 1..]
+                    .iter()
+                    .find(|&&c| !c.is_whitespace());
+                if next_non_ws != Some(&']') && next_non_ws != Some(&'(') {
+                    self.try_consume(":");
+                    self.skip_whitespace();
+                    let _type = self.parse_identifier()?;
+                    self.skip_whitespace();
+                }
             }
 
             if self.try_consume(",") {
@@ -597,7 +616,8 @@ impl TptpParser {
 
         self.consume_char(']')?;
         self.skip_whitespace();
-        self.consume_char(':')?;
+        // Body separator - may or may not have ':'
+        self.try_consume(":");
         self.skip_whitespace();
 
         let body = self.parse_unary()?;
@@ -636,16 +656,27 @@ impl TptpParser {
         self.skip_whitespace();
 
         // Check for equality/inequality
+        // Note: Must check != before =, and must not consume = if it's part of => or <=>
         if self.try_consume("!=") {
             self.skip_whitespace();
             let second_term = self.parse_term()?;
             return Ok(TptpFormula::Inequality(first_term, second_term));
         }
 
-        if self.try_consume("=") {
-            self.skip_whitespace();
-            let second_term = self.parse_term()?;
-            return Ok(TptpFormula::Equality(first_term, second_term));
+        // Check for = but not => or <=>
+        if self.peek() == Some('=') {
+            // Look ahead to make sure it's not => or part of <=>
+            let next_char = if self.pos + 1 < self.input.len() {
+                Some(self.input[self.pos + 1])
+            } else {
+                None
+            };
+            if next_char != Some('>') {
+                self.try_consume("=");
+                self.skip_whitespace();
+                let second_term = self.parse_term()?;
+                return Ok(TptpFormula::Equality(first_term, second_term));
+            }
         }
 
         // Convert term to atom

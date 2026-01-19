@@ -92,7 +92,7 @@
 //! match solver.check(&mut tm) {
 //!     SolverResult::Sat => {
 //!         println!("SAT");
-//!         if let Some(model) = solver.get_model(&tm) {
+//!         if let Some(model) = solver.model() {
 //!             println!("Model: {:?}", model);
 //!         }
 //!     }

@@ -222,8 +222,8 @@ All major features implemented. Only one optional enhancement remains (blocked b
 
 ## Performance & Quality Metrics
 
-- **Test Coverage**: 228 passing tests (0 failures, 3 ignored)
-  - Unit tests: 221+
+- **Test Coverage**: 256 passing tests (0 failures, 3 ignored)
+  - Unit tests: 249+
   - Property-based tests: 7+ (Weight operations)
 - **Clippy Status**: Clean (0 warnings) - all targets including examples and benchmarks
 - **Build Status**: Clean (0 warnings)
@@ -248,9 +248,16 @@ All major features implemented. Only one optional enhancement remains (blocked b
   - Optimized clone behavior in comparison operations
   - Full test coverage for edge cases (zero, infinity, rationals)
 
+- **From<T> Implementations** (added 2026-01-17):
+  - `Weight`: From<i32>, From<u32>, From<u64>, From<usize>, From<(i64, i64)> (rational)
+  - `SoftId`: From<u32>, From<usize>, Into<u32>, Into<usize>
+  - `ObjectiveId`: From<u32>, From<usize>, Into<u32>, Into<usize>
+  - `SoftConstraintId`: From<u32>, From<usize>, Into<u32>, Into<usize>
+  - `LinearObjective`: From<BigRational>, From<BigInt>, From<i64>, From<(u32, i64)>, From<[(u32, i64); N]>, From<Vec<(u32, i64)>>
+
 ## Future Enhancements (Optional)
 
-- [ ] Additional From<T> implementations (blocked by type inference issues)
+- [x] Additional From<T> implementations (completed 2026-01-17)
 - [x] Performance profiling on large MaxSAT instances (completed 2026-01-05)
 - [x] Integration examples demonstrating real-world usage (completed 2026-01-05)
 - [x] Documentation examples for complex use cases (completed 2026-01-05)

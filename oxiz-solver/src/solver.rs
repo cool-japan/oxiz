@@ -1614,6 +1614,7 @@ impl Solver {
 
     /// Extract linear terms recursively from an arithmetic expression
     /// Returns None if the term is not linear
+    #[allow(clippy::only_used_in_recursion)]
     fn extract_linear_terms(
         &self,
         term_id: TermId,

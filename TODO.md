@@ -8,12 +8,12 @@ Reference: Z3 codebase at `../z3/` for algorithms and implementation strategies.
 
 | Priority | Completed | Pending | Progress |
 |----------|-----------|---------|----------|
-| Critical | 25 | 0 | ~100% |
-| High | 15 | 0 | ~100% |
-| Medium | 17 | 0 | ~100% |
-| Low | 8 | 1 | ~90% |
-| Future | 8 | 0 | ~100% |
-| **Total** | **73** | **1** | **~99%** |
+| Critical | 25 | 0 | 100% |
+| High | 15 | 0 | 100% |
+| Medium | 17 | 0 | 100% |
+| Low | 9 | 0 | 100% |
+| Future | 8 | 0 | 100% |
+| **Total** | **74** | **0** | **100%** |
 
 ---
 
@@ -162,7 +162,7 @@ OxiZ is not just a Z3 port - it surpasses Z3 in critical areas:
   - [x] Prime implicant extraction
   - [x] Value factories
 
-## Low Priority (~90% Complete)
+## Low Priority (100% Complete) ✅
 
 ### Tooling
 - [x] SMT-COMP benchmark suite (oxiz-smtcomp crate) ✨ NEW
@@ -180,8 +180,12 @@ OxiZ is not just a Z3 port - it surpasses Z3 in critical areas:
   - **Goal:** CI/CD automated performance tracking
   - SAT, Theory, Parser, MaxSAT benchmark categories
   - Baseline comparison with regression detection
-- [ ] Z3 parameter/tactics extraction scripts
+- [x] Z3 parameter/tactics extraction scripts ✨ NEW
   - **Goal:** Automated Z3 feature comparison
+  - scripts/z3_compare/extract_params.py - Parameter extraction
+  - scripts/z3_compare/extract_tactics.py - Tactic extraction
+  - scripts/z3_compare/compare_features.py - Feature comparison
+  - 116+ OxiZ features tracked across 7 categories
 
 ### Documentation
 - [x] API documentation improvements ✨ NEW

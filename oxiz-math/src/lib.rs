@@ -11,6 +11,7 @@
 //! - **Matrix**: Dense and sparse matrix operations with Gaussian elimination
 //! - **Interval**: Interval arithmetic for bound propagation
 //! - **Delta Rational**: Support for strict inequalities in simplex
+//! - **BLAS**: High-performance BLAS operations for large-scale LP (1000+ variables)
 //!
 //! ## Non-Linear Arithmetic
 //! - **Polynomial**: Multivariate polynomial arithmetic with GCD and factorization
@@ -24,8 +25,9 @@
 //! - **ZDD**: Zero-suppressed BDDs for sparse set representation
 //! - **ADD**: Algebraic Decision Diagrams for rational-valued functions
 //!
-//! ## General Utilities
+//! ## Numerical Utilities
 //! - **Rational**: Arbitrary precision rational arithmetic utilities
+//! - **MPFR**: Arbitrary precision floating-point arithmetic (MPFR-like)
 //!
 //! # Examples
 //!
@@ -61,10 +63,35 @@
 //! // Compute x OR y
 //! let or_xy = mgr.or(x, y);
 //! ```
+//!
+//! ## BLAS Operations
+//!
+//! ```
+//! use oxiz_math::blas::{ddot, dgemv, Transpose};
+//!
+//! // Vector dot product
+//! let x = vec![1.0, 2.0, 3.0];
+//! let y = vec![4.0, 5.0, 6.0];
+//! let dot = ddot(&x, &y);
+//! assert_eq!(dot, 32.0);
+//! ```
+//!
+//! ## Arbitrary Precision Floats
+//!
+//! ```
+//! use oxiz_math::mpfr::{ArbitraryFloat, Precision, RoundingMode};
+//!
+//! let prec = Precision::new(128);
+//! let a = ArbitraryFloat::from_f64(3.14159, prec);
+//! let b = ArbitraryFloat::from_f64(2.71828, prec);
+//! let sum = a.add(&b, RoundingMode::RoundNearest);
+//! ```
 
 #![warn(missing_docs)]
 
 pub mod bdd;
+pub mod blas;
+pub mod blas_ops;
 pub mod delta_rational;
 pub mod grobner;
 pub mod hilbert;
@@ -72,6 +99,7 @@ pub mod interior_point;
 pub mod interval;
 pub mod lp;
 pub mod matrix;
+pub mod mpfr;
 pub mod polynomial;
 pub mod rational;
 pub mod rational_function;

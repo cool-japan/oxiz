@@ -334,6 +334,7 @@ impl QeLiteSolver {
     }
 
     /// Check if a term contains a variable
+    #[allow(clippy::only_used_in_recursion)]
     fn contains_var(&self, term: TermId, var: TermId, manager: &TermManager) -> bool {
         if term == var {
             return true;
@@ -370,6 +371,7 @@ impl QeLiteSolver {
     }
 
     /// Apply a substitution to a term
+    #[allow(clippy::only_used_in_recursion)]
     fn apply_substitution(
         &self,
         term: TermId,

@@ -310,6 +310,7 @@ impl InvariantInference {
     }
 
     /// Recursively collect variables
+    #[allow(clippy::only_used_in_recursion)]
     fn collect_variables(
         &self,
         term: TermId,

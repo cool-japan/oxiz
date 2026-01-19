@@ -129,6 +129,7 @@ impl DashboardState {
 
     /// Get elapsed time in milliseconds
     #[must_use]
+    #[allow(clippy::collapsible_if)]
     pub fn elapsed_ms(&self) -> u64 {
         if let Ok(start) = self.start_time.lock() {
             if let Some(s) = *start {
@@ -189,6 +190,7 @@ async fn websocket_handler(
 }
 
 /// Handle an individual WebSocket connection
+#[allow(clippy::collapsible_if)]
 async fn handle_websocket(mut socket: WebSocket, state: Arc<DashboardState>) {
     let mut rx = state.tx.subscribe();
 
@@ -236,6 +238,7 @@ async fn handle_websocket(mut socket: WebSocket, state: Arc<DashboardState>) {
 }
 
 /// Handle a command from the web interface
+#[allow(clippy::collapsible_if)]
 fn handle_command(state: &DashboardState, cmd: DashboardCommand) {
     match cmd {
         DashboardCommand::Pause => {

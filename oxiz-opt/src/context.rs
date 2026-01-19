@@ -87,6 +87,30 @@ impl SoftConstraintId {
     }
 }
 
+impl From<u32> for SoftConstraintId {
+    fn from(id: u32) -> Self {
+        Self(id)
+    }
+}
+
+impl From<usize> for SoftConstraintId {
+    fn from(id: usize) -> Self {
+        Self(id as u32)
+    }
+}
+
+impl From<SoftConstraintId> for u32 {
+    fn from(id: SoftConstraintId) -> Self {
+        id.0
+    }
+}
+
+impl From<SoftConstraintId> for usize {
+    fn from(id: SoftConstraintId) -> Self {
+        id.0 as usize
+    }
+}
+
 /// A soft constraint at the SMT level
 #[derive(Debug, Clone)]
 pub struct SoftConstraint {
@@ -789,5 +813,41 @@ mod tests {
             ModelValue::Rational(BigRational::new(BigInt::from(3), BigInt::from(2))).to_string(),
             "3/2"
         );
+    }
+
+    // Tests for From implementations
+
+    #[test]
+    fn test_soft_constraint_id_from_u32() {
+        let id: SoftConstraintId = SoftConstraintId::from(5u32);
+        assert_eq!(id.raw(), 5);
+    }
+
+    #[test]
+    fn test_soft_constraint_id_from_usize() {
+        let id: SoftConstraintId = SoftConstraintId::from(10usize);
+        assert_eq!(id.raw(), 10);
+    }
+
+    #[test]
+    fn test_soft_constraint_id_to_u32() {
+        let id = SoftConstraintId::new(7);
+        let n: u32 = id.into();
+        assert_eq!(n, 7);
+    }
+
+    #[test]
+    fn test_soft_constraint_id_to_usize() {
+        let id = SoftConstraintId::new(9);
+        let n: usize = id.into();
+        assert_eq!(n, 9);
+    }
+
+    #[test]
+    fn test_soft_constraint_id_roundtrip() {
+        let original = 42u32;
+        let id: SoftConstraintId = original.into();
+        let back: u32 = id.into();
+        assert_eq!(original, back);
     }
 }

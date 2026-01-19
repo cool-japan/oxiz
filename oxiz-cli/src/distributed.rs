@@ -229,6 +229,8 @@ fn generate_cubes(num_cubes: usize, num_vars: u32) -> Vec<Vec<Literal>> {
 /// 2. Generates cubes from the problem
 /// 3. Distributes cubes to workers
 /// 4. Collects and aggregates results
+#[allow(clippy::type_complexity)]
+#[allow(clippy::collapsible_if)]
 pub fn run_coordinator(
     script: &str,
     config: &DistributedConfig,

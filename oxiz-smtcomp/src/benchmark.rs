@@ -39,7 +39,7 @@ pub enum BenchmarkError {
 pub type BenchmarkResult<T> = Result<T, BenchmarkError>;
 
 /// Result status from running a benchmark
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum BenchmarkStatus {
     /// Solver returned SAT
     Sat,

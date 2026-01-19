@@ -299,10 +299,16 @@ Reference: Z3's `math/` directory at `../z3/src/math/`
 
 ## Future Enhancements
 
-- [ ] OxiBLAS integration for large-scale LP
+- [x] OxiBLAS integration for large-scale LP
   - **Priority:** Medium - for optimization problems with 1000+ variables
-- [ ] Arbitrary precision floating-point (MPFR-like)
+  - Implemented in `src/blas.rs` with DGEMM, DGEMV, DDOT, DNRM2, DSCAL, DAXPY
+  - Cache-blocked GEMM for performance on large matrices
+  - Pure Rust implementation optimized for vectorization
+- [x] Arbitrary precision floating-point (MPFR-like)
   - **Priority:** Low - for extreme precision requirements
+  - Implemented in `src/mpfr.rs` with ArbitraryFloat type
+  - Configurable precision and rounding modes
+  - Supports add, sub, mul, div, sqrt, and comparison operations
 
 ---
 

@@ -483,6 +483,7 @@ impl MBQISolver {
     }
 
     /// Apply a substitution to a term
+    #[allow(clippy::only_used_in_recursion)]
     fn apply_substitution(
         &self,
         term: TermId,
@@ -595,6 +596,7 @@ impl MBQISolver {
     }
 
     /// Evaluate a term under a model
+    #[allow(clippy::only_used_in_recursion)]
     fn evaluate_under_model(
         &self,
         term: TermId,

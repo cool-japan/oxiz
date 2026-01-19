@@ -12,6 +12,7 @@ mod distributed;
 mod format;
 mod interactive;
 mod interpolate;
+mod learning;
 mod lsp;
 mod model_counter;
 mod portfolio;
@@ -21,6 +22,7 @@ mod server;
 mod tptp;
 mod tutorial;
 mod unsat_core;
+mod wasm_bindings;
 
 use clap::{CommandFactory, Parser, ValueEnum};
 use clap_complete::{Shell, generate};
