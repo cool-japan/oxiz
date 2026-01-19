@@ -196,8 +196,8 @@ impl Totalizer {
             return;
         }
 
-        let left_idx = node.left.unwrap();
-        let right_idx = node.right.unwrap();
+        let left_idx = node.left.expect("left child exists after is_none check");
+        let right_idx = node.right.expect("right child exists when left exists");
 
         // Recursively encode children
         self.encode_node(left_idx, k);

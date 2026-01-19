@@ -487,7 +487,7 @@ impl Dfa {
                 }
 
                 // Try to split partition
-                let first = *partition.iter().next().unwrap();
+                let first = *partition.iter().next().expect("partition non-empty");
                 let mut same = FxHashSet::default();
                 let mut different = FxHashSet::default();
                 same.insert(first);

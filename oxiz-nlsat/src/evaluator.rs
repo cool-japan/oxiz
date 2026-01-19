@@ -235,7 +235,7 @@ impl Evaluator {
         if univariate.is_none() {
             return Lbool::Undef;
         }
-        let univariate = univariate.unwrap();
+        let univariate = univariate.expect("univariate polynomial validated");
 
         // Find the roots
         let roots = self.find_roots(&univariate, atom.var);

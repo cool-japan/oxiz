@@ -56,7 +56,7 @@ impl Context {
             return false;
         }
 
-        let scope = self.scopes.pop().unwrap();
+        let scope = self.scopes.pop().expect("scopes has elements after length check");
         self.assertions.truncate(scope.assertion_base);
         true
     }
@@ -95,7 +95,7 @@ impl Context {
     /// Get assertions added in the current scope
     #[must_use]
     pub fn current_scope_assertions(&self) -> &[TermId] {
-        let current_scope = self.scopes.last().unwrap();
+        let current_scope = self.scopes.last().expect("scopes always has at least base scope");
         &self.assertions[current_scope.assertion_base..]
     }
 }
@@ -181,7 +181,7 @@ impl NamedContext {
             return false;
         }
 
-        let scope = self.scopes.pop().unwrap();
+        let scope = self.scopes.pop().expect("scopes has elements after length check");
         self.assertions.truncate(scope.assertion_base);
         true
     }

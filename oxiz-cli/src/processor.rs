@@ -170,7 +170,7 @@ pub(crate) fn run_files(ctx: &mut Context, args: &Args, verbosity: Verbosity) {
                     conflicts: stats.conflicts,
                     timestamp: std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
+                        .expect("SystemTime should be after UNIX_EPOCH")
                         .as_secs(),
                     solver_version: env!("CARGO_PKG_VERSION").to_string(),
                 };

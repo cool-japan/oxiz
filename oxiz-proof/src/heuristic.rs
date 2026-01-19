@@ -136,7 +136,7 @@ impl StrategyLearner {
 
         // Sort by confidence
         self.heuristics
-            .sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap());
+            .sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap_or(std::cmp::Ordering::Equal));
     }
 
     /// Get all learned heuristics.

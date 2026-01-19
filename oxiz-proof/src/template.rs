@@ -223,15 +223,15 @@ impl TemplateIdentifier {
         let mut abstracted = conclusion.to_string();
 
         // Replace numbers (need to escape $ as $$)
-        let re_num = regex::Regex::new(r"\b\d+\b").unwrap();
+        let re_num = regex::Regex::new(r"\b\d+\b").expect("regex pattern is valid");
         abstracted = re_num.replace_all(&abstracted, "$$N").to_string();
 
         // Replace quoted strings
-        let re_str = regex::Regex::new(r#""[^"]*""#).unwrap();
+        let re_str = regex::Regex::new(r#""[^"]*""#).expect("regex pattern is valid");
         abstracted = re_str.replace_all(&abstracted, "$$S").to_string();
 
         // Replace specific identifiers (lowercase starting)
-        let re_id = regex::Regex::new(r"\b[a-z][a-z0-9_]*\b").unwrap();
+        let re_id = regex::Regex::new(r"\b[a-z][a-z0-9_]*\b").expect("regex pattern is valid");
         abstracted = re_id.replace_all(&abstracted, "$$V").to_string();
 
         abstracted
