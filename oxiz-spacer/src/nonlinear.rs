@@ -256,7 +256,9 @@ impl NonLinearAnalyzer {
             if !indices.contains_key(&succ) {
                 // Successor has not yet been visited; recurse on it
                 self.tarjan_strongconnect(succ, index, stack, indices, lowlinks, on_stack);
-                let succ_lowlink = *lowlinks.get(&succ).expect("lowlink exists for visited node");
+                let succ_lowlink = *lowlinks
+                    .get(&succ)
+                    .expect("lowlink exists for visited node");
                 let pred_lowlink = lowlinks.get(&pred).expect("lowlink exists for predecessor");
                 lowlinks.insert(pred, (*pred_lowlink).min(succ_lowlink));
             } else if on_stack.contains(&succ) {

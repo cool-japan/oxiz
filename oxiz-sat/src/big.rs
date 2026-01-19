@@ -253,7 +253,8 @@ impl BinaryImplicationGraph {
                     );
                     lowlink[lit_idx] = lowlink[lit_idx].min(lowlink[impl_idx]);
                 } else if on_stack[impl_idx] {
-                    lowlink[lit_idx] = lowlink[lit_idx].min(index[impl_idx].expect("index set when on_stack is true"));
+                    lowlink[lit_idx] = lowlink[lit_idx]
+                        .min(index[impl_idx].expect("index set when on_stack is true"));
                 }
             }
         }

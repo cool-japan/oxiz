@@ -350,7 +350,9 @@ fn wait_for_user() {
     print!("Press Enter to continue...");
     io::stdout().flush().expect("flush should succeed");
     let mut buffer = String::new();
-    io::stdin().read_line(&mut buffer).expect("failed to read line from stdin");
+    io::stdin()
+        .read_line(&mut buffer)
+        .expect("failed to read line from stdin");
 }
 
 /// List available tutorial sections

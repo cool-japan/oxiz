@@ -150,22 +150,34 @@ impl SharedState {
 
     /// Dequeue work item
     pub fn dequeue_work(&self) -> Option<WorkItem> {
-        self.work_queue.lock().expect("lock should not be poisoned").pop_front()
+        self.work_queue
+            .lock()
+            .expect("lock should not be poisoned")
+            .pop_front()
     }
 
     /// Get number of pending work items
     pub fn work_queue_size(&self) -> usize {
-        self.work_queue.lock().expect("lock should not be poisoned").len()
+        self.work_queue
+            .lock()
+            .expect("lock should not be poisoned")
+            .len()
     }
 
     /// Send message to workers
     pub fn send_message(&self, msg: WorkerMessage) {
-        self.messages.lock().expect("lock should not be poisoned").push_back(msg);
+        self.messages
+            .lock()
+            .expect("lock should not be poisoned")
+            .push_back(msg);
     }
 
     /// Receive message
     pub fn receive_message(&self) -> Option<WorkerMessage> {
-        self.messages.lock().expect("lock should not be poisoned").pop_front()
+        self.messages
+            .lock()
+            .expect("lock should not be poisoned")
+            .pop_front()
     }
 
     /// Set result
@@ -175,12 +187,18 @@ impl SharedState {
 
     /// Get result
     pub fn get_result(&self) -> Option<SpacerResult> {
-        self.result.lock().expect("lock should not be poisoned").clone()
+        self.result
+            .lock()
+            .expect("lock should not be poisoned")
+            .clone()
     }
 
     /// Add lemma to frames
     pub fn add_lemma(&self, pred: PredId, formula: TermId, level: u32) -> LemmaId {
-        self.frames.lock().expect("lock should not be poisoned").add_lemma(pred, formula, level)
+        self.frames
+            .lock()
+            .expect("lock should not be poisoned")
+            .add_lemma(pred, formula, level)
     }
 
     /// Get frame manager (locked)
@@ -203,7 +221,10 @@ impl SharedState {
 
     /// Get statistics
     pub fn get_stats(&self) -> DistributedStats {
-        self.stats.lock().expect("lock should not be poisoned").clone()
+        self.stats
+            .lock()
+            .expect("lock should not be poisoned")
+            .clone()
     }
 }
 
