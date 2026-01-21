@@ -696,12 +696,12 @@ impl LPSolver {
                 if frac > self.config.int_tolerance
                     && frac < BigRational::one() - &self.config.int_tolerance
                 {
-                    let fractionality =
-                        if frac < BigRational::new(BigInt::from(1), BigInt::from(2)) {
-                            frac.clone()
-                        } else {
-                            BigRational::one() - &frac
-                        };
+                    let fractionality = if frac < BigRational::new(BigInt::from(1), BigInt::from(2))
+                    {
+                        frac.clone()
+                    } else {
+                        BigRational::one() - &frac
+                    };
 
                     match self.config.branching {
                         BranchingStrategy::FirstFractional => {

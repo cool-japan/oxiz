@@ -4,18 +4,25 @@ mod analysis;
 mod cache;
 mod checkpoint;
 mod cicd;
+mod dashboard;
 mod dependency;
 mod diagnostic;
 mod dimacs;
+mod distributed;
 mod format;
 mod interactive;
+mod interpolate;
+mod learning;
 mod lsp;
 mod model_counter;
 mod portfolio;
 mod processor;
 mod proof_checker;
+mod server;
+mod tptp;
 mod tutorial;
 mod unsat_core;
+mod wasm_bindings;
 
 use clap::{CommandFactory, Parser, ValueEnum};
 use clap_complete::{Shell, generate};
@@ -233,6 +240,22 @@ struct Args {
     #[arg(long)]
     lsp: bool,
 
+    /// Run as REST API HTTP server
+    #[arg(long)]
+    server: bool,
+
+    /// Port for the REST API server (default: 8080)
+    #[arg(long, default_value = "8080")]
+    port: u16,
+
+    /// Enable web dashboard for monitoring solver progress
+    #[arg(long)]
+    dashboard: bool,
+
+    /// Port for the web dashboard (default: 8080)
+    #[arg(long, default_value = "8080")]
+    dashboard_port: u16,
+
     /// Generate shell completion script for the specified shell
     #[arg(long, value_name = "SHELL")]
     completions: Option<Shell>,
@@ -248,6 +271,10 @@ struct Args {
     /// Write output in DIMACS format
     #[arg(long)]
     dimacs_output: bool,
+
+    /// Write output in TPTP SZS status format (Theorem/CounterSatisfiable)
+    #[arg(long)]
+    tptp_output: bool,
 
     /// Resource limit: maximum memory in MB (0 = no limit)
     #[arg(long, default_value = "0")]
@@ -452,6 +479,34 @@ struct Args {
     /// Exit with non-zero code on any errors
     #[arg(long)]
     cicd_strict: bool,
+
+    /// Enable interpolation mode for Craig interpolant generation
+    #[arg(long)]
+    interpolate: bool,
+
+    /// Output format for interpolation (smtlib, text, json)
+    #[arg(long, value_name = "FORMAT", default_value = "smtlib")]
+    interpolate_format: String,
+
+    /// Interpolation algorithm (mcmillan, pudlak, huang)
+    #[arg(long, value_name = "ALGORITHM")]
+    interpolate_algorithm: Option<String>,
+
+    /// Enable distributed solving mode
+    #[arg(long)]
+    distributed: bool,
+
+    /// Run as distributed coordinator at HOST:PORT
+    #[arg(long, value_name = "HOST:PORT")]
+    coordinator: Option<String>,
+
+    /// Run as distributed worker connecting to coordinator at HOST:PORT
+    #[arg(long, value_name = "HOST:PORT")]
+    worker: Option<String>,
+
+    /// Number of cubes to generate for distributed solving (default: 64)
+    #[arg(long, default_value = "64")]
+    num_cubes: usize,
 }
 
 /// Input format for problems
@@ -463,6 +518,8 @@ enum InputFormat {
     Dimacs,
     /// QDIMACS (Quantified Boolean Formula) format
     Qdimacs,
+    /// TPTP (Thousands of Problems for Theorem Provers) format
+    Tptp,
 }
 
 #[tokio::main]
@@ -506,6 +563,76 @@ async fn main() {
         if let Err(e) = lsp::run_lsp_server().await {
             eprintln!("LSP server error: {}", e);
             std::process::exit(1);
+        }
+        return;
+    }
+
+    // Handle REST API server mode
+    if args.server {
+        if let Err(e) = server::run_server(args.port).await {
+            eprintln!("REST API server error: {}", e);
+            std::process::exit(1);
+        }
+        return;
+    }
+
+    // Handle dashboard mode
+    if args.dashboard {
+        let state = dashboard::DashboardState::new();
+        if let Err(e) = dashboard::start_dashboard_server(state, args.dashboard_port).await {
+            eprintln!("Dashboard server error: {}", e);
+            std::process::exit(1);
+        }
+        return;
+    }
+
+    // Handle distributed worker mode
+    if let Some(ref coordinator_addr) = args.worker {
+        let config = distributed::DistributedConfig {
+            address: coordinator_addr.clone(),
+            num_cubes: args.num_cubes,
+            ..Default::default()
+        };
+        if let Err(e) = distributed::run_worker(&config) {
+            eprintln!("Worker error: {}", e);
+            std::process::exit(1);
+        }
+        return;
+    }
+
+    // Handle distributed coordinator mode
+    if let Some(ref bind_addr) = args.coordinator {
+        // Read input script first
+        let script = if args.input.is_empty() {
+            // Read from stdin
+            use std::io::Read;
+            let mut script = String::new();
+            std::io::stdin()
+                .read_to_string(&mut script)
+                .expect("Failed to read from stdin");
+            script
+        } else {
+            // Read from first input file
+            fs::read_to_string(&args.input[0]).unwrap_or_else(|e| {
+                eprintln!("Failed to read input file: {}", e);
+                std::process::exit(1);
+            })
+        };
+
+        let config = distributed::DistributedConfig {
+            address: bind_addr.clone(),
+            num_cubes: args.num_cubes,
+            ..Default::default()
+        };
+
+        match distributed::run_coordinator(&script, &config) {
+            Ok(result) => {
+                println!("{}", distributed::format_distributed_result(&result));
+            }
+            Err(e) => {
+                eprintln!("Coordinator error: {}", e);
+                std::process::exit(1);
+            }
         }
         return;
     }
@@ -737,6 +864,24 @@ pub(crate) fn execute_and_format(ctx: &mut Context, script: &str, args: &Args) -
         if args.diagnostic_export.is_some() {
             return "Diagnostic check complete".to_string();
         }
+    }
+
+    // If interpolation mode, compute Craig interpolant
+    if args.interpolate {
+        let format = interpolate::InterpolateFormat::from_str(&args.interpolate_format)
+            .unwrap_or(interpolate::InterpolateFormat::Smtlib);
+
+        let algorithm =
+            args.interpolate_algorithm
+                .as_ref()
+                .and_then(|a| match a.to_lowercase().as_str() {
+                    "mcmillan" => Some(oxiz_proof::InterpolationAlgorithm::McMillan),
+                    "pudlak" => Some(oxiz_proof::InterpolationAlgorithm::Pudlak),
+                    "huang" => Some(oxiz_proof::InterpolationAlgorithm::Huang),
+                    _ => None,
+                });
+
+        return interpolate::execute_interpolation(script, format, algorithm);
     }
 
     // If model counting mode, count satisfying models

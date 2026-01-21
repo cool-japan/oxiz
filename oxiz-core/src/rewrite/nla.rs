@@ -386,6 +386,7 @@ impl NlaRewriter {
     }
 
     /// Convert a term to polynomial representation
+    #[allow(clippy::only_used_in_recursion)]
     fn term_to_polynomial(&self, term: TermId, manager: &TermManager) -> Option<NlaPolynomial> {
         let t = manager.get(term)?;
 

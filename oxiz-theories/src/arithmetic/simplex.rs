@@ -947,8 +947,10 @@ impl Simplex {
 
     /// Update variable assignments after pivot
     fn update_assignment(&mut self) {
+        let num_vars = self.assignment.len();
+
         // Non-basic variables keep their bounds
-        for i in 0..self.assignment.len() {
+        for i in 0..num_vars {
             if !self.basic[i] {
                 if let Some(lo) = &self.lower[i] {
                     self.assignment[i] = lo.value;
@@ -959,12 +961,28 @@ impl Simplex {
         }
 
         // Compute basic variables from their rows
+        // Skip entries with stale variable references (can happen after pop)
         for (var, expr) in &self.tableau {
-            let mut val = DeltaRational::from_rational(expr.constant);
-            for (v, c) in &expr.terms {
-                val += self.assignment[*v as usize] * *c;
+            let var_idx = *var as usize;
+            if var_idx >= num_vars {
+                continue; // Skip stale tableau entry
             }
-            self.assignment[*var as usize] = val;
+
+            let mut val = DeltaRational::from_rational(expr.constant);
+            let mut has_stale_ref = false;
+
+            for (v, c) in &expr.terms {
+                let v_idx = *v as usize;
+                if v_idx >= num_vars {
+                    has_stale_ref = true;
+                    break;
+                }
+                val += self.assignment[v_idx] * *c;
+            }
+
+            if !has_stale_ref {
+                self.assignment[var_idx] = val;
+            }
         }
     }
 
@@ -1335,6 +1353,34 @@ impl Simplex {
                     *item = DeltaRational::zero();
                 }
             }
+
+            // Clean up stale tableau entries (can happen due to pivoting before pop)
+            // Remove entries whose variable indices are out of bounds
+            let num_vars = self.assignment.len();
+            self.tableau.retain(|&var, expr| {
+                // Check if the basic variable is valid
+                if (var as usize) >= num_vars {
+                    return false;
+                }
+                // Check if all terms reference valid variables
+                for (v, _) in &expr.terms {
+                    if (*v as usize) >= num_vars {
+                        return false;
+                    }
+                }
+                true
+            });
+
+            // Also reset the basic flags for variables that might have been incorrectly
+            // marked as basic due to pivoting
+            for i in 0..num_vars {
+                let var_id = i as VarId;
+                if self.basic[i] && !self.tableau.contains_key(&var_id) {
+                    // Variable marked as basic but has no tableau entry - mark as non-basic
+                    self.basic[i] = false;
+                }
+            }
+
             self.infeasible = None;
         }
     }

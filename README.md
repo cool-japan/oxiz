@@ -29,9 +29,9 @@ OxiZ is a high-performance Satisfiability Modulo Theories (SMT) solver written e
 
 | Metric | Value |
 |--------|-------|
-| Rust Lines of Code | ~173,500 |
-| Test Count | 3,670 |
-| Crates | 11 |
+| Rust Lines of Code | ~192,000 |
+| Test Count | 3,823 |
+| Crates | 13 |
 | Z3 Feature Parity | ~90-92% |
 
 ## Workspace Structure
@@ -48,7 +48,9 @@ oxiz/
 ├── oxiz-opt/       # Optimization (MaxSAT, OMT)
 ├── oxiz-spacer/    # CHC solving, PDR/IC3, BMC
 ├── oxiz-proof/     # Proof generation and verification
+├── oxiz-py/        # Python bindings (PyO3/maturin)
 ├── oxiz-wasm/      # WebAssembly bindings
+├── oxiz-smtcomp/   # SMT-COMP benchmarking utilities
 └── oxiz-cli/       # Command-line interface
 ```
 
@@ -59,21 +61,21 @@ oxiz/
 ```toml
 # Add to your Cargo.toml
 [dependencies]
-oxiz = "0.1.1"  # Default includes solver
+oxiz = "0.1.2"  # Default includes solver
 ```
 
 Or with specific features:
 
 ```toml
 [dependencies]
-oxiz = { version = "0.1.1", features = ["nlsat", "optimization"] }
+oxiz = { version = "0.1.2", features = ["nlsat", "optimization"] }
 ```
 
 For all features:
 
 ```toml
 [dependencies]
-oxiz = { version = "0.1.1", features = ["full"] }
+oxiz = { version = "0.1.2", features = ["full"] }
 ```
 
 ### Building from Source
@@ -219,6 +221,35 @@ OxiZ follows a layered CDCL(T) architecture:
 
 - Rust 1.85+ (Edition 2024)
 - No external C/C++ dependencies
+
+## Python Bindings
+
+OxiZ provides Python bindings via PyO3:
+
+```bash
+# Install from PyPI (when published)
+pip install oxiz
+
+# Or build from source
+cd oxiz-py
+pip install maturin
+maturin develop --release
+```
+
+```python
+import oxiz
+
+tm = oxiz.TermManager()
+solver = oxiz.Solver()
+
+x = tm.mk_var("x", "Int")
+y = tm.mk_var("y", "Int")
+solver.assert_term(tm.mk_gt(x, tm.mk_int(0)), tm)
+solver.assert_term(tm.mk_eq(tm.mk_add([x, y]), tm.mk_int(10)), tm)
+
+if solver.check_sat(tm) == oxiz.SolverResult.Sat:
+    print(solver.get_model(tm))
+```
 
 ## WebAssembly
 

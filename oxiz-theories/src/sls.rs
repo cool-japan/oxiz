@@ -1273,6 +1273,7 @@ impl RestartManager {
     }
 
     /// Luby sequence: 1, 1, 2, 1, 1, 2, 4, 1, 1, 2, 1, 1, 2, 4, 8, ...
+    #[allow(clippy::only_used_in_recursion)]
     fn luby(&self, i: u32) -> u32 {
         if i == 0 {
             return 1;

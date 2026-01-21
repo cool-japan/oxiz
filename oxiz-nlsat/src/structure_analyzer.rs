@@ -144,7 +144,9 @@ impl StructureAnalyzer {
         if self.stats.is_none() {
             self.stats = Some(self.compute_stats());
         }
-        self.stats.as_ref().unwrap()
+        self.stats
+            .as_ref()
+            .expect("stats initialized during construction")
     }
 
     /// Compute structure statistics.

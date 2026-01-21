@@ -78,7 +78,10 @@ impl VSIDS {
         }
 
         let max_var = self.heap[0];
-        let last = self.heap.pop().unwrap();
+        let last = self
+            .heap
+            .pop()
+            .expect("heap non-empty after is_empty check");
 
         if !self.heap.is_empty() {
             self.heap[0] = last;

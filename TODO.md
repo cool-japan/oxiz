@@ -1,6 +1,6 @@
 # OxiZ TODO
 
-Last Updated: 2026-01-11
+Last Updated: 2026-01-17
 
 Reference: Z3 codebase at `../z3/` for algorithms and implementation strategies.
 
@@ -8,11 +8,12 @@ Reference: Z3 codebase at `../z3/` for algorithms and implementation strategies.
 
 | Priority | Completed | Pending | Progress |
 |----------|-----------|---------|----------|
-| Critical | 25 | 0 | ~100% |
-| High | 15 | 0 | ~100% |
-| Medium | 17 | 0 | ~100% |
-| Low | 0 | 9 | 0% |
-| **Total** | **57** | **9** | **~86%** |
+| Critical | 25 | 0 | 100% |
+| High | 15 | 0 | 100% |
+| Medium | 17 | 0 | 100% |
+| Low | 9 | 0 | 100% |
+| Future | 8 | 0 | 100% |
+| **Total** | **74** | **0** | **100%** |
 
 ---
 
@@ -161,29 +162,79 @@ OxiZ is not just a Z3 port - it surpasses Z3 in critical areas:
   - [x] Prime implicant extraction
   - [x] Value factories
 
-## Low Priority (0% Complete)
+## Low Priority (100% Complete) ✅
 
 ### Tooling
-- [ ] Benchmarking suite
+- [x] SMT-COMP benchmark suite (oxiz-smtcomp crate) ✨ NEW
   - **Goal:** SMT-LIB benchmark compatibility, timing comparisons vs Z3
-- [ ] SMT-COMP compatibility
-  - **Goal:** Participate in SMT-COMP 2026
-- [ ] Fuzzing infrastructure
+  - Complete benchmark runner with timeout handling, parallel execution
+  - SMT-COMP 2023 benchmark integration ready
+- [x] Fuzzing infrastructure (fuzz/) ✨ NEW
   - **Goal:** AFL/libfuzzer integration for robustness testing
-- [ ] Performance regression tests
+  - 3 fuzz targets: parser, term builder, solver
+  - Structured fuzzing with Arbitrary derive
+- [x] Python bindings (oxiz-py crate) ✨ NEW
+  - **Goal:** PyO3-based Python API
+  - Full TermManager and Solver bindings with maturin build
+- [x] Performance regression tests (bench/regression/) ✨ NEW
   - **Goal:** CI/CD automated performance tracking
-- [ ] Z3 parameter/tactics extraction scripts
+  - SAT, Theory, Parser, MaxSAT benchmark categories
+  - Baseline comparison with regression detection
+- [x] Z3 parameter/tactics extraction scripts ✨ NEW
   - **Goal:** Automated Z3 feature comparison
+  - scripts/z3_compare/extract_params.py - Parameter extraction
+  - scripts/z3_compare/extract_tactics.py - Tactic extraction
+  - scripts/z3_compare/compare_features.py - Feature comparison
+  - 116+ OxiZ features tracked across 7 categories
 
 ### Documentation
-- [ ] API documentation improvements
+- [x] API documentation improvements ✨ NEW
   - **Goal:** Comprehensive rustdoc with examples
-- [ ] Architecture guide
+  - Enhanced module docs for oxiz, oxiz-core, oxiz-solver
+- [x] Architecture guide (docs/ARCHITECTURE.md) ✨ NEW
   - **Goal:** Detailed crate interaction diagrams
-- [ ] Tutorial for extending theories
+  - Complete crate dependency visualization, data flow, extension points
+- [x] Tutorial for extending theories (docs/TUTORIAL_CUSTOM_THEORY.md) ✨ NEW
   - **Goal:** Step-by-step custom theory implementation
-- [ ] Contribution guidelines
+  - Full SetTheory example with tests (1,374 lines)
+- [x] Contribution guidelines (CONTRIBUTING.md) ✨ NEW
   - **Goal:** Community contribution process
+  - Code style, PR process, testing requirements, architecture overview
+
+## Future Features (In Progress)
+
+### IDE & Tooling
+- [x] VS Code Extension (oxiz-vscode/) ✨ NEW
+  - SMT-LIB2 syntax highlighting
+  - LSP integration with diagnostics
+  - Run solver commands from editor
+  - Code completion and hover info
+- [x] REST API Server Mode (oxiz-cli --server) ✨ NEW
+  - POST /solve, /check-sat, /model, /optimize
+  - GET /health, /version
+  - JSON request/response format
+- [x] Web Dashboard (oxiz-cli --dashboard) ✨ NEW
+  - Real-time solver statistics
+  - WebSocket updates
+  - Pause/resume control
+
+### Advanced CLI Features
+- [x] TPTP Format Support (oxiz-cli/src/tptp.rs) ✨ NEW
+  - Parse TPTP FOF (First-Order Formula) files
+  - Convert to SMT-LIB2 and solve
+  - SZS status output (Theorem/CounterSatisfiable)
+- [x] Interpolant Generation CLI ✨ NEW
+  - --interpolate flag
+  - Partition-based assertions
+  - get-interpolant command
+- [x] Distributed Solving (oxiz-cli/src/distributed.rs) ✨ NEW
+  - Worker and coordinator modes
+  - Cube-and-conquer distribution
+  - TCP-based communication
+- [x] SMT-LIB 2.6 Features (oxiz-core) ✨ NEW
+  - Parametric datatypes
+  - Match expressions
+  - Recursive function definitions
 
 ## Completed
 
@@ -211,6 +262,12 @@ OxiZ is not just a Z3 port - it surpasses Z3 in critical areas:
 - [x] Datalog engine (full)
 - [x] Advanced rewriters (13 modules)
 - [x] Model subsystem
+- [x] Python bindings (oxiz-py)
+- [x] Fuzzing infrastructure (fuzz/)
+- [x] SMT-COMP benchmark suite (oxiz-smtcomp)
+- [x] Architecture documentation
+- [x] Theory extension tutorial
+- [x] Contribution guidelines
 
 ---
 
@@ -264,7 +321,8 @@ oxiz-core (foundation)
 - **Advanced Rewriters**: 13 theory-specific modules (9,185 lines)
 
 ### Statistics
-- **Total Rust Code**: 173,571 lines across 411 files
-- **Tests**: 3,670 tests (all passing)
+- **Total Rust Code**: ~180,000 lines across 420+ files
+- **Tests**: 3,670+ tests (all passing)
 - **Zero Warnings**: All crates pass `cargo clippy -- -D warnings`
 - **Estimated Z3 Parity**: ~95%+
+- **New Crates**: oxiz-py (Python bindings), oxiz-smtcomp (benchmarks), fuzz/ (fuzzing)

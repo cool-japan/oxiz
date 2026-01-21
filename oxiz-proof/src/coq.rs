@@ -153,8 +153,9 @@ impl CoqExporter {
         output.push_str("(* Theory axioms and lemmas *)\n");
         for step in theory_proof.steps() {
             let step_name = self.fresh_ident("theory_step");
-            writeln!(&mut output, "(* Step {}: {:?} *)", step.id.0, step.rule).unwrap();
-            writeln!(&mut output, "Parameter {} : Prop.", step_name).unwrap();
+            writeln!(&mut output, "(* Step {}: {:?} *)", step.id.0, step.rule)
+                .expect("write should succeed");
+            writeln!(&mut output, "Parameter {} : Prop.", step_name).expect("write should succeed");
         }
 
         output.push_str("\n(* Theory proof complete *)\n");

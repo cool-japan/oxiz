@@ -182,7 +182,10 @@ impl Trail {
     /// the exact state at a push point
     pub fn backtrack_to_size(&mut self, target_size: usize) {
         while self.assignments.len() > target_size {
-            let lit = self.assignments.pop().unwrap();
+            let lit = self
+                .assignments
+                .pop()
+                .expect("assignments non-empty in loop condition");
             let var = lit.var();
             self.var_info[var.index()].value = LBool::Undef;
         }
@@ -210,7 +213,10 @@ impl Trail {
 
         // Unassign all literals above the target level
         while self.assignments.len() > target_idx {
-            let lit = self.assignments.pop().unwrap();
+            let lit = self
+                .assignments
+                .pop()
+                .expect("assignments non-empty in loop condition");
             let var = lit.var();
             self.var_info[var.index()].value = LBool::Undef;
             callback(lit);

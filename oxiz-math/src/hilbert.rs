@@ -106,7 +106,9 @@ pub fn hilbert_basis(cone: &Cone) -> Vec<IntVector> {
     while !candidates.is_empty() && iteration < max_iterations {
         iteration += 1;
 
-        let candidate = candidates.pop().unwrap();
+        let candidate = candidates
+            .pop()
+            .expect("collection validated to be non-empty");
 
         // Check if this is a primitive vector (not a multiple of another)
         if is_primitive(&candidate) {

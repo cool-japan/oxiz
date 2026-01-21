@@ -232,7 +232,12 @@ impl SlsSolver {
             self.update_cache();
 
             // Check if all hard clauses are satisfied
-            if !self.cache.as_ref().unwrap().all_hard_satisfied() {
+            if !self
+                .cache
+                .as_ref()
+                .expect("cache initialized at solve start")
+                .all_hard_satisfied()
+            {
                 // Pick a violated hard clause and flip a variable from it
                 self.flip_from_violated_hard();
                 continue;
@@ -279,7 +284,10 @@ impl SlsSolver {
 
     /// Update the clause satisfaction cache
     fn update_cache(&mut self) {
-        let assignment = self.assignment.as_ref().unwrap();
+        let assignment = self
+            .assignment
+            .as_ref()
+            .expect("assignment initialized at solve start");
 
         // Update hard clauses
         for (idx, clause) in self.hard_clauses.iter().enumerate() {
@@ -310,7 +318,10 @@ impl SlsSolver {
 
     /// Compute current cost (sum of weights of violated soft clauses)
     fn compute_cost(&self) -> Weight {
-        let cache = self.cache.as_ref().unwrap();
+        let cache = self
+            .cache
+            .as_ref()
+            .expect("cache initialized at solve start");
         let mut cost = Weight::zero();
 
         for (idx, &satisfied) in cache.soft_satisfied.iter().enumerate() {
@@ -324,7 +335,10 @@ impl SlsSolver {
 
     /// Flip a variable from a violated hard clause
     fn flip_from_violated_hard(&mut self) {
-        let cache = self.cache.as_ref().unwrap();
+        let cache = self
+            .cache
+            .as_ref()
+            .expect("cache initialized at solve start");
 
         // Find violated hard clauses
         let violated: Vec<usize> = cache
@@ -356,7 +370,10 @@ impl SlsSolver {
 
     /// Random walk: flip a random variable from a violated soft clause
     fn random_walk(&mut self) {
-        let cache = self.cache.as_ref().unwrap();
+        let cache = self
+            .cache
+            .as_ref()
+            .expect("cache initialized at solve start");
 
         // Find violated soft clauses
         let violated: Vec<usize> = cache

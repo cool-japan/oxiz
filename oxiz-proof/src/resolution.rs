@@ -297,7 +297,9 @@ impl ResolutionProof {
             return Err("First premise must be a unit clause".to_string());
         }
 
-        let pivot = unit.unit_literal().unwrap();
+        let pivot = unit
+            .unit_literal()
+            .expect("unit clause has exactly one literal");
         self.resolve(unit_clause, clause, pivot)
     }
 

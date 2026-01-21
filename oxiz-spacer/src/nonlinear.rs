@@ -256,13 +256,15 @@ impl NonLinearAnalyzer {
             if !indices.contains_key(&succ) {
                 // Successor has not yet been visited; recurse on it
                 self.tarjan_strongconnect(succ, index, stack, indices, lowlinks, on_stack);
-                let succ_lowlink = *lowlinks.get(&succ).unwrap();
-                let pred_lowlink = lowlinks.get(&pred).unwrap();
+                let succ_lowlink = *lowlinks
+                    .get(&succ)
+                    .expect("lowlink exists for visited node");
+                let pred_lowlink = lowlinks.get(&pred).expect("lowlink exists for predecessor");
                 lowlinks.insert(pred, (*pred_lowlink).min(succ_lowlink));
             } else if on_stack.contains(&succ) {
                 // Successor is in stack and hence in the current SCC
-                let succ_index = *indices.get(&succ).unwrap();
-                let pred_lowlink = lowlinks.get(&pred).unwrap();
+                let succ_index = *indices.get(&succ).expect("index exists for visited node");
+                let pred_lowlink = lowlinks.get(&pred).expect("lowlink exists for predecessor");
                 lowlinks.insert(pred, (*pred_lowlink).min(succ_index));
             }
         }
@@ -271,7 +273,7 @@ impl NonLinearAnalyzer {
         if lowlinks.get(&pred) == indices.get(&pred) {
             let mut scc = HashSet::new();
             loop {
-                let w = stack.pop().unwrap();
+                let w = stack.pop().expect("collection validated to be non-empty");
                 on_stack.remove(&w);
                 scc.insert(w);
                 if w == pred {

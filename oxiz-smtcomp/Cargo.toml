@@ -1,0 +1,28 @@
+[package]
+name = "oxiz-smtcomp"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "SMT-COMP benchmark infrastructure for OxiZ"
+keywords = ["smt", "benchmark", "smtcomp", "testing"]
+categories = ["development-tools::testing"]
+
+[lints]
+workspace = true
+
+[dependencies]
+oxiz-core = { workspace = true }
+oxiz-solver = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+walkdir = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+rayon = { workspace = true }
+rand = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+tempfile = "3.19"

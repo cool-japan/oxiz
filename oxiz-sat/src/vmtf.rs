@@ -120,7 +120,9 @@ impl VMTF {
             }
         } else {
             // Append new variables to the existing tail
-            let old_tail = self.tail.unwrap();
+            let old_tail = self
+                .tail
+                .expect("tail exists when extending non-empty list");
             let first_new = Var::new(old_num_vars as u32);
 
             // Connect old tail to first new variable

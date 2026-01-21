@@ -162,7 +162,9 @@ impl MaxSatSolver {
                     // Found a model - calculate its cost
                     let current_cost = self.calculate_current_cost();
 
-                    if self.best_cost.is_none() || current_cost < self.best_cost.unwrap() {
+                    if self.best_cost.is_none()
+                        || current_cost < self.best_cost.expect("best_cost set during optimization")
+                    {
                         self.best_cost = Some(current_cost);
                         self.stats.upper_bound = Some(current_cost);
                         self.best_model = Some(self.extract_model());

@@ -254,6 +254,14 @@ pub fn get_children(kind: &TermKind) -> SmallVec<[TermId; 4]> {
             children.push(*b);
             children.push(*c);
         }
+
+        // Match expression
+        TermKind::Match { scrutinee, cases } => {
+            children.push(*scrutinee);
+            for case in cases {
+                children.push(case.body);
+            }
+        }
     }
 
     children
@@ -644,6 +652,19 @@ fn transform_children(kind: &TermKind, cache: &rustc_hash::FxHashMap<TermId, Ter
             arg: subst(arg),
             eb: *eb,
             sb: *sb,
+        },
+
+        // Match expression
+        TermKind::Match { scrutinee, cases } => TermKind::Match {
+            scrutinee: subst(scrutinee),
+            cases: cases
+                .iter()
+                .map(|c| crate::ast::term::MatchCase {
+                    constructor: c.constructor,
+                    bindings: c.bindings.clone(),
+                    body: subst(&c.body),
+                })
+                .collect(),
         },
     }
 }

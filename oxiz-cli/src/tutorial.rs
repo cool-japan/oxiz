@@ -348,9 +348,11 @@ fn print_example(description: &str, code: &str) {
 fn wait_for_user() {
     println!();
     print!("Press Enter to continue...");
-    io::stdout().flush().unwrap();
+    io::stdout().flush().expect("flush should succeed");
     let mut buffer = String::new();
-    io::stdin().read_line(&mut buffer).unwrap();
+    io::stdin()
+        .read_line(&mut buffer)
+        .expect("failed to read line from stdin");
 }
 
 /// List available tutorial sections

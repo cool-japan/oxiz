@@ -135,7 +135,10 @@ impl CongruenceClosure {
             return; // Cannot pop base level
         }
 
-        let target_level = self.scope_levels.pop().unwrap();
+        let target_level = self
+            .scope_levels
+            .pop()
+            .expect("scope_levels has elements after length check");
 
         // Undo all operations back to the target level
         while self.undo_trail.len() > target_level {

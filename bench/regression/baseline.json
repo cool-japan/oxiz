@@ -1,0 +1,66 @@
+{
+  "version": "0.1.2",
+  "timestamp": "2026-01-17T00:00:00Z",
+  "benchmarks": {
+    "sat_3sat_small": {
+      "avg_time_us": 50.0,
+      "category": "Sat"
+    },
+    "sat_3sat_medium": {
+      "avg_time_us": 200.0,
+      "category": "Sat"
+    },
+    "sat_unit_propagation": {
+      "avg_time_us": 30.0,
+      "category": "Sat"
+    },
+    "sat_unsat_pigeonhole": {
+      "avg_time_us": 150.0,
+      "category": "Sat"
+    },
+    "theory_lia_simple": {
+      "avg_time_us": 100.0,
+      "category": "Theory"
+    },
+    "theory_lia_medium": {
+      "avg_time_us": 250.0,
+      "category": "Theory"
+    },
+    "theory_bool_arith": {
+      "avg_time_us": 120.0,
+      "category": "Theory"
+    },
+    "theory_lia_unsat": {
+      "avg_time_us": 80.0,
+      "category": "Theory"
+    },
+    "parser_simple": {
+      "avg_time_us": 15.0,
+      "category": "Parser"
+    },
+    "parser_medium": {
+      "avg_time_us": 40.0,
+      "category": "Parser"
+    },
+    "parser_nested": {
+      "avg_time_us": 20.0,
+      "category": "Parser"
+    },
+    "parser_dimacs": {
+      "avg_time_us": 10.0,
+      "category": "Parser"
+    },
+    "maxsat_simple": {
+      "avg_time_us": 300.0,
+      "category": "MaxSat"
+    },
+    "maxsat_weighted": {
+      "avg_time_us": 400.0,
+      "category": "MaxSat"
+    },
+    "maxsat_partial": {
+      "avg_time_us": 500.0,
+      "category": "MaxSat"
+    }
+  }
+}

@@ -253,16 +253,17 @@ impl BinaryImplicationGraph {
                     );
                     lowlink[lit_idx] = lowlink[lit_idx].min(lowlink[impl_idx]);
                 } else if on_stack[impl_idx] {
-                    lowlink[lit_idx] = lowlink[lit_idx].min(index[impl_idx].unwrap());
+                    lowlink[lit_idx] = lowlink[lit_idx]
+                        .min(index[impl_idx].expect("index set when on_stack is true"));
                 }
             }
         }
 
         // If lit_idx is a root node, pop the stack to form an SCC
-        if lowlink[lit_idx] == index[lit_idx].unwrap() {
+        if lowlink[lit_idx] == index[lit_idx].expect("index set for lit_idx in SCC") {
             let mut scc = Vec::new();
             loop {
-                let node = stack.pop().unwrap();
+                let node = stack.pop().expect("stack non-empty in SCC formation");
                 on_stack[node] = false;
                 scc.push(Lit::from_code(node as u32));
                 if node == lit_idx {

@@ -281,7 +281,10 @@ impl CadProjection {
 
         // Check cache with read lock
         {
-            let cache = self.resultant_cache.read().unwrap();
+            let cache = self
+                .resultant_cache
+                .read()
+                .expect("lock should not be poisoned");
             if let Some(cached) = cache.get(&cache_key) {
                 return cached.clone();
             }
@@ -292,7 +295,10 @@ impl CadProjection {
 
         // Store in cache with write lock
         {
-            let mut cache = self.resultant_cache.write().unwrap();
+            let mut cache = self
+                .resultant_cache
+                .write()
+                .expect("lock should not be poisoned");
             cache.insert(cache_key, resultant.clone());
         }
 
@@ -872,7 +878,10 @@ impl CadLifter {
             }
 
             // After last root
-            let after = all_roots.last().unwrap() + BigRational::one();
+            let after = all_roots
+                .last()
+                .expect("collection validated to be non-empty")
+                + BigRational::one();
             points.push(CadPoint::rational(after));
         }
 
@@ -1110,7 +1119,9 @@ impl CadDecomposer {
             }
 
             // Cell after last root
-            let last = all_roots.last().unwrap();
+            let last = all_roots
+                .last()
+                .expect("collection validated to be non-empty");
             let sample = self.select_sample_point(Some(last), None, var);
             cells.push(CadCell {
                 var_order: vec![var],
@@ -1237,7 +1248,15 @@ impl CadDecomposer {
             }
 
             // After last root
-            let sample = self.select_sample_point(Some(cell_roots.last().unwrap()), None, var);
+            let sample = self.select_sample_point(
+                Some(
+                    cell_roots
+                        .last()
+                        .expect("collection validated to be non-empty"),
+                ),
+                None,
+                var,
+            );
             let mut new_sample = cell.sample.clone();
             new_sample.push(CadPoint::rational(sample));
             let mut new_var_order = cell.var_order.clone();

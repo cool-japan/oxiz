@@ -432,6 +432,29 @@ pub enum TermKind {
         /// Body
         body: TermId,
     },
+
+    // Match expressions
+    /// Pattern matching on algebraic datatypes
+    Match {
+        /// The term being matched (scrutinee)
+        scrutinee: TermId,
+        /// The match cases (patterns and bodies)
+        cases: SmallVec<[MatchCase; 4]>,
+    },
+}
+
+/// A case in a match expression.
+///
+/// Each case consists of a pattern (constructor with optional bindings)
+/// and a body expression to evaluate when the pattern matches.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct MatchCase {
+    /// The constructor to match, or None for a variable/wildcard pattern
+    pub constructor: Option<Spur>,
+    /// Variable bindings for constructor arguments
+    pub bindings: SmallVec<[Spur; 4]>,
+    /// The body expression to evaluate when matched
+    pub body: TermId,
 }
 
 /// A term in the SMT-LIB2 sense

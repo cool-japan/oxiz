@@ -214,6 +214,7 @@ impl PatternMatcher {
     }
 
     /// Recursive pattern matching
+    #[allow(clippy::only_used_in_recursion)]
     fn match_recursive(
         &self,
         pattern: TermId,

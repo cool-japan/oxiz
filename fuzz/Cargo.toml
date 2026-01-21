@@ -1,0 +1,46 @@
+[package]
+name = "oxiz-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+# Prevent this from interfering with the main workspace
+[workspace]
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+num-bigint = "0.4"
+num-rational = "0.4"
+
+[dependencies.oxiz-core]
+path = "../oxiz-core"
+
+[dependencies.oxiz]
+path = "../oxiz"
+
+# Fuzz targets
+
+[[bin]]
+name = "fuzz_smtlib_parser"
+path = "fuzz_targets/fuzz_smtlib_parser.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_term_builder"
+path = "fuzz_targets/fuzz_term_builder.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_solver"
+path = "fuzz_targets/fuzz_solver.rs"
+test = false
+doc = false
+bench = false

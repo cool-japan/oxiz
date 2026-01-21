@@ -82,7 +82,7 @@ impl ResultCache {
         let hash = Self::hash_input(input);
         let now = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
+            .expect("serialization should succeed")
             .as_secs();
 
         // Check memory cache first
@@ -134,7 +134,7 @@ impl ResultCache {
         let hash = Self::hash_input(input);
         let now = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
+            .expect("serialization should succeed")
             .as_secs();
 
         let entry = CacheEntry {

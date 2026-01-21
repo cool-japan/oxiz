@@ -135,8 +135,11 @@ impl StrategyLearner {
             .retain(|h| h.confidence >= self.min_confidence && h.support_count >= self.min_support);
 
         // Sort by confidence
-        self.heuristics
-            .sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap());
+        self.heuristics.sort_by(|a, b| {
+            b.confidence
+                .partial_cmp(&a.confidence)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
     }
 
     /// Get all learned heuristics.

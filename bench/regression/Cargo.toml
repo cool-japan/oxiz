@@ -1,0 +1,43 @@
+[package]
+name = "oxiz-regression"
+version = "0.1.2"
+edition = "2024"
+publish = false
+description = "Performance regression testing for OxiZ SMT solver"
+
+[[bin]]
+name = "regression"
+path = "src/main.rs"
+
+[dependencies]
+# OxiZ crates
+oxiz-core = { path = "../../oxiz-core" }
+oxiz-sat = { path = "../../oxiz-sat" }
+oxiz-solver = { path = "../../oxiz-solver" }
+oxiz-theories = { path = "../../oxiz-theories" }
+oxiz-opt = { path = "../../oxiz-opt" }
+
+# Benchmarking
+criterion = { version = "0.7", features = ["html_reports"] }
+
+# Utilities
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+num-bigint = "0.4"
+
+[dev-dependencies]
+criterion = "0.7"
+
+[[bench]]
+name = "oxiz_benchmarks"
+harness = false
+path = "benches/oxiz_benchmarks.rs"
+
+[lints.rust]
+unused_variables = "allow"
+dead_code = "allow"
+
+[lints.clippy]
+too_many_arguments = "allow"
+type_complexity = "allow"

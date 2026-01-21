@@ -233,11 +233,52 @@ impl ArithSolver {
     }
 
     /// Get the current value of a variable
+    ///
+    /// For integer arithmetic (LIA), this properly rounds values that have
+    /// infinitesimal components from strict inequalities:
+    /// - If value is `r + δ` (positive delta), return `ceil(r)` for integers
+    /// - If value is `r - δ` (negative delta), return `floor(r)` for integers
     #[must_use]
     pub fn value(&self, term: TermId) -> Option<Rational64> {
-        self.term_to_var
-            .get(&term)
-            .map(|&var| self.simplex.value(var))
+        self.term_to_var.get(&term).map(|&var| {
+            if self.is_integer {
+                // Get the full delta-rational value
+                let dval = self.simplex.delta_value(var);
+
+                // For integer arithmetic, round based on delta:
+                // - Positive delta means we have a strict lower bound (x > r)
+                //   so round up to the next integer
+                // - Negative delta means we have a strict upper bound (x < r)
+                //   so round down to the previous integer
+                // - Zero delta means exact value, round to nearest integer
+                if dval.delta.is_positive() {
+                    // x > r implies x >= ceil(r) for integers
+                    // If r is already an integer, we need r + 1
+                    let real_val = dval.real;
+                    if real_val.is_integer() {
+                        Rational64::from_integer(real_val.to_integer() + 1)
+                    } else {
+                        Rational64::from_integer(real_val.ceil().to_integer())
+                    }
+                } else if dval.delta.is_negative() {
+                    // x < r implies x <= floor(r) for integers
+                    // If r is already an integer, we need r - 1
+                    let real_val = dval.real;
+                    if real_val.is_integer() {
+                        Rational64::from_integer(real_val.to_integer() - 1)
+                    } else {
+                        Rational64::from_integer(real_val.floor().to_integer())
+                    }
+                } else {
+                    // No strict bound, just return the value
+                    // Round to nearest integer for consistency
+                    dval.real
+                }
+            } else {
+                // For reals, just return the real part
+                self.simplex.value(var)
+            }
+        })
     }
 
     /// Tighten a rational bound for integer variables

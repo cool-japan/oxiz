@@ -13,7 +13,7 @@ use oxiz_theories::arithmetic::ArithSolver;
 use oxiz_theories::bv::BvSolver;
 use oxiz_theories::euf::EufSolver;
 use oxiz_theories::{EqualityNotification, Theory, TheoryCombination};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
 
 /// Proof step for resolution-based proofs
@@ -848,6 +848,10 @@ pub struct Solver {
     simplifier: Simplifier,
     /// Solver statistics
     statistics: Statistics,
+    /// Bitvector terms (for model extraction)
+    bv_terms: FxHashSet<TermId>,
+    /// Arithmetic terms (Int/Real variables for model extraction)
+    arith_terms: FxHashSet<TermId>,
 }
 
 /// Theory decision hint
@@ -1090,6 +1094,28 @@ impl<'a> TheoryManager<'a> {
                         // Convert term IDs to literals for conflict clause
                         let conflict_lits = self.terms_to_conflict_clause(&conflict_terms);
                         return TheoryCheckResult::Conflict(conflict_lits);
+                    }
+
+                    // For arithmetic equalities, also send to ArithSolver
+                    // Use pre-parsed constraint if available
+                    if let Some(parsed) = self.var_to_parsed_arith.get(&var) {
+                        let terms: Vec<(TermId, Rational64)> =
+                            parsed.terms.iter().copied().collect();
+                        let constant = parsed.constant;
+                        let reason = parsed.reason_term;
+
+                        // a = b means a - b <= 0 AND a - b >= 0
+                        self.arith.assert_le(&terms, constant, reason);
+                        self.arith.assert_ge(&terms, constant, reason);
+
+                        // Check ArithSolver for conflicts
+                        use oxiz_theories::Theory;
+                        use oxiz_theories::TheoryCheckResult as TheoryCheckResultEnum;
+                        if let Ok(TheoryCheckResultEnum::Unsat(conflict_terms)) = self.arith.check()
+                        {
+                            let conflict_lits = self.terms_to_conflict_clause(&conflict_terms);
+                            return TheoryCheckResult::Conflict(conflict_lits);
+                        }
                     }
                 } else {
                     // Negative assignment: a != b, tell EUF about disequality
@@ -1373,6 +1399,10 @@ enum TrailOp {
     FalseAssertionSet,
     /// A named assertion was added
     NamedAssertionAdded { index: usize },
+    /// A bitvector term was added
+    BvTermAdded { term: TermId },
+    /// An arithmetic term was added
+    ArithTermAdded { term: TermId },
 }
 
 /// State for push/pop with trail-based undo
@@ -1453,6 +1483,8 @@ impl Solver {
             },
             simplifier: Simplifier::new(),
             statistics: Statistics::new(),
+            bv_terms: FxHashSet::default(),
+            arith_terms: FxHashSet::default(),
         }
     }
 
@@ -1492,6 +1524,20 @@ impl Solver {
     /// Set the logic
     pub fn set_logic(&mut self, logic: &str) {
         self.logic = Some(logic.to_string());
+
+        // Switch ArithSolver based on logic
+        if logic.contains("LIA") || logic.contains("IDL") || logic.contains("NIA") {
+            // Integer arithmetic logic (QF_LIA, LIA, QF_AUFLIA, QF_IDL, etc.)
+            self.arith = ArithSolver::lia();
+        } else if logic.contains("LRA") || logic.contains("RDL") || logic.contains("NRA") {
+            // Real arithmetic logic (QF_LRA, LRA, QF_RDL, etc.)
+            self.arith = ArithSolver::lra();
+        } else if logic.contains("BV") {
+            // Bitvector logic - use LIA since BV comparisons are handled
+            // as bounded integer arithmetic
+            self.arith = ArithSolver::lia();
+        }
+        // For other logics (QF_UF, etc.) keep the default LRA
     }
 
     /// Collect polarity information for all subterms
@@ -1574,6 +1620,77 @@ impl Solver {
         var
     }
 
+    /// Track theory variables in a term for model extraction
+    /// Recursively scans a term to find Int/Real/BV variables and registers them
+    fn track_theory_vars(&mut self, term_id: TermId, manager: &TermManager) {
+        let Some(term) = manager.get(term_id) else {
+            return;
+        };
+
+        match &term.kind {
+            TermKind::Var(_) => {
+                // Found a variable - check its sort and track appropriately
+                let is_int = term.sort == manager.sorts.int_sort;
+                let is_real = term.sort == manager.sorts.real_sort;
+
+                if is_int || is_real {
+                    if !self.arith_terms.contains(&term_id) {
+                        self.arith_terms.insert(term_id);
+                        self.trail.push(TrailOp::ArithTermAdded { term: term_id });
+                        self.arith.intern(term_id);
+                    }
+                } else if let Some(sort) = manager.sorts.get(term.sort)
+                    && sort.is_bitvec()
+                    && !self.bv_terms.contains(&term_id)
+                {
+                    self.bv_terms.insert(term_id);
+                    self.trail.push(TrailOp::BvTermAdded { term: term_id });
+                    if let Some(width) = sort.bitvec_width() {
+                        self.bv.new_bv(term_id, width);
+                    }
+                    // Also intern in ArithSolver for BV comparison constraints
+                    // (BV comparisons are handled as bounded integer arithmetic)
+                    self.arith.intern(term_id);
+                }
+            }
+            // Recursively scan compound terms
+            TermKind::Add(args)
+            | TermKind::Mul(args)
+            | TermKind::And(args)
+            | TermKind::Or(args) => {
+                for &arg in args {
+                    self.track_theory_vars(arg, manager);
+                }
+            }
+            TermKind::Sub(lhs, rhs)
+            | TermKind::Eq(lhs, rhs)
+            | TermKind::Lt(lhs, rhs)
+            | TermKind::Le(lhs, rhs)
+            | TermKind::Gt(lhs, rhs)
+            | TermKind::Ge(lhs, rhs)
+            | TermKind::BvAdd(lhs, rhs)
+            | TermKind::BvSub(lhs, rhs)
+            | TermKind::BvMul(lhs, rhs)
+            | TermKind::BvUlt(lhs, rhs)
+            | TermKind::BvUle(lhs, rhs)
+            | TermKind::BvSlt(lhs, rhs)
+            | TermKind::BvSle(lhs, rhs) => {
+                self.track_theory_vars(*lhs, manager);
+                self.track_theory_vars(*rhs, manager);
+            }
+            TermKind::Neg(arg) | TermKind::Not(arg) | TermKind::BvNot(arg) => {
+                self.track_theory_vars(*arg, manager);
+            }
+            TermKind::Ite(cond, then_br, else_br) => {
+                self.track_theory_vars(*cond, manager);
+                self.track_theory_vars(*then_br, manager);
+                self.track_theory_vars(*else_br, manager);
+            }
+            // Constants and other leaf terms - nothing to track
+            _ => {}
+        }
+    }
+
     /// Parse an arithmetic comparison and extract linear expression
     /// Returns: (terms with coefficients, constant, constraint_type)
     fn parse_arith_comparison(
@@ -1614,6 +1731,7 @@ impl Solver {
 
     /// Extract linear terms recursively from an arithmetic expression
     /// Returns None if the term is not linear
+    #[allow(clippy::only_used_in_recursion)]
     fn extract_linear_terms(
         &self,
         term_id: TermId,
@@ -1906,6 +2024,29 @@ impl Solver {
             }
             TermKind::Var(_) => {
                 let var = self.get_or_create_var(term);
+                // Track theory terms for model extraction
+                let is_int = t.sort == manager.sorts.int_sort;
+                let is_real = t.sort == manager.sorts.real_sort;
+
+                if is_int || is_real {
+                    // Track arithmetic terms
+                    if !self.arith_terms.contains(&term) {
+                        self.arith_terms.insert(term);
+                        self.trail.push(TrailOp::ArithTermAdded { term });
+                        // Register with arithmetic solver
+                        self.arith.intern(term);
+                    }
+                } else if let Some(sort) = manager.sorts.get(t.sort)
+                    && sort.is_bitvec()
+                    && !self.bv_terms.contains(&term)
+                {
+                    self.bv_terms.insert(term);
+                    self.trail.push(TrailOp::BvTermAdded { term });
+                    // Register with BV solver if not already registered
+                    if let Some(width) = sort.bitvec_width() {
+                        self.bv.new_bv(term, width);
+                    }
+                }
                 Lit::pos(var)
             }
             TermKind::Not(arg) => {
@@ -2084,6 +2225,30 @@ impl Solver {
                     self.var_to_constraint
                         .insert(var, Constraint::Eq(*lhs, *rhs));
                     self.trail.push(TrailOp::ConstraintAdded { var });
+
+                    // Track theory variables for model extraction
+                    self.track_theory_vars(*lhs, manager);
+                    self.track_theory_vars(*rhs, manager);
+
+                    // Pre-parse arithmetic equality for ArithSolver
+                    // Only for Int/Real sorts, not BitVec
+                    let is_arith = lhs_term.is_some_and(|t| {
+                        t.sort == manager.sorts.int_sort || t.sort == manager.sorts.real_sort
+                    });
+                    if is_arith {
+                        // We use Le type as placeholder since equality will be asserted
+                        // as both Le and Ge
+                        if let Some(parsed) = self.parse_arith_comparison(
+                            *lhs,
+                            *rhs,
+                            ArithConstraintType::Le,
+                            term,
+                            manager,
+                        ) {
+                            self.var_to_parsed_arith.insert(var, parsed);
+                        }
+                    }
+
                     Lit::pos(var)
                 }
             }
@@ -2162,6 +2327,9 @@ impl Solver {
                 {
                     self.var_to_parsed_arith.insert(var, parsed);
                 }
+                // Track theory variables for model extraction
+                self.track_theory_vars(*lhs, manager);
+                self.track_theory_vars(*rhs, manager);
                 Lit::pos(var)
             }
             TermKind::Le(lhs, rhs) => {
@@ -2176,6 +2344,9 @@ impl Solver {
                 {
                     self.var_to_parsed_arith.insert(var, parsed);
                 }
+                // Track theory variables for model extraction
+                self.track_theory_vars(*lhs, manager);
+                self.track_theory_vars(*rhs, manager);
                 Lit::pos(var)
             }
             TermKind::Gt(lhs, rhs) => {
@@ -2190,6 +2361,9 @@ impl Solver {
                 {
                     self.var_to_parsed_arith.insert(var, parsed);
                 }
+                // Track theory variables for model extraction
+                self.track_theory_vars(*lhs, manager);
+                self.track_theory_vars(*rhs, manager);
                 Lit::pos(var)
             }
             TermKind::Ge(lhs, rhs) => {
@@ -2204,6 +2378,9 @@ impl Solver {
                 {
                     self.var_to_parsed_arith.insert(var, parsed);
                 }
+                // Track theory variables for model extraction
+                self.track_theory_vars(*lhs, manager);
+                self.track_theory_vars(*rhs, manager);
                 Lit::pos(var)
             }
             TermKind::BvConcat(_, _)
@@ -2238,6 +2415,9 @@ impl Solver {
                 {
                     self.var_to_parsed_arith.insert(var, parsed);
                 }
+                // Track theory variables for model extraction
+                self.track_theory_vars(*lhs, manager);
+                self.track_theory_vars(*rhs, manager);
                 Lit::pos(var)
             }
             TermKind::BvUle(lhs, rhs) => {
@@ -2251,6 +2431,9 @@ impl Solver {
                 {
                     self.var_to_parsed_arith.insert(var, parsed);
                 }
+                // Track theory variables for model extraction
+                self.track_theory_vars(*lhs, manager);
+                self.track_theory_vars(*rhs, manager);
                 Lit::pos(var)
             }
             TermKind::BvSlt(lhs, rhs) => {
@@ -2264,6 +2447,9 @@ impl Solver {
                 {
                     self.var_to_parsed_arith.insert(var, parsed);
                 }
+                // Track theory variables for model extraction
+                self.track_theory_vars(*lhs, manager);
+                self.track_theory_vars(*rhs, manager);
                 Lit::pos(var)
             }
             TermKind::BvSle(lhs, rhs) => {
@@ -2277,6 +2463,9 @@ impl Solver {
                 {
                     self.var_to_parsed_arith.insert(var, parsed);
                 }
+                // Track theory variables for model extraction
+                self.track_theory_vars(*lhs, manager);
+                self.track_theory_vars(*rhs, manager);
                 Lit::pos(var)
             }
             TermKind::Select(_, _) | TermKind::Store(_, _, _) => {
@@ -2402,6 +2591,12 @@ impl Solver {
             | TermKind::DtTester { .. }
             | TermKind::DtSelector { .. } => {
                 // Datatype operations - theory terms
+                let var = self.get_or_create_var(term);
+                Lit::pos(var)
+            }
+            // Match expressions on datatypes
+            TermKind::Match { .. } => {
+                // Match expressions - theory terms
                 let var = self.get_or_create_var(term);
                 Lit::pos(var)
             }
@@ -2593,9 +2788,65 @@ impl Solver {
             }
         }
 
+        // Extract values from equality constraints (e.g., x = 5)
+        // This handles cases where a variable is equated to a constant
+        for (&var, constraint) in &self.var_to_constraint {
+            // Check if the equality is assigned true in the SAT model
+            let is_true = sat_model
+                .get(var.index())
+                .copied()
+                .is_some_and(|v| v.is_true());
+
+            if !is_true {
+                continue;
+            }
+
+            if let Constraint::Eq(lhs, rhs) = constraint {
+                // Check if one side is a tracked variable and the other is a constant
+                let (var_term, const_term) =
+                    if self.arith_terms.contains(lhs) || self.bv_terms.contains(lhs) {
+                        (*lhs, *rhs)
+                    } else if self.arith_terms.contains(rhs) || self.bv_terms.contains(rhs) {
+                        (*rhs, *lhs)
+                    } else {
+                        continue;
+                    };
+
+                // Check if const_term is actually a constant
+                let Some(const_term_data) = manager.get(const_term) else {
+                    continue;
+                };
+
+                match &const_term_data.kind {
+                    TermKind::IntConst(n) => {
+                        if let Some(val) = n.to_i64() {
+                            let value_term = manager.mk_int(val);
+                            model.set(var_term, value_term);
+                        }
+                    }
+                    TermKind::RealConst(r) => {
+                        let value_term = manager.mk_real(*r);
+                        model.set(var_term, value_term);
+                    }
+                    TermKind::BitVecConst { value, width } => {
+                        if let Some(val) = value.to_u64() {
+                            let value_term = manager.mk_bitvec(val, *width);
+                            model.set(var_term, value_term);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         // Get arithmetic values from theory solver
-        // Iterate over all terms and check if they have arithmetic values
-        for &term in self.term_to_var.keys() {
+        // Iterate over tracked arithmetic terms
+        for &term in &self.arith_terms {
+            // Don't overwrite if already set (e.g., from equality extraction above)
+            if model.get(term).is_some() {
+                continue;
+            }
+
             if let Some(value) = self.arith.value(term) {
                 // Create the appropriate value term based on whether it's integer or real
                 let value_term = if *value.denom() == 1 {
@@ -2605,6 +2856,53 @@ impl Solver {
                     // Rational value
                     manager.mk_real(value)
                 };
+                model.set(term, value_term);
+            } else {
+                // If no value from ArithSolver (e.g., unconstrained variable), use default
+                // Get the sort to determine if it's Int or Real
+                let is_int = manager
+                    .get(term)
+                    .map(|t| t.sort == manager.sorts.int_sort)
+                    .unwrap_or(true);
+
+                let value_term = if is_int {
+                    manager.mk_int(0i64)
+                } else {
+                    manager.mk_real(num_rational::Rational64::from_integer(0))
+                };
+                model.set(term, value_term);
+            }
+        }
+
+        // Get bitvector values - check ArithSolver first (for BV comparisons),
+        // then BvSolver (for BV arithmetic/bit operations)
+        for &term in &self.bv_terms {
+            // Don't overwrite if already set (shouldn't happen, but be safe)
+            if model.get(term).is_some() {
+                continue;
+            }
+
+            // Get the bitvector width from the term's sort
+            let width = manager
+                .get(term)
+                .and_then(|t| manager.sorts.get(t.sort))
+                .and_then(|s| s.bitvec_width())
+                .unwrap_or(64);
+
+            // For BV comparisons handled as bounded integer arithmetic,
+            // check ArithSolver FIRST (it has the actual constraint values)
+            if let Some(arith_value) = self.arith.value(term) {
+                let int_value = arith_value.to_integer();
+                let value_term = manager.mk_bitvec(int_value, width);
+                model.set(term, value_term);
+            } else if let Some(bv_value) = self.bv.get_value(term) {
+                // For BV bit operations, get value from BvSolver
+                let value_term = manager.mk_bitvec(bv_value, width);
+                model.set(term, value_term);
+            } else {
+                // If no value from either solver, use default value (0)
+                // This handles unconstrained BV variables
+                let value_term = manager.mk_bitvec(0i64, width);
                 model.set(term, value_term);
             }
         }
@@ -2833,6 +3131,14 @@ impl Solver {
                                 self.named_assertions.truncate(index);
                             }
                         }
+                        TrailOp::BvTermAdded { term } => {
+                            // Remove the bitvector term
+                            self.bv_terms.remove(&term);
+                        }
+                        TrailOp::ArithTermAdded { term } => {
+                            // Remove the arithmetic term
+                            self.arith_terms.remove(&term);
+                        }
                     }
                 }
             }
@@ -2853,6 +3159,7 @@ impl Solver {
         self.sat.reset();
         self.euf.reset();
         self.arith.reset();
+        self.bv.reset();
         self.term_to_var.clear();
         self.var_to_term.clear();
         self.var_to_constraint.clear();
@@ -2866,6 +3173,8 @@ impl Solver {
         self.logic = None;
         self.theory_processed_up_to = 0;
         self.has_false_assertion = false;
+        self.bv_terms.clear();
+        self.arith_terms.clear();
     }
 
     /// Get the configuration
@@ -3127,6 +3436,52 @@ mod tests {
         let implies_term = manager.mk_implies(p, q);
         let implies_val = model.eval(implies_term, &mut manager);
         assert_eq!(implies_val, manager.mk_true());
+    }
+
+    #[test]
+    fn test_bv_comparison_model_generation() {
+        // Test BV comparison: 5 < x < 10 should give x in range [6, 9]
+        let mut solver = Solver::new();
+        let mut manager = TermManager::new();
+
+        solver.set_logic("QF_BV");
+
+        // Create BitVec[8] variable
+        let bv8_sort = manager.sorts.bitvec(8);
+        let x = manager.mk_var("x", bv8_sort);
+
+        // Create constants
+        let five = manager.mk_bitvec(5i64, 8);
+        let ten = manager.mk_bitvec(10i64, 8);
+
+        // Assert: 5 < x (unsigned)
+        let lt1 = manager.mk_bv_ult(five, x);
+        solver.assert(lt1, &mut manager);
+
+        // Assert: x < 10 (unsigned)
+        let lt2 = manager.mk_bv_ult(x, ten);
+        solver.assert(lt2, &mut manager);
+
+        let result = solver.check(&mut manager);
+        assert_eq!(result, SolverResult::Sat);
+
+        // Check that we get a valid model
+        let model = solver.model().expect("Should have model");
+
+        // Get the value of x
+        if let Some(x_value_id) = model.get(x) {
+            if let Some(x_term) = manager.get(x_value_id) {
+                if let TermKind::BitVecConst { value, .. } = &x_term.kind {
+                    let x_val = value.to_u64().unwrap_or(0);
+                    // x should be in range [6, 9]
+                    assert!(
+                        x_val >= 6 && x_val <= 9,
+                        "Expected x in [6,9], got {}",
+                        x_val
+                    );
+                }
+            }
+        }
     }
 
     #[test]

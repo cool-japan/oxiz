@@ -1,0 +1,177 @@
+{
+  "name": "oxiz-smt",
+  "displayName": "OxiZ SMT Solver",
+  "description": "VS Code extension for OxiZ SMT Solver with SMT-LIB2 language support",
+  "version": "0.1.2",
+  "publisher": "cooljapan-ou",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cooljapan-ou/oxiz"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters",
+    "Formatters"
+  ],
+  "keywords": [
+    "smt",
+    "smt-lib",
+    "smtlib2",
+    "solver",
+    "formal-verification",
+    "sat"
+  ],
+  "activationEvents": [
+    "onLanguage:smtlib2",
+    "workspaceContains:**/*.smt2"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "smtlib2",
+        "aliases": [
+          "SMT-LIB2",
+          "smtlib2",
+          "smt2"
+        ],
+        "extensions": [
+          ".smt2",
+          ".smt"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "smtlib2",
+        "scopeName": "source.smtlib2",
+        "path": "./syntaxes/smtlib2.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "oxiz.runSolver",
+        "title": "OxiZ: Run Solver on Current File",
+        "icon": "$(play)"
+      },
+      {
+        "command": "oxiz.checkSat",
+        "title": "OxiZ: Check Satisfiability"
+      },
+      {
+        "command": "oxiz.getModel",
+        "title": "OxiZ: Get Model"
+      },
+      {
+        "command": "oxiz.restartLanguageServer",
+        "title": "OxiZ: Restart Language Server"
+      },
+      {
+        "command": "oxiz.showSolverInfo",
+        "title": "OxiZ: Show Solver Information"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "oxiz.runSolver",
+        "key": "ctrl+shift+r",
+        "mac": "cmd+shift+r",
+        "when": "editorLangId == smtlib2"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "oxiz.runSolver",
+          "when": "editorLangId == smtlib2",
+          "group": "navigation"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "oxiz.runSolver",
+          "when": "editorLangId == smtlib2",
+          "group": "oxiz"
+        },
+        {
+          "command": "oxiz.checkSat",
+          "when": "editorLangId == smtlib2",
+          "group": "oxiz"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "OxiZ SMT Solver",
+      "properties": {
+        "oxiz.executablePath": {
+          "type": "string",
+          "default": "oxiz",
+          "description": "Path to the oxiz executable"
+        },
+        "oxiz.timeout": {
+          "type": "number",
+          "default": 30,
+          "description": "Timeout for solver operations in seconds"
+        },
+        "oxiz.enableLsp": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable Language Server Protocol support"
+        },
+        "oxiz.diagnostics.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable real-time diagnostics"
+        },
+        "oxiz.diagnostics.delay": {
+          "type": "number",
+          "default": 500,
+          "description": "Delay before running diagnostics (ms)"
+        },
+        "oxiz.format.indentWidth": {
+          "type": "number",
+          "default": 2,
+          "description": "Indentation width for formatting"
+        },
+        "oxiz.solver.logic": {
+          "type": "string",
+          "default": "",
+          "description": "Default logic for the solver (e.g., QF_LIA, QF_BV)"
+        },
+        "oxiz.solver.parallel": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable parallel solving"
+        },
+        "oxiz.solver.threads": {
+          "type": "number",
+          "default": 4,
+          "description": "Number of threads for parallel solving"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts",
+    "pretest": "npm run compile && npm run lint"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "eslint": "^8.55.0",
+    "typescript": "^5.3.2"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  }
+}

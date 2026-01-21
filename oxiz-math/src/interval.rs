@@ -469,8 +469,14 @@ impl Interval {
         // Find min and max
         bounds.sort_by(|a, b| a.0.cmp_bound(&b.0));
 
-        let (lo, lo_open) = bounds.first().unwrap().clone();
-        let (hi, hi_open) = bounds.last().unwrap().clone();
+        let (lo, lo_open) = bounds
+            .first()
+            .expect("collection validated to be non-empty")
+            .clone();
+        let (hi, hi_open) = bounds
+            .last()
+            .expect("collection validated to be non-empty")
+            .clone();
 
         Interval {
             lo,

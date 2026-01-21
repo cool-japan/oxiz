@@ -142,7 +142,7 @@ impl PatternExtractor {
                     .0 += 1;
                 pattern_occurrences
                     .get_mut(&pattern_key)
-                    .unwrap()
+                    .expect("key exists after entry().or_insert_with()")
                     .1
                     .push(depth as f64);
 
@@ -210,11 +210,11 @@ impl PatternExtractor {
         let mut abstracted = conclusion.to_string();
 
         // Replace numbers with $$N (need to escape $ as $$)
-        let re_num = regex::Regex::new(r"\b\d+\b").unwrap();
+        let re_num = regex::Regex::new(r"\b\d+\b").expect("regex pattern is valid");
         abstracted = re_num.replace_all(&abstracted, "$$N").to_string();
 
         // Replace quoted strings with $$S
-        let re_str = regex::Regex::new(r#""[^"]*""#).unwrap();
+        let re_str = regex::Regex::new(r#""[^"]*""#).expect("regex pattern is valid");
         abstracted = re_str.replace_all(&abstracted, "$$S").to_string();
 
         abstracted

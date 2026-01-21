@@ -29,8 +29,8 @@ pub fn s_polynomial(f: &Polynomial, g: &Polynomial) -> Polynomial {
         return Polynomial::zero();
     }
 
-    let lm_f = lm_f.unwrap();
-    let lm_g = lm_g.unwrap();
+    let lm_f = lm_f.expect("leading monomial exists for non-zero polynomial");
+    let lm_g = lm_g.expect("leading monomial exists for non-zero polynomial");
 
     // Compute LCM of leading monomials
     let lcm = monomial_lcm(lm_f, lm_g);
@@ -131,8 +131,8 @@ pub fn reduce(f: &Polynomial, g_set: &[Polynomial]) -> Polynomial {
                 continue;
             }
 
-            let lm_p = lm_p.unwrap();
-            let lm_g = lm_g.unwrap();
+            let lm_p = lm_p.expect("leading monomial exists");
+            let lm_g = lm_g.expect("leading monomial exists for non-zero polynomial");
 
             // Check if LM(g) divides LM(p)
             if let Some(quotient_monomial) = lm_p.div(lm_g) {
@@ -209,7 +209,7 @@ pub fn grobner_basis(polynomials: &[Polynomial]) -> Vec<Polynomial> {
         iterations += 1;
 
         // Take a pair
-        let (i, j) = pairs.pop().unwrap();
+        let (i, j) = pairs.pop().expect("collection validated to be non-empty");
 
         if i >= g.len() || j >= g.len() {
             continue;
@@ -429,7 +429,7 @@ pub fn grobner_basis_f5(polynomials: &[Polynomial]) -> Vec<Polynomial> {
         while !pairs.is_empty() && iterations < max_iterations {
             iterations += 1;
 
-            let (i, j) = pairs.pop().unwrap();
+            let (i, j) = pairs.pop().expect("collection validated to be non-empty");
 
             if i >= basis.len() || j >= basis.len() {
                 continue;
@@ -443,8 +443,8 @@ pub fn grobner_basis_f5(polynomials: &[Polynomial]) -> Vec<Polynomial> {
                 continue;
             }
 
-            let lm_i = lm_i.unwrap();
-            let lm_j = lm_j.unwrap();
+            let lm_i = lm_i.expect("leading monomial exists");
+            let lm_j = lm_j.expect("leading monomial exists");
 
             let lcm = monomial_lcm(lm_i, lm_j);
 
@@ -904,7 +904,7 @@ impl NraSolver {
             self.grobner_basis = Some(gb);
             self.basis_dirty = false;
         }
-        self.grobner_basis.as_ref().unwrap()
+        self.grobner_basis.as_ref().expect("grobner basis computed")
     }
 
     /// Check if the equality constraints are satisfiable.

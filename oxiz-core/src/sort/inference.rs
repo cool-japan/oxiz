@@ -223,6 +223,9 @@ pub fn infer_term_sort(term: &Term, manager: &TermManager) -> Result<SortId> {
         TermKind::DtConstructor { .. } => Ok(term.sort),
         TermKind::DtTester { .. } => Ok(manager.sorts.bool_sort),
         TermKind::DtSelector { .. } => Ok(term.sort),
+
+        // Match expressions - use stored sort (inferred from case bodies)
+        TermKind::Match { .. } => Ok(term.sort),
     }
 }
 

@@ -152,7 +152,10 @@ impl<'a> Lexer<'a> {
         loop {
             // Skip whitespace
             while self.pos < self.input.len() {
-                let c = self.input[self.pos..].chars().next().unwrap();
+                let c = self.input[self.pos..]
+                    .chars()
+                    .next()
+                    .expect("pos within input bounds");
                 if c.is_whitespace() {
                     self.pos += c.len_utf8();
                 } else {
@@ -163,7 +166,10 @@ impl<'a> Lexer<'a> {
             // Skip comments
             if self.pos < self.input.len() && self.input[self.pos..].starts_with(';') {
                 while self.pos < self.input.len() {
-                    let c = self.input[self.pos..].chars().next().unwrap();
+                    let c = self.input[self.pos..]
+                        .chars()
+                        .next()
+                        .expect("pos within input bounds");
                     self.pos += c.len_utf8();
                     if c == '\n' {
                         break;
@@ -178,7 +184,10 @@ impl<'a> Lexer<'a> {
     fn read_symbol_chars(&mut self) -> String {
         let start = self.pos;
         while self.pos < self.input.len() {
-            let c = self.input[self.pos..].chars().next().unwrap();
+            let c = self.input[self.pos..]
+                .chars()
+                .next()
+                .expect("pos within input bounds");
             if c.is_alphanumeric()
                 || matches!(
                     c,
@@ -211,7 +220,10 @@ impl<'a> Lexer<'a> {
     fn read_quoted_symbol(&mut self) -> String {
         let start = self.pos;
         while self.pos < self.input.len() {
-            let c = self.input[self.pos..].chars().next().unwrap();
+            let c = self.input[self.pos..]
+                .chars()
+                .next()
+                .expect("pos within input bounds");
             self.pos += c.len_utf8();
             if c == '|' {
                 return self.input[start..self.pos - 1].to_string();
@@ -223,7 +235,10 @@ impl<'a> Lexer<'a> {
     fn read_string_lit(&mut self) -> String {
         let mut result = String::new();
         while self.pos < self.input.len() {
-            let c = self.input[self.pos..].chars().next().unwrap();
+            let c = self.input[self.pos..]
+                .chars()
+                .next()
+                .expect("pos within input bounds");
             self.pos += c.len_utf8();
             if c == '"' {
                 // Check for escaped quote
@@ -243,7 +258,10 @@ impl<'a> Lexer<'a> {
     fn read_numeral(&mut self) -> String {
         let start = self.pos;
         while self.pos < self.input.len() {
-            let c = self.input[self.pos..].chars().next().unwrap();
+            let c = self.input[self.pos..]
+                .chars()
+                .next()
+                .expect("pos within input bounds");
             if c.is_ascii_digit() {
                 self.pos += 1;
             } else {
@@ -256,7 +274,10 @@ impl<'a> Lexer<'a> {
     fn read_hex_chars(&mut self) -> String {
         let start = self.pos;
         while self.pos < self.input.len() {
-            let c = self.input[self.pos..].chars().next().unwrap();
+            let c = self.input[self.pos..]
+                .chars()
+                .next()
+                .expect("pos within input bounds");
             if c.is_ascii_hexdigit() {
                 self.pos += 1;
             } else {
@@ -269,7 +290,10 @@ impl<'a> Lexer<'a> {
     fn read_binary_chars(&mut self) -> String {
         let start = self.pos;
         while self.pos < self.input.len() {
-            let c = self.input[self.pos..].chars().next().unwrap();
+            let c = self.input[self.pos..]
+                .chars()
+                .next()
+                .expect("pos within input bounds");
             if c == '0' || c == '1' {
                 self.pos += 1;
             } else {

@@ -815,7 +815,12 @@ impl<'a> Parser<'a> {
             "push" => {
                 let n = if let Some(t) = self.lexer.peek() {
                     if matches!(t.kind, TokenKind::Numeral(_)) {
-                        if let TokenKind::Numeral(n) = self.lexer.next_token().unwrap().kind {
+                        if let TokenKind::Numeral(n) = self
+                            .lexer
+                            .next_token()
+                            .expect("token exists after peek check")
+                            .kind
+                        {
                             n.parse().unwrap_or(1)
                         } else {
                             1
@@ -832,7 +837,12 @@ impl<'a> Parser<'a> {
             "pop" => {
                 let n = if let Some(t) = self.lexer.peek() {
                     if matches!(t.kind, TokenKind::Numeral(_)) {
-                        if let TokenKind::Numeral(n) = self.lexer.next_token().unwrap().kind {
+                        if let TokenKind::Numeral(n) = self
+                            .lexer
+                            .next_token()
+                            .expect("token exists after peek check")
+                            .kind
+                        {
                             n.parse().unwrap_or(1)
                         } else {
                             1

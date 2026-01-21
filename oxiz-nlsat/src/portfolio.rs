@@ -82,7 +82,7 @@ impl SharedClauseDB {
     /// Add a clause to share from a solver.
     #[allow(dead_code)]
     fn share_clause(&self, solver_id: usize, clause: Clause) {
-        let mut clauses = self.clauses.lock().unwrap();
+        let mut clauses = self.clauses.lock().expect("lock should not be poisoned");
         clauses.push((solver_id, clause));
         self.total_shared.fetch_add(1, Ordering::Relaxed);
     }
@@ -90,7 +90,7 @@ impl SharedClauseDB {
     /// Get clauses shared by other solvers (not from this solver).
     #[allow(dead_code)]
     fn get_shared_clauses(&self, solver_id: usize) -> Vec<Clause> {
-        let mut clauses = self.clauses.lock().unwrap();
+        let mut clauses = self.clauses.lock().expect("lock should not be poisoned");
         let result: Vec<_> = clauses
             .iter()
             .filter(|(id, _)| *id != solver_id)
@@ -266,7 +266,7 @@ impl PortfolioSolver {
                     terminated.store(true, Ordering::Relaxed);
 
                     // Store the result
-                    let mut result = result_mutex.lock().unwrap();
+                    let mut result = result_mutex.lock().expect("lock should not be poisoned");
                     if result.is_none() {
                         *result = Some(PortfolioResult::Sat {
                             solver_id,
@@ -283,7 +283,7 @@ impl PortfolioSolver {
                     // Found UNSAT - signal other threads to stop
                     terminated.store(true, Ordering::Relaxed);
 
-                    let mut result = result_mutex.lock().unwrap();
+                    let mut result = result_mutex.lock().expect("lock should not be poisoned");
                     if result.is_none() {
                         *result = Some(PortfolioResult::Unsat {
                             solver_id,
@@ -298,7 +298,7 @@ impl PortfolioSolver {
         });
 
         // Return the result
-        let result = result_mutex.lock().unwrap();
+        let result = result_mutex.lock().expect("lock should not be poisoned");
         result.clone().unwrap_or(PortfolioResult::Unknown)
     }
 

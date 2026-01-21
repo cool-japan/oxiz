@@ -256,16 +256,13 @@ impl Optimizer {
         }
     }
 
-    /// Optimize an integer objective using iterative search with binary search refinement
+    /// Optimize an integer objective using linear search with iterative tightening
     ///
-    /// This uses a combination of linear and binary search:
+    /// This uses linear search:
     /// 1. Find an initial feasible solution
-    /// 2. Use binary search to find the optimal value
-    /// 3. Extract the model at the optimal value
-    ///
-    /// Note: Currently simplified - just returns any satisfying assignment
-    /// Full optimization requires arithmetic theory solver integration
-    #[allow(dead_code)]
+    /// 2. Add a constraint to improve the objective
+    /// 3. Repeat until UNSAT (no better solution exists)
+    /// 4. Return the last satisfying value
     fn optimize_int(
         &mut self,
         objective: &Objective,
@@ -282,102 +279,195 @@ impl Optimizer {
         }
 
         // Get initial model
-        let model = match self.solver.model() {
+        let mut best_model = match self.solver.model() {
             Some(m) => m.clone(),
             None => return OptimizationResult::Unknown,
         };
 
-        // Evaluate the objective in the model
-        let value_term = model.eval(objective.term, term_manager);
+        // Evaluate the objective in the model to get initial value
+        let value_term = best_model.eval(objective.term, term_manager);
 
         // Try to extract the integer value
-        if let Some(t) = term_manager.get(value_term)
-            && let TermKind::IntConst(_n) = &t.kind
-        {
-            // Successfully got an integer constant - return it
-            return OptimizationResult::Optimal {
-                value: value_term,
-                model,
+        let mut current_value = if let Some(t) = term_manager.get(value_term) {
+            if let TermKind::IntConst(n) = &t.kind {
+                n.clone()
+            } else {
+                // Can't extract value, return as-is
+                return OptimizationResult::Optimal {
+                    value: value_term,
+                    model: best_model,
+                };
+            }
+        } else {
+            return OptimizationResult::Unknown;
+        };
+
+        let mut best_value_term = value_term;
+
+        // Linear search: iteratively tighten the bound
+        let max_iterations = 1000; // Prevent infinite loops
+        for _ in 0..max_iterations {
+            // Push a new scope for the improvement constraint
+            self.solver.push();
+
+            // Add constraint to improve the objective
+            let bound_term = term_manager.mk_int(current_value.clone());
+            let improvement_constraint = match objective.kind {
+                ObjectiveKind::Minimize => {
+                    // For minimization: objective < current_value
+                    term_manager.mk_lt(objective.term, bound_term)
+                }
+                ObjectiveKind::Maximize => {
+                    // For maximization: objective > current_value
+                    term_manager.mk_gt(objective.term, bound_term)
+                }
             };
+            self.solver.assert(improvement_constraint, term_manager);
+
+            // Check if there's a better solution
+            let result = self.solver.check(term_manager);
+            if result == SolverResult::Sat {
+                // Found a better solution
+                if let Some(model) = self.solver.model() {
+                    let new_value_term = model.eval(objective.term, term_manager);
+
+                    if let Some(t) = term_manager.get(new_value_term)
+                        && let TermKind::IntConst(n) = &t.kind
+                    {
+                        current_value = n.clone();
+                        best_value_term = new_value_term;
+                        best_model = model.clone();
+                    }
+                }
+                // Pop and continue searching
+                self.solver.pop();
+            } else {
+                // No better solution exists - current best is optimal
+                self.solver.pop();
+                break;
+            }
         }
 
-        // If we can't extract an integer value, return a placeholder
-        // This happens when the arithmetic theory solver doesn't assign concrete values yet
-        let placeholder_value = match objective.kind {
-            ObjectiveKind::Minimize => BigInt::zero(),
-            ObjectiveKind::Maximize => BigInt::from(10),
-        };
-        let placeholder_term = term_manager.mk_int(placeholder_value);
         OptimizationResult::Optimal {
-            value: placeholder_term,
-            model,
+            value: best_value_term,
+            model: best_model,
         }
     }
 
-    /// Optimize a real objective using linear search
+    /// Optimize a real objective using linear search with iterative tightening
     ///
-    /// Note: This is a simplified implementation that doesn't extract values from
-    /// theory solvers. For now, we just verify that a solution exists and return
-    /// a placeholder value.
-    #[allow(dead_code)]
+    /// Similar to integer optimization, but works with real (rational) values.
     fn optimize_real(
         &mut self,
         objective: &Objective,
         term_manager: &mut TermManager,
     ) -> OptimizationResult {
-        // Check satisfiability
+        // Check initial satisfiability
         let result = self.solver.check(term_manager);
-        if result == SolverResult::Sat {
-            if let Some(model) = self.solver.model() {
-                // Evaluate the objective in the model
-                let value_term = model.eval(objective.term, term_manager);
-
-                // Extract the real value
-                if let Some(term) = term_manager.get(value_term) {
-                    match &term.kind {
-                        TermKind::RealConst(_val) => {
-                            // Return the evaluated value
-                            return OptimizationResult::Optimal {
-                                value: value_term,
-                                model: model.clone(),
-                            };
-                        }
-                        TermKind::IntConst(val) => {
-                            // Convert int to real
-                            // For now, just use 0 or 10 as placeholder since we can't convert BigInt to i64 easily
-                            let int_val = if val.sign() == num_bigint::Sign::Minus {
-                                -1i64
-                            } else {
-                                val.to_string().parse::<i64>().unwrap_or(0)
-                            };
-                            let real_val = Rational64::from_integer(int_val);
-                            let value_term = term_manager.mk_real(real_val);
-                            return OptimizationResult::Optimal {
-                                value: value_term,
-                                model: model.clone(),
-                            };
-                        }
-                        _ => {}
-                    }
-                }
-
-                // Fallback: return a placeholder
-                let value = match objective.kind {
-                    ObjectiveKind::Minimize => Rational64::zero(),
-                    ObjectiveKind::Maximize => Rational64::from_integer(10),
-                };
-                let value_term = term_manager.mk_real(value);
-                OptimizationResult::Optimal {
-                    value: value_term,
-                    model: model.clone(),
-                }
+        if result != SolverResult::Sat {
+            return if result == SolverResult::Unsat {
+                OptimizationResult::Unsat
             } else {
                 OptimizationResult::Unknown
+            };
+        }
+
+        // Get initial model
+        let mut best_model = match self.solver.model() {
+            Some(m) => m.clone(),
+            None => return OptimizationResult::Unknown,
+        };
+
+        // Evaluate the objective in the model
+        let value_term = best_model.eval(objective.term, term_manager);
+
+        // Try to extract the value (real or int)
+        let mut current_value: Option<Rational64> = None;
+        if let Some(term) = term_manager.get(value_term) {
+            match &term.kind {
+                TermKind::RealConst(val) => {
+                    current_value = Some(*val);
+                }
+                TermKind::IntConst(val) => {
+                    // Convert BigInt to Rational64
+                    let int_val = if val.sign() == num_bigint::Sign::Minus {
+                        -val.to_string()
+                            .trim_start_matches('-')
+                            .parse::<i64>()
+                            .unwrap_or(0)
+                    } else {
+                        val.to_string().parse::<i64>().unwrap_or(0)
+                    };
+                    current_value = Some(Rational64::from_integer(int_val));
+                }
+                _ => {}
             }
-        } else if result == SolverResult::Unsat {
-            OptimizationResult::Unsat
-        } else {
-            OptimizationResult::Unknown
+        }
+
+        let Some(mut current_val) = current_value else {
+            // Can't extract value, return as-is
+            return OptimizationResult::Optimal {
+                value: value_term,
+                model: best_model,
+            };
+        };
+
+        let mut best_value = current_val;
+
+        // Linear search: iteratively tighten the bound
+        let max_iterations = 1000;
+        for _ in 0..max_iterations {
+            self.solver.push();
+
+            // Add constraint to improve the objective
+            let bound_term = term_manager.mk_real(current_val);
+            let improvement_constraint = match objective.kind {
+                ObjectiveKind::Minimize => term_manager.mk_lt(objective.term, bound_term),
+                ObjectiveKind::Maximize => term_manager.mk_gt(objective.term, bound_term),
+            };
+            self.solver.assert(improvement_constraint, term_manager);
+
+            let result = self.solver.check(term_manager);
+            if result == SolverResult::Sat {
+                if let Some(model) = self.solver.model() {
+                    let new_value_term = model.eval(objective.term, term_manager);
+
+                    if let Some(t) = term_manager.get(new_value_term) {
+                        let new_val = match &t.kind {
+                            TermKind::RealConst(v) => Some(*v),
+                            TermKind::IntConst(v) => {
+                                let int_val = if v.sign() == num_bigint::Sign::Minus {
+                                    -v.to_string()
+                                        .trim_start_matches('-')
+                                        .parse::<i64>()
+                                        .unwrap_or(0)
+                                } else {
+                                    v.to_string().parse::<i64>().unwrap_or(0)
+                                };
+                                Some(Rational64::from_integer(int_val))
+                            }
+                            _ => None,
+                        };
+
+                        if let Some(v) = new_val {
+                            current_val = v;
+                            best_value = v;
+                            best_model = model.clone();
+                        }
+                    }
+                }
+                self.solver.pop();
+            } else {
+                self.solver.pop();
+                break;
+            }
+        }
+
+        // Return best value as real term
+        let final_value_term = term_manager.mk_real(best_value);
+        OptimizationResult::Optimal {
+            value: final_value_term,
+            model: best_model,
         }
     }
 }

@@ -215,7 +215,11 @@ impl ProofExplainer {
         }
 
         // Find the node with maximum depth
-        let max_depth_node = proof.nodes().iter().max_by_key(|n| n.depth).unwrap();
+        let max_depth_node = proof
+            .nodes()
+            .iter()
+            .max_by_key(|n| n.depth)
+            .expect("proof has at least one node");
 
         // Trace back to axioms
         let mut path = vec![max_depth_node.id];

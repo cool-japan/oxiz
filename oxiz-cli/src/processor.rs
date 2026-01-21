@@ -27,6 +27,7 @@ use crate::{Args, InputFormat, Verbosity, apply_solver_options, execute_and_form
 // Import from crate modules
 use crate::cache;
 use crate::dimacs;
+use crate::tptp;
 
 // Import from crate::format
 use crate::format::{
@@ -169,7 +170,7 @@ pub(crate) fn run_files(ctx: &mut Context, args: &Args, verbosity: Verbosity) {
                     conflicts: stats.conflicts,
                     timestamp: std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
+                        .expect("SystemTime should be after UNIX_EPOCH")
                         .as_secs(),
                     solver_version: env!("CARGO_PKG_VERSION").to_string(),
                 };
@@ -259,7 +260,17 @@ fn collect_files(inputs: &[PathBuf], recursive: bool) -> Vec<PathBuf> {
                 .filter(|e| e.file_type().is_file())
             {
                 let path = entry.path();
-                if path.extension().and_then(|s| s.to_str()) == Some("smt2") {
+                let ext = path.extension().and_then(|s| s.to_str());
+                // Support SMT-LIB2, DIMACS, QDIMACS, and TPTP file extensions
+                if matches!(
+                    ext,
+                    Some("smt2")
+                        | Some("cnf")
+                        | Some("qdimacs")
+                        | Some("qcnf")
+                        | Some("p")
+                        | Some("tptp")
+                ) {
                     files.push(path.to_path_buf());
                 }
             }
@@ -402,7 +413,64 @@ fn process_single_file(
         || file.extension().and_then(|s| s.to_str()) == Some("qdimacs")
         || file.extension().and_then(|s| s.to_str()) == Some("qcnf");
 
-    if use_qdimacs {
+    let use_tptp = args.input_format == Some(InputFormat::Tptp)
+        || file.extension().and_then(|s| s.to_str()) == Some("p")
+        || file.extension().and_then(|s| s.to_str()) == Some("tptp");
+
+    if use_tptp {
+        // Parse TPTP format
+        let file_handle = match fs::File::open(file) {
+            Ok(f) => f,
+            Err(e) => {
+                return SolverResult {
+                    file: Some(file.display().to_string()),
+                    result: String::new(),
+                    error: Some(format!("Failed to open file: {}", e)),
+                    time_ms: start.elapsed().as_millis(),
+                };
+            }
+        };
+
+        let reader = BufReader::new(file_handle);
+        let problem = match tptp::TptpParser::parse_reader(reader) {
+            Ok(p) => p,
+            Err(e) => {
+                return SolverResult {
+                    file: Some(file.display().to_string()),
+                    result: String::new(),
+                    error: Some(format!("Failed to parse TPTP: {}", e)),
+                    time_ms: start.elapsed().as_millis(),
+                };
+            }
+        };
+
+        // Track if there's a conjecture for proper SZS status formatting
+        let has_conjecture = problem.has_conjecture();
+
+        // Convert to SMT-LIB2 and solve
+        let script = problem.to_smtlib2();
+        let result = execute_and_format(ctx, &script, args);
+
+        // Format output based on args
+        let formatted_result = if args.tptp_output {
+            tptp::format_tptp_result(&result, has_conjecture)
+        } else {
+            result.clone()
+        };
+
+        let time_ms = start.elapsed().as_millis();
+
+        SolverResult {
+            file: Some(file.display().to_string()),
+            result: formatted_result,
+            error: if result.starts_with("(error") {
+                Some(result)
+            } else {
+                None
+            },
+            time_ms,
+        }
+    } else if use_qdimacs {
         // Parse QDIMACS format
         let file_handle = match fs::File::open(file) {
             Ok(f) => f,

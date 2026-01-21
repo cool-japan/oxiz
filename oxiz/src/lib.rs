@@ -45,21 +45,21 @@
 //!
 //! ```toml
 //! [dependencies]
-//! oxiz = "0.1.1"  # Default: solver feature
+//! oxiz = "0.1.2"  # Default: solver feature
 //! ```
 //!
 //! With additional features:
 //!
 //! ```toml
 //! [dependencies]
-//! oxiz = { version = "0.1.1", features = ["nlsat", "optimization"] }
+//! oxiz = { version = "0.1.2", features = ["nlsat", "optimization"] }
 //! ```
 //!
 //! Or use all features:
 //!
 //! ```toml
 //! [dependencies]
-//! oxiz = { version = "0.1.1", features = ["full"] }
+//! oxiz = { version = "0.1.2", features = ["full"] }
 //! ```
 //!
 //! ### Basic SMT Solving
@@ -92,7 +92,7 @@
 //! match solver.check(&mut tm) {
 //!     SolverResult::Sat => {
 //!         println!("SAT");
-//!         if let Some(model) = solver.get_model(&tm) {
+//!         if let Some(model) = solver.model() {
 //!             println!("Model: {:?}", model);
 //!         }
 //!     }

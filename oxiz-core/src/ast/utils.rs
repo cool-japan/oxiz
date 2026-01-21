@@ -261,6 +261,20 @@ fn structural_hash_impl(
                 selector.hash(hasher);
                 structural_hash_impl(*arg, manager, hasher, visited);
             }
+
+            // Match expressions
+            TermKind::Match { scrutinee, cases } => {
+                structural_hash_impl(*scrutinee, manager, hasher, visited);
+                cases.len().hash(hasher);
+                for case in cases {
+                    case.constructor.hash(hasher);
+                    case.bindings.len().hash(hasher);
+                    for binding in &case.bindings {
+                        binding.hash(hasher);
+                    }
+                    structural_hash_impl(case.body, manager, hasher, visited);
+                }
+            }
         }
     }
 }
@@ -389,6 +403,26 @@ fn structurally_equal_impl(
                             .iter()
                             .zip(a2.iter())
                             .all(|(x, y)| structurally_equal_impl(*x, *y, manager, visited))
+                }
+
+                // Match expressions
+                (
+                    Match {
+                        scrutinee: s1,
+                        cases: c1,
+                    },
+                    Match {
+                        scrutinee: s2,
+                        cases: c2,
+                    },
+                ) => {
+                    structurally_equal_impl(*s1, *s2, manager, visited)
+                        && c1.len() == c2.len()
+                        && c1.iter().zip(c2.iter()).all(|(case1, case2)| {
+                            case1.constructor == case2.constructor
+                                && case1.bindings == case2.bindings
+                                && structurally_equal_impl(case1.body, case2.body, manager, visited)
+                        })
                 }
 
                 _ => false,
@@ -662,6 +696,14 @@ fn is_ground_impl(term_id: TermId, manager: &TermManager, visited: &mut FxHashSe
             TermKind::DtTester { arg, .. } | TermKind::DtSelector { arg, .. } => {
                 is_ground_impl(*arg, manager, visited)
             }
+
+            // Match expressions
+            TermKind::Match { scrutinee, cases } => {
+                is_ground_impl(*scrutinee, manager, visited)
+                    && cases
+                        .iter()
+                        .all(|c| is_ground_impl(c.body, manager, visited))
+            }
         }
     } else {
         true
@@ -872,6 +914,15 @@ fn term_complexity_cached(
         }
         Some(TermKind::DtTester { arg, .. } | TermKind::DtSelector { arg, .. }) => {
             2 + term_complexity_cached(*arg, manager, cache)
+        }
+
+        // Match expressions
+        Some(TermKind::Match { scrutinee, cases }) => {
+            5 + term_complexity_cached(*scrutinee, manager, cache)
+                + cases
+                    .iter()
+                    .map(|c| term_complexity_cached(c.body, manager, cache))
+                    .sum::<usize>()
         }
     };
 
@@ -1177,6 +1228,40 @@ fn alpha_equivalent_impl(
                     // Create a scope with new variable mappings for let-bound vars
                     let mut scoped_mapping = var_mapping.clone();
                     alpha_equivalent_impl(*body1, *body2, manager, &mut scoped_mapping, visited)
+                }
+
+                // Match expressions
+                (
+                    Match {
+                        scrutinee: s1,
+                        cases: c1,
+                    },
+                    Match {
+                        scrutinee: s2,
+                        cases: c2,
+                    },
+                ) => {
+                    if c1.len() != c2.len() {
+                        return false;
+                    }
+
+                    // Scrutinees must be alpha-equivalent
+                    if !alpha_equivalent_impl(*s1, *s2, manager, var_mapping, visited) {
+                        return false;
+                    }
+
+                    // Cases must be alpha-equivalent (constructor and bindings must match, bodies alpha-equivalent)
+                    c1.iter().zip(c2.iter()).all(|(case1, case2)| {
+                        case1.constructor == case2.constructor
+                            && case1.bindings.len() == case2.bindings.len()
+                            && alpha_equivalent_impl(
+                                case1.body,
+                                case2.body,
+                                manager,
+                                var_mapping,
+                                visited,
+                            )
+                    })
                 }
 
                 _ => false,

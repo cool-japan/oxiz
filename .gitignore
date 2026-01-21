@@ -1,5 +1,5 @@
 # Rust build artifacts
-/target/
+**/target/
 **/*.rs.bk
 
 # Cargo files
@@ -25,3 +25,7 @@ Thumbs.db
 
 # Debug
 *.log
+
+# Fuzzing
+fuzz/corpus/
+fuzz/artifacts/

@@ -139,7 +139,7 @@ impl SharedState {
 
     /// Add work item to queue
     pub fn enqueue_work(&self, item: WorkItem) {
-        let mut queue = self.work_queue.lock().unwrap();
+        let mut queue = self.work_queue.lock().expect("lock should not be poisoned");
         // Insert based on priority (higher priority first)
         let pos = queue
             .iter()
@@ -150,37 +150,55 @@ impl SharedState {
 
     /// Dequeue work item
     pub fn dequeue_work(&self) -> Option<WorkItem> {
-        self.work_queue.lock().unwrap().pop_front()
+        self.work_queue
+            .lock()
+            .expect("lock should not be poisoned")
+            .pop_front()
     }
 
     /// Get number of pending work items
     pub fn work_queue_size(&self) -> usize {
-        self.work_queue.lock().unwrap().len()
+        self.work_queue
+            .lock()
+            .expect("lock should not be poisoned")
+            .len()
     }
 
     /// Send message to workers
     pub fn send_message(&self, msg: WorkerMessage) {
-        self.messages.lock().unwrap().push_back(msg);
+        self.messages
+            .lock()
+            .expect("lock should not be poisoned")
+            .push_back(msg);
     }
 
     /// Receive message
     pub fn receive_message(&self) -> Option<WorkerMessage> {
-        self.messages.lock().unwrap().pop_front()
+        self.messages
+            .lock()
+            .expect("lock should not be poisoned")
+            .pop_front()
     }
 
     /// Set result
     pub fn set_result(&self, result: SpacerResult) {
-        *self.result.lock().unwrap() = Some(result);
+        *self.result.lock().expect("lock should not be poisoned") = Some(result);
     }
 
     /// Get result
     pub fn get_result(&self) -> Option<SpacerResult> {
-        self.result.lock().unwrap().clone()
+        self.result
+            .lock()
+            .expect("lock should not be poisoned")
+            .clone()
     }
 
     /// Add lemma to frames
     pub fn add_lemma(&self, pred: PredId, formula: TermId, level: u32) -> LemmaId {
-        self.frames.lock().unwrap().add_lemma(pred, formula, level)
+        self.frames
+            .lock()
+            .expect("lock should not be poisoned")
+            .add_lemma(pred, formula, level)
     }
 
     /// Get frame manager (locked)
@@ -188,7 +206,7 @@ impl SharedState {
     where
         F: FnOnce(&mut FrameManager) -> R,
     {
-        let mut frames = self.frames.lock().unwrap();
+        let mut frames = self.frames.lock().expect("lock should not be poisoned");
         f(&mut frames)
     }
 
@@ -197,13 +215,16 @@ impl SharedState {
     where
         F: FnOnce(&mut DistributedStats),
     {
-        let mut stats = self.stats.lock().unwrap();
+        let mut stats = self.stats.lock().expect("lock should not be poisoned");
         f(&mut stats);
     }
 
     /// Get statistics
     pub fn get_stats(&self) -> DistributedStats {
-        self.stats.lock().unwrap().clone()
+        self.stats
+            .lock()
+            .expect("lock should not be poisoned")
+            .clone()
     }
 }
 

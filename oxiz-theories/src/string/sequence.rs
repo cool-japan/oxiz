@@ -619,6 +619,7 @@ impl SeqRewriter {
     }
 
     /// Simplify a sequence expression
+    #[allow(clippy::only_used_in_recursion)]
     pub fn simplify(&mut self, expr: SeqExpr) -> SeqExpr {
         match expr {
             SeqExpr::Concat(parts) => {

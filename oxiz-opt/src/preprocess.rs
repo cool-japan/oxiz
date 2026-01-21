@@ -592,8 +592,12 @@ impl Preprocessor {
 
         // Eliminate variables
         for var in vars_to_eliminate {
-            let pos_indices = var_pos_clauses.get(&var).unwrap();
-            let neg_indices = var_neg_clauses.get(&var).unwrap();
+            let pos_indices = var_pos_clauses
+                .get(&var)
+                .expect("variable exists in pos_clauses map");
+            let neg_indices = var_neg_clauses
+                .get(&var)
+                .expect("variable exists in neg_clauses map");
 
             let mut new_clauses = Vec::new();
 

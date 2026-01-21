@@ -90,6 +90,7 @@ mod dynamic_lbd;
 mod els;
 mod extended_resolution;
 mod gate;
+mod gpu;
 mod hyper_binary;
 mod literal;
 mod local_search;
@@ -162,6 +163,11 @@ pub use dynamic_lbd::{DynamicLbdManager, DynamicLbdStats};
 pub use els::{ElsStats, EquivalentLiteralSubstitution};
 pub use extended_resolution::{ClauseSubstitution, ExtendedResolution, Extension, ExtensionType};
 pub use gate::{GateDetector, GateStats, GateType};
+pub use gpu::{
+    BatchPropagationResult, ClauseManagementResult, ConflictAnalysisResult,
+    CpuReferenceAccelerator, GpuBackend, GpuBenchmark, GpuBenchmarkResult, GpuBenefitAnalysis,
+    GpuConfig, GpuError, GpuRecommendation, GpuSolverAccelerator, GpuStats,
+};
 pub use hyper_binary::{HbrResult, HyperBinaryResolver, HyperBinaryStats};
 pub use literal::{LBool, Lit, Var};
 pub use local_search::{LocalSearch, LocalSearchConfig, LocalSearchResult, LocalSearchStats};

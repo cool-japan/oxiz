@@ -9,6 +9,13 @@ description = "High-performance CDCL SAT Solver for OxiZ"
 keywords = ["sat", "cdcl", "solver"]
 categories = ["algorithms"]
 
+[features]
+default = []
+# GPU acceleration backends (placeholder for future implementation)
+cuda = []
+opencl = []
+vulkan = []
+
 [dependencies]
 oxiz-core = { workspace = true }
 tracing = { workspace = true }

@@ -445,7 +445,11 @@ impl LnsSolver {
         self.stats.iterations += 1;
 
         // Get current assignment
-        let mut current = self.best_assignment.as_ref().unwrap().clone();
+        let mut current = self
+            .best_assignment
+            .as_ref()
+            .expect("best_assignment set after initial solve")
+            .clone();
 
         // Destroy part of the solution
         let destroy_ratio = if self.config.adaptive_destroy {

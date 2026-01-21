@@ -5,6 +5,74 @@ All notable changes to OxiZ will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-01-21
+
+### Added
+
+#### Python Bindings (`oxiz-py`)
+- **Full Python API**: PyO3-based bindings for OxiZ solver
+  - TermManager for creating terms, sorts, and constants
+  - Solver with check_sat(), model(), push/pop support
+  - Optimizer for minimize/maximize objectives
+  - Support for Int, Real, Bool, BitVec sorts
+  - Complete test suite (27 tests)
+
+#### Mathematical Library (`oxiz-math`)
+- **BLAS operations**: Pure Rust implementation of Basic Linear Algebra Subprograms
+  - Level 1, 2, 3 BLAS operations
+  - Matrix multiplication, triangular solves
+  - ~2,400 lines of BLAS code
+- **MPFR support**: Multi-precision floating-point arithmetic
+  - Arbitrary precision rational and real numbers
+  - Integration with algebraic number computation
+
+#### SAT Solver (`oxiz-sat`)
+- **GPU acceleration module**: CUDA-style parallel SAT solving infrastructure
+  - Parallel clause evaluation
+  - Shared memory clause database
+
+#### SMT-COMP Benchmark Suite (`oxiz-smtcomp`)
+- **Complete benchmark framework**: ~8,000 lines of benchmark tooling
+  - Benchmark loading and filtering
+  - Parallel execution with timeout handling
+  - Virtual best solver (VBS) calculation
+  - Regression testing and statistics
+  - HTML report generation
+  - Cactus plot and scatter plot generation (SVG)
+  - CI/CD integration support
+  - StarExec format compatibility
+
+#### Command-Line Interface (`oxiz-cli`)
+- **Dashboard mode**: Real-time solver statistics with WebSocket updates
+- **Server mode**: REST API for solver operations (POST /solve, /check-sat, etc.)
+- **Distributed solving**: Worker and coordinator modes for cube-and-conquer
+- **TPTP format support**: Parse and solve TPTP FOF files with SZS status output
+- **Interpolant generation**: --interpolate flag for partition-based interpolation
+
+#### Fuzzing Infrastructure (`fuzz/`)
+- Three fuzz targets: SMT-LIB parser, term builder, solver
+- Structured fuzzing with Arbitrary derive
+
+### Fixed
+
+#### Theory Model Extraction
+- **LIA strict inequality handling**: Fixed delta-rational bounds in simplex for proper strict inequality support
+- **BV comparison model extraction**: BitVector constraint values now correctly appear in models
+- **Optimizer maximization**: Implemented proper linear search optimization (was returning first satisfying assignment instead of optimal)
+
+#### Simplex Incremental Solving
+- **Push/pop with pivoting**: Fixed stale tableau entries after backtracking by cleaning up references to removed variables
+
+### Changed
+- **Clippy clean**: Eliminated all compiler warnings across all crates
+- **Test coverage**: 3,823 tests passing (100% success rate)
+- **Lines of Code**: ~240,000 Rust LOC (up from ~173,500)
+
+### Technical Details
+- **Pure Rust**: Continues zero C/C++ dependencies policy
+- **Edition**: Rust 2024 (requires Rust 1.85+)
+- **Python**: Requires Python 3.8+ for bindings
+
 ## [0.1.1] - 2026-01-12
 
 ### Added

@@ -137,7 +137,9 @@ impl LocalSearch {
 
         // Calculate initial true counts and unsat clauses
         for id in clauses.iter_ids() {
-            let clause = clauses.get(id).unwrap();
+            let clause = clauses
+                .get(id)
+                .expect("id from clauses.iter_ids() is valid");
             let true_lits = clause.lits.iter().filter(|&&lit| self.is_true(lit)).count();
 
             self.true_count.insert(id, true_lits);
@@ -150,7 +152,9 @@ impl LocalSearch {
 
         // Calculate break and make counts
         for id in clauses.iter_ids() {
-            let clause = clauses.get(id).unwrap();
+            let clause = clauses
+                .get(id)
+                .expect("id from clauses.iter_ids() is valid");
             let true_lits = self.true_count[&id];
 
             for &lit in &clause.lits {
@@ -193,7 +197,9 @@ impl LocalSearch {
         // We need to find all clauses containing this variable
         // Since we don't have a watch list here, we iterate all clauses
         for id in clauses.iter_ids() {
-            let clause = clauses.get(id).unwrap();
+            let clause = clauses
+                .get(id)
+                .expect("id from clauses.iter_ids() is valid");
             if !clause.lits.contains(&pos_lit) && !clause.lits.contains(&neg_lit) {
                 continue;
             }
@@ -274,7 +280,7 @@ impl LocalSearch {
                 let idx = (self.rand() as usize) % self.unsat_clauses.len();
                 self.unsat_clauses[idx]
             };
-            let clause = clauses.get(clause_id).unwrap();
+            let clause = clauses.get(clause_id).expect("clause_id is valid");
 
             // Decide whether to use random walk
             let use_random_walk = self.rand_float() < self.config.random_walk_prob;
@@ -327,7 +333,7 @@ impl LocalSearch {
                 let idx = (self.rand() as usize) % self.unsat_clauses.len();
                 self.unsat_clauses[idx]
             };
-            let clause = clauses.get(clause_id).unwrap();
+            let clause = clauses.get(clause_id).expect("clause_id is valid");
 
             // Calculate probabilities based on break counts
             let mut probs: SmallVec<[f64; 8]> = SmallVec::new();

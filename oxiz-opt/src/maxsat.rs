@@ -252,6 +252,30 @@ impl From<i64> for Weight {
     }
 }
 
+impl From<i32> for Weight {
+    fn from(n: i32) -> Self {
+        Weight::Int(BigInt::from(n))
+    }
+}
+
+impl From<u64> for Weight {
+    fn from(n: u64) -> Self {
+        Weight::Int(BigInt::from(n))
+    }
+}
+
+impl From<u32> for Weight {
+    fn from(n: u32) -> Self {
+        Weight::Int(BigInt::from(n))
+    }
+}
+
+impl From<usize> for Weight {
+    fn from(n: usize) -> Self {
+        Weight::Int(BigInt::from(n))
+    }
+}
+
 impl From<BigInt> for Weight {
     fn from(n: BigInt) -> Self {
         Weight::Int(n)
@@ -261,6 +285,19 @@ impl From<BigInt> for Weight {
 impl From<BigRational> for Weight {
     fn from(r: BigRational) -> Self {
         Weight::Rational(r)
+    }
+}
+
+impl From<(i64, i64)> for Weight {
+    /// Create a rational weight from a (numerator, denominator) tuple.
+    ///
+    /// # Example
+    /// ```
+    /// use oxiz_opt::Weight;
+    /// let w: Weight = (3, 2).into(); // Creates 3/2
+    /// ```
+    fn from((num, denom): (i64, i64)) -> Self {
+        Weight::Rational(BigRational::new(BigInt::from(num), BigInt::from(denom)))
     }
 }
 
@@ -333,6 +370,30 @@ impl SoftId {
     #[must_use]
     pub const fn raw(self) -> u32 {
         self.0
+    }
+}
+
+impl From<u32> for SoftId {
+    fn from(id: u32) -> Self {
+        Self(id)
+    }
+}
+
+impl From<usize> for SoftId {
+    fn from(id: usize) -> Self {
+        Self(id as u32)
+    }
+}
+
+impl From<SoftId> for u32 {
+    fn from(id: SoftId) -> Self {
+        id.0
+    }
+}
+
+impl From<SoftId> for usize {
+    fn from(id: SoftId) -> Self {
+        id.0 as usize
     }
 }
 
@@ -2387,5 +2448,89 @@ mod tests {
 
             prop_assert_eq!(sum_then_scale, scale_then_sum);
         }
+    }
+
+    // Tests for From implementations
+
+    #[test]
+    fn test_weight_from_i32() {
+        let w: Weight = Weight::from(42i32);
+        assert_eq!(w, Weight::Int(BigInt::from(42)));
+    }
+
+    #[test]
+    fn test_weight_from_u32() {
+        let w: Weight = Weight::from(42u32);
+        assert_eq!(w, Weight::Int(BigInt::from(42)));
+    }
+
+    #[test]
+    fn test_weight_from_u64() {
+        let w: Weight = Weight::from(42u64);
+        assert_eq!(w, Weight::Int(BigInt::from(42)));
+    }
+
+    #[test]
+    fn test_weight_from_usize() {
+        let w: Weight = Weight::from(42usize);
+        assert_eq!(w, Weight::Int(BigInt::from(42)));
+    }
+
+    #[test]
+    fn test_weight_from_tuple_rational() {
+        let w: Weight = Weight::from((3i64, 2i64));
+        assert!(matches!(w, Weight::Rational(_)));
+        if let Weight::Rational(r) = w {
+            assert_eq!(r, BigRational::new(BigInt::from(3), BigInt::from(2)));
+        }
+    }
+
+    #[test]
+    fn test_soft_id_from_u32() {
+        let id: SoftId = SoftId::from(5u32);
+        assert_eq!(id.raw(), 5);
+    }
+
+    #[test]
+    fn test_soft_id_from_usize() {
+        let id: SoftId = SoftId::from(10usize);
+        assert_eq!(id.raw(), 10);
+    }
+
+    #[test]
+    fn test_soft_id_to_u32() {
+        let id = SoftId::new(7);
+        let n: u32 = id.into();
+        assert_eq!(n, 7);
+    }
+
+    #[test]
+    fn test_soft_id_to_usize() {
+        let id = SoftId::new(9);
+        let n: usize = id.into();
+        assert_eq!(n, 9);
+    }
+
+    #[test]
+    fn test_weight_from_various_numeric_types_consistency() {
+        // All these should produce the same Weight
+        let w_i64: Weight = Weight::from(100i64);
+        let w_i32: Weight = Weight::from(100i32);
+        let w_u64: Weight = Weight::from(100u64);
+        let w_u32: Weight = Weight::from(100u32);
+        let w_usize: Weight = Weight::from(100usize);
+
+        assert_eq!(w_i64, w_i32);
+        assert_eq!(w_i64, w_u64);
+        assert_eq!(w_i64, w_u32);
+        assert_eq!(w_i64, w_usize);
+    }
+
+    #[test]
+    fn test_soft_id_roundtrip() {
+        let original = 42u32;
+        let id: SoftId = original.into();
+        let back: u32 = id.into();
+        assert_eq!(original, back);
     }
 }

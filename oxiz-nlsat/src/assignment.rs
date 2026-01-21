@@ -276,7 +276,10 @@ impl Assignment {
 
             // Unassign all literals from this level
             while self.trail.len() > trail_start {
-                let entry = self.trail.pop().unwrap();
+                let entry = self
+                    .trail
+                    .pop()
+                    .expect("collection validated to be non-empty");
                 self.unassign_bool(entry.literal.var());
                 unassigned.push(entry.literal);
             }

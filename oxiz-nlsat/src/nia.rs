@@ -306,13 +306,16 @@ impl NiaSolver {
                 candidates.sort_by(|a, b| {
                     let dist_a = (a.2 - 0.5).abs();
                     let dist_b = (b.2 - 0.5).abs();
-                    dist_a.partial_cmp(&dist_b).unwrap()
+                    dist_a
+                        .partial_cmp(&dist_b)
+                        .unwrap_or(std::cmp::Ordering::Equal)
                 });
                 Some(candidates[0].0)
             }
             BranchingStrategy::LeastFractional => {
                 // Pick variable with smallest fractional part
-                candidates.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
+                candidates
+                    .sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
                 Some(candidates[0].0)
             }
             BranchingStrategy::FirstFractional => Some(candidates[0].0),
