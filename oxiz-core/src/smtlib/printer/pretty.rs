@@ -948,4 +948,3 @@ impl<'a> PrettyPrinter<'a> {
         basic.print_sort(sort_id)
     }
 }
-

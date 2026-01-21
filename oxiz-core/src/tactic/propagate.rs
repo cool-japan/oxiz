@@ -1,8 +1,8 @@
 //! Value propagation tactics.
 
 use super::core::*;
-use crate::error::Result;
 use crate::ast::{TermId, TermManager};
+use crate::error::Result;
 
 /// Value propagation tactic
 pub struct PropagateValuesTactic<'a> {

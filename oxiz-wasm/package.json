@@ -1,6 +1,6 @@
 {
   "name": "oxiz-wasm",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "WebAssembly bindings for OxiZ SMT Solver - Pure Rust SMT solving in the browser",
   "main": "pkg/oxiz_wasm.js",
   "types": "pkg/oxiz_wasm.d.ts",

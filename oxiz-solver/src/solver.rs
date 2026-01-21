@@ -1640,19 +1640,24 @@ impl Solver {
                         self.arith.intern(term_id);
                     }
                 } else if let Some(sort) = manager.sorts.get(term.sort)
-                    && sort.is_bitvec() && !self.bv_terms.contains(&term_id) {
-                        self.bv_terms.insert(term_id);
-                        self.trail.push(TrailOp::BvTermAdded { term: term_id });
-                        if let Some(width) = sort.bitvec_width() {
-                            self.bv.new_bv(term_id, width);
-                        }
-                        // Also intern in ArithSolver for BV comparison constraints
-                        // (BV comparisons are handled as bounded integer arithmetic)
-                        self.arith.intern(term_id);
+                    && sort.is_bitvec()
+                    && !self.bv_terms.contains(&term_id)
+                {
+                    self.bv_terms.insert(term_id);
+                    self.trail.push(TrailOp::BvTermAdded { term: term_id });
+                    if let Some(width) = sort.bitvec_width() {
+                        self.bv.new_bv(term_id, width);
                     }
+                    // Also intern in ArithSolver for BV comparison constraints
+                    // (BV comparisons are handled as bounded integer arithmetic)
+                    self.arith.intern(term_id);
+                }
             }
             // Recursively scan compound terms
-            TermKind::Add(args) | TermKind::Mul(args) | TermKind::And(args) | TermKind::Or(args) => {
+            TermKind::Add(args)
+            | TermKind::Mul(args)
+            | TermKind::And(args)
+            | TermKind::Or(args) => {
                 for &arg in args {
                     self.track_theory_vars(arg, manager);
                 }
@@ -2032,14 +2037,16 @@ impl Solver {
                         self.arith.intern(term);
                     }
                 } else if let Some(sort) = manager.sorts.get(t.sort)
-                    && sort.is_bitvec() && !self.bv_terms.contains(&term) {
-                        self.bv_terms.insert(term);
-                        self.trail.push(TrailOp::BvTermAdded { term });
-                        // Register with BV solver if not already registered
-                        if let Some(width) = sort.bitvec_width() {
-                            self.bv.new_bv(term, width);
-                        }
+                    && sort.is_bitvec()
+                    && !self.bv_terms.contains(&term)
+                {
+                    self.bv_terms.insert(term);
+                    self.trail.push(TrailOp::BvTermAdded { term });
+                    // Register with BV solver if not already registered
+                    if let Some(width) = sort.bitvec_width() {
+                        self.bv.new_bv(term, width);
                     }
+                }
                 Lit::pos(var)
             }
             TermKind::Not(arg) => {
@@ -2225,8 +2232,9 @@ impl Solver {
 
                     // Pre-parse arithmetic equality for ArithSolver
                     // Only for Int/Real sorts, not BitVec
-                    let is_arith = lhs_term
-                        .is_some_and(|t| t.sort == manager.sorts.int_sort || t.sort == manager.sorts.real_sort);
+                    let is_arith = lhs_term.is_some_and(|t| {
+                        t.sort == manager.sorts.int_sort || t.sort == manager.sorts.real_sort
+                    });
                     if is_arith {
                         // We use Le type as placeholder since equality will be asserted
                         // as both Le and Ge
@@ -3466,7 +3474,11 @@ mod tests {
                 if let TermKind::BitVecConst { value, .. } = &x_term.kind {
                     let x_val = value.to_u64().unwrap_or(0);
                     // x should be in range [6, 9]
-                    assert!(x_val >= 6 && x_val <= 9, "Expected x in [6,9], got {}", x_val);
+                    assert!(
+                        x_val >= 6 && x_val <= 9,
+                        "Expected x in [6,9], got {}",
+                        x_val
+                    );
                 }
             }
         }

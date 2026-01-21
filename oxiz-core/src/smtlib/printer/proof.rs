@@ -146,4 +146,3 @@ impl<'a> Printer<'a> {
         }
     }
 }
-

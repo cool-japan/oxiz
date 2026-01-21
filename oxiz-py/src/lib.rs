@@ -1001,15 +1001,9 @@ impl PyOptimizer {
                 *self.last_model.borrow_mut() = Some(model.clone());
                 PyOptimizationResult::Optimal
             }
-            OptimizationResult::Unbounded => {
-                PyOptimizationResult::Unbounded
-            }
-            OptimizationResult::Unsat => {
-                PyOptimizationResult::Unsat
-            }
-            OptimizationResult::Unknown => {
-                PyOptimizationResult::Unknown
-            }
+            OptimizationResult::Unbounded => PyOptimizationResult::Unbounded,
+            OptimizationResult::Unsat => PyOptimizationResult::Unsat,
+            OptimizationResult::Unknown => PyOptimizationResult::Unknown,
         }
     }
 

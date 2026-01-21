@@ -332,11 +332,12 @@ impl Optimizer {
                     let new_value_term = model.eval(objective.term, term_manager);
 
                     if let Some(t) = term_manager.get(new_value_term)
-                        && let TermKind::IntConst(n) = &t.kind {
-                            current_value = n.clone();
-                            best_value_term = new_value_term;
-                            best_model = model.clone();
-                        }
+                        && let TermKind::IntConst(n) = &t.kind
+                    {
+                        current_value = n.clone();
+                        best_value_term = new_value_term;
+                        best_model = model.clone();
+                    }
                 }
                 // Pop and continue searching
                 self.solver.pop();
@@ -390,7 +391,10 @@ impl Optimizer {
                 TermKind::IntConst(val) => {
                     // Convert BigInt to Rational64
                     let int_val = if val.sign() == num_bigint::Sign::Minus {
-                        -val.to_string().trim_start_matches('-').parse::<i64>().unwrap_or(0)
+                        -val.to_string()
+                            .trim_start_matches('-')
+                            .parse::<i64>()
+                            .unwrap_or(0)
                     } else {
                         val.to_string().parse::<i64>().unwrap_or(0)
                     };
@@ -433,7 +437,10 @@ impl Optimizer {
                             TermKind::RealConst(v) => Some(*v),
                             TermKind::IntConst(v) => {
                                 let int_val = if v.sign() == num_bigint::Sign::Minus {
-                                    -v.to_string().trim_start_matches('-').parse::<i64>().unwrap_or(0)
+                                    -v.to_string()
+                                        .trim_start_matches('-')
+                                        .parse::<i64>()
+                                        .unwrap_or(0)
                                 } else {
                                     v.to_string().parse::<i64>().unwrap_or(0)
                                 };

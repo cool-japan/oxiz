@@ -230,9 +230,10 @@ impl VirtualBestSolver {
                     .collect();
 
                 if solvers_that_solved.len() == 1
-                    && let Some(count) = stats.unique_solves.get_mut(solvers_that_solved[0]) {
-                        *count += 1;
-                    }
+                    && let Some(count) = stats.unique_solves.get_mut(solvers_that_solved[0])
+                {
+                    *count += 1;
+                }
 
                 // Calculate speedup
                 for solver in &solver_names {

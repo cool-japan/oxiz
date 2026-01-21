@@ -1,6 +1,5 @@
 //\! Pretty printing configuration
 
-
 /// Configuration for pretty printing
 #[allow(dead_code)]
 #[derive(Debug, Clone)]

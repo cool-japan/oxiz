@@ -4,10 +4,10 @@
 //! - [`Printer`]: A basic printer that outputs terms on a single line
 //! - [`PrettyPrinter`]: A configurable pretty printer with indentation support
 
-mod config;
-mod pretty;
 mod basic;
+mod config;
 mod model;
+mod pretty;
 mod proof;
 
 // Re-export public types
@@ -15,7 +15,11 @@ pub use basic::Printer;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{TermManager, model::Model, proof::{Proof, ProofRule}};
+    use crate::ast::{
+        TermManager,
+        model::Model,
+        proof::{Proof, ProofRule},
+    };
     use config::PrettyConfig;
     use pretty::PrettyPrinter;
 

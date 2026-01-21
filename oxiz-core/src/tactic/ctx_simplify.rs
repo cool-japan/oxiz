@@ -176,4 +176,3 @@ fn is_constant(kind: &crate::ast::TermKind) -> bool {
             | TermKind::BitVecConst { .. }
     )
 }
-

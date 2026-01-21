@@ -1,12 +1,11 @@
 //\! Presolve optimizations for LIA solver
 
 use super::super::simplex::{LinExpr, VarId};
+use super::helpers::gcd;
 use super::types::{IntBound, LiaSolver};
 use num_rational::Rational64;
-use super::helpers::gcd;
 use oxiz_core::error::Result;
 impl LiaSolver {
-
     /// Apply presolve optimizations to simplify constraints before solving
     ///
     /// This applies several GCD-based and integer-specific optimizations:
@@ -212,5 +211,4 @@ impl LiaSolver {
 
         Ok(fixed_count)
     }
-
 }

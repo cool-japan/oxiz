@@ -2,7 +2,6 @@
 //!
 //! 🤖 Generated with [SplitRS](https://github.com/cool-japan/splitrs)
 
-
 /// Character value (Unicode code point)
 pub type CodePoint = u32;
 #[cfg(test)]
@@ -30,7 +29,7 @@ mod tests {
         assert_eq!(known.code_point(), Some(65));
         assert_eq!(known.to_char(), Some('A'));
         let unknown = CharValue::Unknown;
-        assert!(! unknown.is_known());
+        assert!(!unknown.is_known());
         assert_eq!(unknown.code_point(), None);
     }
     #[test]
@@ -40,7 +39,7 @@ mod tests {
         solver.add_constraint(v, CharConstraint::Eq(65));
         let result = solver.check();
         assert_eq!(result, CharResult::Sat);
-        assert_eq!(solver.get_value(v), Some(& CharValue::Known(65)));
+        assert_eq!(solver.get_value(v), Some(&CharValue::Known(65)));
     }
     #[test]
     fn test_digit_constraint() {
@@ -50,7 +49,7 @@ mod tests {
         let result = solver.check();
         assert_eq!(result, CharResult::Sat);
         if let Some(CharValue::Known(cp)) = solver.get_value(v) {
-            assert!(char::from_u32(* cp).unwrap().is_ascii_digit());
+            assert!(char::from_u32(*cp).unwrap().is_ascii_digit());
         }
     }
     #[test]
@@ -61,7 +60,7 @@ mod tests {
         let result = solver.check();
         assert_eq!(result, CharResult::Sat);
         if let Some(CharValue::Known(cp)) = solver.get_value(v) {
-            assert!(* cp >= 65 && * cp <= 90);
+            assert!(*cp >= 65 && *cp <= 90);
         }
     }
     #[test]
@@ -93,21 +92,30 @@ mod tests {
     }
     #[test]
     fn test_unicode_category() {
-        assert_eq!(UnicodeCategory::from_code_point(65), UnicodeCategory::Letter);
-        assert_eq!(UnicodeCategory::from_code_point(48), UnicodeCategory::Number);
-        assert_eq!(UnicodeCategory::from_code_point(32), UnicodeCategory::Separator);
+        assert_eq!(
+            UnicodeCategory::from_code_point(65),
+            UnicodeCategory::Letter
+        );
+        assert_eq!(
+            UnicodeCategory::from_code_point(48),
+            UnicodeCategory::Number
+        );
+        assert_eq!(
+            UnicodeCategory::from_code_point(32),
+            UnicodeCategory::Separator
+        );
     }
     #[test]
     fn test_case_insensitive_eq() {
         assert!(CharSolver::case_insensitive_eq(65, 97));
         assert!(CharSolver::case_insensitive_eq(97, 65));
-        assert!(! CharSolver::case_insensitive_eq(65, 66));
+        assert!(!CharSolver::case_insensitive_eq(65, 66));
     }
     #[test]
     fn test_is_valid_code_point() {
         assert!(CharSolver::is_valid_code_point(65));
         assert!(CharSolver::is_valid_code_point(0x1F600));
-        assert!(! CharSolver::is_valid_code_point(0xD800));
+        assert!(!CharSolver::is_valid_code_point(0xD800));
     }
     #[test]
     fn test_reset() {
@@ -136,7 +144,7 @@ mod tests {
         let result = solver.check();
         assert_eq!(result, CharResult::Sat);
         if let Some(CharValue::Known(cp)) = solver.get_value(v) {
-            assert!(* cp <= 127);
+            assert!(*cp <= 127);
         }
     }
     #[test]
@@ -157,10 +165,12 @@ mod tests {
     #[test]
     fn test_unicode_block_cjk() {
         assert_eq!(
-            UnicodeBlock::from_code_point(0x4E00), UnicodeBlock::CjkUnifiedIdeographs
+            UnicodeBlock::from_code_point(0x4E00),
+            UnicodeBlock::CjkUnifiedIdeographs
         );
         assert_eq!(
-            UnicodeBlock::from_code_point(0x9FFF), UnicodeBlock::CjkUnifiedIdeographs
+            UnicodeBlock::from_code_point(0x9FFF),
+            UnicodeBlock::CjkUnifiedIdeographs
         );
     }
     #[test]
@@ -170,7 +180,7 @@ mod tests {
         assert_eq!(low, 0x0000);
         assert_eq!(high, 0x007F);
         assert!(block.contains(65));
-        assert!(! block.contains(128));
+        assert!(!block.contains(128));
     }
     #[test]
     fn test_unicode_script_latin() {
@@ -184,14 +194,14 @@ mod tests {
     #[test]
     fn test_unicode_script_direction() {
         assert!(UnicodeScript::Latin.is_ltr());
-        assert!(! UnicodeScript::Arabic.is_ltr());
-        assert!(! UnicodeScript::Hebrew.is_ltr());
+        assert!(!UnicodeScript::Arabic.is_ltr());
+        assert!(!UnicodeScript::Hebrew.is_ltr());
     }
     #[test]
     fn test_unicode_script_east_asian() {
         assert!(UnicodeScript::Han.is_east_asian());
         assert!(UnicodeScript::Hiragana.is_east_asian());
-        assert!(! UnicodeScript::Latin.is_east_asian());
+        assert!(!UnicodeScript::Latin.is_east_asian());
     }
     #[test]
     fn test_char_width_narrow() {
@@ -213,36 +223,34 @@ mod tests {
         let class = CharClass::Digit;
         assert!(class.matches(48));
         assert!(class.matches(57));
-        assert!(! class.matches(65));
+        assert!(!class.matches(65));
     }
     #[test]
     fn test_char_class_alpha() {
         let class = CharClass::Alpha;
         assert!(class.matches(65));
         assert!(class.matches(97));
-        assert!(! class.matches(48));
+        assert!(!class.matches(48));
     }
     #[test]
     fn test_char_class_range() {
         let class = CharClass::Range(65, 90);
         assert!(class.matches(65));
         assert!(class.matches(90));
-        assert!(! class.matches(91));
+        assert!(!class.matches(91));
     }
     #[test]
     fn test_char_class_negation() {
         let class = CharClass::Negation(Box::new(CharClass::Digit));
-        assert!(! class.matches(48));
+        assert!(!class.matches(48));
         assert!(class.matches(65));
     }
     #[test]
     fn test_char_class_union() {
-        let class = CharClass::Union(
-            vec![CharClass::Range(65, 90), CharClass::Range(97, 122)],
-        );
+        let class = CharClass::Union(vec![CharClass::Range(65, 90), CharClass::Range(97, 122)]);
         assert!(class.matches(65));
         assert!(class.matches(97));
-        assert!(! class.matches(48));
+        assert!(!class.matches(48));
     }
     #[test]
     fn test_char_class_from_pattern() {
@@ -262,7 +270,7 @@ mod tests {
     #[test]
     fn test_char_domain_full() {
         let domain = CharDomain::full();
-        assert!(! domain.is_empty());
+        assert!(!domain.is_empty());
         assert!(domain.contains(0));
         assert!(domain.contains(65));
         assert!(domain.contains(0x10FFFF));
@@ -271,22 +279,22 @@ mod tests {
     fn test_char_domain_empty() {
         let domain = CharDomain::empty();
         assert!(domain.is_empty());
-        assert!(! domain.contains(65));
+        assert!(!domain.contains(65));
     }
     #[test]
     fn test_char_domain_singleton() {
         let domain = CharDomain::singleton(65);
         assert_eq!(domain.is_singleton(), Some(65));
         assert!(domain.contains(65));
-        assert!(! domain.contains(66));
+        assert!(!domain.contains(66));
     }
     #[test]
     fn test_char_domain_range() {
         let domain = CharDomain::range(65, 90);
         assert!(domain.contains(65));
         assert!(domain.contains(90));
-        assert!(! domain.contains(64));
-        assert!(! domain.contains(91));
+        assert!(!domain.contains(64));
+        assert!(!domain.contains(91));
     }
     #[test]
     fn test_char_domain_intersect() {
@@ -295,15 +303,15 @@ mod tests {
         d1.intersect(&d2);
         assert!(d1.contains(70));
         assert!(d1.contains(80));
-        assert!(! d1.contains(60));
-        assert!(! d1.contains(90));
+        assert!(!d1.contains(60));
+        assert!(!d1.contains(90));
     }
     #[test]
     fn test_char_domain_exclude() {
         let mut domain = CharDomain::range(65, 67);
         domain.exclude(66);
         assert!(domain.contains(65));
-        assert!(! domain.contains(66));
+        assert!(!domain.contains(66));
         assert!(domain.contains(67));
     }
     #[test]
@@ -328,7 +336,7 @@ mod tests {
         let v = solver.new_var();
         let domain = solver.get_domain(v);
         assert!(domain.is_some());
-        assert!(! domain.map(|d: &CharDomain| d.is_empty()).unwrap_or(true));
+        assert!(!domain.map(|d: &CharDomain| d.is_empty()).unwrap_or(true));
     }
     #[test]
     fn test_advanced_solver_constraint() {
@@ -369,7 +377,7 @@ mod tests {
     fn test_normalizer_is_combining() {
         let normalizer = CharNormalizer::new(NormalizationForm::Nfd);
         assert!(normalizer.is_combining(0x0300));
-        assert!(! normalizer.is_combining(65));
+        assert!(!normalizer.is_combining(65));
     }
     #[test]
     fn test_case_folder_simple() {
@@ -391,7 +399,7 @@ mod tests {
     #[test]
     fn test_case_folder_equals() {
         let mut folder = CaseFolder::new(CaseFoldMode::Simple);
-        assert!(folder.equals(& [65, 66, 67], & [97, 98, 99]));
-        assert!(! folder.equals(& [65], & [66]));
+        assert!(folder.equals(&[65, 66, 67], &[97, 98, 99]));
+        assert!(!folder.equals(&[65], &[66]));
     }
 }

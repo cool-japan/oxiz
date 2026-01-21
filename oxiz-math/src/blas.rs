@@ -94,7 +94,7 @@ pub enum Diag {
 
 /// DDOT: Compute the dot product of two vectors.
 ///
-/// Returns x^T * y = sum(x[i] * y[i])
+/// Returns x^T * y = sum(x\[i\] * y\[i\])
 ///
 /// # Arguments
 /// * `x` - First input vector
@@ -146,7 +146,7 @@ pub fn ddot(x: &[f64], y: &[f64]) -> f64 {
 
 /// DNRM2: Compute the Euclidean (L2) norm of a vector.
 ///
-/// Returns ||x||_2 = sqrt(sum(x[i]^2))
+/// Returns ||x||_2 = sqrt(sum(x\[i\]^2))
 ///
 /// Uses a numerically stable algorithm to avoid overflow/underflow.
 ///
@@ -365,7 +365,7 @@ pub fn idamax(x: &[f64]) -> usize {
 
 /// DASUM: Compute the sum of absolute values of vector elements.
 ///
-/// Returns sum(|x[i]|)
+/// Returns sum(|x\[i\]|)
 ///
 /// # Example
 /// ```

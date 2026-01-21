@@ -15,4 +15,3 @@ impl Default for AdvancedCharSolver {
         Self::new()
     }
 }
-

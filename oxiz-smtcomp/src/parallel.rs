@@ -181,15 +181,16 @@ impl ParallelRunner {
 
                     // Report progress
                     if let Some(ref callback) = progress_callback
-                        && (count.is_multiple_of(config.progress_interval) || count == total) {
-                            callback(ParallelProgress {
-                                total,
-                                completed: count,
-                                solved: solved_ref.load(Ordering::Relaxed),
-                                errors: errors_ref.load(Ordering::Relaxed),
-                                elapsed: start.elapsed(),
-                            });
-                        }
+                        && (count.is_multiple_of(config.progress_interval) || count == total)
+                    {
+                        callback(ParallelProgress {
+                            total,
+                            completed: count,
+                            solved: solved_ref.load(Ordering::Relaxed),
+                            errors: errors_ref.load(Ordering::Relaxed),
+                            elapsed: start.elapsed(),
+                        });
+                    }
 
                     result
                 })
@@ -249,15 +250,16 @@ impl ParallelRunner {
 
                 // Report progress
                 if let Some(ref callback) = progress_callback
-                    && (count.is_multiple_of(config.progress_interval) || count == total) {
-                        callback(ParallelProgress {
-                            total,
-                            completed: count,
-                            solved: solved_ref.load(Ordering::Relaxed),
-                            errors: errors_ref.load(Ordering::Relaxed),
-                            elapsed: start.elapsed(),
-                        });
-                    }
+                    && (count.is_multiple_of(config.progress_interval) || count == total)
+                {
+                    callback(ParallelProgress {
+                        total,
+                        completed: count,
+                        solved: solved_ref.load(Ordering::Relaxed),
+                        errors: errors_ref.load(Ordering::Relaxed),
+                        elapsed: start.elapsed(),
+                    });
+                }
 
                 result
             })

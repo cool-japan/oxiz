@@ -7,7 +7,6 @@ use num_rational::Rational64;
 use num_traits::One;
 use oxiz_core::error::{OxizError, Result};
 impl LiaSolver {
-
     /// Check satisfiability with branch-and-bound
     pub fn check(&mut self) -> Result<bool> {
         // First check if the LP relaxation is feasible
@@ -331,5 +330,4 @@ impl LiaSolver {
 
         best_var
     }
-
 }

@@ -10,7 +10,6 @@ use rustc_hash::FxHashMap;
 type Polynomial = super::Polynomial;
 
 impl super::Polynomial {
-
     /// Refine all roots in the given intervals using Newton-Raphson.
     ///
     /// Takes a list of isolating intervals (from `isolate_roots`) and refines

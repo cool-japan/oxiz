@@ -5,7 +5,6 @@ use super::types::{CutInfo, LiaSolver};
 use num_rational::Rational64;
 use oxiz_core::error::Result;
 impl LiaSolver {
-
     /// Feasibility Pump heuristic for finding integer-feasible solutions
     /// Feasibility Pump heuristic for finding integer-feasible solutions
     pub fn feasibility_pump(&mut self, max_iterations: usize) -> Result<Option<Vec<i64>>> {
@@ -305,5 +304,4 @@ impl LiaSolver {
             generation: self.cuts_generated,
         });
     }
-
 }

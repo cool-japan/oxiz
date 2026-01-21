@@ -297,10 +297,11 @@ impl Sampler {
                 break;
             }
             if let Some(members) = by_features.get(key)
-                && !members.is_empty() {
-                    let idx = (self.rng.next_u64() as usize) % members.len();
-                    result.push(members[idx].clone());
-                }
+                && !members.is_empty()
+            {
+                let idx = (self.rng.next_u64() as usize) % members.len();
+                result.push(members[idx].clone());
+            }
         }
 
         // Fill remaining with random selection

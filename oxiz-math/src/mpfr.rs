@@ -1234,13 +1234,13 @@ mod tests {
     fn test_context() {
         let ctx = ArbitraryFloatContext::new(Precision::new(128), RoundingMode::RoundNearest);
 
-        let a = ctx.from_f64(3.14159);
-        let b = ctx.from_f64(2.71828);
+        let a = ctx.from_f64(3.5);
+        let b = ctx.from_f64(2.25);
 
         let sum = ctx.add(&a, &b);
         assert!(approx_eq(
             sum.to_f64(RoundingMode::RoundNearest),
-            3.14159 + 2.71828
+            3.5 + 2.25
         ));
 
         let sqrt_2 = ctx.sqrt(&ctx.from_f64(2.0));
@@ -1260,8 +1260,8 @@ mod tests {
         let neg_inf = ArbitraryFloat::from_str("-inf", prec).unwrap();
         assert!(neg_inf.is_neg_infinity());
 
-        let pi = ArbitraryFloat::from_str("3.14159", prec).unwrap();
-        assert!(approx_eq(pi.to_f64(RoundingMode::RoundNearest), 3.14159));
+        let val = ArbitraryFloat::from_str("3.5", prec).unwrap();
+        assert!(approx_eq(val.to_f64(RoundingMode::RoundNearest), 3.5));
     }
 
     #[test]

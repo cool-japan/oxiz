@@ -6,22 +6,22 @@
 //! - GCD-based infeasibility detection
 //! - Integer bound propagation
 
-mod types;
-mod constructors;
-mod constraints;
-mod presolve;
-mod heuristics;
 mod branching;
+mod constraints;
+mod constructors;
 mod cuts;
-mod utils;
 mod helpers;
+mod heuristics;
 mod hnf;
 mod pb;
+mod presolve;
+mod types;
+mod utils;
 
 // Re-export public types
-pub use types::LiaSolver;
 pub use hnf::HermiteNormalForm;
 pub use pb::PseudoBooleanSolver;
+pub use types::LiaSolver;
 
 // Default impl
 impl Default for LiaSolver {
@@ -31,8 +31,8 @@ impl Default for LiaSolver {
 }
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::helpers::{extended_gcd, gcd, lcm};
+    use super::*;
     use crate::arithmetic::simplex::{LinExpr, VarId};
     use num_rational::Rational64;
     use num_traits::{One, Zero};

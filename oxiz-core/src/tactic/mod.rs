@@ -11,34 +11,34 @@ pub mod probe;
 pub mod quantifier;
 
 // Refactored modules
-mod core;
-mod simplify;
-mod propagate;
-mod bitblast;
 mod ackermann;
-mod ctx_simplify;
+mod bitblast;
 mod combinators;
-mod split;
+mod core;
+mod ctx_simplify;
 mod eliminate;
+mod propagate;
+mod simplify;
 mod solve_eqs;
+mod split;
 
 // Re-export core types
 pub use core::{Goal, Precision, SolveResult, Tactic, TacticResult};
 
 // Re-export tactics
-pub use simplify::{SimplifyTactic, StatelessSimplifyTactic};
-pub use propagate::{PropagateValuesTactic, StatelessPropagateValuesTactic};
-pub use bitblast::{BitBlastTactic, StatelessBitBlastTactic};
 pub use ackermann::{AckermannizeTactic, StatelessAckermannizeTactic};
-pub use ctx_simplify::{CtxSolverSimplifyTactic, StatelessCtxSolverSimplifyTactic};
+pub use bitblast::{BitBlastTactic, StatelessBitBlastTactic};
 pub use combinators::{OrElseTactic, ParallelTactic, RepeatTactic, ThenTactic, TimeoutTactic};
-pub use split::{SplitTactic, StatelessSplitTactic};
+pub use ctx_simplify::{CtxSolverSimplifyTactic, StatelessCtxSolverSimplifyTactic};
 pub use eliminate::{EliminateUnconstrainedTactic, StatelessEliminateUnconstrainedTactic};
+pub use propagate::{PropagateValuesTactic, StatelessPropagateValuesTactic};
+pub use simplify::{SimplifyTactic, StatelessSimplifyTactic};
 pub use solve_eqs::{
     CondTactic, FailIfTactic, FourierMotzkinTactic, NnfTactic, Pb2BvTactic, ScriptableTactic,
     SolveEqsTactic, StatelessCnfTactic, StatelessFourierMotzkinTactic, StatelessNnfTactic,
     StatelessPb2BvTactic, StatelessSolveEqsTactic, TseitinCnfTactic, WhenTactic,
 };
+pub use split::{SplitTactic, StatelessSplitTactic};
 
 // Re-export probe types
 pub use probe::{

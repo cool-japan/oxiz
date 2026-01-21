@@ -861,5 +861,4 @@ impl<'a> Printer<'a> {
         self.write_sort(&mut buf, sort_id);
         buf
     }
-
 }

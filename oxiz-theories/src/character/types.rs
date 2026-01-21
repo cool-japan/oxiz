@@ -6,7 +6,6 @@ use std::collections::{HashMap, HashSet};
 
 use super::functions::CodePoint;
 
-
 /// Unicode block (ranges of code points)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UnicodeBlock {
@@ -184,7 +183,9 @@ impl CharDomain {
         if self.empty || self.excluded.contains(&cp) {
             return false;
         }
-        self.ranges.iter().any(|(low, high)| cp >= *low && cp <= *high)
+        self.ranges
+            .iter()
+            .any(|(low, high)| cp >= *low && cp <= *high)
     }
     /// Intersect with another domain
     pub fn intersect(&mut self, other: &CharDomain) {
@@ -442,12 +443,8 @@ impl CharNormalizer {
     /// Normalize a sequence of code points
     pub fn normalize(&mut self, input: &[CodePoint]) -> Vec<CodePoint> {
         match self.form {
-            NormalizationForm::Nfd | NormalizationForm::Nfkd => {
-                self.normalize_decompose(input)
-            }
-            NormalizationForm::Nfc | NormalizationForm::Nfkc => {
-                self.normalize_compose(input)
-            }
+            NormalizationForm::Nfd | NormalizationForm::Nfkd => self.normalize_decompose(input),
+            NormalizationForm::Nfc | NormalizationForm::Nfkc => self.normalize_compose(input),
         }
     }
     fn normalize_decompose(&self, input: &[CodePoint]) -> Vec<CodePoint> {
@@ -588,31 +585,27 @@ impl CharClass {
             CharClass::Negation(inner) => !inner.matches(cp),
             CharClass::Union(classes) => classes.iter().any(|c| c.matches(cp)),
             CharClass::Intersection(classes) => classes.iter().all(|c| c.matches(cp)),
-            CharClass::Alpha => {
-                char::from_u32(cp).map(|c| c.is_alphabetic()).unwrap_or(false)
-            }
-            CharClass::Digit => {
-                char::from_u32(cp).map(|c| c.is_ascii_digit()).unwrap_or(false)
-            }
-            CharClass::Alnum => {
-                char::from_u32(cp).map(|c| c.is_alphanumeric()).unwrap_or(false)
-            }
-            CharClass::Space => {
-                char::from_u32(cp).map(|c| c.is_whitespace()).unwrap_or(false)
-            }
-            CharClass::Word => {
-                char::from_u32(cp)
-                    .map(|c| c.is_alphanumeric() || c == '_')
-                    .unwrap_or(false)
-            }
-            CharClass::Punct => {
-                char::from_u32(cp).map(|c| c.is_ascii_punctuation()).unwrap_or(false)
-            }
-            CharClass::Print => {
-                char::from_u32(cp)
-                    .map(|c| !c.is_control() && c != '\u{7F}')
-                    .unwrap_or(false)
-            }
+            CharClass::Alpha => char::from_u32(cp)
+                .map(|c| c.is_alphabetic())
+                .unwrap_or(false),
+            CharClass::Digit => char::from_u32(cp)
+                .map(|c| c.is_ascii_digit())
+                .unwrap_or(false),
+            CharClass::Alnum => char::from_u32(cp)
+                .map(|c| c.is_alphanumeric())
+                .unwrap_or(false),
+            CharClass::Space => char::from_u32(cp)
+                .map(|c| c.is_whitespace())
+                .unwrap_or(false),
+            CharClass::Word => char::from_u32(cp)
+                .map(|c| c.is_alphanumeric() || c == '_')
+                .unwrap_or(false),
+            CharClass::Punct => char::from_u32(cp)
+                .map(|c| c.is_ascii_punctuation())
+                .unwrap_or(false),
+            CharClass::Print => char::from_u32(cp)
+                .map(|c| !c.is_control() && c != '\u{7F}')
+                .unwrap_or(false),
             CharClass::Category(cat) => UnicodeCategory::from_code_point(cp) == *cat,
             CharClass::Block(block) => block.contains(cp),
             CharClass::Script(script) => UnicodeScript::from_code_point(cp) == *script,
@@ -682,33 +675,29 @@ impl CaseFolder {
                     vec![cp]
                 }
             }
-            CaseFoldMode::Full => {
-                match cp {
-                    0x00DF => vec![0x0073, 0x0073],
-                    0x0130 => vec![0x0069, 0x0307],
-                    0x0149 => vec![0x02BC, 0x006E],
-                    _ => {
-                        if let Some(lower) = CharSolver::to_lowercase(cp) {
-                            vec![lower]
-                        } else {
-                            vec![cp]
-                        }
+            CaseFoldMode::Full => match cp {
+                0x00DF => vec![0x0073, 0x0073],
+                0x0130 => vec![0x0069, 0x0307],
+                0x0149 => vec![0x02BC, 0x006E],
+                _ => {
+                    if let Some(lower) = CharSolver::to_lowercase(cp) {
+                        vec![lower]
+                    } else {
+                        vec![cp]
                     }
                 }
-            }
-            CaseFoldMode::Turkic => {
-                match cp {
-                    0x0049 => vec![0x0131],
-                    0x0130 => vec![0x0069],
-                    _ => {
-                        if let Some(lower) = CharSolver::to_lowercase(cp) {
-                            vec![lower]
-                        } else {
-                            vec![cp]
-                        }
+            },
+            CaseFoldMode::Turkic => match cp {
+                0x0049 => vec![0x0131],
+                0x0130 => vec![0x0069],
+                _ => {
+                    if let Some(lower) = CharSolver::to_lowercase(cp) {
+                        vec![lower]
+                    } else {
+                        vec![cp]
                     }
                 }
-            }
+            },
         }
     }
     /// Compare two strings case-insensitively
@@ -860,38 +849,32 @@ impl CharSolver {
         true
     }
     /// Check a single constraint
-    fn check_single_constraint(
-        &self,
-        cp: CodePoint,
-        constraint: &CharConstraint,
-    ) -> bool {
+    fn check_single_constraint(&self, cp: CodePoint, constraint: &CharConstraint) -> bool {
         match constraint {
             CharConstraint::Eq(expected) => cp == *expected,
             CharConstraint::Ne(forbidden) => cp != *forbidden,
             CharConstraint::InRange(low, high) => cp >= *low && cp <= *high,
             CharConstraint::NotInRange(low, high) => cp < *low || cp > *high,
-            CharConstraint::IsDigit => {
-                char::from_u32(cp).map(|c| c.is_ascii_digit()).unwrap_or(false)
-            }
-            CharConstraint::IsLetter => {
-                char::from_u32(cp).map(|c| c.is_alphabetic()).unwrap_or(false)
-            }
-            CharConstraint::IsAlphanumeric => {
-                char::from_u32(cp).map(|c| c.is_alphanumeric()).unwrap_or(false)
-            }
-            CharConstraint::IsWhitespace => {
-                char::from_u32(cp).map(|c| c.is_whitespace()).unwrap_or(false)
-            }
-            CharConstraint::IsUppercase => {
-                char::from_u32(cp).map(|c| c.is_uppercase()).unwrap_or(false)
-            }
-            CharConstraint::IsLowercase => {
-                char::from_u32(cp).map(|c| c.is_lowercase()).unwrap_or(false)
-            }
+            CharConstraint::IsDigit => char::from_u32(cp)
+                .map(|c| c.is_ascii_digit())
+                .unwrap_or(false),
+            CharConstraint::IsLetter => char::from_u32(cp)
+                .map(|c| c.is_alphabetic())
+                .unwrap_or(false),
+            CharConstraint::IsAlphanumeric => char::from_u32(cp)
+                .map(|c| c.is_alphanumeric())
+                .unwrap_or(false),
+            CharConstraint::IsWhitespace => char::from_u32(cp)
+                .map(|c| c.is_whitespace())
+                .unwrap_or(false),
+            CharConstraint::IsUppercase => char::from_u32(cp)
+                .map(|c| c.is_uppercase())
+                .unwrap_or(false),
+            CharConstraint::IsLowercase => char::from_u32(cp)
+                .map(|c| c.is_lowercase())
+                .unwrap_or(false),
             CharConstraint::IsAscii => cp <= 127,
-            CharConstraint::HasCategory(cat) => {
-                UnicodeCategory::from_code_point(cp) == *cat
-            }
+            CharConstraint::HasCategory(cat) => UnicodeCategory::from_code_point(cp) == *cat,
             CharConstraint::EqVar(other) => {
                 if let Some(CharValue::Known(other_cp)) = self.assignments.get(other) {
                     cp == *other_cp
@@ -932,9 +915,7 @@ impl CharSolver {
                 if let Some(c) = char::from_u32(cp) {
                     let upper: Vec<char> = c.to_uppercase().collect();
                     if upper.len() == 1
-                        && let Some(CharValue::Known(result_cp)) = self
-                            .assignments
-                            .get(result)
+                        && let Some(CharValue::Known(result_cp)) = self.assignments.get(result)
                     {
                         return upper[0] as u32 == *result_cp;
                     }
@@ -945,9 +926,7 @@ impl CharSolver {
                 if let Some(c) = char::from_u32(cp) {
                     let lower: Vec<char> = c.to_lowercase().collect();
                     if lower.len() == 1
-                        && let Some(CharValue::Known(result_cp)) = self
-                            .assignments
-                            .get(result)
+                        && let Some(CharValue::Known(result_cp)) = self.assignments.get(result)
                     {
                         return lower[0] as u32 == *result_cp;
                     }
@@ -973,11 +952,16 @@ impl CharSolver {
     }
     /// Check if all variables are assigned
     fn all_assigned(&self) -> bool {
-        self.variables.iter().all(|v| self.assignments.contains_key(v))
+        self.variables
+            .iter()
+            .all(|v| self.assignments.contains_key(v))
     }
     /// Pick an unassigned variable
     fn pick_unassigned(&self) -> Option<CharVar> {
-        self.variables.iter().find(|v| !self.assignments.contains_key(v)).copied()
+        self.variables
+            .iter()
+            .find(|v| !self.assignments.contains_key(v))
+            .copied()
     }
     /// Find a valid value for a variable
     fn find_valid_value(&self, var: CharVar) -> Option<CharValue> {
@@ -1040,19 +1024,25 @@ impl CharSolver {
     }
     /// Convert character to uppercase
     pub fn to_uppercase(cp: CodePoint) -> Option<CodePoint> {
-        char::from_u32(cp)
-            .and_then(|c| {
-                let upper: Vec<char> = c.to_uppercase().collect();
-                if upper.len() == 1 { Some(upper[0] as u32) } else { None }
-            })
+        char::from_u32(cp).and_then(|c| {
+            let upper: Vec<char> = c.to_uppercase().collect();
+            if upper.len() == 1 {
+                Some(upper[0] as u32)
+            } else {
+                None
+            }
+        })
     }
     /// Convert character to lowercase
     pub fn to_lowercase(cp: CodePoint) -> Option<CodePoint> {
-        char::from_u32(cp)
-            .and_then(|c| {
-                let lower: Vec<char> = c.to_lowercase().collect();
-                if lower.len() == 1 { Some(lower[0] as u32) } else { None }
-            })
+        char::from_u32(cp).and_then(|c| {
+            let lower: Vec<char> = c.to_lowercase().collect();
+            if lower.len() == 1 {
+                Some(lower[0] as u32)
+            } else {
+                None
+            }
+        })
     }
     /// Get Unicode category of a character
     pub fn get_category(cp: CodePoint) -> UnicodeCategory {
@@ -1172,7 +1162,9 @@ impl AdvancedCharSolver {
             return CharResult::Unsat;
         }
         for (&var, domain) in &self.domains {
-            if let Some(cp) = domain.min() && self.base.get_value(var).is_none() {
+            if let Some(cp) = domain.min()
+                && self.base.get_value(var).is_none()
+            {
                 self.base.assign(var, CharValue::Known(cp));
             }
         }
@@ -1223,12 +1215,11 @@ impl AdvancedCharSolver {
     fn push_decision(&mut self, var: CharVar, value: CodePoint) {
         self.decision_level += 1;
         if let Some(old_domain) = self.domains.get(&var).cloned() {
-            self.trail
-                .push(TrailEntry {
-                    var,
-                    old_domain,
-                    level: self.decision_level,
-                });
+            self.trail.push(TrailEntry {
+                var,
+                old_domain,
+                level: self.decision_level,
+            });
         }
         self.domains.insert(var, CharDomain::singleton(value));
     }
@@ -1325,8 +1316,11 @@ impl UnicodeScript {
     /// Check if script is an East Asian script
     pub fn is_east_asian(&self) -> bool {
         matches!(
-            self, UnicodeScript::Han | UnicodeScript::Hiragana | UnicodeScript::Katakana
-            | UnicodeScript::Hangul
+            self,
+            UnicodeScript::Han
+                | UnicodeScript::Hiragana
+                | UnicodeScript::Katakana
+                | UnicodeScript::Hangul
         )
     }
 }

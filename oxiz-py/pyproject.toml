@@ -27,7 +27,7 @@ classifiers = [
     "License :: OSI Approved :: Apache Software License",
 ]
 keywords = ["smt", "solver", "sat", "verification", "logic", "theorem-prover"]
-version = "0.1.0"
+dynamic = ["version"]
 
 [project.urls]
 Homepage = "https://github.com/cool-japan/oxiz"

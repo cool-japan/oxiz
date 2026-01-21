@@ -1938,4 +1938,3 @@ impl Tactic for StatelessPb2BvTactic {
         "Convert pseudo-boolean constraints to bit-vector arithmetic"
     }
 }
-

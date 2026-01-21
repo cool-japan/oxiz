@@ -368,16 +368,17 @@ impl SessionManager {
 
             if path.extension().is_some_and(|e| e == "json")
                 && path.to_string_lossy().contains(".checkpoint")
-                && let Ok(checkpoint) = ResultLoader::load_checkpoint(&path) {
-                    let is_complete = checkpoint.is_complete();
-                    sessions.push(SessionInfo {
-                        session_id: checkpoint.session_id,
-                        start_time: checkpoint.start_time,
-                        completed: checkpoint.completed,
-                        total: checkpoint.total_benchmarks,
-                        is_complete,
-                    });
-                }
+                && let Ok(checkpoint) = ResultLoader::load_checkpoint(&path)
+            {
+                let is_complete = checkpoint.is_complete();
+                sessions.push(SessionInfo {
+                    session_id: checkpoint.session_id,
+                    start_time: checkpoint.start_time,
+                    completed: checkpoint.completed,
+                    total: checkpoint.total_benchmarks,
+                    is_complete,
+                });
+            }
         }
 
         sessions.sort_by_key(|s| std::cmp::Reverse(s.start_time));

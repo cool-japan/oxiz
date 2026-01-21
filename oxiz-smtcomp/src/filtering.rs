@@ -148,9 +148,10 @@ impl FilterCriteria {
         // Check logic exclusion
         if let Some(ref exclude) = self.exclude_logics
             && let Some(ref logic) = meta.logic
-                && exclude.contains(logic) {
-                    return false;
-                }
+            && exclude.contains(logic)
+        {
+            return false;
+        }
 
         // Check category
         if let Some(ref categories) = self.categories {
@@ -162,13 +163,15 @@ impl FilterCriteria {
 
         // Check file size
         if let Some(min) = self.min_file_size
-            && meta.file_size < min {
-                return false;
-            }
+            && meta.file_size < min
+        {
+            return false;
+        }
         if let Some(max) = self.max_file_size
-            && meta.file_size > max {
-                return false;
-            }
+            && meta.file_size > max
+        {
+            return false;
+        }
 
         // Check path pattern
         if let Some(ref pattern) = self.path_pattern {
@@ -313,9 +316,10 @@ impl ResultFilterCriteria {
     pub fn matches(&self, result: &SingleResult) -> bool {
         // Check status
         if let Some(ref statuses) = self.status
-            && !statuses.contains(&result.status) {
-                return false;
-            }
+            && !statuses.contains(&result.status)
+        {
+            return false;
+        }
 
         // Check correctness
         if let Some(expected_correct) = self.correct {
@@ -329,13 +333,15 @@ impl ResultFilterCriteria {
         // Check time
         let time_secs = result.time.as_secs_f64();
         if let Some(min) = self.min_time_secs
-            && time_secs < min {
-                return false;
-            }
+            && time_secs < min
+        {
+            return false;
+        }
         if let Some(max) = self.max_time_secs
-            && time_secs > max {
-                return false;
-            }
+            && time_secs > max
+        {
+            return false;
+        }
 
         // Check logic
         if let Some(ref logics) = self.logics {

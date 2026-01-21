@@ -5,15 +5,15 @@
 //!
 //! Reference: Z3's `math/polynomial/` directory.
 
-mod types;
-mod constructors;
-mod arithmetic;
-mod extended_ops;
 mod advanced_ops;
+mod arithmetic;
+mod constructors;
+mod extended_ops;
 mod helpers;
+mod types;
 
 // Re-export all public types
-pub use types::{Monomial, MonomialOrder, Term, Var, VarPower, NULL_VAR};
+pub use types::{Monomial, MonomialOrder, NULL_VAR, Term, Var, VarPower};
 
 // Re-export public utility functions
 pub use helpers::rational_sqrt;
