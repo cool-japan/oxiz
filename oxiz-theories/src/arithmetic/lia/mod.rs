@@ -33,7 +33,7 @@ impl Default for LiaSolver {
 mod tests {
     use super::helpers::{extended_gcd, gcd, lcm};
     use super::*;
-    use crate::arithmetic::simplex::{LinExpr, VarId};
+    use crate::arithmetic::simplex::LinExpr;
     use num_rational::Rational64;
     use num_traits::{One, Zero};
 

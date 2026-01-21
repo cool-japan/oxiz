@@ -6,7 +6,6 @@
 pub type CodePoint = u32;
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::character::*;
     #[test]
     fn test_char_solver_creation() {

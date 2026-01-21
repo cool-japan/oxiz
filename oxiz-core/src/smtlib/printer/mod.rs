@@ -15,11 +15,7 @@ pub use basic::Printer;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{
-        TermManager,
-        model::Model,
-        proof::{Proof, ProofRule},
-    };
+    use crate::ast::{TermManager, model::Model};
     use config::PrettyConfig;
     use pretty::PrettyPrinter;
 

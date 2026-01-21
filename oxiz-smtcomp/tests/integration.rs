@@ -7,18 +7,17 @@ use oxiz_smtcomp::benchmark::{BenchmarkStatus, RunSummary, Runner, RunnerConfig,
 use oxiz_smtcomp::filtering::{
     ExpectedStatusFilter, FilterCriteria, ResultFilterCriteria, filter_benchmarks, filter_results,
 };
-use oxiz_smtcomp::loader::{Benchmark, BenchmarkMeta, ExpectedStatus, Loader, LoaderConfig};
+use oxiz_smtcomp::loader::{Benchmark, BenchmarkMeta, ExpectedStatus};
 use oxiz_smtcomp::parallel::{ParallelConfig, ParallelRunner};
-use oxiz_smtcomp::plotting::{Color, DataSeries, PlotConfig, SvgPlot};
-use oxiz_smtcomp::regression::{RegressionConfig, RegressionDetector};
-use oxiz_smtcomp::reporter::{ReportFormat, Reporter};
-use oxiz_smtcomp::resumption::{Checkpoint, CheckpointConfig, ResultLoader, ResultSaver};
+use oxiz_smtcomp::plotting::SvgPlot;
+use oxiz_smtcomp::regression::RegressionDetector;
+use oxiz_smtcomp::reporter::Reporter;
+use oxiz_smtcomp::resumption::{CheckpointConfig, ResultLoader, ResultSaver};
 use oxiz_smtcomp::sampling::{Sampler, SamplingConfig, SamplingStrategy};
-use oxiz_smtcomp::starexec::{StarExecReader, StarExecWriter};
+use oxiz_smtcomp::starexec::StarExecWriter;
 use oxiz_smtcomp::statistics::{SolverComparison, Statistics, cactus_data, scatter_data};
 use oxiz_smtcomp::virtual_best::VirtualBestSolver;
 
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
 use tempfile::tempdir;
@@ -495,7 +494,7 @@ fn test_memory_limits() {
 
 #[test]
 fn test_model_verification() {
-    use oxiz_smtcomp::model_verify::{Model, ModelVerifier, VerificationSummary};
+    use oxiz_smtcomp::model_verify::Model;
 
     // Test model creation
     let mut model = Model::new();
