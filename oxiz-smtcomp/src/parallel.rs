@@ -180,8 +180,8 @@ impl ParallelRunner {
                     }
 
                     // Report progress
-                    if let Some(ref callback) = progress_callback {
-                        if count % config.progress_interval == 0 || count == total {
+                    if let Some(ref callback) = progress_callback
+                        && (count.is_multiple_of(config.progress_interval) || count == total) {
                             callback(ParallelProgress {
                                 total,
                                 completed: count,
@@ -190,7 +190,6 @@ impl ParallelRunner {
                                 elapsed: start.elapsed(),
                             });
                         }
-                    }
 
                     result
                 })
@@ -249,8 +248,8 @@ impl ParallelRunner {
                 }
 
                 // Report progress
-                if let Some(ref callback) = progress_callback {
-                    if count % config.progress_interval == 0 || count == total {
+                if let Some(ref callback) = progress_callback
+                    && (count.is_multiple_of(config.progress_interval) || count == total) {
                         callback(ParallelProgress {
                             total,
                             completed: count,
@@ -259,7 +258,6 @@ impl ParallelRunner {
                             elapsed: start.elapsed(),
                         });
                     }
-                }
 
                 result
             })

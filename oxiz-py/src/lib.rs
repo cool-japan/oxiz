@@ -3,7 +3,7 @@
 //! Provides Python bindings for the OxiZ SMT solver via PyO3.
 
 use ::oxiz::core::ast::{TermId, TermKind, TermManager};
-use ::oxiz::solver::{Solver, SolverResult};
+use ::oxiz::solver::{Model, OptimizationResult, Optimizer, Solver, SolverResult};
 use num_bigint::BigInt;
 use num_rational::Rational64;
 use pyo3::exceptions::PyValueError;
@@ -405,6 +405,283 @@ impl PyTermManager {
         PyTerm::from(tm.mk_mod(lhs.id, rhs.id))
     }
 
+    /// Create a logical XOR (exclusive or)
+    ///
+    /// Args:
+    ///     lhs: Left-hand side
+    ///     rhs: Right-hand side
+    ///
+    /// Returns:
+    ///     A Term representing lhs XOR rhs
+    fn mk_xor(&self, lhs: &PyTerm, rhs: &PyTerm) -> PyTerm {
+        let mut tm = self.inner.borrow_mut();
+        PyTerm::from(tm.mk_xor(lhs.id, rhs.id))
+    }
+
+    // ============ BitVec Operations ============
+
+    /// Create a bitvector constant
+    ///
+    /// Args:
+    ///     value: Integer value
+    ///     width: Bit width
+    ///
+    /// Returns:
+    ///     A Term representing the bitvector constant
+    fn mk_bv(&self, value: i64, width: u32) -> PyTerm {
+        let mut tm = self.inner.borrow_mut();
+        PyTerm::from(tm.mk_bitvec(BigInt::from(value), width))
+    }
+
+    /// Concatenate two bitvectors
+    ///
+    /// Args:
+    ///     lhs: High-order bits
+    ///     rhs: Low-order bits
+    ///
+    /// Returns:
+    ///     A Term representing the concatenation
+    fn mk_bv_concat(&self, lhs: &PyTerm, rhs: &PyTerm) -> PyTerm {
+        let mut tm = self.inner.borrow_mut();
+        PyTerm::from(tm.mk_bv_concat(lhs.id, rhs.id))
+    }
+
+    /// Extract bits from a bitvector
+    ///
+    /// Args:
+    ///     high: High bit index (inclusive)
+    ///     low: Low bit index (inclusive)
+    ///     arg: Bitvector term
+    ///
+    /// Returns:
+    ///     A Term representing bits[high:low]
+    fn mk_bv_extract(&self, high: u32, low: u32, arg: &PyTerm) -> PyTerm {
+        let mut tm = self.inner.borrow_mut();
+        PyTerm::from(tm.mk_bv_extract(high, low, arg.id))
+    }
+
+    /// Bitwise NOT
+    ///
+    /// Args:
+    ///     arg: Bitvector term
+    ///
+    /// Returns:
+    ///     A Term representing ~arg
+    fn mk_bv_not(&self, arg: &PyTerm) -> PyTerm {
+        let mut tm = self.inner.borrow_mut();
+        PyTerm::from(tm.mk_bv_not(arg.id))
+    }
+
+    /// Bitwise AND
+    ///
+    /// Args:
+    ///     lhs: Left operand
+    ///     rhs: Right operand
+    ///
+    /// Returns:
+    ///     A Term representing lhs & rhs
+    fn mk_bv_and(&self, lhs: &PyTerm, rhs: &PyTerm) -> PyTerm {
+        let mut tm = self.inner.borrow_mut();
+        PyTerm::from(tm.mk_bv_and(lhs.id, rhs.id))
+    }
+
+    /// Bitwise OR
+    ///
+    /// Args:
+    ///     lhs: Left operand
+    ///     rhs: Right operand
+    ///
+    /// Returns:
+    ///     A Term representing lhs | rhs
+    fn mk_bv_or(&self, lhs: &PyTerm, rhs: &PyTerm) -> PyTerm {
+        let mut tm = self.inner.borrow_mut();
+        PyTerm::from(tm.mk_bv_or(lhs.id, rhs.id))
+    }
+
+    /// Bitvector addition
+    ///
+    /// Args:
+    ///     lhs: Left operand
+    ///     rhs: Right operand
+    ///
+    /// Returns:
+    ///     A Term representing lhs + rhs (bitvector arithmetic)
+    fn mk_bv_add(&self, lhs: &PyTerm, rhs: &PyTerm) -> PyTerm {
+        let mut tm = self.inner.borrow_mut();
+        PyTerm::from(tm.mk_bv_add(lhs.id, rhs.id))
+    }
+
+    /// Bitvector subtraction
+    ///
+    /// Args:
+    ///     lhs: Left operand
+    ///     rhs: Right operand
+    ///
+    /// Returns:
+    ///     A Term representing lhs - rhs (bitvector arithmetic)
+    fn mk_bv_sub(&self, lhs: &PyTerm, rhs: &PyTerm) -> PyTerm {
+        let mut tm = self.inner.borrow_mut();
+        PyTerm::from(tm.mk_bv_sub(lhs.id, rhs.id))
+    }
+
+    /// Bitvector multiplication
+    ///
+    /// Args:
+    ///     lhs: Left operand
+    ///     rhs: Right operand
+    ///
+    /// Returns:
+    ///     A Term representing lhs * rhs (bitvector arithmetic)
+    fn mk_bv_mul(&self, lhs: &PyTerm, rhs: &PyTerm) -> PyTerm {
+        let mut tm = self.inner.borrow_mut();
+        PyTerm::from(tm.mk_bv_mul(lhs.id, rhs.id))
+    }
+
+    /// Bitvector negation
+    ///
+    /// Args:
+    ///     arg: Bitvector term
+    ///
+    /// Returns:
+    ///     A Term representing -arg (two's complement)
+    fn mk_bv_neg(&self, arg: &PyTerm) -> PyTerm {
+        let mut tm = self.inner.borrow_mut();
+        PyTerm::from(tm.mk_bv_neg(arg.id))
+    }
+
+    /// Unsigned less than
+    ///
+    /// Args:
+    ///     lhs: Left operand
+    ///     rhs: Right operand
+    ///
+    /// Returns:
+    ///     A boolean Term representing lhs <u rhs
+    fn mk_bv_ult(&self, lhs: &PyTerm, rhs: &PyTerm) -> PyTerm {
+        let mut tm = self.inner.borrow_mut();
+        PyTerm::from(tm.mk_bv_ult(lhs.id, rhs.id))
+    }
+
+    /// Signed less than
+    ///
+    /// Args:
+    ///     lhs: Left operand
+    ///     rhs: Right operand
+    ///
+    /// Returns:
+    ///     A boolean Term representing lhs <s rhs
+    fn mk_bv_slt(&self, lhs: &PyTerm, rhs: &PyTerm) -> PyTerm {
+        let mut tm = self.inner.borrow_mut();
+        PyTerm::from(tm.mk_bv_slt(lhs.id, rhs.id))
+    }
+
+    /// Unsigned less than or equal
+    ///
+    /// Args:
+    ///     lhs: Left operand
+    ///     rhs: Right operand
+    ///
+    /// Returns:
+    ///     A boolean Term representing lhs <=u rhs
+    fn mk_bv_ule(&self, lhs: &PyTerm, rhs: &PyTerm) -> PyTerm {
+        let mut tm = self.inner.borrow_mut();
+        PyTerm::from(tm.mk_bv_ule(lhs.id, rhs.id))
+    }
+
+    /// Signed less than or equal
+    ///
+    /// Args:
+    ///     lhs: Left operand
+    ///     rhs: Right operand
+    ///
+    /// Returns:
+    ///     A boolean Term representing lhs <=s rhs
+    fn mk_bv_sle(&self, lhs: &PyTerm, rhs: &PyTerm) -> PyTerm {
+        let mut tm = self.inner.borrow_mut();
+        PyTerm::from(tm.mk_bv_sle(lhs.id, rhs.id))
+    }
+
+    /// Unsigned division
+    ///
+    /// Args:
+    ///     lhs: Dividend
+    ///     rhs: Divisor
+    ///
+    /// Returns:
+    ///     A Term representing lhs /u rhs
+    fn mk_bv_udiv(&self, lhs: &PyTerm, rhs: &PyTerm) -> PyTerm {
+        let mut tm = self.inner.borrow_mut();
+        PyTerm::from(tm.mk_bv_udiv(lhs.id, rhs.id))
+    }
+
+    /// Signed division
+    ///
+    /// Args:
+    ///     lhs: Dividend
+    ///     rhs: Divisor
+    ///
+    /// Returns:
+    ///     A Term representing lhs /s rhs
+    fn mk_bv_sdiv(&self, lhs: &PyTerm, rhs: &PyTerm) -> PyTerm {
+        let mut tm = self.inner.borrow_mut();
+        PyTerm::from(tm.mk_bv_sdiv(lhs.id, rhs.id))
+    }
+
+    /// Unsigned remainder
+    ///
+    /// Args:
+    ///     lhs: Dividend
+    ///     rhs: Divisor
+    ///
+    /// Returns:
+    ///     A Term representing lhs %u rhs
+    fn mk_bv_urem(&self, lhs: &PyTerm, rhs: &PyTerm) -> PyTerm {
+        let mut tm = self.inner.borrow_mut();
+        PyTerm::from(tm.mk_bv_urem(lhs.id, rhs.id))
+    }
+
+    /// Signed remainder
+    ///
+    /// Args:
+    ///     lhs: Dividend
+    ///     rhs: Divisor
+    ///
+    /// Returns:
+    ///     A Term representing lhs %s rhs
+    fn mk_bv_srem(&self, lhs: &PyTerm, rhs: &PyTerm) -> PyTerm {
+        let mut tm = self.inner.borrow_mut();
+        PyTerm::from(tm.mk_bv_srem(lhs.id, rhs.id))
+    }
+
+    // ============ Array Operations ============
+
+    /// Array select operation
+    ///
+    /// Args:
+    ///     array: Array term
+    ///     index: Index term
+    ///
+    /// Returns:
+    ///     A Term representing array[index]
+    fn mk_select(&self, array: &PyTerm, index: &PyTerm) -> PyTerm {
+        let mut tm = self.inner.borrow_mut();
+        PyTerm::from(tm.mk_select(array.id, index.id))
+    }
+
+    /// Array store operation
+    ///
+    /// Args:
+    ///     array: Array term
+    ///     index: Index term
+    ///     value: Value to store
+    ///
+    /// Returns:
+    ///     A Term representing store(array, index, value)
+    fn mk_store(&self, array: &PyTerm, index: &PyTerm, value: &PyTerm) -> PyTerm {
+        let mut tm = self.inner.borrow_mut();
+        PyTerm::from(tm.mk_store(array.id, index.id, value.id))
+    }
+
     /// Get the string representation of a term
     ///
     /// Args:
@@ -584,13 +861,212 @@ impl PySolver {
     }
 }
 
+/// Python wrapper for OptimizationResult
+#[pyclass(name = "OptimizationResult", eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum PyOptimizationResult {
+    /// Optimal solution found
+    Optimal,
+    /// Unbounded (no finite optimum)
+    Unbounded,
+    /// Unsatisfiable
+    Unsat,
+    /// Unknown (timeout, incomplete, etc.)
+    Unknown,
+}
+
+#[pymethods]
+impl PyOptimizationResult {
+    fn __repr__(&self) -> &'static str {
+        match self {
+            PyOptimizationResult::Optimal => "OptimizationResult.Optimal",
+            PyOptimizationResult::Unbounded => "OptimizationResult.Unbounded",
+            PyOptimizationResult::Unsat => "OptimizationResult.Unsat",
+            PyOptimizationResult::Unknown => "OptimizationResult.Unknown",
+        }
+    }
+
+    fn __str__(&self) -> &'static str {
+        match self {
+            PyOptimizationResult::Optimal => "optimal",
+            PyOptimizationResult::Unbounded => "unbounded",
+            PyOptimizationResult::Unsat => "unsat",
+            PyOptimizationResult::Unknown => "unknown",
+        }
+    }
+
+    /// Check if the result is optimal
+    #[getter]
+    fn is_optimal(&self) -> bool {
+        matches!(self, PyOptimizationResult::Optimal)
+    }
+
+    /// Check if the result is unbounded
+    #[getter]
+    fn is_unbounded(&self) -> bool {
+        matches!(self, PyOptimizationResult::Unbounded)
+    }
+
+    /// Check if the result is unsatisfiable
+    #[getter]
+    fn is_unsat(&self) -> bool {
+        matches!(self, PyOptimizationResult::Unsat)
+    }
+}
+
+/// Python wrapper for Optimizer
+///
+/// Note: This class is not thread-safe (unsendable) because it uses RefCell
+/// internally for interior mutability.
+#[pyclass(name = "Optimizer", unsendable)]
+pub struct PyOptimizer {
+    inner: RefCell<Optimizer>,
+    last_model: RefCell<Option<Model>>,
+}
+
+#[pymethods]
+impl PyOptimizer {
+    /// Create a new Optimizer
+    #[new]
+    fn new() -> Self {
+        Self {
+            inner: RefCell::new(Optimizer::new()),
+            last_model: RefCell::new(None),
+        }
+    }
+
+    /// Assert a term (add it as a constraint)
+    ///
+    /// Args:
+    ///     term: Term to assert (must be boolean)
+    fn assert_term(&self, term: &PyTerm) {
+        let mut optimizer = self.inner.borrow_mut();
+        optimizer.assert(term.id);
+    }
+
+    /// Add a term to minimize
+    ///
+    /// Args:
+    ///     term: Term to minimize (must be Int or Real)
+    fn minimize(&self, term: &PyTerm) {
+        let mut optimizer = self.inner.borrow_mut();
+        optimizer.minimize(term.id);
+    }
+
+    /// Add a term to maximize
+    ///
+    /// Args:
+    ///     term: Term to maximize (must be Int or Real)
+    fn maximize(&self, term: &PyTerm) {
+        let mut optimizer = self.inner.borrow_mut();
+        optimizer.maximize(term.id);
+    }
+
+    /// Set the logic
+    ///
+    /// Args:
+    ///     logic: SMT-LIB2 logic name (e.g., "QF_LIA", "QF_LRA")
+    fn set_logic(&self, logic: &str) {
+        let mut optimizer = self.inner.borrow_mut();
+        optimizer.set_logic(logic);
+    }
+
+    /// Push a new assertion scope
+    fn push(&self) {
+        let mut optimizer = self.inner.borrow_mut();
+        optimizer.push();
+    }
+
+    /// Pop an assertion scope
+    fn pop(&self) {
+        let mut optimizer = self.inner.borrow_mut();
+        optimizer.pop();
+    }
+
+    /// Optimize and find optimal solution
+    ///
+    /// Args:
+    ///     tm: TermManager
+    ///
+    /// Returns:
+    ///     OptimizationResult indicating optimal, unbounded, unsat, or unknown
+    fn optimize(&self, tm: &PyTermManager) -> PyOptimizationResult {
+        let mut optimizer = self.inner.borrow_mut();
+        let mut manager = tm.inner.borrow_mut();
+        let result = optimizer.optimize(&mut manager);
+
+        // Store the model if optimal
+        match &result {
+            OptimizationResult::Optimal { model, .. } => {
+                *self.last_model.borrow_mut() = Some(model.clone());
+                PyOptimizationResult::Optimal
+            }
+            OptimizationResult::Unbounded => {
+                PyOptimizationResult::Unbounded
+            }
+            OptimizationResult::Unsat => {
+                PyOptimizationResult::Unsat
+            }
+            OptimizationResult::Unknown => {
+                PyOptimizationResult::Unknown
+            }
+        }
+    }
+
+    /// Get the model as a dictionary (from last optimize call)
+    ///
+    /// Args:
+    ///     tm: TermManager
+    ///
+    /// Returns:
+    ///     Dictionary mapping variable names to their values (as strings)
+    fn get_model<'py>(&self, py: Python<'py>, tm: &PyTermManager) -> PyResult<Bound<'py, PyDict>> {
+        let manager = tm.inner.borrow();
+        let dict = PyDict::new(py);
+
+        if let Some(model) = self.last_model.borrow().as_ref() {
+            for (&var_id, &value_id) in model.assignments() {
+                if let Some(var_term) = manager.get(var_id)
+                    && let TermKind::Var(spur) = &var_term.kind
+                {
+                    let var_name = manager.resolve_str(*spur);
+
+                    let value_str = if let Some(value_term) = manager.get(value_id) {
+                        match &value_term.kind {
+                            TermKind::True => "true".to_string(),
+                            TermKind::False => "false".to_string(),
+                            TermKind::IntConst(n) => n.to_string(),
+                            TermKind::RealConst(r) => {
+                                if *r.denom() == 1 {
+                                    r.numer().to_string()
+                                } else {
+                                    format!("{}/{}", r.numer(), r.denom())
+                                }
+                            }
+                            _ => format!("{:?}", value_term.kind),
+                        }
+                    } else {
+                        format!("Term({})", value_id.raw())
+                    };
+
+                    dict.set_item(var_name, value_str)?;
+                }
+            }
+        }
+
+        Ok(dict)
+    }
+}
+
 /// OxiZ SMT Solver Python bindings
 #[pymodule]
 fn oxiz(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyTerm>()?;
     m.add_class::<PySolverResult>()?;
+    m.add_class::<PyOptimizationResult>()?;
     m.add_class::<PyTermManager>()?;
     m.add_class::<PySolver>()?;
+    m.add_class::<PyOptimizer>()?;
 
     // Add version info
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;

@@ -50,14 +50,21 @@ impl Color {
         format!("rgb({},{},{})", self.r, self.g, self.b)
     }
 
-    /// Predefined colors for plots
+    /// Blue color - Google Blue
     pub const BLUE: Color = Color::new(66, 133, 244);
+    /// Red color - Google Red
     pub const RED: Color = Color::new(234, 67, 53);
+    /// Green color - Google Green
     pub const GREEN: Color = Color::new(52, 168, 83);
+    /// Orange color - Google Yellow/Orange
     pub const ORANGE: Color = Color::new(251, 188, 4);
+    /// Purple color - Material Purple
     pub const PURPLE: Color = Color::new(103, 58, 183);
+    /// Cyan color - Material Cyan
     pub const CYAN: Color = Color::new(0, 188, 212);
+    /// Pink color - Material Pink
     pub const PINK: Color = Color::new(233, 30, 99);
+    /// Gray color - Material Gray
     pub const GRAY: Color = Color::new(158, 158, 158);
 }
 

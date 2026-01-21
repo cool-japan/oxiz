@@ -282,7 +282,7 @@ impl ModelVerifier {
                     }
                 }
                 Command::Assert(term) => {
-                    solver.assert(term.clone(), &mut tm);
+                    solver.assert(*term, &mut tm);
                 }
                 _ => {}
             }

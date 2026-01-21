@@ -193,8 +193,8 @@ pub fn dnrm2(x: &[f64]) -> f64 {
         sum += s0 * s0 + s1 * s1 + s2 * s2 + s3 * s3;
     }
 
-    for i in (chunks * 4)..n {
-        let s = x[i] * inv_scale;
+    for s in x.iter().skip(chunks * 4).take(n - chunks * 4) {
+        let s = s * inv_scale;
         sum += s * s;
     }
 
@@ -238,8 +238,8 @@ pub fn dscal(alpha: f64, x: &mut [f64]) {
         x[idx + 3] *= alpha;
     }
 
-    for i in (chunks * 4)..n {
-        x[i] *= alpha;
+    for x_val in x.iter_mut().skip(chunks * 4).take(n - chunks * 4) {
+        *x_val *= alpha;
     }
 }
 
@@ -388,8 +388,8 @@ pub fn dasum(x: &[f64]) -> f64 {
         sum += x[idx + 3].abs();
     }
 
-    for i in (chunks * 4)..n {
-        sum += x[i].abs();
+    for x_val in x.iter().skip(chunks * 4).take(n - chunks * 4) {
+        sum += x_val.abs();
     }
 
     sum
@@ -457,7 +457,7 @@ pub fn dgemv(
             }
 
             // y = alpha * A * x + beta * y
-            for i in 0..m {
+            for (i, y_val) in y.iter_mut().enumerate().take(m) {
                 let row_start = i * n;
                 let mut sum = 0.0;
 
@@ -474,7 +474,7 @@ pub fn dgemv(
                     sum += a[row_start + j] * x[j];
                 }
 
-                y[i] += alpha * sum;
+                *y_val += alpha * sum;
             }
         }
         Transpose::Trans => {
@@ -493,9 +493,9 @@ pub fn dgemv(
             }
 
             // y = alpha * A^T * x + beta * y
-            for i in 0..m {
+            for (i, x_val) in x.iter().enumerate().take(m) {
                 let row_start = i * n;
-                let alpha_xi = alpha * x[i];
+                let alpha_xi = alpha * x_val;
 
                 // Unroll inner loop
                 let chunks = n / 4;
@@ -551,11 +551,8 @@ pub fn dtrsv(uplo: UpLo, trans: Transpose, diag: Diag, n: usize, a: &[f64], b: &
                     sum -= a_ij * b[j];
                 }
                 if diag == Diag::NonUnit {
-                    let a_ii = if trans == Transpose::Trans {
-                        a[i * n + i]
-                    } else {
-                        a[i * n + i]
-                    };
+                    // Diagonal element is same for both NoTrans and Trans
+                    let a_ii = a[i * n + i];
                     b[i] = sum / a_ii;
                 } else {
                     b[i] = sum;
@@ -575,11 +572,8 @@ pub fn dtrsv(uplo: UpLo, trans: Transpose, diag: Diag, n: usize, a: &[f64], b: &
                     sum -= a_ij * b[j];
                 }
                 if diag == Diag::NonUnit {
-                    let a_ii = if trans == Transpose::Trans {
-                        a[i * n + i]
-                    } else {
-                        a[i * n + i]
-                    };
+                    // Diagonal element is same for both NoTrans and Trans
+                    let a_ii = a[i * n + i];
                     b[i] = sum / a_ii;
                 } else {
                     b[i] = sum;

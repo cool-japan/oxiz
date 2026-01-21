@@ -229,7 +229,7 @@ impl Sampler {
         }
 
         // First pass: ensure minimum per category
-        for (_, members) in groups {
+        for members in groups.values() {
             let n = self.config.min_per_category.min(members.len());
             let mut indices: Vec<usize> = (0..members.len()).collect();
             indices.shuffle(&mut self.rng);
@@ -244,7 +244,7 @@ impl Sampler {
         if remaining > 0 {
             let mut additional = Vec::new();
 
-            for (_, members) in groups {
+            for members in groups.values() {
                 let proportion = members.len() as f64 / total as f64;
                 let allocation = ((remaining as f64 * proportion).ceil() as usize)
                     .min(members.len().saturating_sub(self.config.min_per_category));
@@ -296,12 +296,11 @@ impl Sampler {
             if result.len() >= target {
                 break;
             }
-            if let Some(members) = by_features.get(key) {
-                if !members.is_empty() {
+            if let Some(members) = by_features.get(key)
+                && !members.is_empty() {
                     let idx = (self.rng.next_u64() as usize) % members.len();
                     result.push(members[idx].clone());
                 }
-            }
         }
 
         // Fill remaining with random selection

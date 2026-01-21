@@ -347,7 +347,6 @@ impl ArbitraryFloat {
         }
     }
 
-
     /// Normalize the mantissa to have the leading 1 in the correct position.
     fn normalize(&mut self, rounding: RoundingMode) {
         if self.mantissa.is_zero() || !self.is_finite() {
@@ -370,7 +369,7 @@ impl ArbitraryFloat {
             let round_up = match rounding {
                 RoundingMode::RoundNearest => {
                     // Round to nearest, ties to even
-                    if &remainder > &half {
+                    if remainder > half {
                         true
                     } else if remainder == half {
                         // Tie: round to even

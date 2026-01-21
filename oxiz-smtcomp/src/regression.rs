@@ -433,6 +433,14 @@ impl RegressionDetector {
                 }
             }
         }
+        if new_timeouts > self.config.max_new_timeouts {
+            // Promote severity for excessive new timeouts
+            for finding in &mut findings {
+                if finding.regression_type == RegressionType::NewTimeout {
+                    finding.severity = 0.85;
+                }
+            }
+        }
 
         let has_regressions = !findings.is_empty();
         let has_critical_regressions = findings.iter().any(|f| f.is_critical());

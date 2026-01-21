@@ -222,7 +222,7 @@ impl ResultSaver {
         self.checkpoint.mark_completed(&result.path);
 
         // Periodically save checkpoint (every 10 results)
-        if self.checkpoint.completed % 10 == 0 {
+        if self.checkpoint.completed.is_multiple_of(10) {
             self.save_checkpoint()?;
         }
 
@@ -368,8 +368,7 @@ impl SessionManager {
 
             if path.extension().is_some_and(|e| e == "json")
                 && path.to_string_lossy().contains(".checkpoint")
-            {
-                if let Ok(checkpoint) = ResultLoader::load_checkpoint(&path) {
+                && let Ok(checkpoint) = ResultLoader::load_checkpoint(&path) {
                     let is_complete = checkpoint.is_complete();
                     sessions.push(SessionInfo {
                         session_id: checkpoint.session_id,
@@ -379,7 +378,6 @@ impl SessionManager {
                         is_complete,
                     });
                 }
-            }
         }
 
         sessions.sort_by_key(|s| std::cmp::Reverse(s.start_time));

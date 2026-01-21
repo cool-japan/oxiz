@@ -246,6 +246,115 @@ if result == oxiz.SolverResult.Sat:
 - `"Real"` - Rational numbers
 - `"BitVec[N]"` - Bit vectors of width N (e.g., `"BitVec[32]"`)
 
+## Bitvector Operations
+
+```python
+tm = oxiz.TermManager()
+
+# Create bitvector constants
+bv8 = tm.mk_bv(42, 8)       # 8-bit bitvector with value 42
+bv16 = tm.mk_bv(1000, 16)   # 16-bit bitvector
+
+# Bitwise operations
+not_x = tm.mk_bv_not(x)         # Bitwise NOT
+and_xy = tm.mk_bv_and(x, y)     # Bitwise AND
+or_xy = tm.mk_bv_or(x, y)       # Bitwise OR
+
+# Arithmetic operations
+sum_xy = tm.mk_bv_add(x, y)     # Addition (modulo 2^width)
+diff_xy = tm.mk_bv_sub(x, y)    # Subtraction
+prod_xy = tm.mk_bv_mul(x, y)    # Multiplication
+neg_x = tm.mk_bv_neg(x)         # Two's complement negation
+
+# Comparisons (unsigned)
+ult = tm.mk_bv_ult(x, y)        # x <u y (unsigned less than)
+ule = tm.mk_bv_ule(x, y)        # x <=u y (unsigned less or equal)
+
+# Comparisons (signed)
+slt = tm.mk_bv_slt(x, y)        # x <s y (signed less than)
+sle = tm.mk_bv_sle(x, y)        # x <=s y (signed less or equal)
+
+# Division and remainder
+udiv = tm.mk_bv_udiv(x, y)      # Unsigned division
+sdiv = tm.mk_bv_sdiv(x, y)      # Signed division
+urem = tm.mk_bv_urem(x, y)      # Unsigned remainder
+srem = tm.mk_bv_srem(x, y)      # Signed remainder
+
+# Bit manipulation
+concat = tm.mk_bv_concat(high, low)    # Concatenate bitvectors
+extract = tm.mk_bv_extract(7, 4, x)    # Extract bits[7:4]
+```
+
+## Array Operations
+
+```python
+tm = oxiz.TermManager()
+
+# Array select and store
+value = tm.mk_select(array, index)              # array[index]
+new_array = tm.mk_store(array, index, value)    # array with array[index] = value
+```
+
+## Optimization
+
+OxiZ supports optimization (minimize/maximize) using the `Optimizer` class:
+
+```python
+tm = oxiz.TermManager()
+opt = oxiz.Optimizer()
+opt.set_logic("QF_LIA")
+
+# Variables
+x = tm.mk_var("x", "Int")
+y = tm.mk_var("y", "Int")
+
+# Constraints
+zero = tm.mk_int(0)
+ten = tm.mk_int(10)
+sum_xy = tm.mk_add([x, y])
+
+opt.assert_term(tm.mk_ge(sum_xy, ten))  # x + y >= 10
+opt.assert_term(tm.mk_ge(x, zero))       # x >= 0
+opt.assert_term(tm.mk_ge(y, zero))       # y >= 0
+
+# Objective: minimize x + y
+opt.minimize(sum_xy)
+
+# Solve
+result = opt.optimize(tm)
+if result == oxiz.OptimizationResult.Optimal:
+    model = opt.get_model(tm)
+    print(f"Optimal: x={model['x']}, y={model['y']}")  # Should be x=0, y=10 or x=10, y=0
+```
+
+### Optimization Results
+
+- `OptimizationResult.Optimal` - Optimal solution found
+- `OptimizationResult.Unbounded` - Objective is unbounded (no finite optimum)
+- `OptimizationResult.Unsat` - No feasible solution exists
+- `OptimizationResult.Unknown` - Timeout or incomplete
+
+## Examples
+
+See the `examples/` directory for complete demos:
+
+- `basic_sat.py` - Boolean satisfiability
+- `bitvec_example.py` - Bitvector operations
+- `optimization_example.py` - Optimization (min/max)
+- `sudoku.py` - Sudoku solver
+
+## Testing
+
+Run the test suite with pytest:
+
+```bash
+# Install the package in development mode
+maturin develop --release
+
+# Run tests
+pytest tests/ -v
+```
+
 ## License
 
 MIT OR Apache-2.0

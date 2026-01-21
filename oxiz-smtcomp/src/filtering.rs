@@ -122,17 +122,17 @@ impl FilterCriteria {
     pub fn matches(&self, meta: &BenchmarkMeta) -> bool {
         // Check expected status
         if let Some(ref status_filter) = self.expected_status {
-            let matches = match (status_filter, meta.expected_status) {
-                (ExpectedStatusFilter::Sat, Some(ExpectedStatus::Sat)) => true,
-                (ExpectedStatusFilter::Unsat, Some(ExpectedStatus::Unsat)) => true,
-                (ExpectedStatusFilter::Unknown, Some(ExpectedStatus::Unknown)) => true,
-                (ExpectedStatusFilter::Unknown, None) => true,
-                (ExpectedStatusFilter::Decided, Some(ExpectedStatus::Sat)) => true,
-                (ExpectedStatusFilter::Decided, Some(ExpectedStatus::Unsat)) => true,
-                (ExpectedStatusFilter::Any, Some(_)) => true,
-                _ => false,
-            };
-            if !matches {
+            let status_matches = matches!(
+                (status_filter, meta.expected_status),
+                (ExpectedStatusFilter::Sat, Some(ExpectedStatus::Sat))
+                    | (ExpectedStatusFilter::Unsat, Some(ExpectedStatus::Unsat))
+                    | (ExpectedStatusFilter::Unknown, Some(ExpectedStatus::Unknown))
+                    | (ExpectedStatusFilter::Unknown, None)
+                    | (ExpectedStatusFilter::Decided, Some(ExpectedStatus::Sat))
+                    | (ExpectedStatusFilter::Decided, Some(ExpectedStatus::Unsat))
+                    | (ExpectedStatusFilter::Any, Some(_))
+            );
+            if !status_matches {
                 return false;
             }
         }
@@ -146,13 +146,11 @@ impl FilterCriteria {
         }
 
         // Check logic exclusion
-        if let Some(ref exclude) = self.exclude_logics {
-            if let Some(ref logic) = meta.logic {
-                if exclude.contains(logic) {
+        if let Some(ref exclude) = self.exclude_logics
+            && let Some(ref logic) = meta.logic
+                && exclude.contains(logic) {
                     return false;
                 }
-            }
-        }
 
         // Check category
         if let Some(ref categories) = self.categories {
@@ -163,16 +161,14 @@ impl FilterCriteria {
         }
 
         // Check file size
-        if let Some(min) = self.min_file_size {
-            if meta.file_size < min {
+        if let Some(min) = self.min_file_size
+            && meta.file_size < min {
                 return false;
             }
-        }
-        if let Some(max) = self.max_file_size {
-            if meta.file_size > max {
+        if let Some(max) = self.max_file_size
+            && meta.file_size > max {
                 return false;
             }
-        }
 
         // Check path pattern
         if let Some(ref pattern) = self.path_pattern {
@@ -316,11 +312,10 @@ impl ResultFilterCriteria {
     #[must_use]
     pub fn matches(&self, result: &SingleResult) -> bool {
         // Check status
-        if let Some(ref statuses) = self.status {
-            if !statuses.contains(&result.status) {
+        if let Some(ref statuses) = self.status
+            && !statuses.contains(&result.status) {
                 return false;
             }
-        }
 
         // Check correctness
         if let Some(expected_correct) = self.correct {
@@ -333,16 +328,14 @@ impl ResultFilterCriteria {
 
         // Check time
         let time_secs = result.time.as_secs_f64();
-        if let Some(min) = self.min_time_secs {
-            if time_secs < min {
+        if let Some(min) = self.min_time_secs
+            && time_secs < min {
                 return false;
             }
-        }
-        if let Some(max) = self.max_time_secs {
-            if time_secs > max {
+        if let Some(max) = self.max_time_secs
+            && time_secs > max {
                 return false;
             }
-        }
 
         // Check logic
         if let Some(ref logics) = self.logics {

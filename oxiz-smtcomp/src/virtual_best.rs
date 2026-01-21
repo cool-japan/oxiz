@@ -8,7 +8,7 @@ use crate::benchmark::{BenchmarkStatus, RunSummary, SingleResult};
 use crate::statistics::CactusPoint;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 /// Virtual best solver result for a single benchmark
@@ -129,7 +129,7 @@ impl VirtualBestSolver {
     /// Calculate VBS for a single benchmark
     fn calculate_single(
         &self,
-        path: &PathBuf,
+        path: &Path,
         solver_results: &HashMap<String, &SingleResult>,
     ) -> VirtualBestResult {
         let mut solver_times = HashMap::new();
@@ -169,7 +169,7 @@ impl VirtualBestSolver {
         }
 
         VirtualBestResult {
-            path: path.clone(),
+            path: path.to_path_buf(),
             status: best_status,
             time: best_time,
             best_solver,
@@ -229,11 +229,10 @@ impl VirtualBestSolver {
                     .map(|(name, _)| name)
                     .collect();
 
-                if solvers_that_solved.len() == 1 {
-                    if let Some(count) = stats.unique_solves.get_mut(solvers_that_solved[0]) {
+                if solvers_that_solved.len() == 1
+                    && let Some(count) = stats.unique_solves.get_mut(solvers_that_solved[0]) {
                         *count += 1;
                     }
-                }
 
                 // Calculate speedup
                 for solver in &solver_names {
