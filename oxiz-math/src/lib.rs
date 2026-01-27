@@ -105,6 +105,7 @@ pub mod rational;
 pub mod rational_function;
 pub mod realclosure;
 pub mod simplex;
+pub mod simplex_parametric;
 
 #[cfg(test)]
 mod integration_tests {

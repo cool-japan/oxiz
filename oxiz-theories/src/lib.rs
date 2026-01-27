@@ -58,6 +58,7 @@
 
 pub mod arithmetic;
 pub mod array;
+pub mod array_eager_expand;
 pub mod bv;
 pub mod character;
 pub mod checking;
@@ -68,16 +69,19 @@ pub mod diff_logic;
 pub mod error;
 pub mod euf;
 pub mod fp;
+pub mod fp_interval_prop;
 pub mod hashcons;
 mod lru_cache;
 pub mod pb;
 pub mod propagation;
 pub mod quantifier;
+pub mod quantifier_code_tree;
 pub mod recfun;
 pub mod simplify;
 pub mod sls;
 pub mod special_relations;
 pub mod string;
+pub mod string_length_prop;
 mod theory;
 pub mod user_propagator;
 pub mod utvpi;
@@ -101,9 +105,25 @@ pub use theory::{
 };
 pub use watched::{WatchList, WatchStats, WatchedConstraint};
 
+// Array eager expansion exports
+pub use array_eager_expand::{
+    EagerArrayExpander, EagerExpandConfig, EagerExpandStats, ExpandedArray,
+};
+
+// Floating-point interval propagation exports
+pub use fp_interval_prop::{
+    FpInterval, FpIntervalPropagator, FpIntervalStats, RoundingMode as FpIntervalRoundingMode,
+};
+
+// String length propagation exports
+pub use string_length_prop::{LengthConstraint, LengthDomain, LengthPropStats, LengthPropagator};
+
 // Quantifier solver exports
 pub use quantifier::{
     InstantiationLemma, QuantifierConfig, QuantifierSolver, QuantifierStats, TrackedQuantifier,
+};
+pub use quantifier_code_tree::{
+    CodeTree, CodeTreeInstr, CodeTreeStats, CompiledPattern, Match, PatternVar,
 };
 
 // Recursive function solver exports

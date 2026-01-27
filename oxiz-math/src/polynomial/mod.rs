@@ -12,6 +12,11 @@ mod extended_ops;
 mod helpers;
 mod types;
 
+pub mod factorization;
+pub mod gcd;
+pub mod gcd_advanced;
+pub mod root_isolation;
+
 // Re-export all public types
 pub use types::{Monomial, MonomialOrder, NULL_VAR, Term, Var, VarPower};
 

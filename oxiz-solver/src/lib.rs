@@ -100,3 +100,10 @@ pub use oxiz_sat::{RestartStrategy, SolverStats};
 
 // Re-export theory combination types from oxiz-theories
 pub use oxiz_theories::{EqualityNotification, TheoryCombination};
+
+// Phase 2 enhancements
+pub mod combination;
+pub mod conflict;
+pub mod model;
+pub mod propagation_pipeline;
+pub mod shared_terms;

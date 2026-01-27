@@ -17,6 +17,16 @@
 //! - Cutting planes (Gomory cuts)
 //! - Node selection strategies (best-first, depth-first)
 
+// Phase 2 enhancements - advanced LP algorithms
+pub mod cutting_planes;
+pub mod dual_simplex;
+
+pub use cutting_planes::{Cut, CuttingPlaneConfig, CuttingPlaneGenerator, CuttingPlaneStats};
+pub use dual_simplex::{
+    DualSimplex as DualSimplexSolver, DualSimplexConfig, DualSimplexResult, DualSimplexStats,
+    DualTableau,
+};
+
 use crate::simplex::{BoundType, SimplexResult, SimplexTableau};
 use num_bigint::BigInt;
 use num_rational::BigRational;

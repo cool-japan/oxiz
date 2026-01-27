@@ -23,14 +23,15 @@ pub mod bce;
 pub mod bound_propagation;
 pub mod bve;
 pub mod cad;
+pub mod cad_optimization;
 pub mod chrono_bt;
 pub mod clause;
 pub mod clause_tiers;
-pub mod cutting_planes;
 pub mod discriminant;
 pub mod eval_cache;
 pub mod evaluator;
 pub mod explain;
+pub mod grobner_preprocess;
 pub mod incremental_cad;
 pub mod inprocessing;
 pub mod interval_set;
@@ -64,13 +65,21 @@ pub use cad::{
     CadCell, CadConfig, CadDecomposer, CadError, CadLifter, CadPoint, CadProjection, ProjectionSet,
     SampleStrategy, SturmSequence,
 };
+pub use cad_optimization::{
+    CadOptConfig, CadOptStats, CadOrderingAnalyzer, HongProjection, OrderingHeuristic,
+    PartialCadBuilder, ProjectionConflict, SampleCache,
+};
 pub use chrono_bt::{
     BacktrackDecision, ChronoBacktracker, ChronoConfig, ChronoStats, ConflictAnalysisResult,
 };
 pub use clause_tiers::{ClauseTier, ClauseTierConfig, ClauseTierManager, ClauseTierStats};
-pub use cutting_planes::{CutStats, CutType, CuttingPlane, CuttingPlaneGenerator};
+// TODO: Re-export cutting planes from oxiz-math after API updates
+// pub use oxiz_math::lp::cutting_planes::{Cut, CutType, CuttingPlaneConfig, CuttingPlaneGenerator, CuttingPlaneStats};
 pub use discriminant::{DiscriminantAnalyzer, DiscriminantSign, DiscriminantStats, RootInfo};
 pub use eval_cache::{CachedSign, EvalCache, EvalCacheConfig, EvalCacheStats, SignPattern};
+pub use grobner_preprocess::{
+    GroebnerConfig, GroebnerPreprocessor, GroebnerStats, PreprocessResult,
+};
 pub use incremental_cad::{CacheStats, CadSnapshot, IncrementalCad};
 pub use inprocessing::{InprocessConfig, InprocessStats, Inprocessor};
 pub use lookahead::{LookaheadConfig, LookaheadEngine, LookaheadResult, LookaheadStats};

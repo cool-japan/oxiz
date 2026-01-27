@@ -98,3 +98,10 @@ pub trait Tactic: Send + Sync {
         ""
     }
 }
+
+// Split clause submodule
+pub mod split_clause;
+
+pub use split_clause::{
+    Clause, FormulaTree, SplitClauseConfig, SplitClauseStats, SplitClauseTactic,
+};

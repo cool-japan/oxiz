@@ -10,6 +10,10 @@ pub mod nla2bv;
 pub mod probe;
 pub mod quantifier;
 
+// Phase 2 enhancements
+pub mod arith;
+pub mod bv;
+
 // Refactored modules
 mod ackermann;
 mod bitblast;
