@@ -189,7 +189,17 @@ impl ArithSolver {
 
     /// Assert: lhs < rhs (strict inequality)
     /// For LRA, uses infinitesimals: lhs <= rhs - δ
+    /// For LIA, transforms to: lhs <= rhs - 1 (since no integer exists between k and k+1)
     pub fn assert_lt(&mut self, lhs: &[(TermId, Rational64)], rhs: Rational64, reason: TermId) {
+        // For integer arithmetic, x < k is equivalent to x <= k - 1
+        // because there's no integer strictly between k-1 and k
+        if self.is_integer {
+            // Transform: lhs < rhs becomes lhs <= rhs - 1
+            self.assert_le(lhs, rhs - Rational64::one(), reason);
+            return;
+        }
+
+        // For reals, use delta-rationals
         // lhs < rhs is equivalent to lhs - rhs < 0
         let mut expr = LinExpr::new();
 
@@ -209,7 +219,17 @@ impl ArithSolver {
 
     /// Assert: lhs > rhs (strict inequality)
     /// For LRA, uses infinitesimals: lhs >= rhs + δ
+    /// For LIA, transforms to: lhs >= rhs + 1 (since no integer exists between k and k+1)
     pub fn assert_gt(&mut self, lhs: &[(TermId, Rational64)], rhs: Rational64, reason: TermId) {
+        // For integer arithmetic, x > k is equivalent to x >= k + 1
+        // because there's no integer strictly between k and k+1
+        if self.is_integer {
+            // Transform: lhs > rhs becomes lhs >= rhs + 1
+            self.assert_ge(lhs, rhs + Rational64::one(), reason);
+            return;
+        }
+
+        // For reals, use delta-rationals
         // lhs > rhs is equivalent to rhs - lhs < 0
         // We build rhs - lhs directly instead of negating lhs - rhs
         // This avoids issues with normalize_expr which ensures positive first coefficient
@@ -647,5 +667,99 @@ mod tests {
         // For now, this always returns false (tightening happens during assertion)
         assert!(!solver_lia.tighten_constraints());
         assert!(!solver_lra.tighten_constraints());
+    }
+
+    /// Test that x > 5 AND x < 6 is UNSAT for integers (no integer in open interval (5,6))
+    /// This is the bug report test case: strict inequalities must be transformed for LIA
+    #[test]
+    fn test_lia_strict_inequality_empty_interval() {
+        let mut solver = ArithSolver::lia();
+
+        let x = TermId::new(1);
+        let reason = TermId::new(100);
+
+        // x > 5 (for integers, this becomes x >= 6)
+        solver.assert_gt(
+            &[(x, Rational64::one())],
+            Rational64::from_integer(5),
+            reason,
+        );
+
+        // x < 6 (for integers, this becomes x <= 5)
+        solver.assert_lt(
+            &[(x, Rational64::one())],
+            Rational64::from_integer(6),
+            reason,
+        );
+
+        // Should be UNSAT: x >= 6 AND x <= 5 is impossible
+        let result = solver.check().unwrap();
+        assert!(
+            matches!(result, TheoryResult::Unsat(_)),
+            "Expected UNSAT for x > 5 AND x < 6 in LIA, got {:?}",
+            result
+        );
+    }
+
+    /// Test that x > 5 AND x < 6 is SAT for reals (5.5 is a valid solution)
+    #[test]
+    fn test_lra_strict_inequality_has_solution() {
+        let mut solver = ArithSolver::lra();
+
+        let x = TermId::new(1);
+        let reason = TermId::new(100);
+
+        // x > 5
+        solver.assert_gt(
+            &[(x, Rational64::one())],
+            Rational64::from_integer(5),
+            reason,
+        );
+
+        // x < 6
+        solver.assert_lt(
+            &[(x, Rational64::one())],
+            Rational64::from_integer(6),
+            reason,
+        );
+
+        // Should be SAT for reals: x = 5.5 is a valid solution
+        let result = solver.check().unwrap();
+        assert!(
+            matches!(result, TheoryResult::Sat),
+            "Expected SAT for x > 5 AND x < 6 in LRA, got {:?}",
+            result
+        );
+    }
+
+    /// Test x >= 5 AND x <= 5 with strict bounds in LIA
+    #[test]
+    fn test_lia_strict_at_boundary() {
+        let mut solver = ArithSolver::lia();
+
+        let x = TermId::new(1);
+        let reason = TermId::new(100);
+
+        // x >= 5
+        solver.assert_ge(
+            &[(x, Rational64::one())],
+            Rational64::from_integer(5),
+            reason,
+        );
+
+        // x < 6 (becomes x <= 5)
+        solver.assert_lt(
+            &[(x, Rational64::one())],
+            Rational64::from_integer(6),
+            reason,
+        );
+
+        // Should be SAT: x = 5 is the only solution
+        let result = solver.check().unwrap();
+        assert!(
+            matches!(result, TheoryResult::Sat),
+            "Expected SAT for x >= 5 AND x < 6 in LIA, got {:?}",
+            result
+        );
     }
 }
