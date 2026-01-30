@@ -21,7 +21,6 @@
 //! - Z3's `nlsat/nlsat_solver.cpp`
 
 use num_rational::BigRational;
-use rustc_hash::FxHashMap;
 
 /// Variable identifier.
 pub type VarId = u32;
@@ -210,7 +209,7 @@ impl NlqsatSolver {
     }
 
     /// Eliminate universal quantifier.
-    fn eliminate_forall(&mut self, _var: VarId, body: &Formula) -> NlqsatResult {
+    fn eliminate_forall(&mut self, _var: VarId, _body: &Formula) -> NlqsatResult {
         // ∀x. φ  =  ¬∃x. ¬φ
         // Simplified: return Unknown
         NlqsatResult::Unknown

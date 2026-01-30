@@ -103,8 +103,10 @@ mod memory;
 mod memory_opt;
 mod ml_branching;
 mod occurrence;
+pub mod parallel;
 mod portfolio;
-mod preprocessing;
+pub mod preprocessing;
+mod preprocessing_core;
 mod profiling;
 mod proof;
 mod recursive_minimization;
@@ -187,8 +189,13 @@ pub use memory::{ClauseArena, ClauseRef, MemoryStats};
 pub use memory_opt::{MemoryAction, MemoryOptStats, MemoryOptimizer, SizeClass};
 pub use ml_branching::{MLBranching, MLBranchingConfig, MLBranchingStats};
 pub use occurrence::{OccurrenceList, OccurrenceStats};
+pub use parallel::{
+    ParallelClauseSimplifier, ParallelProofChecker, PortfolioConfig as ParallelPortfolioConfig,
+    PortfolioResult as ParallelPortfolioResult, PortfolioSolver as ParallelPortfolioSolver,
+    ProofCheckConfig, ProofCheckResult, SimplificationConfig, SimplificationResult, SolverVariant,
+};
 pub use portfolio::{PortfolioConfig, PortfolioResult, PortfolioSolver, PortfolioStats};
-pub use preprocessing::Preprocessor;
+pub use preprocessing_core::Preprocessor;
 pub use profiling::{AutoTimer, PerformanceMetrics, Profiler, ScopedTimer};
 pub use proof::{DratProof, LratProof, ProofTrimmer};
 pub use recursive_minimization::{RecursiveMinStats, RecursiveMinimizer};

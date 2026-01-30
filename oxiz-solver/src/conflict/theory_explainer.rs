@@ -278,7 +278,7 @@ impl TheoryExplainer {
         // - Subsumption checking
 
         let mut minimized = Vec::new();
-        let lit_set: FxHashSet<Lit> = lits.iter().copied().collect();
+        let _lit_set: FxHashSet<Lit> = lits.iter().copied().collect();
 
         for &lit in lits {
             // Check if removing this literal still gives a conflict

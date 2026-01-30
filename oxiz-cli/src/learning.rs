@@ -264,9 +264,11 @@ impl LearnedConstraintCache {
         if clauses.len() > self.max_clauses_per_entry {
             // Sort by LBD (lower is better), then by activity (higher is better)
             clauses.sort_by(|a, b| {
-                a.lbd
-                    .cmp(&b.lbd)
-                    .then_with(|| b.activity.partial_cmp(&a.activity).unwrap())
+                a.lbd.cmp(&b.lbd).then_with(|| {
+                    b.activity
+                        .partial_cmp(&a.activity)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
             });
             clauses.truncate(self.max_clauses_per_entry);
         }
@@ -370,9 +372,11 @@ impl LearnedConstraintCache {
 
         // Deduplicate and sort by quality
         merged.sort_by(|a, b| {
-            a.lbd
-                .cmp(&b.lbd)
-                .then_with(|| b.activity.partial_cmp(&a.activity).unwrap())
+            a.lbd.cmp(&b.lbd).then_with(|| {
+                b.activity
+                    .partial_cmp(&a.activity)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
         });
         merged.dedup_by(|a, b| a.literals == b.literals);
 

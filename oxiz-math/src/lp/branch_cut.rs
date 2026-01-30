@@ -11,8 +11,8 @@
 //! - Wolsey (1998): "Integer Programming"
 //! - CPLEX and Gurobi MIP solvers
 
-use super::cutting_planes::{Cut, CuttingPlaneConfig, CuttingPlaneGenerator};
-use super::dual_simplex::{DualSimplex, DualSimplexConfig, DualSimplexResult};
+use super::cutting_planes::{CuttingPlane as Cut, CuttingPlaneConfig, CuttingPlaneGenerator};
+use super::dual_simplex::{DualSimplexResult, DualSimplexSolver as DualSimplex};
 use num_rational::BigRational;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 use rustc_hash::FxHashMap;
@@ -172,8 +172,21 @@ pub struct BranchCutSolver {
 impl BranchCutSolver {
     /// Create a new branch-and-cut solver.
     pub fn new(config: BranchCutConfig, var_types: Vec<VarType>) -> Self {
+        // Collect integer variable IDs
+        let integer_vars: rustc_hash::FxHashSet<VarId> = var_types
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &vt)| {
+                if vt == VarType::Integer || vt == VarType::Binary {
+                    Some(i)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
         Self {
-            cut_generator: CuttingPlaneGenerator::new(config.cut_config.clone()),
+            cut_generator: CuttingPlaneGenerator::new(integer_vars),
             config,
             var_types,
             nodes: BinaryHeap::new(),
@@ -200,23 +213,22 @@ impl BranchCutSolver {
             DualSimplexResult::Infeasible => return BranchCutResult::Infeasible,
             DualSimplexResult::Optimal => {
                 // Check if root solution is integer-feasible
-                if let Some(solution) = root_solver.get_solution() {
-                    if self.is_integer_feasible(&solution) {
-                        self.best_solution = Some(solution.clone());
-                        self.best_value = Some(root_solver.get_objective_value());
-                        return BranchCutResult::Optimal;
-                    }
-
-                    // Create root node
-                    let root_node = BranchNode {
-                        id: self.next_node_id,
-                        lp_bound: root_solver.get_objective_value(),
-                        bounds: FxHashMap::default(),
-                        depth: 0,
-                    };
-                    self.next_node_id += 1;
-                    self.nodes.push(root_node);
+                let solution = root_solver.get_solution();
+                if self.is_integer_feasible(&solution) {
+                    self.best_solution = Some(solution.clone());
+                    self.best_value = Some(root_solver.get_objective_value());
+                    return BranchCutResult::Optimal;
                 }
+
+                // Create root node
+                let root_node = BranchNode {
+                    id: self.next_node_id,
+                    lp_bound: root_solver.get_objective_value(),
+                    bounds: FxHashMap::default(),
+                    depth: 0,
+                };
+                self.next_node_id += 1;
+                self.nodes.push(root_node);
             }
             _ => return BranchCutResult::NodeLimit,
         }
@@ -254,7 +266,9 @@ impl BranchCutSolver {
     /// Check if a solution is integer-feasible.
     fn is_integer_feasible(&self, solution: &FxHashMap<VarId, BigRational>) -> bool {
         for (var, value) in solution {
-            if self.var_types.get(*var) == Some(&VarType::Integer) || self.var_types.get(*var) == Some(&VarType::Binary) {
+            if self.var_types.get(*var) == Some(&VarType::Integer)
+                || self.var_types.get(*var) == Some(&VarType::Binary)
+            {
                 if !self.is_integer_value(value) {
                     return false;
                 }
@@ -282,11 +296,15 @@ impl BranchCutSolver {
     /// Select a variable to branch on.
     ///
     /// Returns (variable_id, fractional_value).
-    fn select_branch_variable(&self, solution: &FxHashMap<VarId, BigRational>) -> Option<(VarId, BigRational)> {
+    fn select_branch_variable(
+        &self,
+        solution: &FxHashMap<VarId, BigRational>,
+    ) -> Option<(VarId, BigRational)> {
         let mut candidates = Vec::new();
 
         for (var, value) in solution {
-            if self.var_types.get(*var) == Some(&VarType::Integer) && !self.is_integer_value(value) {
+            if self.var_types.get(*var) == Some(&VarType::Integer) && !self.is_integer_value(value)
+            {
                 let frac = value - value.floor();
                 candidates.push((*var, value.clone(), frac));
             }

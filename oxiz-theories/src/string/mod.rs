@@ -30,6 +30,7 @@
 
 pub mod automata;
 mod regex;
+pub mod regex_solver;
 pub mod sequence;
 mod solver;
 mod unicode;
@@ -37,6 +38,10 @@ pub mod word_eq;
 
 // Core exports
 pub use regex::{Regex, RegexOp};
+pub use regex_solver::{
+    Regex as RegexSolverRegex, RegexSolver, RegexSolverConfig, RegexSolverStats, StrVar,
+    StringConstraint,
+};
 pub use solver::StringSolver;
 pub use unicode::UnicodeCategory;
 

@@ -5,6 +5,47 @@ All notable changes to OxiZ will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] - 2026-01-30
+
+### Added
+
+#### Machine Learning Integration (`oxiz-ml`)
+- **Neural Network Module**: Pure Rust ML framework for solver heuristics
+  - Dense, convolutional, recurrent, attention layers
+  - SGD, Adam, RMSprop, AdaGrad optimizers
+  - Feature extraction from formulas for heuristic guidance
+  - Training infrastructure with early stopping
+
+#### Quantifier Elimination Expansion (`oxiz-core`)
+- **CAD (Cylindrical Algebraic Decomposition)**: Complete implementation
+  - Cell decomposition with sample points
+  - Sign-invariant regions for polynomial systems
+  - Lifting phase for variable elimination
+- **Arithmetic QE**: Cooper's method, Omega test, Ferrante-Rackoff
+- **BitVector QE**: BV-specific elimination strategies
+- **Datatype QE**: Case analysis for algebraic datatypes
+
+#### Advanced Math Libraries (`oxiz-math`)
+- **Gröbner Basis**: Enhanced Buchberger with F4/F5 algorithms
+- **Polynomial Factorization**: Berlekamp-Zassenhaus, Hensel lifting
+- **Root Isolation**: Sturm sequences, Descartes' rule
+- **LP Enhancements**: Dual simplex, cutting planes, branch-and-cut
+
+#### SMT Integration Layer (`oxiz-solver`)
+- **Nelson-Oppen Combination**: Theory combination with equality sharing
+- **Advanced Conflict Analysis**: Recursive minimization, theory explanation
+- **Model Generation**: Per-theory model builders, completion, minimization
+
+### Changed
+- **Version bump**: 0.1.2 → 0.1.3
+- **Lines of Code**: ~317,000 Rust LOC (47% of Z3 equivalent)
+- **Test Suite**: 1,800+ tests passing across core crates
+
+### Fixed
+- **API Compatibility**: Fixed Sort API, CellType, TermId method calls
+- **Test Compilation**: Resolved type mismatches in polynomial/SIMD tests
+- **Transitive Equality**: Fixed equality substitution with cycle detection
+
 ## [0.1.2] - 2026-01-21
 
 ### Added

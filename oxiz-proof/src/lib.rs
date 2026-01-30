@@ -33,6 +33,7 @@ pub mod checker;
 pub mod compress;
 pub mod conversion;
 pub mod coq;
+pub mod coq_enhanced;
 pub mod craig;
 pub mod diff;
 pub mod drat;
@@ -43,8 +44,10 @@ pub mod heuristic;
 pub mod incremental;
 pub mod interpolant;
 pub mod isabelle;
+pub mod isabelle_enhanced;
 pub mod lazy;
 pub mod lean;
+pub mod lean_enhanced;
 pub mod lfsc;
 pub mod merge;
 pub mod metadata;
@@ -75,6 +78,9 @@ mod resolution;
 // Public modules with useful analysis and utility tools
 pub mod stats;
 pub mod traversal;
+// TODO: Fix API compatibility with new ProofNode structure
+// pub mod transform;
+// pub mod compression;
 
 // Re-exports
 pub use alethe::{AletheProof, AletheProofProducer, AletheRule, AletheStep};
@@ -85,6 +91,7 @@ pub use compress::{
 };
 pub use conversion::{ConversionError, ConversionResult, FormatConverter};
 pub use coq::{CoqExporter, export_theory_to_coq, export_to_coq};
+pub use coq_enhanced::{CoqProofTerm, CoqType, EnhancedCoqExporter, export_to_coq_enhanced};
 pub use diff::{ProofDiff, ProofSimilarity, compute_similarity, diff_proofs};
 pub use drat::{DratProof, DratProofProducer, DratStep};
 pub use explanation::{ExplainedStep, ProofComplexity, ProofExplainer, Verbosity};
@@ -94,8 +101,16 @@ pub use heuristic::{HeuristicType, ProofHeuristic, StrategyLearner};
 pub use incremental::{IncrementalProofBuilder, IncrementalStats, ProofRecorder};
 pub use interpolant::{Color, Interpolant, InterpolantExtractor, Partition};
 pub use isabelle::{IsabelleExporter, export_theory_to_isabelle, export_to_isabelle};
+pub use isabelle_enhanced::{
+    EnhancedIsabelleExporter, IsabelleMethod, IsabelleProof, IsabelleType, IsarProofBody,
+    export_to_isabelle_apply_style, export_to_isabelle_enhanced,
+};
 pub use lazy::{LazyDependencyResolver, LazyNode, LazyProof, LazyStats};
 pub use lean::{LeanExporter, export_theory_to_lean, export_to_lean, export_to_lean3};
+pub use lean_enhanced::{
+    EnhancedLeanExporter, LeanProofTerm, LeanTactic, LeanType, export_to_lean_enhanced,
+    export_to_lean_term_mode,
+};
 pub use lfsc::{LfscDecl, LfscProof, LfscProofProducer, LfscSort, LfscTerm};
 pub use merge::{merge_proofs, slice_proof, slice_proof_multi};
 pub use metadata::{Difficulty, Priority, ProofMetadata, Strategy};

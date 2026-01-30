@@ -4,6 +4,7 @@ use super::lexer::{Lexer, TokenKind};
 use crate::ast::{TermId, TermManager};
 use crate::error::{OxizError, Result};
 use crate::sort::SortId;
+use num_rational::Rational64;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 
@@ -230,6 +231,15 @@ impl<'a> Parser<'a> {
                 let width = b.len() as u32;
                 Ok(self.manager.mk_bitvec(value, width))
             }
+            TokenKind::Decimal(d) => {
+                // Parse decimal literal as Rational64
+                let rational =
+                    parse_decimal_to_rational(&d).map_err(|e| OxizError::ParseError {
+                        position: token.start,
+                        message: format!("invalid decimal: {d} - {e}"),
+                    })?;
+                Ok(self.manager.mk_real(rational))
+            }
             _ => Err(OxizError::ParseError {
                 position: token.start,
                 message: format!("unexpected token: {:?}", token.kind),
@@ -265,6 +275,57 @@ impl<'a> Parser<'a> {
                 position: self.lexer.position(),
                 message: "unexpected end of input".to_string(),
             })?;
+
+        // Handle indexed identifiers: (_ extract 7 4), (_ sign_extend 16), etc.
+        if matches!(op_token.kind, TokenKind::Symbol(ref s) if s == "_") {
+            let name = self.expect_symbol()?;
+
+            // Parse indices
+            let mut indices = Vec::new();
+            loop {
+                if let Some(token) = self.lexer.peek() {
+                    match &token.kind {
+                        TokenKind::RParen => {
+                            break;
+                        }
+                        TokenKind::Numeral(n) => {
+                            let n = n.clone();
+                            self.lexer.next_token();
+                            let idx = n.parse::<u32>().map_err(|_| OxizError::ParseError {
+                                position: token.start,
+                                message: format!("invalid index: {n}"),
+                            })?;
+                            indices.push(idx);
+                        }
+                        _ => break,
+                    }
+                } else {
+                    break;
+                }
+            }
+
+            // Handle indexed operations
+            return match name.as_str() {
+                "extract" => {
+                    if indices.len() != 2 {
+                        return Err(OxizError::ParseError {
+                            position: self.lexer.position(),
+                            message: format!(
+                                "extract requires exactly 2 indices, got {}",
+                                indices.len()
+                            ),
+                        });
+                    }
+                    let arg = self.parse_term()?;
+                    self.expect_rparen()?;
+                    Ok(self.manager.mk_bv_extract(indices[0], indices[1], arg))
+                }
+                _ => Err(OxizError::ParseError {
+                    position: self.lexer.position(),
+                    message: format!("unknown indexed operation: {name}"),
+                }),
+            };
+        }
 
         let op = match &op_token.kind {
             TokenKind::Symbol(s) => s.clone(),
@@ -348,8 +409,16 @@ impl<'a> Parser<'a> {
                     && matches!(token.kind, TokenKind::RParen)
                 {
                     self.lexer.next_token();
-                    // Unary minus
-                    let zero = self.manager.mk_int(0);
+                    // Unary minus - create zero of the appropriate sort
+                    let zero = if let Some(term) = self.manager.get(first) {
+                        if term.sort == self.manager.sorts.real_sort {
+                            self.manager.mk_real(Rational64::new(0, 1))
+                        } else {
+                            self.manager.mk_int(0)
+                        }
+                    } else {
+                        self.manager.mk_int(0)
+                    };
                     return Ok(self.manager.mk_sub(zero, first));
                 }
                 let second = self.parse_term()?;
@@ -461,6 +530,66 @@ impl<'a> Parser<'a> {
                 let rhs = self.parse_term()?;
                 self.expect_rparen()?;
                 self.manager.mk_bv_slt(lhs, rhs)
+            }
+            "bvule" => {
+                let lhs = self.parse_term()?;
+                let rhs = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_bv_ule(lhs, rhs)
+            }
+            "bvsle" => {
+                let lhs = self.parse_term()?;
+                let rhs = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_bv_sle(lhs, rhs)
+            }
+            "bvxor" => {
+                let lhs = self.parse_term()?;
+                let rhs = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_bv_xor(lhs, rhs)
+            }
+            "bvudiv" => {
+                let lhs = self.parse_term()?;
+                let rhs = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_bv_udiv(lhs, rhs)
+            }
+            "bvsdiv" => {
+                let lhs = self.parse_term()?;
+                let rhs = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_bv_sdiv(lhs, rhs)
+            }
+            "bvurem" => {
+                let lhs = self.parse_term()?;
+                let rhs = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_bv_urem(lhs, rhs)
+            }
+            "bvsrem" => {
+                let lhs = self.parse_term()?;
+                let rhs = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_bv_srem(lhs, rhs)
+            }
+            "bvshl" => {
+                let lhs = self.parse_term()?;
+                let rhs = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_bv_shl(lhs, rhs)
+            }
+            "bvlshr" => {
+                let lhs = self.parse_term()?;
+                let rhs = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_bv_lshr(lhs, rhs)
+            }
+            "bvashr" => {
+                let lhs = self.parse_term()?;
+                let rhs = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_bv_ashr(lhs, rhs)
             }
             "concat" => {
                 let lhs = self.parse_term()?;
@@ -631,8 +760,7 @@ impl<'a> Parser<'a> {
 
             self.expect_lparen()?;
             let name = self.expect_symbol()?;
-            let sort_name = self.expect_symbol()?;
-            let sort = self.parse_sort_name(&sort_name)?;
+            let sort = self.parse_sort()?;
             self.expect_rparen()?;
             vars.push((name, sort));
         }
@@ -686,6 +814,114 @@ impl<'a> Parser<'a> {
                         .intern(crate::sort::SortKind::Uninterpreted(spur)))
                 }
             }
+        }
+    }
+
+    /// Parse an indexed identifier: (_ name index1 index2 ...)
+    /// Returns (name, indices)
+    fn parse_indexed_identifier(&mut self) -> Result<(String, Vec<u32>)> {
+        // Expect LParen (already consumed by caller)
+        // Expect underscore symbol
+        let underscore = self.expect_symbol()?;
+        if underscore != "_" {
+            return Err(OxizError::ParseError {
+                position: self.lexer.position(),
+                message: format!("expected '_', found '{underscore}'"),
+            });
+        }
+
+        // Get the identifier name
+        let name = self.expect_symbol()?;
+
+        // Parse indices (numerals)
+        let mut indices = Vec::new();
+        loop {
+            if let Some(token) = self.lexer.peek() {
+                match &token.kind {
+                    TokenKind::RParen => {
+                        self.lexer.next_token(); // consume rparen
+                        break;
+                    }
+                    TokenKind::Numeral(n) => {
+                        let n = n.clone();
+                        self.lexer.next_token();
+                        let idx = n.parse::<u32>().map_err(|_| OxizError::ParseError {
+                            position: token.start,
+                            message: format!("invalid index: {n}"),
+                        })?;
+                        indices.push(idx);
+                    }
+                    _ => {
+                        return Err(OxizError::ParseError {
+                            position: token.start,
+                            message: format!("expected numeral or ')', found {:?}", token.kind),
+                        });
+                    }
+                }
+            } else {
+                return Err(OxizError::ParseError {
+                    position: self.lexer.position(),
+                    message: "unexpected end of input in indexed identifier".to_string(),
+                });
+            }
+        }
+
+        Ok((name, indices))
+    }
+
+    /// Parse a sort (can be a simple name or indexed identifier)
+    fn parse_sort(&mut self) -> Result<SortId> {
+        if let Some(token) = self.lexer.peek() {
+            match &token.kind {
+                TokenKind::Symbol(s) => {
+                    let s = s.clone();
+                    self.lexer.next_token();
+                    self.parse_sort_name(&s)
+                }
+                TokenKind::LParen => {
+                    self.lexer.next_token(); // consume lparen
+                    let (name, indices) = self.parse_indexed_identifier()?;
+
+                    // Handle indexed sorts
+                    match name.as_str() {
+                        "BitVec" => {
+                            if indices.len() != 1 {
+                                return Err(OxizError::ParseError {
+                                    position: self.lexer.position(),
+                                    message: format!(
+                                        "BitVec requires exactly 1 index, got {}",
+                                        indices.len()
+                                    ),
+                                });
+                            }
+                            let width = indices[0];
+                            if width > 0 && width <= 65536 {
+                                Ok(self.manager.sorts.bitvec(width))
+                            } else {
+                                Err(OxizError::ParseError {
+                                    position: self.lexer.position(),
+                                    message: format!(
+                                        "invalid BitVec width: {width} (must be 1-65536)"
+                                    ),
+                                })
+                            }
+                        }
+                        _ => Err(OxizError::ParseError {
+                            position: self.lexer.position(),
+                            message: format!("unknown indexed sort: {name}"),
+                        }),
+                    }
+                }
+                _ => Err(OxizError::ParseError {
+                    position: token.start,
+                    message: format!("expected sort, found {:?}", token.kind),
+                }),
+            }
+        } else {
+            Err(OxizError::ParseError {
+                position: self.lexer.position(),
+                message: "expected sort, found end of input".to_string(),
+            })
         }
     }
 
@@ -756,11 +992,19 @@ impl<'a> Parser<'a> {
             }
             "declare-const" => {
                 let name = self.expect_symbol()?;
-                let sort = self.expect_symbol()?;
+                let sort_id = self.parse_sort()?;
                 self.expect_rparen()?;
-                let sort_id = self.parse_sort_name(&sort)?;
                 self.constants.insert(name.clone(), sort_id);
-                Command::DeclareConst(name, sort)
+                // For the command, we'll use a simple string representation
+                let sort_str = format!(
+                    "BitVec{}",
+                    self.manager
+                        .sorts
+                        .get(sort_id)
+                        .and_then(|s| s.bitvec_width())
+                        .unwrap_or(32)
+                );
+                Command::DeclareConst(name, sort_str)
             }
             "declare-fun" => {
                 let name = self.expect_symbol()?;
@@ -1191,6 +1435,59 @@ impl<'a> Parser<'a> {
     }
 }
 
+/// Parse a decimal string to a Rational64
+/// Handles decimal literals like "5.5", "3.14159", "0.0", etc.
+fn parse_decimal_to_rational(s: &str) -> Result<Rational64> {
+    // Split by decimal point
+    let parts: Vec<&str> = s.split('.').collect();
+
+    if parts.len() != 2 {
+        return Err(OxizError::ParseError {
+            position: 0,
+            message: format!("invalid decimal format: {s}"),
+        });
+    }
+
+    let integer_part = parts[0];
+    let fractional_part = parts[1];
+
+    // Parse integer part (can be empty for decimals like ".5")
+    let integer_value: i64 = if integer_part.is_empty() {
+        0
+    } else {
+        integer_part.parse().map_err(|_| OxizError::ParseError {
+            position: 0,
+            message: format!("invalid integer part in decimal: {integer_part}"),
+        })?
+    };
+
+    // Parse fractional part
+    let fractional_digits = fractional_part.len();
+    let fractional_value: i64 = fractional_part.parse().map_err(|_| OxizError::ParseError {
+        position: 0,
+        message: format!("invalid fractional part in decimal: {fractional_part}"),
+    })?;
+
+    // Convert to rational: integer_part + fractional_part / 10^fractional_digits
+    let denominator = 10_i64
+        .checked_pow(fractional_digits as u32)
+        .ok_or_else(|| OxizError::ParseError {
+            position: 0,
+            message: format!("decimal has too many fractional digits: {s}"),
+        })?;
+
+    // Create rational: (integer_part * denominator + fractional_value) / denominator
+    let numerator = integer_value
+        .checked_mul(denominator)
+        .and_then(|n| n.checked_add(fractional_value))
+        .ok_or_else(|| OxizError::ParseError {
+            position: 0,
+            message: format!("decimal value overflow: {s}"),
+        })?;
+
+    Ok(Rational64::new(numerator, denominator))
+}
+
 /// Parse a term from a string
 pub fn parse_term(input: &str, manager: &mut TermManager) -> Result<TermId> {
     let mut parser = Parser::new(input, manager);
@@ -1486,5 +1783,108 @@ mod tests {
 
         // Should successfully parse valid commands
         assert_eq!(commands.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_decimal_literals() {
+        let mut manager = TermManager::new();
+
+        // Test simple decimal
+        let decimal = parse_term("5.5", &mut manager).unwrap();
+        if let Some(term) = manager.get(decimal) {
+            assert_eq!(term.sort, manager.sorts.real_sort);
+            if let crate::ast::TermKind::RealConst(r) = &term.kind {
+                assert_eq!(*r, Rational64::new(11, 2)); // 5.5 = 11/2
+            } else {
+                panic!("Expected RealConst");
+            }
+        } else {
+            panic!("Term not found");
+        }
+
+        // Test decimal with many fractional digits
+        let pi_approx = parse_term("3.14159", &mut manager).unwrap();
+        if let Some(term) = manager.get(pi_approx) {
+            assert_eq!(term.sort, manager.sorts.real_sort);
+            if let crate::ast::TermKind::RealConst(r) = &term.kind {
+                assert_eq!(*r, Rational64::new(314159, 100000));
+            } else {
+                panic!("Expected RealConst");
+            }
+        } else {
+            panic!("Term not found");
+        }
+
+        // Test zero decimal
+        let zero = parse_term("0.0", &mut manager).unwrap();
+        if let Some(term) = manager.get(zero) {
+            assert_eq!(term.sort, manager.sorts.real_sort);
+            if let crate::ast::TermKind::RealConst(r) = &term.kind {
+                assert_eq!(*r, Rational64::new(0, 1));
+            } else {
+                panic!("Expected RealConst");
+            }
+        } else {
+            panic!("Term not found");
+        }
+    }
+
+    #[test]
+    fn test_parse_real_arithmetic() {
+        let mut manager = TermManager::new();
+        let script = r#"
+            (set-logic QF_LRA)
+            (declare-const x Real)
+            (declare-const y Real)
+            (assert (= (+ x y) 5.5))
+            (assert (> x 0.0))
+            (assert (< y 10.25))
+            (check-sat)
+        "#;
+
+        let commands = parse_script(script, &mut manager).unwrap();
+        assert_eq!(commands.len(), 7); // set-logic, 2 declares, 3 asserts, check-sat
+
+        // Verify that Real constants are declared
+        assert!(matches!(&commands[0], Command::SetLogic(_)));
+    }
+
+    #[test]
+    fn test_parse_unary_minus_real() {
+        let mut manager = TermManager::new();
+
+        // Test unary minus with Real
+        let neg_real = parse_term("(- 2.5)", &mut manager).unwrap();
+        if let Some(term) = manager.get(neg_real) {
+            // Should be a subtraction: 0.0 - 2.5
+            if let crate::ast::TermKind::Sub(lhs, rhs) = &term.kind {
+                // Check lhs is Real zero
+                if let Some(lhs_term) = manager.get(*lhs) {
+                    assert_eq!(lhs_term.sort, manager.sorts.real_sort);
+                    if let crate::ast::TermKind::RealConst(r) = &lhs_term.kind {
+                        assert_eq!(*r, Rational64::new(0, 1));
+                    } else {
+                        panic!("Expected RealConst for zero");
+                    }
+                } else {
+                    panic!("LHS term not found");
+                }
+                // Check rhs is 2.5
+                if let Some(rhs_term) = manager.get(*rhs) {
+                    assert_eq!(rhs_term.sort, manager.sorts.real_sort);
+                    if let crate::ast::TermKind::RealConst(r) = &rhs_term.kind {
+                        assert_eq!(*r, Rational64::new(5, 2)); // 2.5 = 5/2
+                    } else {
+                        panic!("Expected RealConst for 2.5");
+                    }
+                } else {
+                    panic!("RHS term not found");
+                }
+            } else {
+                panic!("Expected Sub for unary minus");
+            }
+        } else {
+            panic!("Term not found");
+        }
     }
 }

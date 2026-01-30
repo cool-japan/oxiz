@@ -34,8 +34,6 @@
 //! - Brummayer & Biere: "Boolector: An Efficient SMT Solver for Bit-Vectors and Arrays" (TACAS 2009)
 //! - Z3's `tactic/bv/bv1_blast_tactic.cpp`
 
-use rustc_hash::FxHashMap;
-
 /// A Boolean literal (variable or negated variable).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BoolLit {

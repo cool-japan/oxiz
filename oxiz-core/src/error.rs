@@ -82,7 +82,7 @@ impl std::fmt::Display for SourceSpan {
 }
 
 /// Main error type for OxiZ operations
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, Error)]
 pub enum OxizError {
     /// Invalid term reference
     #[error("invalid term ID: {0}")]

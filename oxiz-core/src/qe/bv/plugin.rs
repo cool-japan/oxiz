@@ -17,8 +17,7 @@
 //! - Niemetz et al.: "Solving Quantified Bit-Vectors Using Invertibility Conditions"
 //! - Z3's `qe/qe_bv_plugin.cpp`
 
-use crate::{Sort, Term, TermKind};
-use rustc_hash::{FxHashMap, FxHashSet};
+use crate::Term;
 
 /// Variable identifier.
 pub type VarId = usize;

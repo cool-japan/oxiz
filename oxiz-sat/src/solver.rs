@@ -2227,7 +2227,7 @@ impl Solver {
 
     /// Perform inprocessing (apply preprocessing during search)
     fn inprocess(&mut self) {
-        use crate::preprocessing::Preprocessor;
+        use crate::Preprocessor;
 
         // Only inprocess at decision level 0
         if self.trail.decision_level() != 0 {

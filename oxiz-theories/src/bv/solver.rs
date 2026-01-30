@@ -1208,7 +1208,12 @@ impl Theory for BvSolver {
 
     fn check(&mut self) -> Result<TheoryResult> {
         match self.sat.solve() {
-            SolverResult::Sat => Ok(TheoryResult::Sat),
+            SolverResult::Sat => {
+                // Backtrack to root level so that new clauses can be added
+                // without conflicting with the current satisfying assignment
+                self.sat.backtrack_to_root();
+                Ok(TheoryResult::Sat)
+            }
             SolverResult::Unsat => Ok(TheoryResult::Unsat(Vec::new())),
             SolverResult::Unknown => Ok(TheoryResult::Unknown),
         }

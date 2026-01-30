@@ -112,7 +112,7 @@ impl LinearInequality {
     /// Normalize by dividing by GCD of coefficients.
     pub fn normalize_gcd(&self) -> Self {
         // Find GCD of all numerators
-        let mut nums: Vec<BigInt> = self
+        let nums: Vec<BigInt> = self
             .coeffs
             .iter()
             .chain(std::iter::once(&self.constant))

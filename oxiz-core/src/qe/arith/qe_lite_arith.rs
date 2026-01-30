@@ -14,9 +14,8 @@
 //! - Z3's `qe/qe_lite.cpp`
 //! - Dutertre & de Moura: "A Fast Linear-Arithmetic Solver for DPLL(T)" (CAV 2006)
 
-use crate::{Term, TermKind};
+use crate::Term;
 use num_rational::BigRational;
-use rustc_hash::{FxHashMap, FxHashSet};
 
 /// Variable identifier.
 pub type VarId = usize;

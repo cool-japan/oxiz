@@ -15,8 +15,7 @@
 //! - Bradley et al.: "What's Decidable About Arrays?" (VMCAI 2006)
 //! - Z3's `qe/qe_arrays.cpp`
 
-use crate::{Sort, Term, TermKind};
-use rustc_hash::{FxHashMap, FxHashSet};
+use crate::Term;
 
 /// Variable identifier.
 pub type VarId = usize;

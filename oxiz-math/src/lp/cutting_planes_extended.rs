@@ -1,6 +1,6 @@
 //! Extended Cutting Planes for MIP.
 //!
-//! Implements additional cutting plane generation techniques beyond
+//! Implements additional cutting plane generatoreration techniques beyond
 //! the basic Gomory cuts.
 //!
 //! ## Cutting Planes
@@ -80,17 +80,17 @@ impl Default for ExtendedCuttingPlanesConfig {
 /// Statistics for extended cutting planes.
 #[derive(Debug, Clone, Default)]
 pub struct ExtendedCuttingPlanesStats {
-    /// MIG cuts generated.
+    /// MIG cuts generatorerated.
     pub mig_cuts: u64,
-    /// Cover cuts generated.
+    /// Cover cuts generatorerated.
     pub cover_cuts: u64,
-    /// Clique cuts generated.
+    /// Clique cuts generatorerated.
     pub clique_cuts: u64,
-    /// Lift-and-project cuts generated.
+    /// Lift-and-project cuts generatorerated.
     pub lift_project_cuts: u64,
 }
 
-/// Extended cutting plane generator.
+/// Extended cutting plane generatorerator.
 #[derive(Debug)]
 pub struct ExtendedCuttingPlaneGenerator {
     /// Integer variables.
@@ -104,7 +104,7 @@ pub struct ExtendedCuttingPlaneGenerator {
 }
 
 impl ExtendedCuttingPlaneGenerator {
-    /// Create a new generator.
+    /// Create a new generatorerator.
     pub fn new(config: ExtendedCuttingPlanesConfig) -> Self {
         Self {
             integer_vars: FxHashSet::default(),
@@ -131,7 +131,7 @@ impl ExtendedCuttingPlaneGenerator {
     }
 
     /// Generate mixed-integer Gomory cut.
-    pub fn generate_mig_cut(
+    pub fn generatorerate_mig_cut(
         &mut self,
         _row: &FxHashMap<VarId, BigRational>,
         _rhs: &BigRational,
@@ -147,7 +147,7 @@ impl ExtendedCuttingPlaneGenerator {
     }
 
     /// Generate cover cut for knapsack constraint.
-    pub fn generate_cover_cut(
+    pub fn generatorerate_cover_cut(
         &mut self,
         _weights: &FxHashMap<VarId, BigRational>,
         _capacity: &BigRational,
@@ -158,12 +158,12 @@ impl ExtendedCuttingPlaneGenerator {
 
         self.stats.cover_cuts += 1;
 
-        // Simplified: would find minimal cover and generate cut
+        // Simplified: would find minimal cover and generatorerate cut
         None
     }
 
     /// Generate clique cut from binary variables.
-    pub fn generate_clique_cut(&mut self, _vars: &[VarId]) -> Option<CuttingPlane> {
+    pub fn generatorerate_clique_cut(&mut self, _vars: &[VarId]) -> Option<CuttingPlane> {
         if !self.config.enable_clique {
             return None;
         }
@@ -175,7 +175,7 @@ impl ExtendedCuttingPlaneGenerator {
     }
 
     /// Generate lift-and-project cut.
-    pub fn generate_lift_project_cut(
+    pub fn generatorerate_lift_project_cut(
         &mut self,
         _constraint: &FxHashMap<VarId, BigRational>,
         _lift_var: VarId,
@@ -191,14 +191,14 @@ impl ExtendedCuttingPlaneGenerator {
     }
 
     /// Generate multiple cuts for current solution.
-    pub fn generate_cuts(
+    pub fn generatorerate_cuts(
         &mut self,
         _solution: &FxHashMap<VarId, BigRational>,
     ) -> Vec<CuttingPlane> {
         let mut cuts = Vec::new();
 
-        // Simplified: would analyze solution and generate various cuts
-        // Would call generate_mig_cut, generate_cover_cut, etc.
+        // Simplified: would analyze solution and generatorerate various cuts
+        // Would call generatorerate_mig_cut, generatorerate_cover_cut, etc.
 
         cuts
     }
@@ -225,47 +225,47 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_generator_creation() {
-        let gen = ExtendedCuttingPlaneGenerator::default_config();
-        assert_eq!(gen.stats().mig_cuts, 0);
+    fn test_generatorerator_creation() {
+        let generator = ExtendedCuttingPlaneGenerator::default_config();
+        assert_eq!(generator.stats().mig_cuts, 0);
     }
 
     #[test]
     fn test_add_vars() {
-        let mut gen = ExtendedCuttingPlaneGenerator::default_config();
+        let mut generator = ExtendedCuttingPlaneGenerator::default_config();
 
-        gen.add_integer_var(0);
-        gen.add_binary_var(1);
+        generator.add_integer_var(0);
+        generator.add_binary_var(1);
 
-        assert!(gen.integer_vars.contains(&0));
-        assert!(gen.binary_vars.contains(&1));
+        assert!(generator.integer_vars.contains(&0));
+        assert!(generator.binary_vars.contains(&1));
     }
 
     #[test]
-    fn test_generate_mig_cut() {
-        let mut gen = ExtendedCuttingPlaneGenerator::default_config();
+    fn test_generatorerate_mig_cut() {
+        let mut generator = ExtendedCuttingPlaneGenerator::default_config();
 
         let row = FxHashMap::default();
         let rhs = BigRational::zero();
 
-        let cut = gen.generate_mig_cut(&row, &rhs);
+        let cut = generator.generatorerate_mig_cut(&row, &rhs);
 
-        assert_eq!(gen.stats().mig_cuts, 1);
+        assert_eq!(generator.stats().mig_cuts, 1);
         // Note: returns None in simplified implementation
         assert!(cut.is_none());
     }
 
     #[test]
     fn test_stats() {
-        let mut gen = ExtendedCuttingPlaneGenerator::default_config();
+        let mut generator = ExtendedCuttingPlaneGenerator::default_config();
 
-        gen.stats.mig_cuts = 5;
-        gen.stats.cover_cuts = 3;
+        generator.stats.mig_cuts = 5;
+        generator.stats.cover_cuts = 3;
 
-        assert_eq!(gen.stats().mig_cuts, 5);
-        assert_eq!(gen.stats().cover_cuts, 3);
+        assert_eq!(generator.stats().mig_cuts, 5);
+        assert_eq!(generator.stats().cover_cuts, 3);
 
-        gen.reset_stats();
-        assert_eq!(gen.stats().mig_cuts, 0);
+        generator.reset_stats();
+        assert_eq!(generator.stats().mig_cuts, 0);
     }
 }

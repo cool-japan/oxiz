@@ -25,7 +25,6 @@
 
 use crate::error::Result;
 use crate::tactic::core::{Goal, Tactic, TacticResult};
-use crate::{Term, TermKind};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::fmt;
 use std::hash::{Hash, Hasher};

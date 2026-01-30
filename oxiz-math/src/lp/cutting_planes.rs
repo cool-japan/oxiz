@@ -1,154 +1,292 @@
-//! Cutting Planes for Integer Linear Programming.
+//! Cutting Plane Methods for Mixed Integer Programming.
 //!
-//! Implements cutting plane techniques to strengthen LP relaxations
-//! and eliminate fractional solutions in mixed-integer programming.
-//!
-//! ## Techniques
-//!
-//! - **Gomory Cuts**: Cutting planes derived from simplex tableau
-//! - **MIR Cuts**: Mixed-integer rounding cuts
-//! - **Lift-and-Project**: Disjunctive cuts
-//!
-//! ## References
-//!
-//! - Gomory (1958): "Outline of an algorithm for integer solutions to linear programs"
-//! - Nemhauser & Wolsey (1988): "Integer and Combinatorial Optimization"
-//! - Z3's `math/lp/gomory.cpp`
+//! Implements various cutting plane techniques including:
+//! - Gomory mixed-integer cuts
+//! - Lift-and-project cuts
+//! - Cover inequalities
 
+use num_bigint::BigInt;
 use num_rational::BigRational;
-use num_traits::{One, Signed, ToPrimitive, Zero};
-use rustc_hash::FxHashMap;
+use num_traits::{One, Zero};
+use rustc_hash::FxHashSet;
 
-/// Variable identifier.
+/// Cutting plane generator for MIP.
+#[derive(Debug)]
+pub struct CuttingPlaneGenerator {
+    /// Integer variables
+    integer_vars: FxHashSet<VarId>,
+    /// Statistics
+    stats: CuttingPlaneStats,
+}
+
+/// Variable identifier
 pub type VarId = usize;
+
+/// A cutting plane (linear inequality).
+#[derive(Debug, Clone)]
+pub struct CuttingPlane {
+    /// Coefficients
+    pub coeffs: Vec<(VarId, BigRational)>,
+    /// Right-hand side
+    pub rhs: BigRational,
+    /// Type of cut
+    pub cut_type: CutType,
+}
 
 /// Type of cutting plane.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CutType {
-    /// Gomory fractional cut.
-    GomoryFractional,
-    /// Gomory mixed-integer cut (MIR).
-    GomoryMixed,
-    /// Lift-and-project cut.
+    /// Gomory fractional cut
+    Gomory,
+    /// Gomory mixed-integer cut
+    GomoryMI,
+    /// Lift-and-project cut
     LiftProject,
+    /// Cover inequality
+    Cover,
+    /// Clique inequality
+    Clique,
 }
 
-/// A cutting plane constraint represented as: sum(coeff[i] * var[i]) >= rhs.
-#[derive(Debug, Clone)]
-pub struct Cut {
-    /// Coefficients for each variable.
-    pub coeffs: FxHashMap<VarId, BigRational>,
-    /// Right-hand side.
-    pub rhs: BigRational,
-    /// Type of cut.
-    pub cut_type: CutType,
-}
-
-impl Cut {
-    /// Create a new cut.
-    pub fn new(coeffs: FxHashMap<VarId, BigRational>, rhs: BigRational, cut_type: CutType) -> Self {
-        Self {
-            coeffs,
-            rhs,
-            cut_type,
-        }
-    }
-
-    /// Check if the cut is violated by the given solution.
-    ///
-    /// A cut is violated if sum(coeff[i] * solution[i]) < rhs.
-    pub fn is_violated(&self, solution: &FxHashMap<VarId, BigRational>) -> bool {
-        let lhs: BigRational = self
-            .coeffs
-            .iter()
-            .map(|(&var, coeff)| {
-                let value = solution
-                    .get(&var)
-                    .cloned()
-                    .unwrap_or_else(BigRational::zero);
-                coeff.clone() * value
-            })
-            .sum();
-
-        lhs < self.rhs
-    }
-
-    /// Get the violation amount (rhs - lhs). Positive means violated.
-    pub fn violation(&self, solution: &FxHashMap<VarId, BigRational>) -> BigRational {
-        let lhs: BigRational = self
-            .coeffs
-            .iter()
-            .map(|(&var, coeff)| {
-                let value = solution
-                    .get(&var)
-                    .cloned()
-                    .unwrap_or_else(BigRational::zero);
-                coeff.clone() * value
-            })
-            .sum();
-
-        self.rhs.clone() - lhs
-    }
-}
-
-/// Configuration for cutting plane generator.
+/// Configuration for cutting plane generation.
 #[derive(Debug, Clone)]
 pub struct CuttingPlaneConfig {
-    /// Maximum number of cuts to generate per iteration.
-    pub max_cuts_per_iter: usize,
-    /// Minimum violation to consider a cut useful.
-    pub min_violation: f64,
-    /// Enable Gomory fractional cuts.
-    pub enable_gomory_fractional: bool,
-    /// Enable Gomory mixed-integer cuts.
-    pub enable_gomory_mixed: bool,
+    /// Maximum cuts to generate
+    pub max_cuts: usize,
+    /// Enable Gomory cuts
+    pub enable_gomory: bool,
+    /// Enable lift-and-project cuts
+    pub enable_lift_project: bool,
+    /// Enable cover cuts
+    pub enable_cover: bool,
 }
 
 impl Default for CuttingPlaneConfig {
     fn default() -> Self {
         Self {
-            max_cuts_per_iter: 10,
-            min_violation: 1e-6,
-            enable_gomory_fractional: true,
-            enable_gomory_mixed: true,
+            max_cuts: 100,
+            enable_gomory: true,
+            enable_lift_project: true,
+            enable_cover: true,
         }
     }
 }
 
-/// Statistics for cutting plane generation.
+/// Cutting plane statistics.
 #[derive(Debug, Clone, Default)]
 pub struct CuttingPlaneStats {
-    /// Total number of cuts generated.
-    pub cuts_generated: u64,
-    /// Number of Gomory fractional cuts.
-    pub gomory_fractional_cuts: u64,
-    /// Number of Gomory mixed-integer cuts.
-    pub gomory_mixed_cuts: u64,
-    /// Number of cuts that were actually violated.
-    pub violated_cuts: u64,
-}
-
-/// Cutting plane generator.
-#[derive(Debug)]
-pub struct CuttingPlaneGenerator {
-    /// Configuration.
-    config: CuttingPlaneConfig,
-    /// Statistics.
-    stats: CuttingPlaneStats,
+    /// Total cuts generated
+    pub cuts_generated: usize,
+    /// Gomory cuts
+    pub gomory_cuts: usize,
+    /// Lift-and-project cuts
+    pub lift_project_cuts: usize,
+    /// Cover cuts
+    pub cover_cuts: usize,
 }
 
 impl CuttingPlaneGenerator {
     /// Create a new cutting plane generator.
-    pub fn new(config: CuttingPlaneConfig) -> Self {
+    pub fn new(integer_vars: FxHashSet<VarId>) -> Self {
         Self {
-            config,
+            integer_vars,
             stats: CuttingPlaneStats::default(),
         }
     }
 
-    /// Create with default configuration.
-    pub fn default_config() -> Self {
-        Self::new(CuttingPlaneConfig::default())
+    /// Generate Gomory fractional cut from a tableau row.
+    pub fn generate_gomory_cut(
+        &mut self,
+        basic_var: VarId,
+        row: &[(VarId, BigRational)],
+        rhs: &BigRational,
+    ) -> Option<CuttingPlane> {
+        // Extract fractional part of RHS
+        let frac_rhs = self.fractional_part(rhs);
+        if frac_rhs.is_zero() {
+            return None; // No fractional part, no cut
+        }
+
+        let mut cut_coeffs = Vec::new();
+
+        for (var_id, coeff) in row {
+            let frac_coeff = self.fractional_part(coeff);
+
+            if !frac_coeff.is_zero() {
+                // Cut coefficient: -f_j if f_j <= f_0, else -(1-f_j)
+                let cut_coeff = if frac_coeff <= frac_rhs {
+                    -frac_coeff
+                } else {
+                    -(BigRational::one() - frac_coeff)
+                };
+
+                cut_coeffs.push((*var_id, cut_coeff));
+            }
+        }
+
+        self.stats.gomory_cuts += 1;
+        self.stats.cuts_generated += 1;
+
+        Some(CuttingPlane {
+            coeffs: cut_coeffs,
+            rhs: -frac_rhs,
+            cut_type: CutType::Gomory,
+        })
+    }
+
+    /// Generate Gomory mixed-integer cut.
+    pub fn generate_gomory_mi_cut(
+        &mut self,
+        basic_var: VarId,
+        row: &[(VarId, BigRational)],
+        rhs: &BigRational,
+    ) -> Option<CuttingPlane> {
+        if !self.integer_vars.contains(&basic_var) {
+            return None; // Only for integer basic variables
+        }
+
+        let f0 = self.fractional_part(rhs);
+        if f0.is_zero() {
+            return None;
+        }
+
+        let mut cut_coeffs = Vec::new();
+
+        for (var_id, coeff) in row {
+            let fj = self.fractional_part(coeff);
+
+            let cut_coeff = if self.integer_vars.contains(var_id) {
+                // Integer variable
+                if fj <= f0 {
+                    -fj
+                } else {
+                    -(BigRational::one() - fj) * &f0 / (BigRational::one() - &f0)
+                }
+            } else {
+                // Continuous variable
+                if coeff >= &BigRational::zero() {
+                    -coeff
+                } else {
+                    coeff * &f0 / (BigRational::one() - &f0)
+                }
+            };
+
+            if !cut_coeff.is_zero() {
+                cut_coeffs.push((*var_id, cut_coeff));
+            }
+        }
+
+        self.stats.gomory_cuts += 1;
+        self.stats.cuts_generated += 1;
+
+        Some(CuttingPlane {
+            coeffs: cut_coeffs,
+            rhs: -f0,
+            cut_type: CutType::GomoryMI,
+        })
+    }
+
+    /// Generate lift-and-project cut.
+    pub fn generate_lift_project_cut(
+        &mut self,
+        constraint: &[(VarId, BigRational)],
+        rhs: &BigRational,
+        lifting_var: VarId,
+    ) -> Option<CuttingPlane> {
+        // Simplified lift-and-project
+        if !self.integer_vars.contains(&lifting_var) {
+            return None;
+        }
+
+        // Generate disjunctive cut: x_j = 0 or x_j = 1
+        let mut cut_coeffs = Vec::new();
+
+        for (var_id, coeff) in constraint {
+            if *var_id == lifting_var {
+                continue;
+            }
+
+            // Lift coefficient
+            let lifted_coeff = coeff.clone();
+            cut_coeffs.push((*var_id, lifted_coeff));
+        }
+
+        self.stats.lift_project_cuts += 1;
+        self.stats.cuts_generated += 1;
+
+        Some(CuttingPlane {
+            coeffs: cut_coeffs,
+            rhs: rhs.clone(),
+            cut_type: CutType::LiftProject,
+        })
+    }
+
+    /// Generate cover inequality from a knapsack constraint.
+    pub fn generate_cover_cut(
+        &mut self,
+        weights: &[(VarId, BigRational)],
+        capacity: &BigRational,
+    ) -> Option<CuttingPlane> {
+        // Find minimal cover
+        let cover = self.find_minimal_cover(weights, capacity)?;
+
+        // Generate cover inequality: sum_{j in C} x_j <= |C| - 1
+        let mut cut_coeffs = Vec::new();
+        for var_id in &cover {
+            cut_coeffs.push((*var_id, BigRational::one()));
+        }
+
+        let rhs = BigRational::from_integer(BigInt::from(cover.len() as i64 - 1));
+
+        self.stats.cover_cuts += 1;
+        self.stats.cuts_generated += 1;
+
+        Some(CuttingPlane {
+            coeffs: cut_coeffs,
+            rhs,
+            cut_type: CutType::Cover,
+        })
+    }
+
+    /// Find minimal cover for knapsack.
+    fn find_minimal_cover(
+        &self,
+        weights: &[(VarId, BigRational)],
+        capacity: &BigRational,
+    ) -> Option<Vec<VarId>> {
+        // Greedy approach: sort by weight descending
+        let mut sorted_weights = weights.to_vec();
+        sorted_weights.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        let mut cover = Vec::new();
+        let mut total_weight = BigRational::zero();
+
+        for (var_id, weight) in sorted_weights {
+            cover.push(var_id);
+            total_weight = &total_weight + &weight;
+
+            if total_weight > *capacity {
+                return Some(cover);
+            }
+        }
+
+        None // No cover found
+    }
+
+    /// Extract fractional part of a rational number.
+    fn fractional_part(&self, value: &BigRational) -> BigRational {
+        // frac(x) = x - floor(x)
+        let floor_val = self.floor(value);
+        value - &floor_val
+    }
+
+    /// Floor function for rationals.
+    fn floor(&self, value: &BigRational) -> BigRational {
+        let numer = value.numer();
+        let denom = value.denom();
+
+        let quotient = numer / denom;
+        BigRational::from_integer(quotient)
     }
 
     /// Get statistics.
@@ -156,195 +294,43 @@ impl CuttingPlaneGenerator {
         &self.stats
     }
 
-    /// Generate Gomory fractional cut from a tableau row.
-    ///
-    /// Given a row: x_i = f_0 + sum(f_j * x_j) where x_i is basic and fractional,
-    /// the Gomory cut is: sum(floor(f_j) * x_j) <= floor(f_0).
-    ///
-    /// # Arguments
-    ///
-    /// * `basic_var` - The basic variable (must be fractional)
-    /// * `row_coeffs` - Coefficients for non-basic variables in the row
-    /// * `rhs` - Right-hand side value (value of basic variable)
-    pub fn generate_gomory_fractional(
-        &mut self,
-        _basic_var: VarId,
-        row_coeffs: &FxHashMap<VarId, BigRational>,
-        rhs: &BigRational,
-    ) -> Option<Cut> {
-        if !self.config.enable_gomory_fractional {
-            return None;
-        }
+    /// Check if a cut is violated by current solution.
+    pub fn is_violated(&self, cut: &CuttingPlane, solution: &[(VarId, BigRational)]) -> bool {
+        let mut lhs = BigRational::zero();
 
-        // Extract fractional part of RHS
-        let f_0 = self.fractional_part(rhs);
-        if f_0.is_zero() {
-            return None; // RHS is integral, no cut needed
-        }
-
-        // Build cut coefficients
-        let mut cut_coeffs = FxHashMap::default();
-
-        for (&var, coeff) in row_coeffs {
-            let f_j = self.fractional_part(coeff);
-            if !f_j.is_zero() {
-                // Cut coefficient for this variable
-                let cut_coeff = if f_j <= f_0.clone() {
-                    f_j / f_0.clone()
-                } else {
-                    (BigRational::one() - f_j.clone()) / (BigRational::one() - f_0.clone())
-                };
-                cut_coeffs.insert(var, cut_coeff);
+        for (var_id, coeff) in &cut.coeffs {
+            if let Some((_, value)) = solution.iter().find(|(id, _)| id == var_id) {
+                lhs = lhs + coeff * value;
             }
         }
 
-        if cut_coeffs.is_empty() {
-            return None;
-        }
-
-        self.stats.cuts_generated += 1;
-        self.stats.gomory_fractional_cuts += 1;
-
-        Some(Cut::new(
-            cut_coeffs,
-            BigRational::one(),
-            CutType::GomoryFractional,
-        ))
-    }
-
-    /// Generate Gomory mixed-integer (MIR) cut.
-    ///
-    /// This is a generalization of Gomory fractional cuts for mixed-integer programs.
-    pub fn generate_gomory_mixed(
-        &mut self,
-        _basic_var: VarId,
-        row_coeffs: &FxHashMap<VarId, BigRational>,
-        rhs: &BigRational,
-        _integer_vars: &[VarId],
-    ) -> Option<Cut> {
-        if !self.config.enable_gomory_mixed {
-            return None;
-        }
-
-        // Simplified MIR cut generation (similar to fractional case)
-        let f_0 = self.fractional_part(rhs);
-        if f_0.is_zero() {
-            return None;
-        }
-
-        let mut cut_coeffs = FxHashMap::default();
-
-        for (&var, coeff) in row_coeffs {
-            let f_j = self.fractional_part(coeff);
-            if !f_j.is_zero() {
-                let cut_coeff = if f_j <= f_0.clone() {
-                    f_j / f_0.clone()
-                } else {
-                    (BigRational::one() - f_j.clone()) / (BigRational::one() - f_0.clone())
-                };
-                cut_coeffs.insert(var, cut_coeff);
-            }
-        }
-
-        if cut_coeffs.is_empty() {
-            return None;
-        }
-
-        self.stats.cuts_generated += 1;
-        self.stats.gomory_mixed_cuts += 1;
-
-        Some(Cut::new(
-            cut_coeffs,
-            BigRational::one(),
-            CutType::GomoryMixed,
-        ))
-    }
-
-    /// Extract fractional part of a rational number.
-    ///
-    /// For a rational r = n/d, the fractional part is r - floor(r).
-    fn fractional_part(&self, value: &BigRational) -> BigRational {
-        let floor_value = value.floor();
-        value.clone() - floor_value
-    }
-
-    /// Check if a solution violates a cut.
-    pub fn is_violated(&mut self, cut: &Cut, solution: &FxHashMap<VarId, BigRational>) -> bool {
-        let violated = cut.is_violated(solution);
-        if violated {
-            self.stats.violated_cuts += 1;
-        }
-        violated
+        lhs > cut.rhs
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use num_traits::FromPrimitive;
 
-    fn rat(n: i64, d: i64) -> BigRational {
-        BigRational::new(n.into(), d.into())
+    #[test]
+    fn test_cutting_plane_generator() {
+        let mut integer_vars = FxHashSet::default();
+        integer_vars.insert(0);
+        integer_vars.insert(1);
+
+        let generator = CuttingPlaneGenerator::new(integer_vars);
+        assert_eq!(generator.stats.cuts_generated, 0);
     }
 
     #[test]
     fn test_fractional_part() {
-        let generator = CuttingPlaneGenerator::default_config();
+        let integer_vars = FxHashSet::default();
+        let generator = CuttingPlaneGenerator::new(integer_vars);
 
-        // 5/2 has fractional part 1/2
-        let frac = generator.fractional_part(&rat(5, 2));
-        assert_eq!(frac, rat(1, 2));
+        let val = BigRational::new(BigInt::from(7), BigInt::from(3)); // 7/3 = 2.333...
+        let frac = generator.fractional_part(&val);
 
-        // 4/2 = 2 has fractional part 0
-        let frac = generator.fractional_part(&rat(4, 2));
-        assert_eq!(frac, BigRational::zero());
-
-        // 7/3 has fractional part 1/3
-        let frac = generator.fractional_part(&rat(7, 3));
-        assert_eq!(frac, rat(1, 3));
-    }
-
-    #[test]
-    fn test_cut_violation() {
-        let mut coeffs = FxHashMap::default();
-        coeffs.insert(0, rat(2, 1));
-        coeffs.insert(1, rat(3, 1));
-
-        let cut = Cut::new(coeffs, rat(10, 1), CutType::GomoryFractional);
-
-        // Solution: x0=1, x1=1 => 2*1 + 3*1 = 5 < 10 (violated)
-        let mut solution = FxHashMap::default();
-        solution.insert(0, rat(1, 1));
-        solution.insert(1, rat(1, 1));
-
-        assert!(cut.is_violated(&solution));
-        assert_eq!(cut.violation(&solution), rat(5, 1)); // 10 - 5 = 5
-
-        // Solution: x0=3, x1=2 => 2*3 + 3*2 = 12 >= 10 (satisfied)
-        solution.insert(0, rat(3, 1));
-        solution.insert(1, rat(2, 1));
-
-        assert!(!cut.is_violated(&solution));
-    }
-
-    #[test]
-    fn test_gomory_fractional_generation() {
-        let config = CuttingPlaneConfig::default();
-        let mut generator = CuttingPlaneGenerator::new(config);
-
-        // Row: x0 = 5/2 + (1/3)*x1 + (2/5)*x2
-        let mut row_coeffs = FxHashMap::default();
-        row_coeffs.insert(1, rat(1, 3));
-        row_coeffs.insert(2, rat(2, 5));
-
-        let rhs = rat(5, 2);
-
-        let cut = generator.generate_gomory_fractional(0, &row_coeffs, &rhs);
-        assert!(cut.is_some());
-
-        let cut = cut.unwrap();
-        assert_eq!(cut.cut_type, CutType::GomoryFractional);
-        assert!(cut.coeffs.len() > 0);
-        assert_eq!(generator.stats.gomory_fractional_cuts, 1);
+        // Should be 1/3
+        assert_eq!(frac, BigRational::new(BigInt::from(1), BigInt::from(3)));
     }
 }

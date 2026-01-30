@@ -23,6 +23,12 @@
 //!   (par (T) ((nil) (cons (head T) (tail (List T)))))))
 //! ```
 
+pub mod constructor_theory;
 mod solver;
 
+pub use constructor_theory::{
+    CaseBranch, ConstructorDefinition, ConstructorId, ConstructorPattern, ConstructorStats,
+    ConstructorTheory, DatatypeDefinition, DatatypeId, DisjointnessConstraint, InductionProof,
+    InductionProperty, InjectivityConstraint, SelectorDefinition,
+};
 pub use solver::{Constructor, DatatypeDecl, DatatypeSolver, DatatypeSort, Field, Selector};

@@ -99,9 +99,8 @@ pub trait Tactic: Send + Sync {
     }
 }
 
-// Split clause submodule
+// Core tactics
+pub mod ctx_simplify;
+pub mod ctx_solver_simplify;
+pub mod elim_unconstrained;
 pub mod split_clause;
-
-pub use split_clause::{
-    Clause, FormulaTree, SplitClauseConfig, SplitClauseStats, SplitClauseTactic,
-};

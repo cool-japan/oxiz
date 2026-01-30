@@ -22,7 +22,7 @@
 
 use crate::error::Result;
 use crate::tactic::core::{Goal, Tactic, TacticResult};
-use crate::{Sort, Term, TermKind};
+use crate::{Sort, Term};
 use rustc_hash::FxHashMap;
 use std::fmt;
 

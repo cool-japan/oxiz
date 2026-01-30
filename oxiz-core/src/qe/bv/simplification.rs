@@ -15,8 +15,7 @@
 //! - "Deciding Bit-Vector Arithmetic with Abstraction" (Bryant et al., 2007)
 //! - Z3's `qe/qe_bv.cpp`
 
-use oxiz_sat::Lit;
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 
 /// Variable identifier.
 pub type VarId = usize;
@@ -321,10 +320,7 @@ mod tests {
     fn test_constant_folding_add() {
         let mut simp = BvSimplifier::default_config();
 
-        let term = BvTerm::Add(
-            Box::new(BvTerm::Const(3, 8)),
-            Box::new(BvTerm::Const(5, 8)),
-        );
+        let term = BvTerm::Add(Box::new(BvTerm::Const(3, 8)), Box::new(BvTerm::Const(5, 8)));
 
         let result = simp.simplify(&term);
 

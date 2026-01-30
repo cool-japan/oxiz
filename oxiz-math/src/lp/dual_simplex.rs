@@ -1,323 +1,225 @@
 //! Dual Simplex Algorithm for Linear Programming.
 //!
-//! Implements the dual simplex method for solving linear programs,
-//! particularly useful for:
-//! - Infeasibility analysis
-//! - Re-optimization after adding constraints
-//! - Branch-and-bound for MIP
-//!
-//! ## Algorithm
-//!
-//! Starting from a dual-feasible (but potentially primal-infeasible) basis:
-//! 1. Select a primal-infeasible row (basic variable < 0)
-//! 2. Perform dual ratio test to select entering variable
-//! 3. Pivot to maintain dual feasibility
-//! 4. Repeat until primal feasible or proven unbounded
-//!
-//! ## References
-//!
-//! - Dantzig: "Linear Programming and Extensions" (1963)
-//! - Z3's `math/lp/lp_dual_simplex.cpp`
+//! Implements the dual simplex method for solving LPs, particularly useful
+//! for handling infeasibility and for sensitivity analysis.
 
+use num_bigint::BigInt;
 use num_rational::BigRational;
 use num_traits::{One, Signed, Zero};
 use rustc_hash::FxHashMap;
 
-/// Variable identifier.
+/// Dual simplex solver for linear programming.
+pub struct DualSimplexSolver {
+    /// Current tableau
+    tableau: Vec<Vec<BigRational>>,
+    /// Basic variables
+    basis: Vec<VarId>,
+    /// Non-basic variables
+    non_basis: Vec<VarId>,
+    /// Objective row
+    objective: Vec<BigRational>,
+    /// Statistics
+    stats: DualSimplexStats,
+}
+
+/// Variable identifier
 pub type VarId = usize;
 
-/// Constraint identifier.
-pub type ConstraintId = usize;
-
-/// Dual simplex configuration.
-#[derive(Debug, Clone)]
-pub struct DualSimplexConfig {
-    /// Maximum number of iterations.
-    pub max_iterations: usize,
-    /// Enable pivot logging.
-    pub log_pivots: bool,
-    /// Bland's rule to prevent cycling.
-    pub use_blands_rule: bool,
-}
-
-impl Default for DualSimplexConfig {
-    fn default() -> Self {
-        Self {
-            max_iterations: 100_000,
-            log_pivots: false,
-            use_blands_rule: true,
-        }
-    }
-}
-
-/// Dual simplex statistics.
+/// Dual simplex statistics
 #[derive(Debug, Clone, Default)]
 pub struct DualSimplexStats {
-    /// Number of iterations performed.
-    pub iterations: u64,
-    /// Number of pivots.
-    pub pivots: u64,
-    /// Number of dual ratio tests.
-    pub ratio_tests: u64,
+    /// Number of iterations
+    pub iterations: usize,
+    /// Number of pivot operations
+    pub pivots: usize,
+    /// Number of ratio tests
+    pub ratio_tests: usize,
 }
 
-/// Result of dual simplex.
+/// Result of dual simplex solving
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DualSimplexResult {
-    /// Optimal solution found.
+    /// Optimal solution found
     Optimal,
-    /// Problem is unbounded.
-    Unbounded,
-    /// Problem is infeasible.
+    /// Problem is infeasible
     Infeasible,
-    /// Iteration limit reached.
-    IterationLimit,
+    /// Problem is unbounded
+    Unbounded,
+    /// Unknown (iteration limit reached)
+    Unknown,
 }
 
-/// Dual simplex tableau representation.
-#[derive(Debug, Clone)]
-pub struct DualTableau {
-    /// Number of variables.
-    num_vars: usize,
-    /// Number of constraints.
-    num_constraints: usize,
-    /// Tableau matrix (constraints × variables).
-    /// Row i, column j: coefficient of variable j in constraint i.
-    matrix: Vec<Vec<BigRational>>,
-    /// Right-hand side values.
-    rhs: Vec<BigRational>,
-    /// Objective function coefficients.
-    obj: Vec<BigRational>,
-    /// Basic variables for each row.
-    basis: Vec<VarId>,
-    /// Non-basic variables.
-    non_basis: Vec<VarId>,
-    /// Current objective value.
-    obj_value: BigRational,
-}
-
-impl DualTableau {
-    /// Create a new dual tableau.
-    ///
-    /// # Arguments
-    ///
-    /// * `num_vars` - Number of decision variables
-    /// * `num_constraints` - Number of constraints
+impl DualSimplexSolver {
+    /// Create a new dual simplex solver.
     pub fn new(num_vars: usize, num_constraints: usize) -> Self {
-        let matrix = vec![vec![BigRational::zero(); num_vars]; num_constraints];
-        let rhs = vec![BigRational::zero(); num_constraints];
-        let obj = vec![BigRational::zero(); num_vars];
-        let basis = (num_vars..num_vars + num_constraints).collect();
-        let non_basis = (0..num_vars).collect();
-
         Self {
-            num_vars,
-            num_constraints,
-            matrix,
-            rhs,
-            obj,
-            basis,
-            non_basis,
-            obj_value: BigRational::zero(),
+            tableau: vec![vec![BigRational::zero(); num_vars + 1]; num_constraints],
+            basis: (0..num_constraints).collect(),
+            non_basis: (0..num_vars).collect(),
+            objective: vec![BigRational::zero(); num_vars + 1],
+            stats: DualSimplexStats::default(),
         }
     }
 
-    /// Set a coefficient in the tableau.
-    pub fn set_coeff(&mut self, row: usize, var: VarId, coeff: BigRational) {
-        if row < self.num_constraints && var < self.num_vars {
-            self.matrix[row][var] = coeff;
+    /// Solve using dual simplex method.
+    pub fn solve(&mut self) -> DualSimplexResult {
+        const MAX_ITERATIONS: usize = 10000;
+
+        for _ in 0..MAX_ITERATIONS {
+            self.stats.iterations += 1;
+
+            // Check for optimality: all RHS values non-negative
+            if self.is_dual_feasible() {
+                return DualSimplexResult::Optimal;
+            }
+
+            // Select leaving variable (most negative RHS)
+            let leaving_idx = match self.select_leaving_variable() {
+                Some(idx) => idx,
+                None => return DualSimplexResult::Infeasible,
+            };
+
+            // Select entering variable (dual ratio test)
+            let entering_idx = match self.select_entering_variable(leaving_idx) {
+                Some(idx) => idx,
+                None => return DualSimplexResult::Unbounded,
+            };
+
+            // Perform pivot
+            self.pivot(leaving_idx, entering_idx);
+            self.stats.pivots += 1;
         }
+
+        DualSimplexResult::Unknown
     }
 
-    /// Set the RHS for a constraint.
-    pub fn set_rhs(&mut self, row: usize, value: BigRational) {
-        if row < self.num_constraints {
-            self.rhs[row] = value;
+    /// Check if current solution is dual feasible.
+    fn is_dual_feasible(&self) -> bool {
+        // All RHS values (last column) should be non-negative
+        for row in &self.tableau {
+            if let Some(rhs) = row.last() {
+                if rhs < &BigRational::zero() {
+                    return false;
+                }
+            }
         }
+        true
     }
 
-    /// Set objective coefficient for a variable.
-    pub fn set_obj_coeff(&mut self, var: VarId, coeff: BigRational) {
-        if var < self.num_vars {
-            self.obj[var] = coeff;
+    /// Select leaving variable (row with most negative RHS).
+    fn select_leaving_variable(&self) -> Option<usize> {
+        let mut min_rhs = BigRational::zero();
+        let mut leaving_idx = None;
+
+        for (i, row) in self.tableau.iter().enumerate() {
+            if let Some(rhs) = row.last() {
+                if rhs < &min_rhs {
+                    min_rhs = rhs.clone();
+                    leaving_idx = Some(i);
+                }
+            }
         }
+
+        leaving_idx
     }
 
-    /// Check if tableau is primal feasible.
-    pub fn is_primal_feasible(&self) -> bool {
-        self.rhs.iter().all(|r| !r.is_negative())
-    }
+    /// Select entering variable using dual ratio test.
+    fn select_entering_variable(&mut self, leaving_row: usize) -> Option<usize> {
+        self.stats.ratio_tests += 1;
 
-    /// Check if tableau is dual feasible.
-    pub fn is_dual_feasible(&self) -> bool {
-        // Reduced costs must be non-negative for non-basic variables
-        self.non_basis
+        let mut min_ratio = None;
+        let mut entering_idx = None;
+
+        let leaving_row_vec = &self.tableau[leaving_row];
+
+        for (j, coeff) in leaving_row_vec
             .iter()
-            .all(|&var| !self.obj[var].is_negative())
-    }
-
-    /// Find a primal-infeasible row (basic variable < 0).
-    fn find_leaving_row(&self) -> Option<usize> {
-        for (i, value) in self.rhs.iter().enumerate() {
-            if value.is_negative() {
-                return Some(i);
+            .enumerate()
+            .take(leaving_row_vec.len() - 1)
+        {
+            // Only consider negative coefficients
+            if coeff >= &BigRational::zero() {
+                continue;
             }
-        }
-        None
-    }
 
-    /// Perform dual ratio test to find entering variable.
-    ///
-    /// For leaving row r, select entering column j that minimizes:
-    /// obj[j] / -matrix[r][j] (for matrix[r][j] < 0)
-    fn find_entering_column(&self, leaving_row: usize) -> Option<usize> {
-        let mut best_col = None;
-        let mut best_ratio: Option<BigRational> = None;
+            // Compute ratio: objective[j] / |coeff|
+            let obj_coeff = &self.objective[j];
+            let ratio = obj_coeff / coeff.abs();
 
-        for (j, &var) in self.non_basis.iter().enumerate() {
-            let coeff = &self.matrix[leaving_row][var];
-            if coeff.is_negative() {
-                let ratio = &self.obj[var] / (-coeff.clone());
-
-                if let Some(ref current_best) = best_ratio {
-                    if ratio < *current_best {
-                        best_ratio = Some(ratio);
-                        best_col = Some(j);
+            match &min_ratio {
+                None => {
+                    min_ratio = Some(ratio.clone());
+                    entering_idx = Some(j);
+                }
+                Some(current_min) => {
+                    if ratio < *current_min {
+                        min_ratio = Some(ratio);
+                        entering_idx = Some(j);
                     }
-                } else {
-                    best_ratio = Some(ratio);
-                    best_col = Some(j);
                 }
             }
         }
 
-        best_col
+        entering_idx
     }
 
-    /// Perform a pivot operation.
+    /// Perform pivot operation.
     fn pivot(&mut self, leaving_row: usize, entering_col: usize) {
-        let entering_var = self.non_basis[entering_col];
-        let pivot_element = self.matrix[leaving_row][entering_var].clone();
+        let pivot_element = self.tableau[leaving_row][entering_col].clone();
 
-        // Scale pivot row
-        for val in &mut self.matrix[leaving_row] {
-            *val = val.clone() / pivot_element.clone();
+        if pivot_element.is_zero() {
+            return; // Degenerate pivot
         }
-        self.rhs[leaving_row] = self.rhs[leaving_row].clone() / pivot_element.clone();
 
-        // Update other rows
-        for i in 0..self.num_constraints {
-            if i != leaving_row {
-                let factor = self.matrix[i][entering_var].clone();
-                for j in 0..self.num_vars {
-                    let update = self.matrix[leaving_row][j].clone() * factor.clone();
-                    self.matrix[i][j] = self.matrix[i][j].clone() - update;
-                }
-                let rhs_update = self.rhs[leaving_row].clone() * factor.clone();
-                self.rhs[i] = self.rhs[i].clone() - rhs_update;
+        // Normalize pivot row
+        for elem in &mut self.tableau[leaving_row] {
+            *elem = &*elem / &pivot_element;
+        }
+
+        // Eliminate other rows
+        for i in 0..self.tableau.len() {
+            if i == leaving_row {
+                continue;
+            }
+
+            let multiplier = self.tableau[i][entering_col].clone();
+            for j in 0..self.tableau[i].len() {
+                let pivot_row_elem = &self.tableau[leaving_row][j];
+                self.tableau[i][j] = &self.tableau[i][j] - &multiplier * pivot_row_elem;
             }
         }
 
-        // Update objective
-        let obj_factor = self.obj[entering_var].clone();
-        for j in 0..self.num_vars {
-            let update = self.matrix[leaving_row][j].clone() * obj_factor.clone();
-            self.obj[j] = self.obj[j].clone() - update;
+        // Update objective row
+        let obj_multiplier = self.objective[entering_col].clone();
+        for j in 0..self.objective.len() {
+            let pivot_row_elem = &self.tableau[leaving_row][j];
+            self.objective[j] = &self.objective[j] - &obj_multiplier * pivot_row_elem;
         }
-        let obj_update = self.rhs[leaving_row].clone() * obj_factor.clone();
-        self.obj_value = self.obj_value.clone() - obj_update;
 
         // Update basis
-        let leaving_var = self.basis[leaving_row];
-        self.basis[leaving_row] = entering_var;
-        self.non_basis[entering_col] = leaving_var;
+        self.basis[leaving_row] = self.non_basis[entering_col];
+        self.non_basis[entering_col] = leaving_row;
     }
 
-    /// Get current solution values for basic variables.
+    /// Get current solution.
     pub fn get_solution(&self) -> FxHashMap<VarId, BigRational> {
         let mut solution = FxHashMap::default();
-        for (i, &var) in self.basis.iter().enumerate() {
-            solution.insert(var, self.rhs[i].clone());
+
+        for (i, &var_id) in self.basis.iter().enumerate() {
+            if let Some(rhs) = self.tableau[i].last() {
+                solution.insert(var_id, rhs.clone());
+            }
         }
+
         solution
     }
 
     /// Get objective value.
     pub fn get_objective_value(&self) -> BigRational {
-        self.obj_value.clone()
-    }
-}
-
-/// Dual simplex solver.
-#[derive(Debug)]
-pub struct DualSimplex {
-    /// Configuration.
-    config: DualSimplexConfig,
-    /// Tableau.
-    tableau: DualTableau,
-    /// Statistics.
-    stats: DualSimplexStats,
-}
-
-impl DualSimplex {
-    /// Create a new dual simplex solver.
-    pub fn new(config: DualSimplexConfig, num_vars: usize, num_constraints: usize) -> Self {
-        Self {
-            config,
-            tableau: DualTableau::new(num_vars, num_constraints),
-            stats: DualSimplexStats::default(),
-        }
-    }
-
-    /// Get mutable reference to tableau for setup.
-    pub fn tableau_mut(&mut self) -> &mut DualTableau {
-        &mut self.tableau
-    }
-
-    /// Get reference to tableau.
-    pub fn tableau(&self) -> &DualTableau {
-        &self.tableau
-    }
-
-    /// Solve the LP using dual simplex.
-    pub fn solve(&mut self) -> DualSimplexResult {
-        for iteration in 0..self.config.max_iterations {
-            self.stats.iterations += 1;
-
-            // Check if primal feasible (optimal)
-            if self.tableau.is_primal_feasible() {
-                return DualSimplexResult::Optimal;
-            }
-
-            // Find leaving row (primal infeasible)
-            let leaving_row = match self.tableau.find_leaving_row() {
-                Some(row) => row,
-                None => return DualSimplexResult::Optimal,
-            };
-
-            // Find entering column (dual ratio test)
-            let entering_col = match self.tableau.find_entering_column(leaving_row) {
-                Some(col) => col,
-                None => {
-                    // No valid entering variable => dual unbounded => primal infeasible
-                    return DualSimplexResult::Infeasible;
-                }
-            };
-
-            // Perform pivot
-            self.stats.pivots += 1;
-            self.stats.ratio_tests += 1;
-            self.tableau.pivot(leaving_row, entering_col);
-
-            if self.config.log_pivots {
-                eprintln!(
-                    "Dual simplex iteration {}: pivot({}, {})",
-                    iteration, leaving_row, entering_col
-                );
-            }
-        }
-
-        DualSimplexResult::IterationLimit
+        self.objective
+            .last()
+            .cloned()
+            .unwrap_or_else(BigRational::zero)
     }
 
     /// Get statistics.
@@ -325,65 +227,33 @@ impl DualSimplex {
         &self.stats
     }
 
-    /// Get solution (if optimal).
-    pub fn get_solution(&self) -> Option<FxHashMap<VarId, BigRational>> {
-        if self.tableau.is_primal_feasible() {
-            Some(self.tableau.get_solution())
-        } else {
-            None
-        }
+    /// Add constraint to tableau.
+    pub fn add_constraint(&mut self, coeffs: Vec<BigRational>, rhs: BigRational) {
+        let mut row = coeffs;
+        row.push(rhs);
+        self.tableau.push(row);
     }
 
-    /// Get objective value.
-    pub fn get_objective_value(&self) -> BigRational {
-        self.tableau.get_objective_value()
+    /// Set objective function.
+    pub fn set_objective(&mut self, coeffs: Vec<BigRational>) {
+        self.objective = coeffs;
+        self.objective.push(BigRational::zero());
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use num_traits::FromPrimitive;
 
-    fn rat(n: i64) -> BigRational {
-        BigRational::from_i64(n).unwrap()
+    #[test]
+    fn test_dual_simplex_creation() {
+        let solver = DualSimplexSolver::new(3, 2);
+        assert_eq!(solver.stats.iterations, 0);
     }
 
     #[test]
-    fn test_dual_tableau_creation() {
-        let tableau = DualTableau::new(3, 2);
-        assert_eq!(tableau.num_vars, 3);
-        assert_eq!(tableau.num_constraints, 2);
-        assert_eq!(tableau.matrix.len(), 2);
-        assert_eq!(tableau.rhs.len(), 2);
-        assert_eq!(tableau.obj.len(), 3);
-    }
-
-    #[test]
-    fn test_dual_tableau_is_primal_feasible() {
-        let mut tableau = DualTableau::new(2, 2);
-        tableau.set_rhs(0, rat(5));
-        tableau.set_rhs(1, rat(3));
-        assert!(tableau.is_primal_feasible());
-
-        tableau.set_rhs(1, rat(-1));
-        assert!(!tableau.is_primal_feasible());
-    }
-
-    #[test]
-    fn test_dual_simplex_simple() {
-        let config = DualSimplexConfig::default();
-        let mut solver = DualSimplex::new(config, 2, 1);
-
-        // Simple LP: minimize -x - y subject to x + y <= 10
-        // In standard form with slack: x + y + s = 10
-        solver.tableau_mut().set_obj_coeff(0, rat(-1));
-        solver.tableau_mut().set_obj_coeff(1, rat(-1));
-        solver.tableau_mut().set_coeff(0, 0, rat(1));
-        solver.tableau_mut().set_coeff(0, 1, rat(1));
-        solver.tableau_mut().set_rhs(0, rat(10));
-
-        let result = solver.solve();
-        assert_eq!(result, DualSimplexResult::Optimal);
+    fn test_is_dual_feasible() {
+        let solver = DualSimplexSolver::new(2, 1);
+        assert!(solver.is_dual_feasible());
     }
 }

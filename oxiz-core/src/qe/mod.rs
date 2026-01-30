@@ -35,7 +35,9 @@ pub use term_graph::{TermGraph, TermGraphConfig, TermGraphStats, TermNode, TermN
 pub mod arith;
 pub mod array;
 pub mod bv;
+pub mod cad;
 pub mod datatype;
+pub mod string;
 
 // NLQSAT for non-linear quantified satisfiability
 mod nlqsat;

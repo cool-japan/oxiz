@@ -101,7 +101,7 @@ impl ModelCompleter {
 
         for var in missing_vars {
             let value = self.complete_variable(var);
-            completed.assign(var, value);
+            completed.assign_theory(var, value);
             self.stats.vars_completed += 1;
         }
 
@@ -116,7 +116,7 @@ impl ModelCompleter {
 
         // Check witnesses for unassigned variables
         for &var in self.witnesses.keys() {
-            if !model.is_assigned(var) {
+            if model.get_theory(var).is_none() {
                 missing.push(var);
             }
         }
@@ -195,7 +195,9 @@ mod tests {
 
     #[test]
     fn test_complete_with_witnesses() {
-        let mut completer = ModelCompleter::default_config();
+        let mut config = CompletionConfig::default();
+        config.strategy = CompletionStrategy::Witness;
+        let mut completer = ModelCompleter::new(config);
         completer.add_witness(0, Value::Int(10));
         completer.add_witness(1, Value::Bool(true));
 

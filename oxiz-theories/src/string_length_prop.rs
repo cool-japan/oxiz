@@ -281,7 +281,7 @@ impl LengthPropagator {
                     // Propagate: len(x) <= len(z)
                     // (if len(z) is bounded, len(x) is also bounded)
                     if let Some(max_z) = domain_z.max
-                        && (domain_x.max.is_none() || domain_x.max.unwrap() > max_z)
+                        && domain_x.max.map_or(true, |m| m > max_z)
                     {
                         self.refine_domain(
                             *x,

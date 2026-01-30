@@ -6,8 +6,6 @@
 //!
 //! Reference: Z3's Gröbner basis implementation and standard computer algebra texts.
 
-pub mod f4;
-
 use crate::polynomial::{Monomial, MonomialOrder, Polynomial};
 use num_rational::BigRational;
 use num_traits::{One, Signed, Zero};

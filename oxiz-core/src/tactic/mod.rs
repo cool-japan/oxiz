@@ -12,6 +12,7 @@ pub mod quantifier;
 
 // Phase 2 enhancements
 pub mod arith;
+pub mod array;
 pub mod bv;
 
 // Refactored modules

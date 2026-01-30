@@ -868,12 +868,16 @@ pub struct TheoryDecision {
 
 /// Theory manager that bridges the SAT solver with theory solvers
 struct TheoryManager<'a> {
+    /// Reference to the term manager
+    manager: &'a TermManager,
     /// Reference to the EUF solver
     euf: &'a mut EufSolver,
     /// Reference to the arithmetic solver
     arith: &'a mut ArithSolver,
     /// Reference to the bitvector solver
     bv: &'a mut BvSolver,
+    /// Bitvector terms (for identifying BV variables)
+    bv_terms: &'a FxHashSet<TermId>,
     /// Mapping from SAT variables to constraints
     var_to_constraint: &'a FxHashMap<Var, Constraint>,
     /// Mapping from SAT variables to parsed arithmetic constraints
@@ -907,9 +911,11 @@ struct TheoryManager<'a> {
 impl<'a> TheoryManager<'a> {
     #[allow(clippy::too_many_arguments)]
     fn new(
+        manager: &'a TermManager,
         euf: &'a mut EufSolver,
         arith: &'a mut ArithSolver,
         bv: &'a mut BvSolver,
+        bv_terms: &'a FxHashSet<TermId>,
         var_to_constraint: &'a FxHashMap<Var, Constraint>,
         var_to_parsed_arith: &'a FxHashMap<Var, ParsedArithConstraint>,
         term_to_var: &'a FxHashMap<TermId, Var>,
@@ -919,9 +925,11 @@ impl<'a> TheoryManager<'a> {
         max_decisions: u64,
     ) -> Self {
         Self {
+            manager,
             euf,
             arith,
             bv,
+            bv_terms,
             var_to_constraint,
             var_to_parsed_arith,
             term_to_var,
@@ -1077,6 +1085,7 @@ impl<'a> TheoryManager<'a> {
         var: Var,
         constraint: Constraint,
         is_positive: bool,
+        manager: &TermManager,
     ) -> TheoryCheckResult {
         match constraint {
             Constraint::Eq(lhs, rhs) => {
@@ -1115,6 +1124,215 @@ impl<'a> TheoryManager<'a> {
                         {
                             let conflict_lits = self.terms_to_conflict_clause(&conflict_terms);
                             return TheoryCheckResult::Conflict(conflict_lits);
+                        }
+                    }
+
+                    // For bitvector equalities, also send to BvSolver
+                    // Handle variables, constants, and BV operations
+                    let lhs_is_bv = self.bv_terms.contains(&lhs);
+                    let rhs_is_bv = self.bv_terms.contains(&rhs);
+
+                    if lhs_is_bv || rhs_is_bv {
+                        let mut did_assert = false;
+
+                        // Helper to extract BV constant info
+                        let get_bv_const = |term_id: TermId| -> Option<(u64, u32)> {
+                            manager.get(term_id).and_then(|t| match &t.kind {
+                                TermKind::BitVecConst { value, width } => {
+                                    let val_u64 = value.iter_u64_digits().next().unwrap_or(0);
+                                    Some((val_u64, *width))
+                                }
+                                _ => None,
+                            })
+                        };
+
+                        // Helper to get BV width from term's sort
+                        let get_bv_width = |term_id: TermId| -> Option<u32> {
+                            manager.get(term_id).and_then(|t| {
+                                manager.sorts.get(t.sort).and_then(|s| s.bitvec_width())
+                            })
+                        };
+
+                        // Helper to check if term is a simple variable
+                        let is_var = |term_id: TermId| -> bool {
+                            manager
+                                .get(term_id)
+                                .map_or(false, |t| matches!(t.kind, TermKind::Var(_)))
+                        };
+
+                        // Helper to encode a BV operation and return the result term
+                        // This ensures operands have BV variables created
+                        let encode_bv_op =
+                            |bv: &mut BvSolver, op_term: TermId, mgr: &TermManager| -> bool {
+                                let term = match mgr.get(op_term) {
+                                    Some(t) => t,
+                                    None => return false,
+                                };
+                                let width = mgr.sorts.get(term.sort).and_then(|s| s.bitvec_width());
+                                let width = match width {
+                                    Some(w) => w,
+                                    None => return false,
+                                };
+
+                                match &term.kind {
+                                    TermKind::BvAdd(a, b) => {
+                                        // Ensure operands have BV variables
+                                        bv.new_bv(*a, width);
+                                        bv.new_bv(*b, width);
+                                        bv.bv_add(op_term, *a, *b);
+                                        true
+                                    }
+                                    TermKind::BvMul(a, b) => {
+                                        bv.new_bv(*a, width);
+                                        bv.new_bv(*b, width);
+                                        bv.bv_mul(op_term, *a, *b);
+                                        true
+                                    }
+                                    TermKind::BvSub(a, b) => {
+                                        bv.new_bv(*a, width);
+                                        bv.new_bv(*b, width);
+                                        bv.bv_sub(op_term, *a, *b);
+                                        true
+                                    }
+                                    TermKind::BvAnd(a, b) => {
+                                        bv.new_bv(*a, width);
+                                        bv.new_bv(*b, width);
+                                        bv.bv_and(op_term, *a, *b);
+                                        true
+                                    }
+                                    TermKind::BvOr(a, b) => {
+                                        bv.new_bv(*a, width);
+                                        bv.new_bv(*b, width);
+                                        bv.bv_or(op_term, *a, *b);
+                                        true
+                                    }
+                                    TermKind::BvXor(a, b) => {
+                                        bv.new_bv(*a, width);
+                                        bv.new_bv(*b, width);
+                                        bv.bv_xor(op_term, *a, *b);
+                                        true
+                                    }
+                                    TermKind::BvNot(a) => {
+                                        bv.new_bv(*a, width);
+                                        bv.bv_not(op_term, *a);
+                                        true
+                                    }
+                                    TermKind::Var(_) => {
+                                        // Simple variable - just ensure it has BV var
+                                        bv.new_bv(op_term, width);
+                                        true
+                                    }
+                                    _ => false,
+                                }
+                            };
+
+                        // Check for BV operations and encode them
+                        let lhs_term = manager.get(lhs);
+                        let rhs_term = manager.get(rhs);
+
+                        let lhs_is_op = lhs_term.map_or(false, |t| {
+                            matches!(
+                                t.kind,
+                                TermKind::BvAdd(_, _)
+                                    | TermKind::BvMul(_, _)
+                                    | TermKind::BvSub(_, _)
+                                    | TermKind::BvAnd(_, _)
+                                    | TermKind::BvOr(_, _)
+                                    | TermKind::BvXor(_, _)
+                                    | TermKind::BvNot(_)
+                            )
+                        });
+                        let rhs_is_op = rhs_term.map_or(false, |t| {
+                            matches!(
+                                t.kind,
+                                TermKind::BvAdd(_, _)
+                                    | TermKind::BvMul(_, _)
+                                    | TermKind::BvSub(_, _)
+                                    | TermKind::BvAnd(_, _)
+                                    | TermKind::BvOr(_, _)
+                                    | TermKind::BvXor(_, _)
+                                    | TermKind::BvNot(_)
+                            )
+                        });
+
+                        let lhs_const_info = get_bv_const(lhs);
+                        let rhs_const_info = get_bv_const(rhs);
+                        let lhs_is_var = is_var(lhs);
+                        let rhs_is_var = is_var(rhs);
+
+                        // Case 1: BV operation = constant (e.g., (= (bvmul x y) #x0c))
+                        if lhs_is_op {
+                            if let Some(width) = get_bv_width(lhs) {
+                                // Encode the LHS operation
+                                let _encoded = encode_bv_op(self.bv, lhs, manager);
+
+                                if let Some((val, _)) = rhs_const_info {
+                                    // Assert operation result = constant
+                                    self.bv.assert_const(lhs, val, width);
+                                    did_assert = true;
+                                } else if rhs_is_var && self.bv_terms.contains(&rhs) {
+                                    // Assert operation result = variable
+                                    self.bv.new_bv(rhs, width);
+                                    self.bv.assert_eq(lhs, rhs);
+                                    did_assert = true;
+                                }
+                            }
+                        }
+                        // Case 2: constant = BV operation
+                        else if rhs_is_op {
+                            if let Some(width) = get_bv_width(rhs) {
+                                // Encode the RHS operation
+                                encode_bv_op(self.bv, rhs, manager);
+
+                                if let Some((val, _)) = lhs_const_info {
+                                    // Assert operation result = constant
+                                    self.bv.assert_const(rhs, val, width);
+                                    did_assert = true;
+                                } else if lhs_is_var && self.bv_terms.contains(&lhs) {
+                                    // Assert variable = operation result
+                                    self.bv.new_bv(lhs, width);
+                                    self.bv.assert_eq(lhs, rhs);
+                                    did_assert = true;
+                                }
+                            }
+                        }
+                        // Case 3: Simple variable = constant
+                        else if lhs_is_var && self.bv_terms.contains(&lhs) {
+                            if let Some((val, width)) = rhs_const_info {
+                                self.bv.assert_const(lhs, val, width);
+                                did_assert = true;
+                            }
+                        }
+                        // Case 4: constant = simple variable
+                        else if rhs_is_var && self.bv_terms.contains(&rhs) {
+                            if let Some((val, width)) = lhs_const_info {
+                                self.bv.assert_const(rhs, val, width);
+                                did_assert = true;
+                            }
+                        }
+                        // Case 5: Both simple variables
+                        else if lhs_is_var
+                            && rhs_is_var
+                            && self.bv_terms.contains(&lhs)
+                            && self.bv_terms.contains(&rhs)
+                        {
+                            if let Some(width) = get_bv_width(lhs) {
+                                self.bv.new_bv(lhs, width);
+                                self.bv.new_bv(rhs, width);
+                                self.bv.assert_eq(lhs, rhs);
+                                did_assert = true;
+                            }
+                        }
+
+                        // Only check BvSolver for conflicts if we actually asserted something
+                        if did_assert {
+                            use oxiz_theories::Theory;
+                            use oxiz_theories::TheoryCheckResult as TheoryCheckResultEnum;
+                            let check_result = self.bv.check();
+                            if let Ok(TheoryCheckResultEnum::Unsat(conflict_terms)) = check_result {
+                                let conflict_lits = self.terms_to_conflict_clause(&conflict_terms);
+                                return TheoryCheckResult::Conflict(conflict_lits);
+                            }
                         }
                     }
                 } else {
@@ -1253,7 +1471,7 @@ impl TheoryCallback for TheoryManager<'_> {
         self.processed_count += 1;
         self.statistics.theory_propagations += 1;
 
-        let result = self.process_constraint(var, constraint, is_positive);
+        let result = self.process_constraint(var, constraint, is_positive, self.manager);
 
         // Track theory conflicts
         if matches!(result, TheoryCheckResult::Conflict(_)) {
@@ -1281,7 +1499,7 @@ impl TheoryCallback for TheoryManager<'_> {
                 self.statistics.theory_propagations += 1;
 
                 // Process the constraint (same logic as eager mode)
-                let result = self.process_constraint(var, constraint, is_positive);
+                let result = self.process_constraint(var, constraint, is_positive, self.manager);
                 if let TheoryCheckResult::Conflict(conflict) = result {
                     self.statistics.theory_conflicts += 1;
                     self.statistics.conflicts += 1;
@@ -2625,9 +2843,11 @@ impl Solver {
 
         // Run SAT solver with theory integration
         let mut theory_manager = TheoryManager::new(
+            manager,
             &mut self.euf,
             &mut self.arith,
             &mut self.bv,
+            &self.bv_terms,
             &self.var_to_constraint,
             &self.var_to_parsed_arith,
             &self.term_to_var,
@@ -2711,9 +2931,11 @@ impl Solver {
 
                     // Recreate theory manager for next iteration
                     theory_manager = TheoryManager::new(
+                        manager,
                         &mut self.euf,
                         &mut self.arith,
                         &mut self.bv,
+                        &self.bv_terms,
                         &self.var_to_constraint,
                         &self.var_to_parsed_arith,
                         &self.term_to_var,

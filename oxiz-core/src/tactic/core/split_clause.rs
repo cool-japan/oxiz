@@ -21,8 +21,6 @@
 //! - Tseitin: "On the Complexity of Derivation in Propositional Calculus" (1968)
 //! - Z3's `tactic/core/split_clause_tactic.cpp`
 
-use rustc_hash::FxHashSet;
-
 /// Literal type.
 pub type Lit = i32;
 

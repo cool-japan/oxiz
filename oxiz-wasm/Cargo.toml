@@ -23,6 +23,9 @@ wasm-bindgen-futures = "0.4"
 js-sys = { workspace = true }
 console_error_panic_hook = "0.1"
 getrandom = { version = "0.3", features = ["wasm_js"] }
+web-sys = { version = "0.3", features = ["console", "Window", "Performance", "Response"] }
+flate2 = "1.0"
+brotli = "7.0"
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"

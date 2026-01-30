@@ -17,14 +17,26 @@
 //! - Cutting planes (Gomory cuts)
 //! - Node selection strategies (best-first, depth-first)
 
-// Phase 2 enhancements - advanced LP algorithms
-pub mod cutting_planes;
-pub mod dual_simplex;
-
-pub use cutting_planes::{Cut, CuttingPlaneConfig, CuttingPlaneGenerator, CuttingPlaneStats};
-pub use dual_simplex::{
-    DualSimplex as DualSimplexSolver, DualSimplexConfig, DualSimplexResult, DualSimplexStats,
-    DualTableau,
+// Phase 2 enhancements - advanced LP algorithms from lp module
+pub use crate::lp::basis_update::{
+    Basis, BasisUpdateConfig, BasisUpdateStats, BasisUpdater, EtaMatrix,
+};
+pub use crate::lp::branch_cut::{
+    BranchCutConfig as BranchAndCutConfig, BranchCutResult as BranchAndCutResult,
+    BranchCutSolver as BranchAndCutSolver, BranchCutStats as BranchAndCutStats,
+    BranchingStrategy as BranchCutBranchingStrategy, NodeSelection as BranchCutNodeSelection,
+};
+pub use crate::lp::cutting_planes::{
+    CuttingPlane as Cut, CuttingPlaneConfig, CuttingPlaneGenerator, CuttingPlaneStats,
+};
+pub use crate::lp::cutting_planes_extended::{
+    CutType, CuttingPlane, ExtendedCuttingPlaneGenerator, ExtendedCuttingPlanesConfig,
+    ExtendedCuttingPlanesStats,
+};
+pub use crate::lp::dual_simplex::{DualSimplexResult, DualSimplexSolver, DualSimplexStats};
+pub use crate::lp::farkas::{
+    FarkasCertificate, FarkasConfig, FarkasGenerator, FarkasStats,
+    LinearConstraint as FarkasConstraint,
 };
 
 use crate::simplex::{BoundType, SimplexResult, SimplexTableau};

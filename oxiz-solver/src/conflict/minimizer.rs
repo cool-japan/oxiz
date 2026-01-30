@@ -19,7 +19,7 @@
 //! - Beame et al.: "Understanding and Using Short Implicants" (SAT 2017)
 //! - Z3's conflict minimization in `smt/smt_conflict_resolution.cpp`
 
-use oxiz_sat::{Lit, Var};
+use oxiz_sat::Lit;
 use rustc_hash::FxHashSet;
 
 /// Configuration for conflict minimization.
@@ -144,7 +144,7 @@ impl ConflictMinimizer {
     }
 
     /// Check if a literal can be removed from the conflict.
-    fn can_be_removed(&mut self, lit: Lit, conflict: &FxHashSet<Lit>) -> bool {
+    fn can_be_removed(&mut self, lit: Lit, _conflict: &FxHashSet<Lit>) -> bool {
         if !self.config.recursive {
             return false;
         }
