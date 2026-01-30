@@ -25,4 +25,4 @@ rand = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
-tempfile = "3.19"
+tempfile = "3.24"
