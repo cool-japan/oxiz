@@ -5,8 +5,7 @@
 //! - Creating models (variable assignments)
 //! - Evaluating formulas under a model
 //! - Model completion for partial assignments
-//! - Prime implicant extraction
-//! - Model minimization
+//! - Different value types
 //!
 //! ## Models in SMT
 //! A model is a satisfying assignment that makes all asserted formulas true.
@@ -15,19 +14,14 @@
 //! ## Complexity
 //! - Evaluation: O(n) where n is formula size
 //! - Completion: O(n * m) where m is number of variables
-//! - Implicant extraction: O(2^k) where k is relevant variables
 //!
 //! ## See Also
 //! - [`Model`](oxiz_core::model::Model) for model representation
 //! - [`ModelEvaluator`](oxiz_core::model::ModelEvaluator) for evaluation
-//! - [`ImplicantExtractor`](oxiz_core::model::ImplicantExtractor)
 
-use num_bigint::BigInt;
+use num_rational::Rational64;
 use oxiz_core::ast::TermManager;
-use oxiz_core::model::{
-    ImplicantConfig, ImplicantExtractor, Model, ModelCompletion, ModelCompletionConfig,
-    ModelEvaluator, Value,
-};
+use oxiz_core::model::{EvalResult, Model, ModelEvaluator, Value};
 
 fn main() {
     println!("=== OxiZ Core: Model Evaluation ===\n");
@@ -56,11 +50,11 @@ fn main() {
     let formula2 = tm.mk_or(vec![p, r]); // p OR r
     let formula3 = tm.mk_implies(q, r); // q => r
 
-    let evaluator = ModelEvaluator::new(&model);
+    let mut evaluator = ModelEvaluator::new(&model);
     println!("\nEvaluations:");
-    println!("  p AND q = {:?}", evaluator.eval(formula1, &tm));
-    println!("  p OR r = {:?}", evaluator.eval(formula2, &tm));
-    println!("  q => r = {:?}", evaluator.eval(formula3, &tm));
+    print_eval("p AND q", &evaluator.eval(formula1, &tm));
+    print_eval("p OR r", &evaluator.eval(formula2, &tm));
+    print_eval("q => r", &evaluator.eval(formula3, &tm));
 
     // ===== Example 2: Integer Model =====
     println!("\n--- Example 2: Integer Model Evaluation ---");
@@ -70,9 +64,9 @@ fn main() {
 
     // Model: x=5, y=10, z=-3
     let mut int_model = Model::new();
-    int_model.assign(x, Value::Int(BigInt::from(5)));
-    int_model.assign(y, Value::Int(BigInt::from(10)));
-    int_model.assign(z, Value::Int(BigInt::from(-3)));
+    int_model.assign(x, Value::Int(5));
+    int_model.assign(y, Value::Int(10));
+    int_model.assign(z, Value::Int(-3));
 
     println!("Model:");
     println!("  x = 5");
@@ -82,195 +76,218 @@ fn main() {
     // Evaluate arithmetic expressions
     let x_plus_y = tm.mk_add(vec![x, y]);
     let y_minus_z = tm.mk_sub(y, z);
-    let x_times_2 = tm.mk_mul(vec![x, tm.mk_int(BigInt::from(2))]);
+    let two = tm.mk_int(2);
+    let x_times_2 = tm.mk_mul(vec![x, two]);
 
-    let int_evaluator = ModelEvaluator::new(&int_model);
+    let mut int_evaluator = ModelEvaluator::new(&int_model);
     println!("\nEvaluations:");
-    println!("  x + y = {:?}", int_evaluator.eval(x_plus_y, &tm));
-    println!("  y - z = {:?}", int_evaluator.eval(y_minus_z, &tm));
-    println!("  x * 2 = {:?}", int_evaluator.eval(x_times_2, &tm));
+    print_eval("x + y", &int_evaluator.eval(x_plus_y, &tm));
+    print_eval("y - z", &int_evaluator.eval(y_minus_z, &tm));
+    print_eval("x * 2", &int_evaluator.eval(x_times_2, &tm));
 
     // Evaluate comparisons
-    let five = tm.mk_int(BigInt::from(5));
+    let five = tm.mk_int(5);
+    let zero_cmp = tm.mk_int(0);
     let x_eq_5 = tm.mk_eq(x, five);
     let y_gt_x = tm.mk_gt(y, x);
-    let z_lt_0 = tm.mk_lt(z, tm.mk_int(BigInt::from(0)));
+    let z_lt_0 = tm.mk_lt(z, zero_cmp);
 
     println!("\nComparisons:");
-    println!("  x = 5 ? {:?}", int_evaluator.eval(x_eq_5, &tm));
-    println!("  y > x ? {:?}", int_evaluator.eval(y_gt_x, &tm));
-    println!("  z < 0 ? {:?}", int_evaluator.eval(z_lt_0, &tm));
+    print_eval("x = 5 ?", &int_evaluator.eval(x_eq_5, &tm));
+    print_eval("y > x ?", &int_evaluator.eval(y_gt_x, &tm));
+    print_eval("z < 0 ?", &int_evaluator.eval(z_lt_0, &tm));
 
-    // ===== Example 3: Partial Model (Completion) =====
-    println!("\n--- Example 3: Model Completion ---");
-    let a = tm.mk_var("a", tm.sorts.bool_sort);
-    let b = tm.mk_var("b", tm.sorts.bool_sort);
-    let c = tm.mk_var("c", tm.sorts.bool_sort);
-    let d = tm.mk_var("d", tm.sorts.bool_sort);
+    // ===== Example 3: Value Types =====
+    println!("\n--- Example 3: Value Types ---");
 
-    // Partial model: only a and b assigned
-    let mut partial_model = Model::new();
-    partial_model.assign(a, Value::Bool(true));
-    partial_model.assign(b, Value::Bool(false));
+    println!("Boolean value:");
+    let v_bool = Value::Bool(true);
+    println!("  Value::Bool(true): {}", v_bool);
+    println!("  is_bool(): {}", v_bool.is_bool());
+    println!("  as_bool(): {:?}", v_bool.as_bool());
 
-    println!("Partial model:");
-    println!("  a = true");
-    println!("  b = false");
-    println!("  c = ? (unassigned)");
-    println!("  d = ? (unassigned)");
+    println!("\nInteger value:");
+    let v_int = Value::Int(42);
+    println!("  Value::Int(42): {}", v_int);
+    println!("  is_int(): {}", v_int.is_int());
+    println!("  as_int(): {:?}", v_int.as_int());
 
-    // Formula with unassigned variables
-    let formula = tm.mk_and(vec![a, tm.mk_or(vec![b, c])]);
-    println!("\nFormula: a AND (b OR c)");
+    println!("\nRational value:");
+    let v_rat = Value::Rational(Rational64::new(1, 3));
+    println!("  Value::Rational(1/3): {}", v_rat);
+    println!("  is_rational(): {}", v_rat.is_rational());
+    println!("  as_rational(): {:?}", v_rat.as_rational());
 
-    // Complete the model
-    let config = ModelCompletionConfig {
-        default_bool: Some(false),
-        default_int: Some(BigInt::from(0)),
-        ..Default::default()
-    };
+    println!("\nBitvector value:");
+    let v_bv = Value::BitVec(8, 255);
+    println!("  Value::BitVec(8, 255): {}", v_bv);
+    println!("  is_bitvec(): {}", v_bv.is_bitvec());
+    println!("  as_bitvec(): {:?}", v_bv.as_bitvec());
 
-    let completion = ModelCompletion::new(config);
-    let complete_model = completion.complete(&partial_model, &[c, d], &tm);
+    println!("\nString value:");
+    let v_str = Value::String("hello".to_string());
+    println!("  Value::String(\"hello\"): {}", v_str);
+    println!("  as_string(): {:?}", v_str.as_string());
 
-    println!("\nCompleted model:");
-    let eval = ModelEvaluator::new(&complete_model);
-    println!("  a = {:?}", eval.eval(a, &tm));
-    println!("  b = {:?}", eval.eval(b, &tm));
-    println!("  c = {:?}", eval.eval(c, &tm));
-    println!("  d = {:?}", eval.eval(d, &tm));
-    println!("\nFormula value: {:?}", eval.eval(formula, &tm));
+    println!("\nUndefined value:");
+    let v_undef = Value::Undefined;
+    println!("  Value::Undefined: {}", v_undef);
+    println!("  is_undefined(): {}", v_undef.is_undefined());
 
-    // ===== Example 4: Prime Implicant Extraction =====
-    println!("\n--- Example 4: Prime Implicant Extraction ---");
-    let p1 = tm.mk_var("p1", tm.sorts.bool_sort);
-    let p2 = tm.mk_var("p2", tm.sorts.bool_sort);
-    let p3 = tm.mk_var("p3", tm.sorts.bool_sort);
-    let p4 = tm.mk_var("p4", tm.sorts.bool_sort);
+    // ===== Example 4: Bitvector Evaluation =====
+    println!("\n--- Example 4: Bitvector Evaluation ---");
 
-    // Formula: (p1 AND p2) OR (p3 AND p4)
-    let and1 = tm.mk_and(vec![p1, p2]);
-    let and2 = tm.mk_and(vec![p3, p4]);
-    let or_formula = tm.mk_or(vec![and1, and2]);
-
-    // Model: p1=true, p2=true, p3=true, p4=false
-    let mut impl_model = Model::new();
-    impl_model.assign(p1, Value::Bool(true));
-    impl_model.assign(p2, Value::Bool(true));
-    impl_model.assign(p3, Value::Bool(true));
-    impl_model.assign(p4, Value::Bool(false));
-
-    println!("Formula: (p1 AND p2) OR (p3 AND p4)");
-    println!("Model: p1=T, p2=T, p3=T, p4=F");
-
-    let impl_config = ImplicantConfig {
-        minimize: true,
-        ..Default::default()
-    };
-    let extractor = ImplicantExtractor::new(impl_config);
-    let implicant = extractor.extract(&impl_model, or_formula, &tm);
-
-    println!("\nPrime implicant:");
-    println!("  Essential vars: {:?}", implicant.literals);
-    println!("  (Only p1 and p2 are needed; p3 and p4 are irrelevant)");
-
-    // ===== Example 5: Mixed Theory Model =====
-    println!("\n--- Example 5: Mixed Theory Model ---");
-    let bool_var = tm.mk_var("flag", tm.sorts.bool_sort);
-    let int_var = tm.mk_var("count", tm.sorts.int_sort);
-
-    let mut mixed_model = Model::new();
-    mixed_model.assign(bool_var, Value::Bool(true));
-    mixed_model.assign(int_var, Value::Int(BigInt::from(42)));
-
-    // Formula: flag => (count > 0)
-    let count_gt_0 = tm.mk_gt(int_var, tm.mk_int(BigInt::from(0)));
-    let mixed_formula = tm.mk_implies(bool_var, count_gt_0);
-
-    let mixed_eval = ModelEvaluator::new(&mixed_model);
-    println!("Formula: flag => (count > 0)");
-    println!("Model: flag=true, count=42");
-    println!("Evaluation: {:?}\n", mixed_eval.eval(mixed_formula, &tm));
-
-    // ===== Example 6: Bitvector Model =====
-    println!("--- Example 6: Bitvector Model ---");
-    let bv8_sort = tm.sorts.mk_bv_sort(8);
-    let bv_a = tm.mk_var("a", bv8_sort);
-    let bv_b = tm.mk_var("b", bv8_sort);
+    let bv8_sort = tm.sorts.bitvec(8);
+    let a = tm.mk_var("a", bv8_sort);
+    let b = tm.mk_var("b", bv8_sort);
 
     let mut bv_model = Model::new();
-    bv_model.assign(bv_a, Value::BitVec(BigInt::from(10), 8));
-    bv_model.assign(bv_b, Value::BitVec(BigInt::from(20), 8));
+    bv_model.assign(a, Value::BitVec(8, 0xF0)); // 11110000
+    bv_model.assign(b, Value::BitVec(8, 0x0F)); // 00001111
 
-    println!("Model: a=0x0A, b=0x14");
+    println!("Model: a=0xF0, b=0x0F");
 
-    // a + b
-    let bv_sum = tm.mk_bvadd(bv_a, bv_b);
-    let bv_eval = ModelEvaluator::new(&bv_model);
-    println!("a + b = {:?}", bv_eval.eval(bv_sum, &tm));
-    println!("Expected: 0x1E (30)\n");
+    let mut bv_eval = ModelEvaluator::new(&bv_model);
 
-    // ===== Example 7: Array Model =====
-    println!("--- Example 7: Array Model (Theory of Arrays) ---");
-    let arr_sort = tm.sorts.mk_array_sort(tm.sorts.int_sort, tm.sorts.int_sort);
-    let arr = tm.mk_var("arr", arr_sort);
-    let idx = tm.mk_var("i", tm.sorts.int_sort);
+    // a AND b
+    let a_and_b = tm.mk_bv_and(a, b);
+    print_eval("a AND b (BV)", &bv_eval.eval(a_and_b, &tm));
 
-    // Conceptual model: arr = {0->10, 1->20, 2->30, ...}
-    // (In practice, arrays use functional representation)
-    let mut arr_model = Model::new();
-    arr_model.assign(idx, Value::Int(BigInt::from(1)));
-    // Array values are more complex; typically use store/select chains
+    // a OR b
+    let a_or_b = tm.mk_bv_or(a, b);
+    print_eval("a OR b (BV)", &bv_eval.eval(a_or_b, &tm));
 
-    println!("Array model evaluation (conceptual)");
-    println!("  arr[i] where i=1");
-    println!("  (Full array model representation requires theory solver)");
+    // a XOR b
+    let a_xor_b = tm.mk_bv_xor(a, b);
+    print_eval("a XOR b (BV)", &bv_eval.eval(a_xor_b, &tm));
 
-    // ===== Example 8: Model Serialization =====
-    println!("\n--- Example 8: Model Serialization ---");
-    let ser_model = Model::new();
-    // In a real implementation, models can be serialized to JSON/SMT-LIB format
-    println!("Model serialization:");
-    println!("  SMT-LIB format: (model (define-fun x () Int 5) ...)");
-    println!("  JSON format: {{\"x\": 5, \"y\": 10, ...}}");
-    println!("  (Implementation depends on format requirements)");
+    // ===== Example 5: ITE Evaluation =====
+    println!("\n--- Example 5: ITE Evaluation ---");
 
-    // ===== Example 9: Evaluation Cache =====
-    println!("\n--- Example 9: Evaluation with Caching ---");
-    use oxiz_core::model::EvalCache;
+    // ite(p, x, y) with p=true, x=5, y=10 => 5
+    let mut ite_model = Model::new();
+    ite_model.assign(p, Value::Bool(true));
+    ite_model.assign(q, Value::Bool(false));
+    ite_model.assign(x, Value::Int(5));
+    ite_model.assign(y, Value::Int(10));
 
-    let mut cache = EvalCache::new();
-    let cache_eval = ModelEvaluator::new(&int_model);
+    let ite_expr = tm.mk_ite(p, x, y);
+    let ite_expr2 = tm.mk_ite(q, x, y);
 
-    // Repeated evaluation (cached)
-    let expr = tm.mk_add(vec![x, y]);
-    let result1 = cache_eval.eval_cached(expr, &tm, &mut cache);
-    let result2 = cache_eval.eval_cached(expr, &tm, &mut cache);
+    let mut ite_eval = ModelEvaluator::new(&ite_model);
+    print_eval("ite(p, x, y) with p=true", &ite_eval.eval(ite_expr, &tm));
+    print_eval("ite(q, x, y) with q=false", &ite_eval.eval(ite_expr2, &tm));
 
-    println!("Cached evaluation:");
-    println!("  First:  {:?} (computed)", result1);
-    println!("  Second: {:?} (cached)", result2);
-    println!("  Cache hits: {}", cache.hits());
-    println!("  Cache misses: {}", cache.misses());
+    // ===== Example 6: Undefined Variables =====
+    println!("\n--- Example 6: Undefined Variables ---");
 
-    // ===== Example 10: Counterexample Models =====
-    println!("\n--- Example 10: Counterexample Models ---");
-    // When a formula is satisfiable, the model is a counterexample to its negation
-    let assertion = tm.mk_gt(x, tm.mk_int(BigInt::from(0)));
-    println!("Assertion: x > 0");
+    let undefined_var = tm.mk_var("undefined_z", tm.sorts.int_sort);
+    let undef_result = ite_eval.eval(undefined_var, &tm);
+    print_eval("undefined_z", &undef_result);
 
-    let counterex_model = Model::new();
-    // If model assigns x=5, it's a counterexample to ¬(x > 0)
-    println!("Counterexample model: x = 5");
-    println!("  Satisfies: x > 0");
-    println!("  Refutes: x <= 0");
-    println!("  (Used in bounded model checking, test generation)");
+    // ===== Example 7: Model Operations =====
+    println!("\n--- Example 7: Model Operations ---");
+
+    println!("Model has {} assignments", model.len());
+    println!("Has assignment for p? {}", model.has(p));
+
+    let unknown = tm.mk_var("unknown", tm.sorts.bool_sort);
+    println!("Has assignment for unknown? {}", model.has(unknown));
+
+    // Get value
+    if let Some(val) = model.get(p) {
+        println!("Value of p: {}", val);
+    }
+
+    // Remove assignment
+    let mut model_copy = model.clone();
+    let removed = model_copy.remove(p);
+    println!("\nRemoved p: {:?}", removed);
+    println!("Model size after removal: {}", model_copy.len());
+
+    // ===== Example 8: Model Merge =====
+    println!("\n--- Example 8: Model Merge ---");
+
+    let mut model_a = Model::new();
+    let mut model_b = Model::new();
+
+    model_a.assign(x, Value::Int(1));
+    model_a.assign(y, Value::Int(2));
+
+    model_b.assign(y, Value::Int(100)); // Will not override
+    model_b.assign(z, Value::Int(3));
+
+    println!("Model A: x=1, y=2");
+    println!("Model B: y=100, z=3");
+
+    model_a.merge(&model_b);
+    println!("\nAfter merge (A.merge(B)):");
+    println!("  x = {:?}", model_a.get(x).map(|v| v.to_string()));
+    println!(
+        "  y = {:?} (A's value preserved)",
+        model_a.get(y).map(|v| v.to_string())
+    );
+    println!("  z = {:?}", model_a.get(z).map(|v| v.to_string()));
+
+    // ===== Example 9: Evaluator Caching =====
+    println!("\n--- Example 9: Evaluator Caching ---");
+
+    let mut cached_eval = ModelEvaluator::new(&int_model);
+    let _ = cached_eval.eval(x_plus_y, &tm);
+    let _ = cached_eval.eval(x_plus_y, &tm);
+    let _ = cached_eval.eval(x_plus_y, &tm);
+
+    println!("Cache size after evaluations: {}", cached_eval.cache_size());
+
+    cached_eval.clear_cache();
+    println!("Cache size after clear: {}", cached_eval.cache_size());
+
+    // Without cache
+    let mut nocache_eval = ModelEvaluator::without_cache(&int_model);
+    let _ = nocache_eval.eval(x_plus_y, &tm);
+    println!(
+        "\nEvaluator without cache: cache_size = {}",
+        nocache_eval.cache_size()
+    );
+
+    // ===== Example 10: EvalResult API =====
+    println!("\n--- Example 10: EvalResult API ---");
+
+    let ok_result = EvalResult::Ok(Value::Int(42));
+    let undef_result = EvalResult::Undefined(x);
+    let err_result = EvalResult::Error("Type mismatch".to_string());
+
+    println!("EvalResult::Ok(42):");
+    println!("  is_ok(): {}", ok_result.is_ok());
+    println!("  value(): {:?}", ok_result.value());
+
+    println!("\nEvalResult::Undefined:");
+    println!("  is_ok(): {}", undef_result.is_ok());
+    println!("  value(): {:?}", undef_result.value());
+
+    println!("\nEvalResult::Error:");
+    println!("  is_ok(): {}", err_result.is_ok());
+    println!("  value(): {:?}", err_result.value());
 
     println!("\n=== Example Complete ===");
     println!("\nKey Takeaways:");
     println!("  1. Models assign concrete values to variables");
     println!("  2. Evaluation computes formula truth value under model");
-    println!("  3. Model completion fills in unassigned variables");
-    println!("  4. Prime implicants extract essential assignments");
-    println!("  5. Caching improves repeated evaluation performance");
+    println!("  3. Various value types: Bool, Int, Rational, BitVec, etc.");
+    println!("  4. Caching improves repeated evaluation performance");
+    println!("  5. Model operations: merge, remove, get, has");
+}
+
+fn print_eval(expr: &str, result: &EvalResult) {
+    match result {
+        EvalResult::Ok(value) => {
+            println!("  {} = {}", expr, value);
+        }
+        EvalResult::Undefined(term) => {
+            println!("  {} = undefined (term {:?})", expr, term);
+        }
+        EvalResult::Error(msg) => {
+            println!("  {} = ERROR: {}", expr, msg);
+        }
+    }
 }

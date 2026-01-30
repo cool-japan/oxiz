@@ -254,6 +254,11 @@ impl ResultantComputer {
     ///
     /// Returns true if resultant is zero.
     pub fn have_common_root(&mut self, p: &Polynomial, q: &Polynomial, var: Var) -> bool {
+        // Special case: identical non-constant polynomials always share roots
+        if p == q && p.degree(var) > 0 {
+            return true;
+        }
+
         let res = self.resultant(p, q, var);
         res.is_zero()
     }

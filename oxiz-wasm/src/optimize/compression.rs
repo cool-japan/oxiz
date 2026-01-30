@@ -241,10 +241,19 @@ impl Compressor {
             ));
         }
 
+        #[cfg(target_arch = "wasm32")]
         let start_time = web_sys::window()
             .and_then(|w| w.performance())
             .map(|p| p.now())
             .unwrap_or(0.0);
+        #[cfg(not(target_arch = "wasm32"))]
+        let start_time = {
+            use std::time::{SystemTime, UNIX_EPOCH};
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_secs_f64() * 1000.0)
+                .unwrap_or(0.0)
+        };
 
         let compressed = match format {
             CompressionFormat::None => data.to_vec(),
@@ -253,11 +262,21 @@ impl Compressor {
             CompressionFormat::Zstd => self.compress_zstd(data, level)?,
         };
 
+        #[cfg(target_arch = "wasm32")]
         let end_time = web_sys::window()
             .and_then(|w| w.performance())
             .map(|p| p.now())
             .unwrap_or(start_time);
+        #[cfg(not(target_arch = "wasm32"))]
+        let end_time = {
+            use std::time::{SystemTime, UNIX_EPOCH};
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_secs_f64() * 1000.0)
+                .unwrap_or(start_time)
+        };
 
+        #[cfg(target_arch = "wasm32")]
         if self.verbose {
             let ratio = compressed.len() as f64 / data.len() as f64;
             web_sys::console::log_1(
@@ -270,6 +289,18 @@ impl Compressor {
                     end_time - start_time
                 )
                 .into(),
+            );
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.verbose {
+            let ratio = compressed.len() as f64 / data.len() as f64;
+            eprintln!(
+                "Compressed {} bytes -> {} bytes ({:.1}% reduction) using {} in {:.2}ms",
+                data.len(),
+                compressed.len(),
+                (1.0 - ratio) * 100.0,
+                format.name(),
+                end_time - start_time
             );
         }
 
@@ -384,16 +415,34 @@ impl Compressor {
 
         for format in &formats {
             for level in &levels {
+                #[cfg(target_arch = "wasm32")]
                 let start = web_sys::window()
                     .and_then(|w| w.performance())
                     .map(|p| p.now())
                     .unwrap_or(0.0);
+                #[cfg(not(target_arch = "wasm32"))]
+                let start = {
+                    use std::time::{SystemTime, UNIX_EPOCH};
+                    SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .map(|d| d.as_secs_f64() * 1000.0)
+                        .unwrap_or(0.0)
+                };
 
                 if let Ok(compressed) = self.compress(data, *format, *level) {
+                    #[cfg(target_arch = "wasm32")]
                     let end = web_sys::window()
                         .and_then(|w| w.performance())
                         .map(|p| p.now())
                         .unwrap_or(start);
+                    #[cfg(not(target_arch = "wasm32"))]
+                    let end = {
+                        use std::time::{SystemTime, UNIX_EPOCH};
+                        SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .map(|d| d.as_secs_f64() * 1000.0)
+                            .unwrap_or(start)
+                    };
 
                     results.push(CompressionResult {
                         original_size: data.len(),

@@ -34,10 +34,12 @@ impl Layer {
     /// Create a new layer
     pub fn new(input_dim: usize, output_dim: usize, activation: Activation) -> Self {
         // Use He initialization for ReLU, Xavier for others
+        // Weight matrix is [output_dim, input_dim] for matmul: W * x = y
+        // where x is [input_dim] and y is [output_dim]
         let weights = if matches!(activation, Activation::ReLU | Activation::LeakyReLU) {
-            Tensor::he_init(&[input_dim, output_dim])
+            Tensor::he_init(&[output_dim, input_dim])
         } else {
-            Tensor::xavier_init(&[input_dim, output_dim])
+            Tensor::xavier_init(&[output_dim, input_dim])
         };
 
         let bias = Tensor::zeros(&[output_dim]);
@@ -60,9 +62,10 @@ impl Layer {
             ));
         }
 
-        if input.data.len() != self.weights.shape()[0] {
+        // Weights are [output_dim, input_dim], so input should match shape()[1]
+        if input.data.len() != self.weights.shape()[1] {
             return Err(ModelError::DimensionMismatch {
-                expected: self.weights.shape()[0],
+                expected: self.weights.shape()[1],
                 got: input.data.len(),
             });
         }
@@ -105,25 +108,26 @@ impl Layer {
         let activation_grad = cached_z.map(|x| self.activation.derivative(x));
         let grad_z = grad_output.mul(&activation_grad)?;
 
-        // Gradient w.r.t weights: grad_W = grad_z * input^T
-        let input_dim = self.weights.shape()[0];
-        let output_dim = self.weights.shape()[1];
+        // Weights are [output_dim, input_dim]
+        let output_dim = self.weights.shape()[0];
+        let input_dim = self.weights.shape()[1];
 
-        let mut grad_weights = Tensor::zeros(&[input_dim, output_dim]);
-        for i in 0..input_dim {
-            for j in 0..output_dim {
-                grad_weights.data[i * output_dim + j] = cached_input.data[i] * grad_z.data[j];
+        // Gradient w.r.t weights: grad_W[i,j] = grad_z[i] * input[j]
+        let mut grad_weights = Tensor::zeros(&[output_dim, input_dim]);
+        for i in 0..output_dim {
+            for j in 0..input_dim {
+                grad_weights.data[i * input_dim + j] = grad_z.data[i] * cached_input.data[j];
             }
         }
 
         // Gradient w.r.t bias: grad_b = grad_z
         let grad_bias = grad_z.clone();
 
-        // Gradient w.r.t input: grad_input = W^T * grad_z
+        // Gradient w.r.t input: grad_input[j] = sum_i(W[i,j] * grad_z[i])
         let mut grad_input = Tensor::zeros(&[input_dim]);
-        for i in 0..input_dim {
-            for j in 0..output_dim {
-                grad_input.data[i] += self.weights.data[i * output_dim + j] * grad_z.data[j];
+        for j in 0..input_dim {
+            for i in 0..output_dim {
+                grad_input.data[j] += self.weights.data[i * input_dim + j] * grad_z.data[i];
             }
         }
 
@@ -420,7 +424,8 @@ mod tests {
     #[test]
     fn test_layer_creation() {
         let layer = Layer::new(10, 5, Activation::ReLU);
-        assert_eq!(layer.weights.shape(), &[10, 5]);
+        // Weights are [output_dim, input_dim] = [5, 10]
+        assert_eq!(layer.weights.shape(), &[5, 10]);
         assert_eq!(layer.bias.shape(), &[5]);
         assert_eq!(layer.num_parameters(), 55); // 10*5 + 5
     }

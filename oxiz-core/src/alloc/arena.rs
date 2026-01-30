@@ -223,6 +223,14 @@ impl<T> Clone for ArenaHandle<T> {
 
 impl<T> Copy for ArenaHandle<T> {}
 
+impl<T: std::fmt::Debug> std::fmt::Debug for ArenaHandle<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ArenaHandle")
+            .field("value", self.get())
+            .finish()
+    }
+}
+
 impl<T> std::ops::Deref for ArenaHandle<T> {
     type Target = T;
 

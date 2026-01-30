@@ -523,6 +523,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_arch = "wasm32")]
     fn test_worker_pool() {
         let pool = WorkerPool::new(4);
         pool.init();
@@ -532,6 +533,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_arch = "wasm32")]
     fn test_worker_pool_submit() {
         let pool = WorkerPool::new(2);
         pool.init();

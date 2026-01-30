@@ -272,7 +272,9 @@ mod tests {
         let initial_inc = vsids.activity_inc;
 
         vsids.decay_activities();
-        assert!(vsids.activity_inc < initial_inc);
+        // In VSIDS, activity_inc is divided by decay_factor (< 1),
+        // so it INCREASES after decay to give more weight to recent events
+        assert!(vsids.activity_inc > initial_inc);
     }
 
     #[test]

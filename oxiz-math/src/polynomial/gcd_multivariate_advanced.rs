@@ -198,18 +198,16 @@ impl MultivariateGcdComputer {
         }
 
         let mut remainder = dividend.to_vec();
-        let divisor_degree = divisor.len() - 1;
         let lc_divisor = &divisor[0];
 
-        while !Self::is_zero_poly(&remainder) && remainder.len() > divisor.len() {
-            let degree_diff = remainder.len() - divisor.len();
+        while !Self::is_zero_poly(&remainder) && remainder.len() >= divisor.len() {
             let lc_remainder = &remainder[0];
             let quotient_coeff = lc_remainder / lc_divisor;
 
             // Subtract quotient_coeff * x^degree_diff * divisor
+            // When multiplying by x^degree_diff, coefficients align with leading terms
             for i in 0..divisor.len() {
-                remainder[i + degree_diff] =
-                    &remainder[i + degree_diff] - &quotient_coeff * &divisor[i];
+                remainder[i] = &remainder[i] - &quotient_coeff * &divisor[i];
             }
 
             // Remove leading zeros
@@ -535,11 +533,25 @@ mod tests {
     fn test_is_sparse() {
         let computer = MultivariateGcdComputer::new(GcdConfig::default());
 
+        // Create a sparse polynomial: 2 terms in 3 variables with degree 2
+        // max_terms = (2+1)^3 = 27, density = 2/27 ≈ 0.074 < 0.5
+        let mut mono_x2 = Monomial::default();
+        mono_x2.insert(0, 2); // x^2
+
+        let mut mono_z2 = Monomial::default();
+        mono_z2.insert(2, 2); // z^2
+
         let sparse = MultivariatePolynomial {
-            terms: vec![Term {
-                coefficient: BigRational::one(),
-                monomial: Monomial::default(),
-            }],
+            terms: vec![
+                Term {
+                    coefficient: BigRational::one(),
+                    monomial: mono_x2,
+                },
+                Term {
+                    coefficient: BigRational::one(),
+                    monomial: mono_z2,
+                },
+            ],
             num_vars: 3,
         };
 

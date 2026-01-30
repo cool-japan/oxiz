@@ -241,11 +241,13 @@ where
         det = det * u[i][i].clone();
     }
 
-    // Count inversions in permutation
+    // Count inversions in permutation: pairs (i, j) where i < j but perm[i] > perm[j]
     let mut inversions = 0;
     for i in 0..n {
-        if perm[i] != i {
-            inversions += 1;
+        for j in (i + 1)..n {
+            if perm[i] > perm[j] {
+                inversions += 1;
+            }
         }
     }
 

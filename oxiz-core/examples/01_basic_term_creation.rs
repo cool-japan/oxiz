@@ -15,7 +15,6 @@
 //! - [`TermManager`](oxiz_core::ast::TermManager) for the main API
 //! - [`TermKind`](oxiz_core::ast::TermKind) for term types
 
-use num_bigint::BigInt;
 use oxiz_core::ast::{TermKind, TermManager};
 
 fn main() {
@@ -41,17 +40,18 @@ fn main() {
     let or_pq = tm.mk_or(vec![p, q]);
     let not_p = tm.mk_not(p);
     let implies_pq = tm.mk_implies(p, q);
-    let iff_pq = tm.mk_iff(p, q);
+    let eq_pq = tm.mk_eq(p, q); // Equivalence (iff)
 
     println!("Boolean operations:");
     println!("  p AND q: {:?}", and_pq);
     println!("  p OR q: {:?}", or_pq);
     println!("  NOT p: {:?}", not_p);
     println!("  p => q: {:?}", implies_pq);
-    println!("  p <=> q: {:?}\n", iff_pq);
+    println!("  p <=> q: {:?}\n", eq_pq);
 
     // Complex boolean expression: (p AND q) OR (NOT r)
-    let complex_bool = tm.mk_or(vec![and_pq, tm.mk_not(r)]);
+    let not_r = tm.mk_not(r);
+    let complex_bool = tm.mk_or(vec![and_pq, not_r]);
     println!("Complex: (p AND q) OR (NOT r) = {:?}\n", complex_bool);
 
     // ===== Integer Arithmetic =====
@@ -63,10 +63,10 @@ fn main() {
     println!("Integer variables: x={:?}, y={:?}, z={:?}", x, y, z);
 
     // Integer constants
-    let zero = tm.mk_int(BigInt::from(0));
-    let five = tm.mk_int(BigInt::from(5));
-    let ten = tm.mk_int(BigInt::from(10));
-    let neg_three = tm.mk_int(BigInt::from(-3));
+    let zero = tm.mk_int(0);
+    let five = tm.mk_int(5);
+    let ten = tm.mk_int(10);
+    let neg_three = tm.mk_int(-3);
 
     println!(
         "Constants: 0={:?}, 5={:?}, 10={:?}, -3={:?}",
@@ -77,8 +77,10 @@ fn main() {
     let x_plus_y = tm.mk_add(vec![x, y]);
     let x_minus_y = tm.mk_sub(x, y);
     let x_times_5 = tm.mk_mul(vec![x, five]);
-    let x_div_2 = tm.mk_div(x, tm.mk_int(BigInt::from(2)));
-    let x_mod_3 = tm.mk_mod(x, tm.mk_int(BigInt::from(3)));
+    let two = tm.mk_int(2);
+    let three = tm.mk_int(3);
+    let x_div_2 = tm.mk_div(x, two);
+    let x_mod_3 = tm.mk_mod(x, three);
 
     println!("Arithmetic:");
     println!("  x + y: {:?}", x_plus_y);
@@ -112,8 +114,8 @@ fn main() {
 
     // ===== Bitvector Terms =====
     println!("--- Bitvector Terms ---");
-    let bv8_sort = tm.sorts.mk_bv_sort(8); // 8-bit bitvector
-    let bv32_sort = tm.sorts.mk_bv_sort(32); // 32-bit bitvector
+    let bv8_sort = tm.sorts.bitvec(8); // 8-bit bitvector
+    let bv32_sort = tm.sorts.bitvec(32); // 32-bit bitvector
 
     let bv_a = tm.mk_var("a", bv8_sort);
     let bv_b = tm.mk_var("b", bv8_sort);
@@ -125,8 +127,20 @@ fn main() {
     );
 
     // Bitvector constants
-    let bv_const = tm.mk_bv_numeral(BigInt::from(42), 8);
+    let bv_const = tm.mk_bitvec(42u64, 8);
     println!("Bitvector constant: 42={:?} (8-bit)\n", bv_const);
+
+    // Bitvector operations
+    let bv_and = tm.mk_bv_and(bv_a, bv_b);
+    let bv_or = tm.mk_bv_or(bv_a, bv_b);
+    let bv_xor = tm.mk_bv_xor(bv_a, bv_b);
+    let bv_add = tm.mk_bv_add(bv_a, bv_b);
+
+    println!("Bitvector operations:");
+    println!("  a AND b: {:?}", bv_and);
+    println!("  a OR b: {:?}", bv_or);
+    println!("  a XOR b: {:?}", bv_xor);
+    println!("  a + b: {:?}\n", bv_add);
 
     // ===== Hash Consing Demonstration =====
     println!("--- Hash Consing (Term Sharing) ---");
@@ -141,7 +155,7 @@ fn main() {
 
     // ===== Term Inspection =====
     println!("--- Term Inspection ---");
-    if let Some(term) = tm.get_term(and_pq) {
+    if let Some(term) = tm.get(and_pq) {
         println!("Inspecting term {:?}:", and_pq);
         println!("  Kind: {:?}", term.kind);
         println!("  Sort: {:?}", term.sort);
@@ -152,6 +166,20 @@ fn main() {
             _ => {}
         }
     }
+
+    // ===== ITE (If-Then-Else) =====
+    println!("\n--- ITE (If-Then-Else) ---");
+    let condition = p;
+    let then_val = tm.mk_int(100);
+    let else_val = tm.mk_int(0);
+    let ite = tm.mk_ite(condition, then_val, else_val);
+
+    println!("ite(p, 100, 0) = {:?}", ite);
+
+    // ===== Distinct =====
+    println!("\n--- Distinct ---");
+    let distinct = tm.mk_distinct(vec![x, y, z]);
+    println!("distinct(x, y, z) = {:?}", distinct);
 
     // ===== Statistics =====
     println!("\n--- Term Manager Statistics ---");

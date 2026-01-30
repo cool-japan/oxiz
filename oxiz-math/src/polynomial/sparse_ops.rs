@@ -296,12 +296,13 @@ mod tests {
     fn test_is_sparse() {
         let ops = SparseOps::default_config();
 
-        // Sparse: x + y (2 terms in 2 variables)
-        let sparse = Polynomial::from_coeffs_int(&[(1, &[(0, 1)]), (1, &[(1, 1)])]);
+        // Sparse: x^5 + y^5 (2 terms in 2 variables, degree 5)
+        // With degree 5 and 2 vars, approx_dense = 5^2 = 25, sparsity = 2/25 = 0.08 < 0.1
+        let sparse = Polynomial::from_coeffs_int(&[(1, &[(0, 5)]), (1, &[(1, 5)])]);
 
         assert!(ops.is_sparse(&sparse));
 
-        // Constant is not considered sparse
+        // Constant is not considered sparse (num_vars = 0)
         let constant = Polynomial::constant(BigRational::from_integer(BigInt::from(5)));
         assert!(!ops.is_sparse(&constant));
     }

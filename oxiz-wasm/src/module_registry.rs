@@ -283,9 +283,20 @@ impl ModuleRegistry {
         }
 
         // Set load timestamp
-        info.load_timestamp = web_sys::window()
-            .and_then(|w| w.performance())
-            .map(|p| p.now());
+        #[cfg(target_arch = "wasm32")]
+        {
+            info.load_timestamp = web_sys::window()
+                .and_then(|w| w.performance())
+                .map(|p| p.now());
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            use std::time::{SystemTime, UNIX_EPOCH};
+            info.load_timestamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_secs_f64() * 1000.0)
+                .ok();
+        }
 
         // Index capabilities
         for cap in &info.capabilities {

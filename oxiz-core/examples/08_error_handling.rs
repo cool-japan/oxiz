@@ -1,303 +1,187 @@
-//! # Error Handling and Recovery Example
+//! # Error Handling Example
 //!
-//! This example demonstrates OxiZ's comprehensive error handling system.
+//! This example demonstrates OxiZ's error handling system.
 //! It covers:
-//! - Error types and hierarchy
-//! - Error context and diagnostics
-//! - Error recovery strategies
-//! - Batch error processing
-//! - User-friendly error messages
+//! - Error types and variants
+//! - Result handling
+//! - Parse errors
+//! - Diagnostic messages
 //!
 //! ## Error Handling Philosophy
 //! - Errors are values (Result<T, E>)
 //! - Rich context for debugging
-//! - Suggestions for fixes when possible
 //! - Graceful degradation via recovery
 //!
 //! ## See Also
 //! - [`OxizError`](oxiz_core::error::OxizError) for error types
-//! - [`ErrorRecovery`](oxiz_core::error_recovery::ErrorRecovery)
 //! - [`Diagnostic`](oxiz_core::diagnostics::Diagnostic)
 
 use oxiz_core::ast::TermManager;
-use oxiz_core::diagnostics::{Diagnostic, DiagnosticEmitter, Fix, Severity};
-use oxiz_core::error::{OxizError, Result};
-use oxiz_core::error_context::{ErrorContext, ResultExt};
-use oxiz_core::error_recovery::{ErrorBatch, ErrorRecovery, RecoveryConfig, RecoveryStrategy};
-use oxiz_core::error_utils::{
-    arity_mismatch, parse_error, sort_mismatch, suggest_fixes, type_error, undefined_symbol,
-    validate_arity,
-};
+use oxiz_core::config::ResourceLimits;
+use oxiz_core::diagnostics::Diagnostic;
+use oxiz_core::error::{OxizError, Result, SourceLocation, SourceSpan};
+use oxiz_core::resource::{LimitStatus, ResourceManager};
 use oxiz_core::smtlib::parse_script;
+use oxiz_core::statistics::Statistics;
+use std::time::Duration;
 
 fn main() {
-    println!("=== OxiZ Core: Error Handling and Recovery ===\n");
+    println!("=== OxiZ Core: Error Handling ===\n");
 
     // ===== Example 1: Basic Error Types =====
-    println!("--- Example 1: Basic Error Types ---");
+    println!("--- Example 1: OxizError Variants ---");
 
-    // Parse error
+    // Create different error types
+    let parse_err = OxizError::ParseError {
+        position: 10,
+        message: "Unexpected token ')'".to_string(),
+    };
+    let type_err = OxizError::SortMismatchSimple {
+        expected: "Int".to_string(),
+        found: "Bool".to_string(),
+    };
+    let unsupported_err = OxizError::Unsupported("Non-linear arithmetic".to_string());
+    let internal_err = OxizError::Internal("Unexpected state".to_string());
+
+    println!("Parse error: {}", parse_err);
+    println!("Type error: {}", type_err);
+    println!("Unsupported: {}", unsupported_err);
+    println!("Internal error: {}", internal_err);
+
+    // ===== Example 2: Parse Error Handling =====
+    println!("\n--- Example 2: Parse Error Handling ---");
+
     let mut tm = TermManager::new();
     let malformed = "(assert (and x))"; // Missing second argument
 
     match parse_script(malformed, &mut tm) {
         Ok(_) => println!("Unexpected success"),
         Err(e) => {
-            println!("Parse error:");
+            println!("Parse error detected:");
             println!("  Error: {}", e);
-            println!("  Type: {:?}", e);
         }
     }
 
-    // Type error (sort mismatch)
-    let x_int = tm.mk_var("x", tm.sorts.int_sort);
-    let y_bool = tm.mk_var("y", tm.sorts.bool_sort);
+    // ===== Example 3: Result Type Usage =====
+    println!("\n--- Example 3: Result Type Usage ---");
 
-    // Attempting to add Int and Bool should fail
-    let result: Result<()> = Err(sort_mismatch(
-        tm.sorts.int_sort,
-        tm.sorts.bool_sort,
-        "Cannot apply arithmetic to boolean",
-    ));
-
-    match result {
-        Ok(_) => println!("\nUnexpected success"),
-        Err(e) => {
-            println!("\nType error:");
-            println!("  {}", e);
-        }
-    }
-
-    // ===== Example 2: Error Context =====
-    println!("\n--- Example 2: Error Context ---");
-
-    fn divide_with_context(a: i32, b: i32) -> Result<i32> {
+    fn safe_divide(a: i32, b: i32) -> Result<i32> {
         if b == 0 {
-            Err(OxizError::ArithmeticError("Division by zero".to_string()))
-                .context(format!("while dividing {} by {}", a, b))?
+            Err(OxizError::Internal("Division by zero".to_string()))
         } else {
             Ok(a / b)
         }
     }
 
-    match divide_with_context(10, 0) {
-        Ok(_) => println!("Unexpected success"),
-        Err(e) => {
-            println!("Error with context:");
-            println!("  {}", e);
-            println!("\nContext chain:");
-            let mut current = &e as &dyn std::error::Error;
-            let mut level = 0;
-            while let Some(source) = current.source() {
-                level += 1;
-                println!("  Level {}: {}", level, source);
-                current = source;
-            }
-        }
+    match safe_divide(10, 2) {
+        Ok(result) => println!("10 / 2 = {}", result),
+        Err(e) => println!("Error: {}", e),
     }
 
-    // ===== Example 3: Arity Validation =====
-    println!("\n--- Example 3: Arity Validation ---");
-
-    fn check_binary_op(args: &[i32]) -> Result<()> {
-        validate_arity(args.len(), 2)?;
-        Ok(())
+    match safe_divide(10, 0) {
+        Ok(result) => println!("10 / 0 = {}", result),
+        Err(e) => println!("10 / 0 = Error: {}", e),
     }
 
-    match check_binary_op(&[1]) {
-        Ok(_) => println!("Unexpected success"),
-        Err(e) => {
-            println!("Arity error:");
-            println!("  {}", e);
-        }
-    }
+    // ===== Example 4: Diagnostic System =====
+    println!("\n--- Example 4: Diagnostic System ---");
 
-    match check_binary_op(&[1, 2, 3]) {
-        Ok(_) => println!("Unexpected success"),
-        Err(e) => {
-            println!("  {}", e);
-        }
-    }
-
-    // ===== Example 4: Undefined Symbol Error =====
-    println!("\n--- Example 4: Undefined Symbol with Suggestions ---");
-
-    let unknown_var = "temperatur"; // Typo
-    let defined_vars = vec!["temperature", "pressure", "volume"];
-
-    let err = undefined_symbol(unknown_var, &defined_vars);
-    println!("Undefined symbol error:");
-    println!("  {}", err);
-    println!("\nSuggested fixes:");
-    let suggestions = suggest_fixes(unknown_var, &defined_vars, 2);
-    for (i, suggestion) in suggestions.iter().enumerate() {
-        println!("  {}: Did you mean '{}'?", i + 1, suggestion);
-    }
-
-    // ===== Example 5: Diagnostic System =====
-    println!("\n--- Example 5: Diagnostic System ---");
-
-    let mut emitter = DiagnosticEmitter::new();
-
-    // Error diagnostic
-    emitter.emit(Diagnostic {
-        severity: Severity::Error,
-        message: "Variable 'x' is not declared".to_string(),
-        location: Some("line 5, column 12".to_string()),
-        related: vec![],
-        fixes: vec![Fix {
-            description: "Declare variable with (declare-const x Int)".to_string(),
-            replacement: Some("(declare-const x Int)".to_string()),
-        }],
-    });
+    // Error diagnostic using builder pattern
+    let error_diag = Diagnostic::error("Variable 'x' is not declared")
+        .with_note("Make sure to declare variables before use");
 
     // Warning diagnostic
-    emitter.emit(Diagnostic {
-        severity: Severity::Warning,
-        message: "Unused variable 'y'".to_string(),
-        location: Some("line 8".to_string()),
-        related: vec![],
-        fixes: vec![],
-    });
+    let warning_diag = Diagnostic::warning("Unused variable 'y'");
 
     // Info diagnostic
-    emitter.emit(Diagnostic {
-        severity: Severity::Info,
-        message: "Using QF_LIA logic".to_string(),
-        location: None,
-        related: vec![],
-        fixes: vec![],
-    });
+    let info_diag = Diagnostic::info("Using QF_LIA logic");
 
-    println!("Diagnostics emitted:");
-    println!("  Errors: {}", emitter.error_count());
-    println!("  Warnings: {}", emitter.warning_count());
-    println!("  Total: {}", emitter.diagnostic_count());
+    println!("Diagnostic examples:");
+    println!("  [{:?}] {}", error_diag.severity, error_diag.message);
+    for note in &error_diag.notes {
+        println!("    note: {}", note);
+    }
+    println!("  [{:?}] {}", warning_diag.severity, warning_diag.message);
+    println!("  [{:?}] {}", info_diag.severity, info_diag.message);
 
-    // ===== Example 6: Error Recovery =====
-    println!("\n--- Example 6: Error Recovery ---");
+    // ===== Example 5: Resource Limit Handling =====
+    println!("\n--- Example 5: Resource Limit Handling ---");
 
-    let config = RecoveryConfig {
-        strategy: RecoveryStrategy::SkipAndContinue,
-        max_errors: Some(10),
-        collect_all_errors: true,
+    let limits = ResourceLimits {
+        time_limit: Some(Duration::from_millis(100)),
+        decision_limit: Some(1000),
+        conflict_limit: Some(500),
+        memory_limit: Some(100 * 1024 * 1024), // 100 MB
     };
 
-    let mut recovery = ErrorRecovery::new(config);
+    let resources = ResourceManager::new(limits);
+    let stats = Statistics::new();
 
-    // Simulate processing multiple inputs with some errors
-    let inputs = vec![
-        "(declare-const x Int)",
-        "(assert (and x))", // Error: arity mismatch
-        "(declare-const y Bool)",
-        "(assert (+ y 5))", // Error: type mismatch
-        "(check-sat)",
-    ];
+    println!("Resource limits configured:");
+    println!("  Time: 100 ms");
+    println!("  Decisions: 1000");
+    println!("  Conflicts: 500");
+    println!("  Memory: 100 MB");
 
-    println!("Processing inputs with error recovery:");
-    for (i, input) in inputs.iter().enumerate() {
-        match parse_script(input, &mut tm) {
-            Ok(cmds) => {
-                println!("  Line {}: OK ({} commands)", i + 1, cmds.len());
-                recovery.record_success();
-            }
-            Err(e) => {
-                println!("  Line {}: ERROR - {}", i + 1, e);
-                recovery.record_error(e);
-            }
-        }
+    let status = resources.check_limits(&stats);
+    match status {
+        LimitStatus::Ok => println!("\nStatus: Within limits"),
+        LimitStatus::TimeExceeded => println!("\nStatus: Time limit exceeded"),
+        LimitStatus::DecisionExceeded => println!("\nStatus: Decision limit exceeded"),
+        LimitStatus::ConflictExceeded => println!("\nStatus: Conflict limit exceeded"),
+        LimitStatus::MemoryExceeded => println!("\nStatus: Memory limit exceeded"),
     }
 
-    let stats = recovery.stats();
-    println!("\nRecovery statistics:");
-    println!("  Successful: {}", stats.successful);
-    println!("  Failed: {}", stats.failed);
-    println!("  Recovered: {}", stats.recovered);
-    println!("  Recovery rate: {:.1}%", stats.recovery_rate() * 100.0);
+    // ===== Example 6: Error Propagation =====
+    println!("\n--- Example 6: Error Propagation ---");
 
-    // ===== Example 7: Batch Error Processing =====
-    println!("\n--- Example 7: Batch Error Processing ---");
-
-    let mut batch = ErrorBatch::new();
-
-    // Collect multiple errors
-    batch.add(parse_error("Unexpected token ')'", Some(3)));
-    batch.add(type_error("Expected Bool, got Int"));
-    batch.add(arity_mismatch(2, 1, "function 'and'"));
-
-    println!("Batch contains {} errors:", batch.len());
-    for (i, err) in batch.iter().enumerate() {
-        println!("  {}: {}", i + 1, err);
+    fn inner_operation() -> Result<i32> {
+        Err(OxizError::Internal("Inner failure".to_string()))
     }
 
-    // Process all errors
-    if batch.has_errors() {
-        println!("\nProcessing batch errors:");
-        println!("  Total: {}", batch.len());
-        println!("  Fatal: {}", batch.fatal_count());
-        println!("  Can continue: {}", !batch.has_fatal());
+    fn outer_operation() -> Result<i32> {
+        let value = inner_operation()?; // ? propagates the error
+        Ok(value * 2)
     }
 
-    // ===== Example 8: Chained Error Context =====
-    println!("\n--- Example 8: Chained Error Context ---");
-
-    fn parse_and_validate(input: &str) -> Result<()> {
-        let mut tm2 = TermManager::new();
-
-        parse_script(input, &mut tm2).context("parsing SMT-LIB script")?;
-
-        // Additional validation
-        validate_logic(&tm2).context("validating logic")?;
-
-        Ok(())
-    }
-
-    fn validate_logic(_tm: &TermManager) -> Result<()> {
-        Err(OxizError::UnsupportedLogic("QF_AUFBV".to_string()))
-    }
-
-    match parse_and_validate("(set-logic QF_AUFBV)") {
-        Ok(_) => println!("Unexpected success"),
+    match outer_operation() {
+        Ok(v) => println!("Success: {}", v),
         Err(e) => {
-            println!("Chained error:");
+            println!("Error propagated from inner operation:");
             println!("  {}", e);
-            println!("\nFull error chain shows the error occurred during:");
-            println!("  1. Validating logic");
-            println!("  2. While parsing SMT-LIB script");
         }
     }
 
-    // ===== Example 9: Resource Limit Errors =====
-    println!("\n--- Example 9: Resource Limit Errors ---");
+    // ===== Example 7: Valid Parsing =====
+    println!("\n--- Example 7: Successful Parsing ---");
 
-    use oxiz_core::resource::{LimitStatus, ResourceManager};
+    let valid_input = r#"
+        (set-logic QF_LIA)
+        (declare-const x Int)
+        (assert (>= x 0))
+        (check-sat)
+    "#;
 
-    let mut resources = ResourceManager::new();
-    resources.set_time_limit(std::time::Duration::from_secs(1));
-    resources.set_memory_limit(100 * 1024 * 1024); // 100 MB
-
-    // Simulate timeout
-    std::thread::sleep(std::time::Duration::from_millis(1100));
-
-    match resources.check_limits() {
-        Ok(_) => println!("Within limits"),
-        Err(status) => {
-            println!("Resource limit exceeded:");
-            match status {
-                LimitStatus::Timeout => println!("  Timeout (> 1 second)"),
-                LimitStatus::MemoryLimit => println!("  Memory limit (> 100 MB)"),
-                LimitStatus::Ok => println!("  OK (unexpected)"),
+    let mut tm2 = TermManager::new();
+    match parse_script(valid_input, &mut tm2) {
+        Ok(commands) => {
+            println!("Parsed {} commands successfully:", commands.len());
+            for (i, cmd) in commands.iter().enumerate() {
+                println!("  {}: {:?}", i + 1, cmd);
             }
         }
+        Err(e) => {
+            println!("Parse error: {}", e);
+        }
     }
 
-    // ===== Example 10: Custom Error Types =====
-    println!("\n--- Example 10: Custom Error Types ---");
+    // ===== Example 8: Custom Error Handling =====
+    println!("\n--- Example 8: Custom Error Handling ---");
 
     #[derive(Debug)]
     enum CustomError {
         InvalidConfiguration(String),
-        InternalInconsistency(String),
+        OutOfRange(String),
     }
 
     impl std::fmt::Display for CustomError {
@@ -306,8 +190,8 @@ fn main() {
                 CustomError::InvalidConfiguration(msg) => {
                     write!(f, "Invalid configuration: {}", msg)
                 }
-                CustomError::InternalInconsistency(msg) => {
-                    write!(f, "Internal inconsistency: {}", msg)
+                CustomError::OutOfRange(msg) => {
+                    write!(f, "Out of range: {}", msg)
                 }
             }
         }
@@ -315,31 +199,72 @@ fn main() {
 
     impl std::error::Error for CustomError {}
 
-    fn check_config(value: i32) -> std::result::Result<(), CustomError> {
+    fn check_value(value: i32) -> std::result::Result<(), CustomError> {
         if value < 0 {
             Err(CustomError::InvalidConfiguration(
                 "Value must be non-negative".to_string(),
             ))
+        } else if value > 100 {
+            Err(CustomError::OutOfRange("Value must be <= 100".to_string()))
         } else {
             Ok(())
         }
     }
 
-    match check_config(-5) {
-        Ok(_) => println!("Config OK"),
-        Err(e) => {
-            println!("Custom error:");
-            println!("  {}", e);
-            println!("  Type: {:?}", e);
+    match check_value(-5) {
+        Ok(()) => println!("Value OK"),
+        Err(e) => println!("Error: {}", e),
+    }
+
+    match check_value(150) {
+        Ok(()) => println!("Value OK"),
+        Err(e) => println!("Error: {}", e),
+    }
+
+    match check_value(50) {
+        Ok(()) => println!("Value 50 is OK"),
+        Err(e) => println!("Error: {}", e),
+    }
+
+    // ===== Example 9: Source Location =====
+    println!("\n--- Example 9: Source Location ---");
+
+    let loc1 = SourceLocation::new(5, 12, 50);
+    let loc2 = SourceLocation::new(5, 20, 58);
+    let span = SourceSpan::new(loc1, loc2);
+
+    println!("Source location: {}", loc1);
+    println!("Source span: {}", span);
+
+    // ===== Example 10: Statistics Tracking =====
+    println!("\n--- Example 10: Statistics for Debugging ---");
+
+    let mut stats = Statistics::new();
+
+    // Simulate solver activity
+    for _ in 0..50 {
+        stats.inc_decisions();
+        stats.inc_propagations();
+        if stats.decisions % 5 == 0 {
+            stats.inc_conflicts();
         }
     }
+
+    println!("Statistics after simulation:");
+    println!("  Decisions: {}", stats.decisions);
+    println!("  Propagations: {}", stats.propagations);
+    println!("  Conflicts: {}", stats.conflicts);
+    println!(
+        "  Conflict ratio: {:.2}%",
+        (stats.conflicts as f64 / stats.decisions as f64) * 100.0
+    );
 
     println!("\n=== Example Complete ===");
     println!("\nKey Takeaways:");
     println!("  1. Use Result<T, E> for all fallible operations");
-    println!("  2. Add context to errors for better debugging");
-    println!("  3. Provide suggestions for common mistakes");
-    println!("  4. Diagnostics help users understand and fix errors");
-    println!("  5. Error recovery enables batch processing");
-    println!("  6. Resource limits prevent unbounded execution");
+    println!("  2. OxizError provides specific error variants");
+    println!("  3. Diagnostics help users understand errors");
+    println!("  4. Resource limits prevent unbounded execution");
+    println!("  5. Error propagation with ? operator is idiomatic");
+    println!("  6. Custom errors implement std::error::Error trait");
 }

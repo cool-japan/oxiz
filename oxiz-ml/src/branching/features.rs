@@ -414,7 +414,7 @@ mod tests {
 
         stats.update_conflict();
         stats.update_propagation();
-        stats.update_decision(true, 5);
+        stats.update_decision(true);
 
         assert_eq!(stats.conflict_count, 1);
         assert_eq!(stats.propagation_count, 1);
@@ -426,9 +426,9 @@ mod tests {
     fn test_var_stats_phase_consistency() {
         let mut stats = VarStats::default();
 
-        stats.update_decision(true, 0);
-        stats.update_decision(true, 0);
-        stats.update_decision(false, 0);
+        stats.update_decision(true);
+        stats.update_decision(true);
+        stats.update_decision(false);
 
         let consistency = stats.phase_consistency();
         assert!((consistency - 0.666).abs() < 0.01);

@@ -4,7 +4,7 @@
 //! It covers:
 //! - Computing minimal unsatisfiable subsets
 //! - Tracking assertion origins
-//! - Different core extraction strategies
+//! - Core extraction strategies
 //! - Core minimization algorithms
 //! - Applications (debugging, abstraction refinement)
 //!
@@ -22,8 +22,7 @@
 //! - [`UnsatCore`](oxiz_core::unsat_core::UnsatCore)
 //! - [`UnsatCoreBuilder`](oxiz_core::unsat_core::UnsatCoreBuilder)
 
-use num_bigint::BigInt;
-use oxiz_core::ast::TermManager;
+use oxiz_core::ast::{NamedAssertion, TermManager};
 use oxiz_core::unsat_core::{UnsatCore, UnsatCoreBuilder, UnsatCoreStrategy};
 
 fn main() {
@@ -36,8 +35,8 @@ fn main() {
 
     // Create contradictory assertions
     let x = tm.mk_var("x", tm.sorts.int_sort);
-    let zero = tm.mk_int(BigInt::from(0));
-    let ten = tm.mk_int(BigInt::from(10));
+    let zero = tm.mk_int(0);
+    let ten = tm.mk_int(10);
 
     // Assertions:
     // 1. x > 10
@@ -47,39 +46,22 @@ fn main() {
     let a2 = tm.mk_lt(x, zero);
     let a3 = tm.mk_ge(x, zero);
 
-    let assertions = vec![
-        ("A1", a1), // x > 10
-        ("A2", a2), // x < 0
-        ("A3", a3), // x >= 0
-    ];
-
     println!("Assertions:");
-    for (name, term) in &assertions {
-        println!("  {}: {:?}", name, term);
-    }
+    println!("  A1 (x > 10): {:?}", a1);
+    println!("  A2 (x < 0): {:?}", a2);
+    println!("  A3 (x >= 0): {:?}", a3);
 
-    // Build UNSAT core
-    let mut builder = UnsatCoreBuilder::new(UnsatCoreStrategy::DeletionBased);
-    for (name, term) in &assertions {
-        builder.add_assertion(name.to_string(), *term);
-    }
+    // Build UNSAT core using the builder
+    let mut builder = UnsatCoreBuilder::new();
+    builder.add_named(a1, "A1");
+    builder.add_named(a2, "A2");
 
-    println!("\nComputing UNSAT core...");
-    // In a real implementation, this would call the solver
-    // For this example, we'll construct a core manually
-    let core = UnsatCore {
-        assertions: vec!["A1".to_string(), "A2".to_string()],
-        is_minimal: true,
-        size: 2,
-    };
+    let core = builder.build();
 
-    println!("UNSAT Core: {:?}", core.assertions);
-    println!(
-        "Size: {} (out of {} assertions)",
-        core.size,
-        assertions.len()
-    );
-    println!("Is minimal: {}", core.is_minimal);
+    println!("\nUNSAT Core:");
+    println!("  Size: {} assertions", core.len());
+    println!("  Assertions: {:?}", core.names());
+    println!("  Term IDs: {:?}", core.term_ids());
     println!("\nExplanation: x > 10 and x < 0 are contradictory");
 
     // ===== Example 2: Larger UNSAT Core =====
@@ -87,8 +69,7 @@ fn main() {
 
     let y = tm.mk_var("y", tm.sorts.int_sort);
     let z = tm.mk_var("z", tm.sorts.int_sort);
-    let one = tm.mk_int(BigInt::from(1));
-    let five = tm.mk_int(BigInt::from(5));
+    let five = tm.mk_int(5);
 
     // System of constraints:
     // B1: y = z + 5
@@ -97,88 +78,98 @@ fn main() {
     // B4: y >= 0 (redundant)
     // B5: z >= 0 (redundant)
 
-    let b1 = tm.mk_eq(y, tm.mk_add(vec![z, five]));
+    let z_plus_five = tm.mk_add(vec![z, five]);
+    let b1 = tm.mk_eq(y, z_plus_five);
     let b2 = tm.mk_gt(z, ten);
     let b3 = tm.mk_lt(y, ten);
-    let b4 = tm.mk_ge(y, zero);
-    let b5 = tm.mk_ge(z, zero);
-
-    let large_assertions = vec![("B1", b1), ("B2", b2), ("B3", b3), ("B4", b4), ("B5", b5)];
+    let _b4 = tm.mk_ge(y, zero);
+    let _b5 = tm.mk_ge(z, zero);
 
     println!("Assertions:");
-    for (name, _) in &large_assertions {
-        println!("  {}", name);
-    }
+    println!("  B1 (y = z + 5)");
+    println!("  B2 (z > 10)");
+    println!("  B3 (y < 10)");
+    println!("  B4 (y >= 0)");
+    println!("  B5 (z >= 0)");
 
     // Core would be: B1, B2, B3 (y = z + 5, z > 10, y < 10)
-    let large_core = UnsatCore {
-        assertions: vec!["B1".to_string(), "B2".to_string(), "B3".to_string()],
-        is_minimal: true,
-        size: 3,
-    };
+    let mut builder2 = UnsatCoreBuilder::new();
+    builder2.add_named(b1, "B1");
+    builder2.add_named(b2, "B2");
+    builder2.add_named(b3, "B3");
 
-    println!("\nUNSAT Core: {:?}", large_core.assertions);
+    let large_core = builder2.build();
+
+    println!("\nUNSAT Core: {:?}", large_core.names());
     println!("Explanation: If z > 10, then y = z + 5 > 15, contradicting y < 10");
 
     // ===== Example 3: Core Extraction Strategies =====
     println!("\n--- Example 3: Core Extraction Strategies ---");
 
-    println!("Strategy: Deletion-Based");
+    println!("UnsatCoreStrategy::All");
+    println!("  Returns all assertions (no minimization)");
+
+    println!("\nUnsatCoreStrategy::Deletion");
     println!("  Algorithm: Remove assertions one by one");
     println!("  Complexity: O(n) SAT calls");
     println!("  Result: Minimal core (but not necessarily smallest)");
 
-    println!("\nStrategy: QuickXplain");
+    println!("\nUnsatCoreStrategy::QuickXplain");
     println!("  Algorithm: Divide-and-conquer on assertion set");
     println!("  Complexity: O(n log n) SAT calls (average)");
     println!("  Result: Minimal core");
 
-    println!("\nStrategy: Linear Search");
-    println!("  Algorithm: Add assertions until UNSAT");
-    println!("  Complexity: O(n) SAT calls");
-    println!("  Result: Not necessarily minimal");
+    // Display strategy enum values
+    println!("\nAvailable strategies:");
+    println!("  {:?}", UnsatCoreStrategy::All);
+    println!("  {:?}", UnsatCoreStrategy::Deletion);
+    println!("  {:?}", UnsatCoreStrategy::QuickXplain);
 
-    // ===== Example 4: Core Minimization =====
-    println!("\n--- Example 4: Core Minimization ---");
+    // ===== Example 4: UnsatCore Operations =====
+    println!("\n--- Example 4: UnsatCore Operations ---");
 
-    // Start with a non-minimal core
-    let non_minimal = UnsatCore {
-        assertions: vec![
-            "A1".to_string(),
-            "A2".to_string(),
-            "A3".to_string(),
-            "A4".to_string(),
-        ],
-        is_minimal: false,
-        size: 4,
-    };
+    let mut core = UnsatCore::empty();
+    println!("Created empty core: size = {}", core.len());
 
-    println!("Non-minimal core: {:?}", non_minimal.assertions);
+    // Add assertions
+    core.add(NamedAssertion::named(a1, "A1"));
+    core.add(NamedAssertion::named(a2, "A2"));
+    core.add(NamedAssertion::unnamed(a3));
 
-    // Minimize
-    let minimized = UnsatCore {
-        assertions: vec!["A1".to_string(), "A2".to_string()],
-        is_minimal: true,
-        size: 2,
-    };
+    println!("After adding 3 assertions: size = {}", core.len());
 
-    println!("After minimization: {:?}", minimized.assertions);
-    println!(
-        "Reduced from {} to {} assertions",
-        non_minimal.size, minimized.size
-    );
+    // Query the core
+    println!("\nCore queries:");
+    println!("  Contains term {:?}? {}", a1, core.contains_term(a1));
+    println!("  Contains name 'A1'? {}", core.contains_name("A1"));
+    println!("  Contains name 'A5'? {}", core.contains_name("A5"));
 
-    // ===== Example 5: Application - Debugging =====
-    println!("\n--- Example 5: Application - Debugging Specifications ---");
+    // ===== Example 5: Core Minimization =====
+    println!("\n--- Example 5: Core Minimization ---");
+
+    // Create a core with duplicates
+    let mut dup_core = UnsatCore::empty();
+    dup_core.add(NamedAssertion::unnamed(a1));
+    dup_core.add(NamedAssertion::unnamed(a2));
+    dup_core.add(NamedAssertion::unnamed(a1)); // duplicate
+
+    println!("Core before minimization: {} assertions", dup_core.len());
+
+    dup_core.minimize();
+    println!("After minimization: {} assertions", dup_core.len());
+    println!("(Duplicates removed)");
+
+    // ===== Example 6: Application - Debugging =====
+    println!("\n--- Example 6: Application - Debugging Specifications ---");
 
     println!("Specification with 20 assertions is UNSAT");
     println!("UNSAT core identifies problematic subset:");
     println!("  Original: 20 assertions");
-    println!("  Core: 3 assertions (assertions #5, #12, #18)");
+    println!("  Core: 3 assertions");
     println!("\nBenefit: Focus debugging on 3 assertions instead of 20");
 
-    // ===== Example 6: Application - Abstraction Refinement =====
-    println!("\n--- Example 6: Application - Abstraction Refinement (CEGAR) ---");
+    // ===== Example 7: Application - Abstraction Refinement =====
+    println!("\n--- Example 7: Application - Abstraction Refinement (CEGAR) ---");
 
     println!("Counter-Example Guided Abstraction Refinement:");
     println!("  1. Abstract model is checked");
@@ -187,18 +178,28 @@ fn main() {
     println!("  4. Refinement based on core");
     println!("\nUNSAT core guides refinement, avoiding over-refinement");
 
-    // ===== Example 7: Multiple Cores =====
-    println!("\n--- Example 7: Multiple UNSAT Cores ---");
+    // ===== Example 8: Core Display =====
+    println!("\n--- Example 8: Core Display Format ---");
 
-    println!("For formula F = C1 ∧ C2 ∧ C3 ∧ C4 ∧ C5:");
-    println!("  Core 1: {C1, C2, C3}");
-    println!("  Core 2: {C1, C4, C5}");
-    println!("  Core 3: {C2, C4}");
+    let mut display_core = UnsatCore::empty();
+    display_core.add(NamedAssertion::named(a1, "assertion_x_gt_10"));
+    display_core.add(NamedAssertion::named(a2, "assertion_x_lt_0"));
+    display_core.add(NamedAssertion::unnamed(a3));
+
+    println!("{}", display_core);
+
+    // ===== Example 9: Multiple Cores =====
+    println!("--- Example 9: Multiple UNSAT Cores ---");
+
+    println!("For formula F = C1 AND C2 AND C3 AND C4 AND C5:");
+    println!("  Core 1: {{C1, C2, C3}}");
+    println!("  Core 2: {{C1, C4, C5}}");
+    println!("  Core 3: {{C2, C4}}");
     println!("\nDifferent cores highlight different reasons for UNSAT");
-    println!("Intersection of all cores: {C1, C2, C4} (essential constraints)");
+    println!("Intersection of all cores reveals essential constraints");
 
-    // ===== Example 8: Proof-Based Core Extraction =====
-    println!("\n--- Example 8: Proof-Based Core Extraction ---");
+    // ===== Example 10: Proof-Based Core Extraction =====
+    println!("\n--- Example 10: Proof-Based Core Extraction ---");
 
     println!("Resolution proof:");
     println!("  1. Derive conflict from assertions");
@@ -206,33 +207,8 @@ fn main() {
     println!("  3. Core = assertions used in proof");
     println!("\nAdvantage: Core computed during proof construction (no extra SAT calls)");
 
-    // ===== Example 9: Core Statistics =====
-    println!("\n--- Example 9: UNSAT Core Statistics ---");
-
-    let stats = UnsatCoreStats {
-        total_assertions: 50,
-        core_size: 7,
-        minimization_iterations: 12,
-        solver_calls: 23,
-        time_ms: 145,
-    };
-
-    println!("Core extraction statistics:");
-    println!("  Total assertions: {}", stats.total_assertions);
-    println!("  Core size: {}", stats.core_size);
-    println!(
-        "  Reduction: {:.1}%",
-        100.0 * (stats.total_assertions - stats.core_size) as f64 / stats.total_assertions as f64
-    );
-    println!(
-        "  Minimization iterations: {}",
-        stats.minimization_iterations
-    );
-    println!("  Solver calls: {}", stats.solver_calls);
-    println!("  Time: {} ms", stats.time_ms);
-
-    // ===== Example 10: Core Visualization =====
-    println!("\n--- Example 10: Core Visualization ---");
+    // ===== Example 11: Core Visualization =====
+    println!("\n--- Example 11: Core Visualization ---");
 
     println!("Assertions and their participation in core:\n");
     let assertions_viz = vec![
@@ -259,15 +235,5 @@ fn main() {
     println!("  3. Different strategies trade off minimality vs. performance");
     println!("  4. Proof-based extraction is efficient");
     println!("  5. Cores guide abstraction refinement in CEGAR");
-    println!("  6. Minimization reduces core size further");
-}
-
-// Helper struct for example
-#[derive(Debug)]
-struct UnsatCoreStats {
-    total_assertions: usize,
-    core_size: usize,
-    minimization_iterations: usize,
-    solver_calls: usize,
-    time_ms: u64,
+    println!("  6. UnsatCoreBuilder provides a fluent API for construction");
 }

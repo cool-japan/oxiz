@@ -658,17 +658,6 @@ impl AdvancedPreprocessor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::literal::Lit;
-
-    /// Helper to create clause from DIMACS-style integers
-    fn make_clause(lits: Vec<i32>) -> Clause {
-        Clause::new(lits.into_iter().map(Lit::from_dimacs).collect())
-    }
-
-    /// Helper to convert DIMACS-style integer to Lit
-    fn lit(dimacs: i32) -> Lit {
-        Lit::from_dimacs(dimacs)
-    }
 
     #[test]
     fn test_preprocessor_creation() {
@@ -683,9 +672,9 @@ mod tests {
         let mut preprocessor = AdvancedPreprocessor::new(config);
 
         let clauses = vec![
-            make_clause(vec![1]),     // Unit clause
-            make_clause(vec![1, 2]),  // Should be removed (contains 1)
-            make_clause(vec![-1, 3]), // Should become (3)
+            Clause::new(vec![1]),     // Unit clause
+            Clause::new(vec![1, 2]),  // Should be removed (contains 1)
+            Clause::new(vec![-1, 3]), // Should become (3)
         ];
 
         let result = preprocessor.preprocess(clauses);
@@ -701,25 +690,24 @@ mod tests {
         let mut preprocessor = AdvancedPreprocessor::new(config);
 
         let clauses = vec![
-            make_clause(vec![1, 2]),    // Subsumes next clause
-            make_clause(vec![1, 2, 3]), // Should be removed
+            Clause::new(vec![1, 2]),    // Subsumes next clause
+            Clause::new(vec![1, 2, 3]), // Should be removed
         ];
 
         let result = preprocessor.preprocess(clauses);
         assert!(result.is_ok());
 
         let preprocessed = result.unwrap();
-        // Subsumption may or may not occur depending on implementation
-        // Just verify processing succeeded
-        assert!(!preprocessed.is_empty() || preprocessed.len() <= 2);
+        // Verify preprocessing ran successfully
+        assert!(preprocessed.len() <= 2);
     }
 
     #[test]
     fn test_clause_operations() {
-        let clause = make_clause(vec![1, 2, 3]);
+        let clause = Clause::new(vec![1, 2, 3]);
 
-        assert!(clause.contains(lit(2)));
-        assert!(!clause.contains(lit(4)));
+        assert!(clause.contains(2));
+        assert!(!clause.contains(4));
         assert_eq!(clause.size(), 3);
         assert!(!clause.is_unit());
         assert!(!clause.is_binary());
@@ -729,8 +717,8 @@ mod tests {
     fn test_subsumes_check() {
         let preprocessor = AdvancedPreprocessor::new(PreprocessingConfig::default());
 
-        let c1 = make_clause(vec![1, 2]);
-        let c2 = make_clause(vec![1, 2, 3]);
+        let c1 = Clause::new(vec![1, 2]);
+        let c2 = Clause::new(vec![1, 2, 3]);
 
         assert!(preprocessor.subsumes(&c1, &c2));
         assert!(!preprocessor.subsumes(&c2, &c1));
@@ -740,33 +728,33 @@ mod tests {
     fn test_resolution() {
         let preprocessor = AdvancedPreprocessor::new(PreprocessingConfig::default());
 
-        let c1 = make_clause(vec![1, 2]);
-        let c2 = make_clause(vec![-1, 3]);
+        let c1 = Clause::new(vec![1, 2]);
+        let c2 = Clause::new(vec![-1, 3]);
 
-        let resolvent = preprocessor.resolve(&c1, &c2, lit(1));
+        let resolvent = preprocessor.resolve(&c1, &c2, 1);
         assert!(resolvent.is_some());
 
         let res = resolvent.unwrap();
-        assert!(res.contains(lit(2)));
-        assert!(res.contains(lit(3)));
-        assert!(!res.contains(lit(1)));
+        assert!(res.contains(2));
+        assert!(res.contains(3));
+        assert!(!res.contains(1));
     }
 
     #[test]
     fn test_tautology_detection() {
         let preprocessor = AdvancedPreprocessor::new(PreprocessingConfig::default());
 
-        let c1 = make_clause(vec![1, 2]);
-        let c2 = make_clause(vec![-1, -2]);
+        let c1 = Clause::new(vec![1, 2]);
+        let c2 = Clause::new(vec![-1, -2]);
 
         // Resolution should produce tautology (2, -2)
-        let resolvent = preprocessor.resolve(&c1, &c2, lit(1));
+        let resolvent = preprocessor.resolve(&c1, &c2, 1);
         assert!(resolvent.is_none());
     }
 
     #[test]
     fn test_empty_clause() {
-        let clause = make_clause(vec![]);
+        let clause = Clause::new(vec![]);
         assert!(clause.is_empty());
     }
 }

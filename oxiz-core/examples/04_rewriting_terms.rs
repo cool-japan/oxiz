@@ -21,17 +21,17 @@
 //! - [`BoolRewriter`](oxiz_core::rewrite::BoolRewriter)
 //! - [`ArithRewriter`](oxiz_core::rewrite::ArithRewriter)
 
-use num_bigint::BigInt;
-use oxiz_core::ast::{TermKind, TermManager};
+use oxiz_core::ast::TermManager;
 use oxiz_core::rewrite::{
     ArithRewriter, BoolRewriter, BottomUpRewriter, BvRewriter, CompositeRewriter,
-    IteratingRewriter, RewriteConfig, Rewriter,
+    IteratingRewriter, RewriteConfig, RewriteContext, RewriteResult, Rewriter,
 };
 
 fn main() {
     println!("=== OxiZ Core: Term Rewriting ===\n");
 
     let mut tm = TermManager::new();
+    let mut ctx = RewriteContext::new();
 
     // ===== Example 1: Boolean Rewriting =====
     println!("--- Example 1: Boolean Constant Folding ---");
@@ -43,17 +43,18 @@ fn main() {
     let p_and_true = tm.mk_and(vec![p, true_term]);
     println!("Before: p AND true = {:?}", p_and_true);
 
-    let bool_rewriter = BoolRewriter::new();
-    let mut bottom_up = BottomUpRewriter::new(bool_rewriter);
-    let rewritten = bottom_up.rewrite(p_and_true, &mut tm);
-    println!("After:  {:?}", rewritten.term);
+    let mut bool_rewriter = BoolRewriter::new();
+    let rewritten = bool_rewriter.rewrite(p_and_true, &mut ctx, &mut tm);
+    println!("After:  {:?}", rewritten.term());
+    println!("Was rewritten: {}", rewritten.was_rewritten());
     println!("Expected: p\n");
 
     // p OR false -> p
     let p_or_false = tm.mk_or(vec![p, false_term]);
     println!("Before: p OR false = {:?}", p_or_false);
-    let rewritten2 = bottom_up.rewrite(p_or_false, &mut tm);
-    println!("After:  {:?}", rewritten2.term);
+    let rewritten2 = bool_rewriter.rewrite(p_or_false, &mut ctx, &mut tm);
+    println!("After:  {:?}", rewritten2.term());
+    println!("Was rewritten: {}", rewritten2.was_rewritten());
     println!("Expected: p\n");
 
     // ===== Example 2: Double Negation =====
@@ -63,8 +64,9 @@ fn main() {
     let not_not_q = tm.mk_not(not_q);
 
     println!("Before: NOT(NOT q) = {:?}", not_not_q);
-    let rewritten3 = bottom_up.rewrite(not_not_q, &mut tm);
-    println!("After:  {:?}", rewritten3.term);
+    let rewritten3 = bool_rewriter.rewrite(not_not_q, &mut ctx, &mut tm);
+    println!("After:  {:?}", rewritten3.term());
+    println!("Was rewritten: {}", rewritten3.was_rewritten());
     println!("Expected: q\n");
 
     // ===== Example 3: De Morgan's Laws =====
@@ -77,38 +79,41 @@ fn main() {
     let not_and_rs = tm.mk_not(and_rs);
 
     println!("Before: NOT(r AND s) = {:?}", not_and_rs);
-    let rewritten4 = bottom_up.rewrite(not_and_rs, &mut tm);
-    println!("After:  {:?}", rewritten4.term);
+    let rewritten4 = bool_rewriter.rewrite(not_and_rs, &mut ctx, &mut tm);
+    println!("After:  {:?}", rewritten4.term());
+    println!("Was rewritten: {}", rewritten4.was_rewritten());
     println!("Expected: (NOT r) OR (NOT s)\n");
 
     // ===== Example 4: Arithmetic Simplification =====
     println!("--- Example 4: Arithmetic Constant Folding ---");
     let x = tm.mk_var("x", tm.sorts.int_sort);
-    let zero = tm.mk_int(BigInt::from(0));
-    let one = tm.mk_int(BigInt::from(1));
+    let zero = tm.mk_int(0);
+    let one = tm.mk_int(1);
 
     // x + 0 -> x
     let x_plus_0 = tm.mk_add(vec![x, zero]);
     println!("Before: x + 0 = {:?}", x_plus_0);
 
-    let arith_rewriter = ArithRewriter::new();
-    let mut arith_bottom_up = BottomUpRewriter::new(arith_rewriter);
-    let rewritten5 = arith_bottom_up.rewrite(x_plus_0, &mut tm);
-    println!("After:  {:?}", rewritten5.term);
+    let mut arith_rewriter = ArithRewriter::new();
+    let rewritten5 = arith_rewriter.rewrite(x_plus_0, &mut ctx, &mut tm);
+    println!("After:  {:?}", rewritten5.term());
+    println!("Was rewritten: {}", rewritten5.was_rewritten());
     println!("Expected: x\n");
 
     // x * 1 -> x
     let x_times_1 = tm.mk_mul(vec![x, one]);
     println!("Before: x * 1 = {:?}", x_times_1);
-    let rewritten6 = arith_bottom_up.rewrite(x_times_1, &mut tm);
-    println!("After:  {:?}", rewritten6.term);
+    let rewritten6 = arith_rewriter.rewrite(x_times_1, &mut ctx, &mut tm);
+    println!("After:  {:?}", rewritten6.term());
+    println!("Was rewritten: {}", rewritten6.was_rewritten());
     println!("Expected: x\n");
 
     // x * 0 -> 0
     let x_times_0 = tm.mk_mul(vec![x, zero]);
     println!("Before: x * 0 = {:?}", x_times_0);
-    let rewritten7 = arith_bottom_up.rewrite(x_times_0, &mut tm);
-    println!("After:  {:?}", rewritten7.term);
+    let rewritten7 = arith_rewriter.rewrite(x_times_0, &mut ctx, &mut tm);
+    println!("After:  {:?}", rewritten7.term());
+    println!("Was rewritten: {}", rewritten7.was_rewritten());
     println!("Expected: 0\n");
 
     // ===== Example 5: Polynomial Normalization =====
@@ -120,47 +125,50 @@ fn main() {
     let sum = tm.mk_add(vec![x_plus_y, x]);
 
     println!("Before: (x + y) + x = {:?}", sum);
-    let rewritten8 = arith_bottom_up.rewrite(sum, &mut tm);
-    println!("After:  {:?}", rewritten8.term);
+    let rewritten8 = arith_rewriter.rewrite(sum, &mut ctx, &mut tm);
+    println!("After:  {:?}", rewritten8.term());
+    println!("Was rewritten: {}", rewritten8.was_rewritten());
     println!("Expected: 2*x + y (normalized form)\n");
 
     // ===== Example 6: Constant Evaluation =====
     println!("--- Example 6: Constant Evaluation ---");
-    let five = tm.mk_int(BigInt::from(5));
-    let ten = tm.mk_int(BigInt::from(10));
-    let three = tm.mk_int(BigInt::from(3));
+    let five = tm.mk_int(5);
+    let ten = tm.mk_int(10);
+    let three = tm.mk_int(3);
 
     // (5 + 10) * 3 -> 45
     let sum_5_10 = tm.mk_add(vec![five, ten]);
     let product = tm.mk_mul(vec![sum_5_10, three]);
 
     println!("Before: (5 + 10) * 3 = {:?}", product);
-    let rewritten9 = arith_bottom_up.rewrite(product, &mut tm);
-    println!("After:  {:?}", rewritten9.term);
+    let rewritten9 = arith_rewriter.rewrite(product, &mut ctx, &mut tm);
+    println!("After:  {:?}", rewritten9.term());
+    println!("Was rewritten: {}", rewritten9.was_rewritten());
     println!("Expected: 45\n");
 
     // ===== Example 7: Bitvector Rewriting =====
     println!("--- Example 7: Bitvector Simplification ---");
-    let bv8_sort = tm.sorts.mk_bv_sort(8);
+    let bv8_sort = tm.sorts.bitvec(8);
     let a = tm.mk_var("a", bv8_sort);
-    let bv_zero = tm.mk_bv_numeral(BigInt::from(0), 8);
-    let bv_ones = tm.mk_bv_numeral(BigInt::from(255), 8); // all bits set
+    let bv_zero = tm.mk_bitvec(0u64, 8);
+    let bv_ones = tm.mk_bitvec(255u64, 8); // all bits set
 
     // a AND 0 -> 0
-    let a_and_0 = tm.mk_bvand(a, bv_zero);
+    let a_and_0 = tm.mk_bv_and(a, bv_zero);
     println!("Before: a AND 0x00 = {:?}", a_and_0);
 
-    let bv_rewriter = BvRewriter::new();
-    let mut bv_bottom_up = BottomUpRewriter::new(bv_rewriter);
-    let rewritten10 = bv_bottom_up.rewrite(a_and_0, &mut tm);
-    println!("After:  {:?}", rewritten10.term);
+    let mut bv_rewriter = BvRewriter::new();
+    let rewritten10 = bv_rewriter.rewrite(a_and_0, &mut ctx, &mut tm);
+    println!("After:  {:?}", rewritten10.term());
+    println!("Was rewritten: {}", rewritten10.was_rewritten());
     println!("Expected: 0x00\n");
 
     // a OR 0xFF -> 0xFF
-    let a_or_ones = tm.mk_bvor(a, bv_ones);
+    let a_or_ones = tm.mk_bv_or(a, bv_ones);
     println!("Before: a OR 0xFF = {:?}", a_or_ones);
-    let rewritten11 = bv_bottom_up.rewrite(a_or_ones, &mut tm);
-    println!("After:  {:?}", rewritten11.term);
+    let rewritten11 = bv_rewriter.rewrite(a_or_ones, &mut ctx, &mut tm);
+    println!("After:  {:?}", rewritten11.term());
+    println!("Was rewritten: {}", rewritten11.was_rewritten());
     println!("Expected: 0xFF\n");
 
     // ===== Example 8: Composite Rewriter =====
@@ -169,20 +177,21 @@ fn main() {
 
     // (z + 0 > 0) AND true -> z > 0
     let z_plus_0 = tm.mk_add(vec![z, zero]);
-    let zero2 = tm.mk_int(BigInt::from(0));
+    let zero2 = tm.mk_int(0);
     let comparison = tm.mk_gt(z_plus_0, zero2);
     let formula = tm.mk_and(vec![comparison, true_term]);
 
     println!("Before: (z + 0 > 0) AND true = {:?}", formula);
 
     // Compose bool and arith rewriters
-    let composite = CompositeRewriter::new(vec![
-        Box::new(BoolRewriter::new()),
-        Box::new(ArithRewriter::new()),
-    ]);
+    let mut composite = CompositeRewriter::new("bool+arith");
+    composite.add(BoolRewriter::new());
+    composite.add(ArithRewriter::new());
+
     let mut composite_bottom_up = BottomUpRewriter::new(composite);
-    let rewritten12 = composite_bottom_up.rewrite(formula, &mut tm);
-    println!("After:  {:?}", rewritten12.term);
+    let rewritten12 = composite_bottom_up.rewrite(formula, &mut ctx, &mut tm);
+    println!("After:  {:?}", rewritten12.term());
+    println!("Was rewritten: {}", rewritten12.was_rewritten());
     println!("Expected: z > 0\n");
 
     // ===== Example 9: Fixpoint Iteration =====
@@ -196,32 +205,65 @@ fn main() {
 
     println!("Before: ((w + 0) + 0) + 0 = {:?}", nested);
 
-    let config = RewriteConfig {
-        max_iterations: 10,
-        ..Default::default()
-    };
-    let mut fixpoint = IteratingRewriter::new(ArithRewriter::new(), config);
-    let rewritten13 = fixpoint.rewrite(nested, &mut tm);
-    println!("After:  {:?}", rewritten13.term);
-    println!("Iterations: {}", rewritten13.stats.iterations);
-    println!("Expected: w (after 3 iterations)\n");
+    let mut fixpoint = IteratingRewriter::new(ArithRewriter::new(), 10);
+    let mut fresh_ctx = RewriteContext::new();
+    let rewritten13 = fixpoint.rewrite(nested, &mut fresh_ctx, &mut tm);
+    println!("After:  {:?}", rewritten13.term());
+    println!("Was rewritten: {}", rewritten13.was_rewritten());
+    println!("Iterations: {}", fresh_ctx.stats().iterations);
+    println!("Expected: w (after iterations)\n");
 
     // ===== Example 10: Rewrite Statistics =====
     println!("--- Example 10: Rewrite Statistics ---");
-    println!("Rewrite statistics for last operation:");
-    println!("  Rewrites applied: {}", rewritten13.stats.rewrites_applied);
-    println!("  Iterations: {}", rewritten13.stats.iterations);
-    println!("  Term size before: {}", rewritten13.stats.size_before);
-    println!("  Term size after: {}", rewritten13.stats.size_after);
+    println!("Rewrite statistics from context:");
+    println!("  Terms visited: {}", ctx.stats().terms_visited);
+    println!("  Rewrites applied: {}", ctx.stats().rewrites_applied);
+    println!("  Cache hits: {}", ctx.stats().cache_hits);
+    println!("  Cache misses: {}", ctx.stats().cache_misses);
     println!(
-        "  Reduction: {}%",
-        if rewritten13.stats.size_before > 0 {
-            100 * (rewritten13.stats.size_before - rewritten13.stats.size_after)
-                / rewritten13.stats.size_before
-        } else {
-            0
-        }
+        "  Cache hit rate: {:.1}%",
+        ctx.stats().cache_hit_rate() * 100.0
     );
+
+    // ===== Example 11: Rewrite Configuration =====
+    println!("\n--- Example 11: Rewrite Configuration ---");
+    let config = RewriteConfig {
+        max_iterations: 100,
+        enable_cache: true,
+        max_cache_size: 10_000,
+        aggressive: false,
+        sort_args: true,
+        flatten: true,
+        ..Default::default()
+    };
+
+    println!("RewriteConfig:");
+    println!("  Strategy: {:?}", config.strategy);
+    println!("  Max iterations: {}", config.max_iterations);
+    println!("  Enable cache: {}", config.enable_cache);
+    println!("  Max cache size: {}", config.max_cache_size);
+    println!("  Aggressive: {}", config.aggressive);
+    println!("  Sort args: {}", config.sort_args);
+    println!("  Flatten: {}", config.flatten);
+
+    let _configured_ctx = RewriteContext::with_config(config);
+    println!("\nContext created with custom config");
+
+    // ===== Example 12: RewriteResult API =====
+    println!("\n--- Example 12: RewriteResult API ---");
+    let term_a = tm.mk_var("a", tm.sorts.int_sort);
+    let term_b = tm.mk_var("b", tm.sorts.int_sort);
+
+    let unchanged: RewriteResult = RewriteResult::Unchanged(term_a);
+    let rewritten_result: RewriteResult = RewriteResult::Rewritten(term_b);
+
+    println!("RewriteResult::Unchanged:");
+    println!("  term(): {:?}", unchanged.term());
+    println!("  was_rewritten(): {}", unchanged.was_rewritten());
+
+    println!("\nRewriteResult::Rewritten:");
+    println!("  term(): {:?}", rewritten_result.term());
+    println!("  was_rewritten(): {}", rewritten_result.was_rewritten());
 
     println!("\n=== Example Complete ===");
     println!("\nKey Takeaways:");
@@ -230,4 +272,5 @@ fn main() {
     println!("  3. Composite rewriters combine multiple strategies");
     println!("  4. Fixpoint iteration applies rewrites until convergence");
     println!("  5. Statistics help measure rewriting effectiveness");
+    println!("  6. RewriteContext handles caching and depth tracking");
 }

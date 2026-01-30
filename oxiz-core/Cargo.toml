@@ -27,5 +27,9 @@ wide = "0.7"
 rayon = { workspace = true }
 parking_lot = "0.12"
 
+[features]
+default = []
+property-tests = []
+
 [dev-dependencies]
 proptest = { workspace = true }

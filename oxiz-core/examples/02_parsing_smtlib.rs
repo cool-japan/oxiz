@@ -40,11 +40,11 @@ fn main() {
         Ok(commands) => {
             println!("Parsed {} commands:", commands.len());
             for (i, cmd) in commands.iter().enumerate() {
-                println!("  {}: {:?}", i + 1, cmd);
+                print_command(i + 1, cmd);
             }
         }
         Err(e) => {
-            println!("Parse error: {:?}", e);
+            println!("Parse error: {}", e);
         }
     }
 
@@ -67,35 +67,11 @@ fn main() {
         Ok(commands) => {
             println!("Parsed {} commands:", commands.len());
             for (i, cmd) in commands.iter().enumerate() {
-                match cmd {
-                    Command::SetLogic(logic) => {
-                        println!("  {}: Set logic to {}", i + 1, logic);
-                    }
-                    Command::DeclareConst(name, sort) => {
-                        println!(
-                            "  {}: Declare constant '{}' of sort {:?}",
-                            i + 1,
-                            name,
-                            sort
-                        );
-                    }
-                    Command::Assert(term) => {
-                        println!("  {}: Assert formula {:?}", i + 1, term);
-                    }
-                    Command::CheckSat => {
-                        println!("  {}: Check satisfiability", i + 1);
-                    }
-                    Command::GetModel => {
-                        println!("  {}: Get model", i + 1);
-                    }
-                    _ => {
-                        println!("  {}: {:?}", i + 1, cmd);
-                    }
-                }
+                print_command(i + 1, cmd);
             }
         }
         Err(e) => {
-            println!("Parse error: {:?}", e);
+            println!("Parse error: {}", e);
         }
     }
 
@@ -114,11 +90,11 @@ fn main() {
         Ok(commands) => {
             println!("Parsed {} commands:", commands.len());
             for (i, cmd) in commands.iter().enumerate() {
-                println!("  {}: {:?}", i + 1, cmd);
+                print_command(i + 1, cmd);
             }
         }
         Err(e) => {
-            println!("Parse error: {:?}", e);
+            println!("Parse error: {}", e);
         }
     }
 
@@ -138,11 +114,11 @@ fn main() {
         Ok(commands) => {
             println!("Parsed {} commands:", commands.len());
             for (i, cmd) in commands.iter().enumerate() {
-                println!("  {}: {:?}", i + 1, cmd);
+                print_command(i + 1, cmd);
             }
         }
         Err(e) => {
-            println!("Parse error: {:?}", e);
+            println!("Parse error: {}", e);
         }
     }
 
@@ -164,11 +140,11 @@ fn main() {
         Ok(commands) => {
             println!("Parsed {} commands:", commands.len());
             for (i, cmd) in commands.iter().enumerate() {
-                println!("  {}: {:?}", i + 1, cmd);
+                print_command(i + 1, cmd);
             }
         }
         Err(e) => {
-            println!("Parse error: {:?}", e);
+            println!("Parse error: {}", e);
         }
     }
 
@@ -177,7 +153,7 @@ fn main() {
     let malformed_input = r#"
         (set-logic QF_LIA)
         (declare-const x Int)
-        (assert (>= x))  ; Missing argument - should cause error
+        (assert (>= x))
         (check-sat)
     "#;
 
@@ -187,8 +163,8 @@ fn main() {
             println!("Unexpectedly parsed {} commands", commands.len());
         }
         Err(e) => {
-            println!("Expected parse error: {:?}", e);
-            println!("Error message: {}", e);
+            println!("Expected parse error:");
+            println!("  Error: {}", e);
         }
     }
 
@@ -211,21 +187,11 @@ fn main() {
         Ok(commands) => {
             println!("Parsed {} commands:", commands.len());
             for (i, cmd) in commands.iter().enumerate() {
-                match cmd {
-                    Command::Push(n) => {
-                        println!("  {}: Push {} levels", i + 1, n);
-                    }
-                    Command::Pop(n) => {
-                        println!("  {}: Pop {} levels", i + 1, n);
-                    }
-                    _ => {
-                        println!("  {}: {:?}", i + 1, cmd);
-                    }
-                }
+                print_command(i + 1, cmd);
             }
         }
         Err(e) => {
-            println!("Parse error: {:?}", e);
+            println!("Parse error: {}", e);
         }
     }
 
@@ -247,13 +213,122 @@ fn main() {
         Ok(commands) => {
             println!("Parsed {} commands:", commands.len());
             for (i, cmd) in commands.iter().enumerate() {
-                println!("  {}: {:?}", i + 1, cmd);
+                print_command(i + 1, cmd);
             }
         }
         Err(e) => {
-            println!("Parse error: {:?}", e);
+            println!("Parse error: {}", e);
+        }
+    }
+
+    // ===== Example 9: Multiple Assertions =====
+    println!("\n--- Example 9: Multiple Assertions ---");
+    let input9 = r#"
+        (set-logic QF_LIA)
+        (declare-const a Int)
+        (declare-const b Int)
+        (declare-const c Int)
+        (assert (> a 0))
+        (assert (> b 0))
+        (assert (> c 0))
+        (assert (= (+ a b c) 100))
+        (check-sat)
+    "#;
+
+    let mut tm9 = TermManager::new();
+    match parse_script(input9, &mut tm9) {
+        Ok(commands) => {
+            println!("Parsed {} commands:", commands.len());
+            println!("  Assertions will be conjoined when solving");
+        }
+        Err(e) => {
+            println!("Parse error: {}", e);
         }
     }
 
     println!("\n=== Example Complete ===");
+}
+
+/// Pretty-print a parsed command
+fn print_command(index: usize, cmd: &Command) {
+    match cmd {
+        Command::SetLogic(logic) => {
+            println!("  {}: set-logic {}", index, logic);
+        }
+        Command::SetOption(opt, val) => {
+            println!("  {}: set-option :{} {}", index, opt, val);
+        }
+        Command::SetInfo(key, val) => {
+            println!("  {}: set-info :{} {}", index, key, val);
+        }
+        Command::DeclareConst(name, sort) => {
+            println!("  {}: declare-const {} {}", index, name, sort);
+        }
+        Command::DeclareFun(name, args, ret) => {
+            println!(
+                "  {}: declare-fun {} ({}) {}",
+                index,
+                name,
+                args.join(" "),
+                ret
+            );
+        }
+        Command::Assert(term) => {
+            println!("  {}: assert {:?}", index, term);
+        }
+        Command::CheckSat => {
+            println!("  {}: check-sat", index);
+        }
+        Command::CheckSatAssuming(terms) => {
+            println!("  {}: check-sat-assuming {:?}", index, terms);
+        }
+        Command::GetModel => {
+            println!("  {}: get-model", index);
+        }
+        Command::Push(n) => {
+            println!("  {}: push {}", index, n);
+        }
+        Command::Pop(n) => {
+            println!("  {}: pop {}", index, n);
+        }
+        Command::GetAssertions => {
+            println!("  {}: get-assertions", index);
+        }
+        Command::ResetAssertions => {
+            println!("  {}: reset-assertions", index);
+        }
+        Command::GetValue(terms) => {
+            println!("  {}: get-value {:?}", index, terms);
+        }
+        Command::GetUnsatCore => {
+            println!("  {}: get-unsat-core", index);
+        }
+        Command::Exit => {
+            println!("  {}: exit", index);
+        }
+        Command::Reset => {
+            println!("  {}: reset", index);
+        }
+        Command::Echo(msg) => {
+            println!("  {}: echo \"{}\"", index, msg);
+        }
+        Command::DefineFun(name, _, _, _) => {
+            println!("  {}: define-fun {} ...", index, name);
+        }
+        Command::DeclareSort(name, arity) => {
+            println!("  {}: declare-sort {} {}", index, name, arity);
+        }
+        Command::DefineSort(name, params, _) => {
+            println!(
+                "  {}: define-sort {} ({}) ...",
+                index,
+                name,
+                params.join(" ")
+            );
+        }
+        // Catch-all for other commands
+        _ => {
+            println!("  {}: {:?}", index, cmd);
+        }
+    }
 }

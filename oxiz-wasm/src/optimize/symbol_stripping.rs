@@ -294,10 +294,19 @@ impl SymbolStripper {
 
     /// Strip symbols according to configuration
     pub fn strip(&mut self, config: &StripConfig) -> StripResult {
+        #[cfg(target_arch = "wasm32")]
         let start_time = web_sys::window()
             .and_then(|w| w.performance())
             .map(|p| p.now())
             .unwrap_or(0.0);
+        #[cfg(not(target_arch = "wasm32"))]
+        let start_time = {
+            use std::time::{SystemTime, UNIX_EPOCH};
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_secs_f64() * 1000.0)
+                .unwrap_or(0.0)
+        };
 
         let original_size: usize = self.symbols.iter().map(|s| s.size_bytes).sum();
 
@@ -333,11 +342,21 @@ impl SymbolStripper {
         let new_size = original_size - bytes_saved;
         let symbols_stripped = symbols_to_remove.len();
 
+        #[cfg(target_arch = "wasm32")]
         let end_time = web_sys::window()
             .and_then(|w| w.performance())
             .map(|p| p.now())
             .unwrap_or(start_time);
+        #[cfg(not(target_arch = "wasm32"))]
+        let end_time = {
+            use std::time::{SystemTime, UNIX_EPOCH};
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_secs_f64() * 1000.0)
+                .unwrap_or(start_time)
+        };
 
+        #[cfg(target_arch = "wasm32")]
         if self.verbose {
             web_sys::console::log_1(
                 &format!(
@@ -347,6 +366,15 @@ impl SymbolStripper {
                     (bytes_saved as f64 / original_size as f64) * 100.0
                 )
                 .into(),
+            );
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.verbose {
+            eprintln!(
+                "Symbol stripping: removed {} symbols, saved {} bytes ({:.1}%)",
+                symbols_stripped,
+                bytes_saved,
+                (bytes_saved as f64 / original_size as f64) * 100.0
             );
         }
 

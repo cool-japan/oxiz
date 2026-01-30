@@ -18,6 +18,25 @@ members = [
     "oxiz-ml",
 ]
 
+# Exclude oxiz-py from default build since it requires maturin for proper Python linking.
+# To build oxiz-py: cd oxiz-py && maturin build
+default-members = [
+    "oxiz",
+    "oxiz-core",
+    "oxiz-math",
+    "oxiz-sat",
+    "oxiz-nlsat",
+    "oxiz-theories",
+    "oxiz-solver",
+    "oxiz-opt",
+    "oxiz-spacer",
+    "oxiz-proof",
+    "oxiz-wasm",
+    "oxiz-cli",
+    "oxiz-smtcomp",
+    "oxiz-ml",
+]
+
 [workspace.package]
 version = "0.1.3"
 edition = "2024"

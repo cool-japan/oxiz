@@ -4,8 +4,8 @@
 //! It covers:
 //! - Time limits (timeouts)
 //! - Memory limits
-//! - Iteration/depth limits
-//! - Resource tracking
+//! - Decision/conflict limits
+//! - Resource tracking with Statistics
 //! - Graceful handling of limit violations
 //!
 //! ## Resource Management
@@ -20,10 +20,11 @@
 //! ## See Also
 //! - [`ResourceManager`](oxiz_core::resource::ResourceManager)
 //! - [`ResourceLimits`](oxiz_core::config::ResourceLimits)
+//! - [`Statistics`](oxiz_core::statistics::Statistics)
 
-use oxiz_core::ast::TermManager;
-use oxiz_core::config::{Config, ResourceLimits};
+use oxiz_core::config::ResourceLimits;
 use oxiz_core::resource::{LimitStatus, ResourceManager};
+use oxiz_core::statistics::Statistics;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -33,19 +34,28 @@ fn main() {
     // ===== Example 1: Basic Time Limit =====
     println!("--- Example 1: Time Limits (Timeouts) ---");
 
-    let mut resources = ResourceManager::new();
-    resources.set_time_limit(Duration::from_millis(500));
+    let limits = ResourceLimits {
+        time_limit: Some(Duration::from_millis(500)),
+        decision_limit: None,
+        conflict_limit: None,
+        memory_limit: None,
+    };
+
+    let mut resources = ResourceManager::new(limits);
+    resources.start(); // Start the timer
 
     println!("Set time limit: 500 ms");
 
-    // Simulate work
+    let stats = Statistics::new();
     let start = Instant::now();
+
     loop {
         // Do some work
-        let _ = (0..10000).sum::<i32>();
+        let _: i32 = (0..10000).sum();
 
         // Check limits periodically
-        if let Err(status) = resources.check_limits() {
+        let status = resources.check_limits(&stats);
+        if status != LimitStatus::Ok {
             println!("Time limit exceeded after {:?}", start.elapsed());
             println!("Status: {:?}", status);
             break;
@@ -57,261 +67,332 @@ fn main() {
         }
     }
 
-    // ===== Example 2: Memory Limits =====
-    println!("\n--- Example 2: Memory Limits ---");
+    // ===== Example 2: Decision Limits =====
+    println!("\n--- Example 2: Decision Limits ---");
 
-    let mut mem_resources = ResourceManager::new();
-    mem_resources.set_memory_limit(10 * 1024 * 1024); // 10 MB
+    let limits = ResourceLimits {
+        time_limit: None,
+        decision_limit: Some(100),
+        conflict_limit: None,
+        memory_limit: None,
+    };
+
+    let resources = ResourceManager::new(limits);
+    let mut stats = Statistics::new();
+
+    println!("Set decision limit: 100");
+
+    for i in 0..150 {
+        stats.inc_decisions();
+
+        if i % 25 == 0 {
+            println!("Decision: {}", i + 1);
+        }
+
+        let status = resources.check_limits(&stats);
+        if status != LimitStatus::Ok {
+            println!("Decision limit exceeded at decision {}", i + 1);
+            println!("Status: {:?}", status);
+            break;
+        }
+    }
+
+    // ===== Example 3: Conflict Limits =====
+    println!("\n--- Example 3: Conflict Limits ---");
+
+    let limits = ResourceLimits {
+        time_limit: None,
+        decision_limit: None,
+        conflict_limit: Some(50),
+        memory_limit: None,
+    };
+
+    let resources = ResourceManager::new(limits);
+    let mut stats = Statistics::new();
+
+    println!("Set conflict limit: 50");
+
+    for i in 0..100 {
+        stats.inc_conflicts();
+
+        if i % 10 == 0 {
+            println!("Conflict: {}", i + 1);
+        }
+
+        let status = resources.check_limits(&stats);
+        if status != LimitStatus::Ok {
+            println!("Conflict limit exceeded at conflict {}", i + 1);
+            println!("Status: {:?}", status);
+            break;
+        }
+    }
+
+    // ===== Example 4: Memory Limits =====
+    println!("\n--- Example 4: Memory Limits ---");
+
+    let limits = ResourceLimits {
+        time_limit: None,
+        decision_limit: None,
+        conflict_limit: None,
+        memory_limit: Some(10 * 1024 * 1024), // 10 MB
+    };
+
+    let resources = ResourceManager::new(limits);
+    let mut stats = Statistics::new();
 
     println!("Set memory limit: 10 MB");
 
-    // Track memory usage
-    let mut allocations = Vec::new();
-    let chunk_size = 1024 * 1024; // 1 MB chunks
+    // Simulate memory usage
+    for i in 1..=15 {
+        let usage = i * 1024 * 1024; // i MB
+        stats.set_memory_used(usage as u64);
 
-    for i in 0..15 {
-        allocations.push(vec![0u8; chunk_size]);
-        mem_resources.update_memory_usage(allocations.len() * chunk_size);
+        println!("Memory used: {} MB", i);
 
-        println!("Allocated {} MB", i + 1);
-
-        match mem_resources.check_limits() {
-            Ok(_) => continue,
-            Err(LimitStatus::MemoryLimit) => {
-                println!("Memory limit exceeded!");
-                println!("  Allocated: {} MB", allocations.len());
-                println!("  Limit: 10 MB");
-                break;
-            }
-            Err(e) => {
-                println!("Unexpected status: {:?}", e);
-                break;
-            }
-        }
-    }
-
-    // ===== Example 3: Iteration Limits =====
-    println!("\n--- Example 3: Iteration Limits ---");
-
-    let mut iter_resources = ResourceManager::new();
-    iter_resources.set_iteration_limit(100);
-
-    println!("Set iteration limit: 100");
-
-    let mut count = 0;
-    loop {
-        count += 1;
-        iter_resources.increment_iterations();
-
-        if count % 25 == 0 {
-            println!("Iteration: {}", count);
-        }
-
-        if let Err(_) = iter_resources.check_limits() {
-            println!("Iteration limit exceeded at iteration {}", count);
-            break;
-        }
-
-        if count > 1000 {
-            println!("Unexpected: iteration limit not triggered");
+        let status = resources.check_limits(&stats);
+        if status != LimitStatus::Ok {
+            println!("Memory limit exceeded!");
+            println!("  Limit: 10 MB");
+            println!("  Status: {:?}", status);
             break;
         }
     }
 
-    // ===== Example 4: Combined Limits =====
-    println!("\n--- Example 4: Combined Limits (Time + Memory + Iterations) ---");
+    // ===== Example 5: Combined Limits =====
+    println!("\n--- Example 5: Combined Limits ---");
 
-    let mut combined = ResourceManager::new();
-    combined.set_time_limit(Duration::from_secs(2));
-    combined.set_memory_limit(50 * 1024 * 1024); // 50 MB
-    combined.set_iteration_limit(1000);
+    let limits = ResourceLimits {
+        time_limit: Some(Duration::from_secs(2)),
+        decision_limit: Some(1000),
+        conflict_limit: Some(500),
+        memory_limit: Some(50 * 1024 * 1024), // 50 MB
+    };
+
+    let mut resources = ResourceManager::new(limits);
+    resources.start();
 
     println!("Combined limits:");
     println!("  Time: 2 seconds");
+    println!("  Decisions: 1000");
+    println!("  Conflicts: 500");
     println!("  Memory: 50 MB");
-    println!("  Iterations: 1000");
 
-    let start = Instant::now();
-    let mut data = Vec::new();
+    let mut stats = Statistics::new();
 
-    for i in 0..10000 {
-        // Simulate work
-        data.push(vec![0u8; 10000]); // 10 KB per iteration
-        combined.increment_iterations();
-        combined.update_memory_usage(data.len() * 10000);
+    for i in 0..2000 {
+        stats.inc_decisions();
+
+        // Simulate some conflicts
+        if i % 5 == 0 {
+            stats.inc_conflicts();
+        }
+
+        // Simulate memory growth
+        stats.set_memory_used((i as u64) * 10000);
 
         if i % 100 == 0 {
-            match combined.check_limits() {
-                Ok(_) => continue,
-                Err(status) => {
-                    println!("\nLimit exceeded:");
-                    println!("  Status: {:?}", status);
-                    println!("  Time elapsed: {:?}", start.elapsed());
-                    println!("  Iterations: {}", i);
-                    println!("  Memory: {} MB", data.len() * 10000 / (1024 * 1024));
-                    break;
-                }
+            let status = resources.check_limits(&stats);
+            if status != LimitStatus::Ok {
+                println!("\nLimit exceeded:");
+                println!("  Status: {:?}", status);
+                println!("  Decisions: {}", stats.decisions);
+                println!("  Conflicts: {}", stats.conflicts);
+                println!("  Memory: {} bytes", stats.memory_used);
+                break;
             }
         }
     }
 
-    // ===== Example 5: Resource Configuration =====
-    println!("\n--- Example 5: Resource Configuration ---");
+    // ===== Example 6: Resource Limits from Config =====
+    println!("\n--- Example 6: ResourceLimits Structure ---");
 
-    let config = Config {
-        resource_limits: ResourceLimits {
-            max_time_ms: Some(5000),     // 5 seconds
-            max_memory_mb: Some(100),    // 100 MB
-            max_iterations: Some(10000), // 10k iterations
-            max_depth: Some(100),        // Max recursion depth
-        },
-        ..Default::default()
+    let config_limits = ResourceLimits {
+        time_limit: Some(Duration::from_secs(60)),
+        decision_limit: Some(10000),
+        conflict_limit: Some(5000),
+        memory_limit: Some(100 * 1024 * 1024),
     };
 
-    println!("Configuration-based limits:");
-    println!("  Time: {} ms", config.resource_limits.max_time_ms.unwrap());
+    println!("ResourceLimits configuration:");
     println!(
-        "  Memory: {} MB",
-        config.resource_limits.max_memory_mb.unwrap()
+        "  Time: {:?}",
+        config_limits
+            .time_limit
+            .map_or("unlimited".to_string(), |d| format!("{:?}", d))
     );
     println!(
-        "  Iterations: {}",
-        config.resource_limits.max_iterations.unwrap()
+        "  Decisions: {}",
+        config_limits
+            .decision_limit
+            .map_or("unlimited".to_string(), |d| d.to_string())
     );
-    println!("  Depth: {}", config.resource_limits.max_depth.unwrap());
-
-    let mut config_resources = ResourceManager::from_config(&config);
-    println!("\nResourceManager created from config");
-
-    // ===== Example 6: Depth Limits (Recursion) =====
-    println!("\n--- Example 6: Depth Limits (Recursion) ---");
-
-    fn recursive_function(
-        depth: usize,
-        resources: &mut ResourceManager,
-    ) -> Result<(), LimitStatus> {
-        resources.enter_scope(); // Track recursion depth
-
-        if let Err(status) = resources.check_limits() {
-            resources.exit_scope();
-            return Err(status);
-        }
-
-        if depth > 0 {
-            recursive_function(depth - 1, resources)?;
-        }
-
-        resources.exit_scope();
-        Ok(())
-    }
-
-    let mut depth_resources = ResourceManager::new();
-    depth_resources.set_depth_limit(50);
-
-    println!("Set depth limit: 50");
-
-    match recursive_function(100, &mut depth_resources) {
-        Ok(_) => println!("Unexpected success"),
-        Err(status) => {
-            println!("Depth limit exceeded:");
-            println!("  Status: {:?}", status);
-            println!("  Current depth: {}", depth_resources.current_depth());
-        }
-    }
+    println!(
+        "  Conflicts: {}",
+        config_limits
+            .conflict_limit
+            .map_or("unlimited".to_string(), |c| c.to_string())
+    );
+    println!(
+        "  Memory: {}",
+        config_limits
+            .memory_limit
+            .map_or("unlimited".to_string(), |m| format!("{} bytes", m))
+    );
 
     // ===== Example 7: Resource Reset =====
     println!("\n--- Example 7: Resource Reset ---");
 
-    let mut resettable = ResourceManager::new();
-    resettable.set_iteration_limit(10);
+    let limits = ResourceLimits {
+        time_limit: Some(Duration::from_secs(10)),
+        decision_limit: None,
+        conflict_limit: None,
+        memory_limit: None,
+    };
 
-    for i in 0..5 {
-        resettable.increment_iterations();
-    }
-    println!("Iterations: {}", resettable.current_iterations());
+    let mut resources = ResourceManager::new(limits);
+    resources.start();
 
-    resettable.reset();
-    println!("After reset: {}", resettable.current_iterations());
+    // Wait a bit
+    thread::sleep(Duration::from_millis(50));
 
-    // ===== Example 8: Incremental Solving with Limits =====
-    println!("\n--- Example 8: Incremental Solving with Limits ---");
+    println!("Elapsed before reset: {:?}", resources.elapsed());
 
-    let mut tm = TermManager::new();
-    let mut solver_resources = ResourceManager::new();
-    solver_resources.set_time_limit(Duration::from_millis(100));
+    resources.reset();
+    println!("After reset, elapsed: {:?}", resources.elapsed());
+
+    // ===== Example 8: Remaining Budget =====
+    println!("\n--- Example 8: Remaining Budget Tracking ---");
+
+    let limits = ResourceLimits {
+        time_limit: Some(Duration::from_secs(10)),
+        decision_limit: Some(100),
+        conflict_limit: Some(50),
+        memory_limit: None,
+    };
+
+    let mut resources = ResourceManager::new(limits);
+    resources.start();
+
+    let mut stats = Statistics::new();
+    stats.decisions = 30;
+    stats.conflicts = 20;
+
+    println!("Current usage:");
+    println!("  Decisions: {}", stats.decisions);
+    println!("  Conflicts: {}", stats.conflicts);
+
+    println!("\nRemaining budget:");
+    println!(
+        "  Time remaining: {:?}",
+        resources
+            .remaining_time()
+            .map_or("N/A".to_string(), |d| format!("{:?}", d))
+    );
+    println!(
+        "  Decisions remaining: {}",
+        resources
+            .remaining_decisions(&stats)
+            .map_or("unlimited".to_string(), |d| d.to_string())
+    );
+    println!(
+        "  Conflicts remaining: {}",
+        resources
+            .remaining_conflicts(&stats)
+            .map_or("unlimited".to_string(), |c| c.to_string())
+    );
+
+    // ===== Example 9: Incremental Solving with Limits =====
+    println!("\n--- Example 9: Incremental Solving with Limits ---");
 
     println!("Simulating incremental solving with 100ms per query:");
 
     for query in 1..=5 {
-        solver_resources.reset(); // Reset for each query
+        let limits = ResourceLimits {
+            time_limit: Some(Duration::from_millis(100)),
+            decision_limit: None,
+            conflict_limit: None,
+            memory_limit: None,
+        };
+
+        let mut resources = ResourceManager::new(limits);
+        resources.start();
+
         let start = Instant::now();
 
         // Simulate solver work
-        thread::sleep(Duration::from_millis(50)); // Simulate 50ms work
+        thread::sleep(Duration::from_millis(50));
 
-        match solver_resources.check_limits() {
-            Ok(_) => {
+        let stats = Statistics::new();
+        let status = resources.check_limits(&stats);
+
+        match status {
+            LimitStatus::Ok => {
                 println!("  Query {}: SAT ({:?})", query, start.elapsed());
             }
-            Err(_) => {
-                println!("  Query {}: TIMEOUT", query);
+            _ => {
+                println!("  Query {}: {:?}", query, status);
             }
         }
     }
 
-    // ===== Example 9: Resource Monitoring =====
-    println!("\n--- Example 9: Resource Monitoring ---");
+    // ===== Example 10: Limit Status Types =====
+    println!("\n--- Example 10: LimitStatus Variants ---");
 
-    let mut monitored = ResourceManager::new();
-    monitored.set_time_limit(Duration::from_secs(10));
-    monitored.set_memory_limit(200 * 1024 * 1024);
+    println!("LimitStatus variants:");
+    println!("  {:?} - All limits OK", LimitStatus::Ok);
+    println!("  {:?} - Time limit exceeded", LimitStatus::TimeExceeded);
+    println!(
+        "  {:?} - Decision limit exceeded",
+        LimitStatus::DecisionExceeded
+    );
+    println!(
+        "  {:?} - Conflict limit exceeded",
+        LimitStatus::ConflictExceeded
+    );
+    println!(
+        "  {:?} - Memory limit exceeded",
+        LimitStatus::MemoryExceeded
+    );
 
-    println!("Resource monitoring:");
-    println!("  Time used: {:?}", monitored.time_used());
-    println!("  Time remaining: {:?}", monitored.time_remaining());
-    println!("  Memory used: {} bytes", monitored.memory_used());
-    println!("  Memory available: {} bytes", monitored.memory_available());
-    println!("  Usage: {:.1}%", monitored.memory_usage_percent());
+    // ===== Example 11: Statistics Tracking =====
+    println!("\n--- Example 11: Statistics Tracking ---");
 
-    // ===== Example 10: Graceful Degradation =====
-    println!("\n--- Example 10: Graceful Degradation ---");
+    let mut stats = Statistics::new();
 
-    fn solve_with_fallback(resources: &mut ResourceManager, formula: &str) -> String {
-        // Try complete solver
-        resources.set_time_limit(Duration::from_millis(100));
-
-        match try_complete_solver(resources) {
-            Ok(result) => result,
-            Err(LimitStatus::Timeout) => {
-                println!("  Complete solver timed out, trying incomplete solver");
-                try_incomplete_solver()
-            }
-            Err(_) => "unknown".to_string(),
+    // Simulate solver activity
+    for _ in 0..100 {
+        stats.inc_decisions();
+        stats.inc_propagations();
+        if stats.decisions % 10 == 0 {
+            stats.inc_conflicts();
+            stats.inc_restarts();
         }
     }
 
-    fn try_complete_solver(resources: &mut ResourceManager) -> Result<String, LimitStatus> {
-        thread::sleep(Duration::from_millis(150)); // Simulate slow solver
-        resources.check_limits()?;
-        Ok("sat".to_string())
-    }
+    stats.add_solve_time(Duration::from_millis(500));
+    stats.set_memory_used(1024 * 1024); // 1 MB
 
-    fn try_incomplete_solver() -> String {
-        // Fast but incomplete
-        "sat (incomplete)".to_string()
-    }
+    println!("Statistics after simulation:");
+    println!("  Decisions: {}", stats.decisions);
+    println!("  Propagations: {}", stats.propagations);
+    println!("  Conflicts: {}", stats.conflicts);
+    println!("  Restarts: {}", stats.restarts);
+    println!("  Solve time: {:?}", stats.solve_time);
+    println!(
+        "  Memory used: {}",
+        Statistics::format_memory(stats.memory_used)
+    );
 
-    let mut fallback_resources = ResourceManager::new();
-    let result = solve_with_fallback(&mut fallback_resources, "(and p q)");
-    println!("Graceful degradation result: {}", result);
+    println!("\nPerformance metrics:");
+    println!("  Decisions/sec: {:.0}", stats.decisions_per_second());
+    println!("  Conflicts/sec: {:.0}", stats.conflicts_per_second());
 
     println!("\n=== Example Complete ===");
     println!("\nKey Takeaways:");
     println!("  1. Time limits prevent unbounded execution");
-    println!("  2. Memory limits prevent OOM errors");
-    println!("  3. Iteration limits prevent infinite loops");
-    println!("  4. Depth limits prevent stack overflow");
-    println!("  5. Combined limits provide robust resource control");
-    println!("  6. Resource monitoring enables adaptive strategies");
-    println!("  7. Graceful degradation maintains availability");
+    println!("  2. Decision/conflict limits control search effort");
+    println!("  3. Memory limits prevent OOM errors");
+    println!("  4. Combined limits provide robust resource control");
+    println!("  5. Statistics track solver behavior for tuning");
+    println!("  6. Remaining budget helps with adaptive strategies");
 }
