@@ -44,3 +44,38 @@ path = "fuzz_targets/fuzz_solver.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "fuzz_theory_arithmetic"
+path = "fuzz_targets/fuzz_theory_arithmetic.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_theory_bitvector"
+path = "fuzz_targets/fuzz_theory_bitvector.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_theory_array"
+path = "fuzz_targets/fuzz_theory_array.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_quantifiers"
+path = "fuzz_targets/fuzz_quantifiers.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_tactics"
+path = "fuzz_targets/fuzz_tactics.rs"
+test = false
+doc = false
+bench = false

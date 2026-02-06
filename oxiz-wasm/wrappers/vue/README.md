@@ -152,4 +152,4 @@ Composable for using the solver in a Web Worker.
 
 ## License
 
-MIT
+Apache-2.0

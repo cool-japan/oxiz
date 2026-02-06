@@ -17,6 +17,13 @@ pub struct BvVar {
     width: u32,
 }
 
+/// Comparison tracking for conflict detection
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct ComparisonKey {
+    a: TermId,
+    b: TermId,
+}
+
 /// BitVector Theory Solver using bit-blasting
 #[derive(Debug)]
 pub struct BvSolver {
@@ -30,6 +37,9 @@ pub struct BvSolver {
     context_stack: Vec<usize>,
     /// Configuration
     config: BvConfig,
+    /// Track unsigned less-than comparisons for conflict detection
+    /// Maps (a, b) -> SAT variable representing a < b
+    ult_cache: FxHashMap<ComparisonKey, Var>,
 }
 
 impl Default for BvSolver {
@@ -54,6 +64,7 @@ impl BvSolver {
             assertions: Vec::new(),
             context_stack: Vec::new(),
             config,
+            ult_cache: FxHashMap::default(),
         }
     }
 
@@ -146,83 +157,32 @@ impl BvSolver {
         if let (Some(va), Some(vb)) = (bv_a, bv_b) {
             assert_eq!(va.width, vb.width);
 
-            // Ripple comparison: a < b means ~a[n-1] & b[n-1] or (a[n-1] = b[n-1] & a[n-2..0] < b[n-2..0])
-            // We use auxiliary variables for the comparison result
-            self.encode_ult(&va.bits, &vb.bits);
+            // Get or create comparison result variable for a < b
+            let key_ab = ComparisonKey { a, b };
+            let ult_ab = if let Some(&var) = self.ult_cache.get(&key_ab) {
+                var
+            } else {
+                let var = self.sat.new_var();
+                self.encode_ult_result(&va.bits, &vb.bits, var);
+                self.ult_cache.insert(key_ab.clone(), var);
+                var
+            };
+
+            // Assert that a < b is true
+            self.sat.add_clause([Lit::pos(ult_ab)]);
+
+            // Check for conflict with b < a
+            let key_ba = ComparisonKey { a: b, b: a };
+            if let Some(&ult_ba) = self.ult_cache.get(&key_ba) {
+                // If both a < b and b < a are asserted, we have a conflict
+                // Add clause: NOT(a < b) OR NOT(b < a)
+                // Since we already asserted a < b, this will make b < a false
+                self.sat.add_clause([Lit::neg(ult_ab), Lit::neg(ult_ba)]);
+            }
+
+            // Also check for conflict with a <= b and b <= a
+            // If a < b, then NOT(a = b), so we ensure anti-symmetry
         }
-    }
-
-    /// Encode unsigned less than comparison
-    fn encode_ult(&mut self, a_bits: &[Var], b_bits: &[Var]) {
-        let width = a_bits.len();
-        if width == 0 {
-            // Empty comparison is always false
-            self.sat.add_clause(std::iter::empty());
-            return;
-        }
-
-        // Create carry variables for ripple comparison
-        // lt[i] = a[i-1..0] < b[i-1..0]
-        // lt[i] = (a[i-1] < b[i-1]) or (a[i-1] = b[i-1] and lt[i-1])
-        //       = (~a[i-1] and b[i-1]) or ((a[i-1] <=> b[i-1]) and lt[i-1])
-
-        let mut lt_vars: Vec<Var> = Vec::with_capacity(width + 1);
-
-        // lt[0] = false (no bits compared yet)
-        let lt0 = self.sat.new_var();
-        self.sat.add_clause([Lit::neg(lt0)]); // lt0 = false
-        lt_vars.push(lt0);
-
-        for i in 0..width {
-            let lt_next = self.sat.new_var();
-            let ai = a_bits[i];
-            let bi = b_bits[i];
-            let lt_prev = lt_vars[i];
-
-            // lt_next = (~ai and bi) or (ai = bi and lt_prev)
-            // Simplified encoding:
-            // lt_next => (~ai and bi) or (ai = bi and lt_prev)
-            // ~lt_next or (~ai and bi) or (ai = bi and lt_prev)
-
-            // Break into CNF:
-            // lt_next => bi or (ai and lt_prev)
-            self.sat
-                .add_clause([Lit::neg(lt_next), Lit::pos(bi), Lit::pos(ai)]);
-            self.sat
-                .add_clause([Lit::neg(lt_next), Lit::pos(bi), Lit::pos(lt_prev)]);
-
-            // lt_next => ~ai or lt_prev
-            self.sat
-                .add_clause([Lit::neg(lt_next), Lit::neg(ai), Lit::pos(lt_prev)]);
-
-            // (~ai and bi) => lt_next
-            self.sat
-                .add_clause([Lit::pos(ai), Lit::neg(bi), Lit::pos(lt_next)]);
-
-            // (ai = bi and lt_prev) => lt_next
-            // Split by case: ai and bi and lt_prev => lt_next
-            self.sat.add_clause([
-                Lit::neg(ai),
-                Lit::neg(bi),
-                Lit::neg(lt_prev),
-                Lit::pos(lt_next),
-            ]);
-            // ~ai and ~bi and lt_prev => lt_next
-            self.sat.add_clause([
-                Lit::pos(ai),
-                Lit::pos(bi),
-                Lit::neg(lt_prev),
-                Lit::pos(lt_next),
-            ]);
-
-            lt_vars.push(lt_next);
-        }
-
-        // Assert that the final comparison is true
-        let final_lt = *lt_vars
-            .last()
-            .expect("lt_vars should not be empty after loop");
-        self.sat.add_clause([Lit::pos(final_lt)]);
     }
 
     /// Assert a constant value for a bit vector
@@ -402,61 +362,8 @@ impl BvSolver {
             self.term_to_bv.get(&b).cloned(),
         ) {
             assert_eq!(va.width, vb.width);
-            let width = va.width as usize;
             let r = self.new_bv(result, va.width).clone();
-
-            // Initialize accumulator to 0
-            let mut acc: SmallVec<[Var; 32]> = SmallVec::new();
-            for _ in 0..width {
-                let zero = self.sat.new_var();
-                self.sat.add_clause([Lit::neg(zero)]);
-                acc.push(zero);
-            }
-
-            // Shift-and-add multiplication
-            for i in 0..width {
-                // If b[i] is 1, add (a << i) to accumulator
-                let mut shifted_a: SmallVec<[Var; 32]> = SmallVec::new();
-
-                // Shift a left by i positions
-                for j in 0..width {
-                    if j < i {
-                        let zero = self.sat.new_var();
-                        self.sat.add_clause([Lit::neg(zero)]);
-                        shifted_a.push(zero);
-                    } else if j - i < width {
-                        shifted_a.push(va.bits[j - i]);
-                    } else {
-                        let zero = self.sat.new_var();
-                        self.sat.add_clause([Lit::neg(zero)]);
-                        shifted_a.push(zero);
-                    }
-                }
-
-                // Conditional add: if b[i] then acc += shifted_a
-                let mut new_acc: SmallVec<[Var; 32]> = SmallVec::new();
-                for _ in 0..width {
-                    new_acc.push(self.sat.new_var());
-                }
-
-                let mut sum: SmallVec<[Var; 32]> = SmallVec::new();
-                for _ in 0..width {
-                    sum.push(self.sat.new_var());
-                }
-                self.encode_adder(&sum, &acc, &shifted_a);
-
-                // new_acc = b[i] ? sum : acc
-                for j in 0..width {
-                    self.encode_mux(new_acc[j], vb.bits[i], sum[j], acc[j]);
-                }
-
-                acc = new_acc;
-            }
-
-            // Copy accumulator to result
-            for i in 0..width {
-                self.encode_bit_eq(r.bits[i], acc[i]);
-            }
+            self.encode_mul(&r.bits, &va.bits, &vb.bits);
         }
     }
 
@@ -811,51 +718,87 @@ impl BvSolver {
     }
 
     /// Encode unsigned less than and store result in a variable
+    /// Encode unsigned less-than: result ⇔ (a < b)
+    /// Uses LSB-to-MSB comparison: higher bits override lower bits.
     fn encode_ult_result(&mut self, a_bits: &[Var], b_bits: &[Var], result: Var) {
         let width = a_bits.len();
         if width == 0 {
+            // Empty bitvectors: 0 < 0 is false
             self.sat.add_clause([Lit::neg(result)]);
             return;
         }
 
-        let mut lt_vars: Vec<Var> = Vec::with_capacity(width + 1);
+        // Compare from LSB to MSB
+        // lt_i represents "a < b considering only bits 0..i"
+        // Higher indexed bits (more significant) override lower bits
+        // Recurrence: lt_next = (~a[i] & b[i]) | ((a[i] = b[i]) & lt_prev)
+        //
+        // Meaning:
+        // - If a[i] < b[i], then a < b (current bit overrides lower bits)
+        // - If a[i] > b[i], then a > b (current bit overrides lower bits)
+        // - If a[i] = b[i], result depends on lower bits (lt_prev)
 
-        let lt0 = self.sat.new_var();
-        self.sat.add_clause([Lit::neg(lt0)]);
-        lt_vars.push(lt0);
+        // Start with LSB (bit 0)
+        // lt_0 = ~a[0] & b[0]
+        let mut lt_prev = self.sat.new_var();
+        self.encode_and_not_a(lt_prev, a_bits[0], b_bits[0]);
 
-        for i in 0..width {
-            let lt_next = self.sat.new_var();
+        // Process bits from 1 to MSB
+        for i in 1..width {
             let ai = a_bits[i];
             let bi = b_bits[i];
-            let lt_prev = lt_vars[i];
 
-            self.sat
-                .add_clause([Lit::neg(lt_next), Lit::pos(bi), Lit::pos(ai)]);
-            self.sat
-                .add_clause([Lit::neg(lt_next), Lit::pos(bi), Lit::pos(lt_prev)]);
-            self.sat
-                .add_clause([Lit::neg(lt_next), Lit::neg(ai), Lit::pos(lt_prev)]);
-            self.sat
-                .add_clause([Lit::pos(ai), Lit::neg(bi), Lit::pos(lt_next)]);
-            self.sat.add_clause([
-                Lit::neg(ai),
-                Lit::neg(bi),
-                Lit::neg(lt_prev),
-                Lit::pos(lt_next),
-            ]);
-            self.sat.add_clause([
-                Lit::pos(ai),
-                Lit::pos(bi),
-                Lit::neg(lt_prev),
-                Lit::pos(lt_next),
-            ]);
+            // lt_at_i = ~ai & bi (a < b at this specific bit)
+            let lt_at_i = self.sat.new_var();
+            self.encode_and_not_a(lt_at_i, ai, bi);
 
-            lt_vars.push(lt_next);
+            // eq_i = (ai ⇔ bi) (bits are equal)
+            let eq_i = self.sat.new_var();
+            self.encode_xnor(eq_i, ai, bi);
+
+            // carry_prev = eq_i & lt_prev (propagate from lower bits)
+            let carry_prev = self.sat.new_var();
+            self.encode_and(carry_prev, eq_i, lt_prev);
+
+            // lt_next = lt_at_i | carry_prev
+            let lt_next = self.sat.new_var();
+            self.encode_or(lt_next, lt_at_i, carry_prev);
+
+            lt_prev = lt_next;
         }
 
-        let final_lt = *lt_vars.last().expect("lt_vars should not be empty");
-        self.encode_bit_eq(result, final_lt);
+        self.encode_bit_eq(result, lt_prev);
+    }
+
+    /// Encode out = ~a & b (AND with first input negated)
+    fn encode_and_not_a(&mut self, out: Var, a: Var, b: Var) {
+        // out ⇔ (~a & b)
+        // out → ~a: ~out | ~a
+        self.sat.add_clause([Lit::neg(out), Lit::neg(a)]);
+        // out → b: ~out | b
+        self.sat.add_clause([Lit::neg(out), Lit::pos(b)]);
+        // (~a & b) → out: a | ~b | out
+        self.sat
+            .add_clause([Lit::pos(a), Lit::neg(b), Lit::pos(out)]);
+    }
+
+    /// Encode out = (a ⇔ b) (XNOR gate)
+    fn encode_xnor(&mut self, out: Var, a: Var, b: Var) {
+        // out ⇔ (a ⇔ b)
+        // out is true when a = b
+        // Clauses:
+        // ~out | ~a | b    (out & a → b)
+        // ~out | a | ~b    (out & ~a → ~b)
+        // out | ~a | ~b    (~out → a ≠ b, i.e., ~a & ~b → out, or a | b → ~out)
+        // out | a | b      (~out → a ≠ b, i.e., a & b → out, or ~a | ~b → ~out)
+        self.sat
+            .add_clause([Lit::neg(out), Lit::neg(a), Lit::pos(b)]);
+        self.sat
+            .add_clause([Lit::neg(out), Lit::pos(a), Lit::neg(b)]);
+        self.sat
+            .add_clause([Lit::pos(out), Lit::neg(a), Lit::neg(b)]);
+        self.sat
+            .add_clause([Lit::pos(out), Lit::pos(a), Lit::pos(b)]);
     }
 
     /// Unsigned division: result = a / b (unsigned)
@@ -877,60 +820,63 @@ impl BvSolver {
             }
             self.encode_all_zero(b_is_zero, &all_zero_lits);
 
-            // If b = 0, result = all 1s
-            for i in 0..width {
-                let ones = self.sat.new_var();
-                self.sat.add_clause([Lit::neg(b_is_zero), Lit::pos(ones)]);
-                self.sat
-                    .add_clause([Lit::pos(b_is_zero), Lit::pos(r.bits[i]), Lit::neg(ones)]);
-                self.sat
-                    .add_clause([Lit::pos(b_is_zero), Lit::neg(r.bits[i]), Lit::pos(ones)]);
-            }
-
-            // For non-zero divisor, use bit-by-bit division
-            // This is a simplified encoding - real implementation would be more complex
-            // For now, we encode the constraint: a = result * b + remainder, remainder < b
-
-            // Create product and remainder variables
-            let mut prod_bits: SmallVec<[Var; 32]> = SmallVec::new();
-            for _ in 0..width {
-                prod_bits.push(self.sat.new_var());
-            }
-
+            // Create quotient and remainder variables
+            let mut quot_bits: SmallVec<[Var; 32]> = SmallVec::new();
             let mut rem_bits: SmallVec<[Var; 32]> = SmallVec::new();
             for _ in 0..width {
+                quot_bits.push(self.sat.new_var());
                 rem_bits.push(self.sat.new_var());
             }
 
-            // Encode: prod = result * b (when b != 0)
-            self.encode_conditional_mul(&prod_bits, &r.bits, &vb.bits, b_is_zero);
+            // Encode: full_prod = quot * b using double-width to detect overflow
+            // full_prod[0..width-1] = low bits, full_prod[width..2*width-1] = high bits
+            let mut full_prod_bits: SmallVec<[Var; 64]> = SmallVec::new();
+            for _ in 0..(2 * width) {
+                full_prod_bits.push(self.sat.new_var());
+            }
+            self.encode_mul_full(&full_prod_bits, &quot_bits, &vb.bits);
 
-            // Encode: a = prod + rem (when b != 0)
+            // The low bits are our prod
+            let prod_bits: SmallVec<[Var; 32]> = full_prod_bits[0..width].iter().copied().collect();
+
+            // Enforce: high bits of product are zero (no overflow) when b != 0
+            for i in width..(2 * width) {
+                // ~b_is_zero => ~full_prod_bits[i]
+                // b_is_zero | ~full_prod_bits[i]
+                self.sat
+                    .add_clause([Lit::pos(b_is_zero), Lit::neg(full_prod_bits[i])]);
+            }
+
+            // Encode: sum = prod + rem
             let mut sum_bits: SmallVec<[Var; 32]> = SmallVec::new();
             for _ in 0..width {
                 sum_bits.push(self.sat.new_var());
             }
             self.encode_adder(&sum_bits, &prod_bits, &rem_bits);
 
-            // Assert: a = sum (when b != 0)
+            // Enforce: a = sum (the division equation)
             for i in 0..width {
-                self.sat.add_clause([
-                    Lit::pos(b_is_zero),
-                    Lit::neg(va.bits[i]),
-                    Lit::pos(sum_bits[i]),
-                ]);
-                self.sat.add_clause([
-                    Lit::pos(b_is_zero),
-                    Lit::pos(va.bits[i]),
-                    Lit::neg(sum_bits[i]),
-                ]);
+                self.encode_bit_eq(va.bits[i], sum_bits[i]);
             }
 
-            // Assert: rem < b (when b != 0)
+            // Enforce: rem < b (when b != 0)
             let rem_lt_b = self.sat.new_var();
             self.encode_ult_result(&rem_bits, &vb.bits, rem_lt_b);
             self.sat
                 .add_clause([Lit::pos(b_is_zero), Lit::pos(rem_lt_b)]);
+
+            // All 1s for division by zero result
+            let mut all_ones: SmallVec<[Var; 32]> = SmallVec::new();
+            for _ in 0..width {
+                let one = self.sat.new_var();
+                self.sat.add_clause([Lit::pos(one)]);
+                all_ones.push(one);
+            }
+
+            // result = b_is_zero ? all_ones : quot_bits
+            for i in 0..width {
+                self.encode_mux(r.bits[i], b_is_zero, all_ones[i], quot_bits[i]);
+            }
         }
     }
 
@@ -953,64 +899,62 @@ impl BvSolver {
             }
             self.encode_all_zero(b_is_zero, &all_zero_lits);
 
-            // If b = 0, result = a
-            for i in 0..width {
-                self.sat.add_clause([
-                    Lit::pos(b_is_zero),
-                    Lit::neg(va.bits[i]),
-                    Lit::pos(r.bits[i]),
-                ]);
-                self.sat.add_clause([
-                    Lit::pos(b_is_zero),
-                    Lit::pos(va.bits[i]),
-                    Lit::neg(r.bits[i]),
-                ]);
-            }
-
-            // For non-zero divisor: a = q * b + result, result < b
+            // Create quotient bits (unconstrained - solver will find values)
             let mut quot_bits: SmallVec<[Var; 32]> = SmallVec::new();
             for _ in 0..width {
                 quot_bits.push(self.sat.new_var());
             }
 
-            let mut prod_bits: SmallVec<[Var; 32]> = SmallVec::new();
+            // Create remainder bits (unconstrained - solver will find values)
+            let mut rem_bits: SmallVec<[Var; 32]> = SmallVec::new();
             for _ in 0..width {
-                prod_bits.push(self.sat.new_var());
+                rem_bits.push(self.sat.new_var());
             }
 
-            // prod = quot * b
-            self.encode_conditional_mul(&prod_bits, &quot_bits, &vb.bits, b_is_zero);
+            // Encode: full_prod = quot * b using double-width to detect overflow
+            let mut full_prod_bits: SmallVec<[Var; 64]> = SmallVec::new();
+            for _ in 0..(2 * width) {
+                full_prod_bits.push(self.sat.new_var());
+            }
+            self.encode_mul_full(&full_prod_bits, &quot_bits, &vb.bits);
 
-            // a = prod + result
+            // The low bits are our prod
+            let prod_bits: SmallVec<[Var; 32]> = full_prod_bits[0..width].iter().copied().collect();
+
+            // Enforce: high bits of product are zero (no overflow) when b != 0
+            for i in width..(2 * width) {
+                self.sat
+                    .add_clause([Lit::pos(b_is_zero), Lit::neg(full_prod_bits[i])]);
+            }
+
+            // Encode: sum = prod + rem
             let mut sum_bits: SmallVec<[Var; 32]> = SmallVec::new();
             for _ in 0..width {
                 sum_bits.push(self.sat.new_var());
             }
-            self.encode_adder(&sum_bits, &prod_bits, &r.bits);
+            self.encode_adder(&sum_bits, &prod_bits, &rem_bits);
 
+            // Enforce: a = sum (the division equation a = q*b + r)
             for i in 0..width {
-                self.sat.add_clause([
-                    Lit::pos(b_is_zero),
-                    Lit::neg(va.bits[i]),
-                    Lit::pos(sum_bits[i]),
-                ]);
-                self.sat.add_clause([
-                    Lit::pos(b_is_zero),
-                    Lit::pos(va.bits[i]),
-                    Lit::neg(sum_bits[i]),
-                ]);
+                self.encode_bit_eq(va.bits[i], sum_bits[i]);
             }
 
-            // result < b
+            // Encode: rem < b (remainder must be less than divisor)
             let rem_lt_b = self.sat.new_var();
-            self.encode_ult_result(&r.bits, &vb.bits, rem_lt_b);
+            self.encode_ult_result(&rem_bits, &vb.bits, rem_lt_b);
+            // This constraint only applies when b != 0
             self.sat
                 .add_clause([Lit::pos(b_is_zero), Lit::pos(rem_lt_b)]);
+
+            // result = b_is_zero ? a : rem_bits
+            for i in 0..width {
+                self.encode_mux(r.bits[i], b_is_zero, va.bits[i], rem_bits[i]);
+            }
         }
     }
 
     /// Signed division: result = a / b (signed, two's complement)
-    /// If b = 0, result = all 1s. If a = INT_MIN and b = -1, result = INT_MIN
+    /// If b = 0, result = all 1s (SMT-LIB semantics)
     pub fn bv_sdiv(&mut self, result: TermId, a: TermId, b: TermId) {
         if let (Some(va), Some(vb)) = (
             self.term_to_bv.get(&a).cloned(),
@@ -1020,11 +964,19 @@ impl BvSolver {
             let width = va.width as usize;
             let r = self.new_bv(result, va.width).clone();
 
+            // Check if divisor is zero
+            let b_is_zero = self.sat.new_var();
+            let mut all_zero_lits: SmallVec<[Var; 32]> = SmallVec::new();
+            for &bit in &vb.bits {
+                all_zero_lits.push(bit);
+            }
+            self.encode_all_zero(b_is_zero, &all_zero_lits);
+
             // Get sign bits
             let sign_a = va.bits[width - 1];
             let sign_b = vb.bits[width - 1];
 
-            // Compute absolute values
+            // Compute absolute values using MUX
             let mut abs_a: SmallVec<[Var; 32]> = SmallVec::new();
             let mut abs_b: SmallVec<[Var; 32]> = SmallVec::new();
             for _ in 0..width {
@@ -1032,58 +984,111 @@ impl BvSolver {
                 abs_b.push(self.sat.new_var());
             }
 
-            // abs_a = sign_a ? -a : a
+            // neg_a = -a (two's complement)
             let mut neg_a: SmallVec<[Var; 32]> = SmallVec::new();
             for _ in 0..width {
                 neg_a.push(self.sat.new_var());
             }
             self.encode_two_complement(&neg_a, &va.bits);
+
+            // abs_a = sign_a ? neg_a : a
             for i in 0..width {
                 self.encode_mux(abs_a[i], sign_a, neg_a[i], va.bits[i]);
             }
 
-            // abs_b = sign_b ? -b : b
+            // neg_b = -b (two's complement)
             let mut neg_b: SmallVec<[Var; 32]> = SmallVec::new();
             for _ in 0..width {
                 neg_b.push(self.sat.new_var());
             }
             self.encode_two_complement(&neg_b, &vb.bits);
+
+            // abs_b = sign_b ? neg_b : b
             for i in 0..width {
                 self.encode_mux(abs_b[i], sign_b, neg_b[i], vb.bits[i]);
             }
 
-            // Unsigned division on absolute values
+            // Create quot_abs and rem_abs for unsigned division
             let mut quot_abs: SmallVec<[Var; 32]> = SmallVec::new();
+            let mut rem_abs: SmallVec<[Var; 32]> = SmallVec::new();
             for _ in 0..width {
                 quot_abs.push(self.sat.new_var());
+                rem_abs.push(self.sat.new_var());
             }
 
-            // Simplified: encode quot_abs * abs_b + rem = abs_a
-            // For now, just a placeholder constraint
-            let mut prod: SmallVec<[Var; 32]> = SmallVec::new();
-            for _ in 0..width {
-                prod.push(self.sat.new_var());
+            // Encode division constraint: abs_a = quot_abs * abs_b + rem_abs
+            // Use double-width multiplication to detect overflow
+            let mut full_prod: SmallVec<[Var; 64]> = SmallVec::new();
+            for _ in 0..(2 * width) {
+                full_prod.push(self.sat.new_var());
             }
+            self.encode_mul_full(&full_prod, &quot_abs, &abs_b);
+
+            // The low bits are our prod
+            let prod: SmallVec<[Var; 32]> = full_prod[0..width].iter().copied().collect();
+
+            // Enforce: high bits of product are zero (no overflow) when b != 0
+            for i in width..(2 * width) {
+                self.sat
+                    .add_clause([Lit::pos(b_is_zero), Lit::neg(full_prod[i])]);
+            }
+
+            let mut sum: SmallVec<[Var; 32]> = SmallVec::new();
+            for _ in 0..width {
+                sum.push(self.sat.new_var());
+            }
+            self.encode_adder(&sum, &prod, &rem_abs);
+
+            // Enforce abs_a = sum (unconditionally - division equation always holds)
+            for i in 0..width {
+                self.encode_bit_eq(abs_a[i], sum[i]);
+            }
+
+            // Enforce rem_abs < abs_b (unconditionally for well-formed division)
+            let rem_lt_b = self.sat.new_var();
+            self.encode_ult_result(&rem_abs, &abs_b, rem_lt_b);
+            // Only enforce when b != 0
+            self.sat
+                .add_clause([Lit::pos(b_is_zero), Lit::pos(rem_lt_b)]);
 
             // Result sign: sign_a XOR sign_b
             let result_sign = self.sat.new_var();
             self.encode_xor(result_sign, sign_a, sign_b);
 
-            // result = result_sign ? -quot_abs : quot_abs
+            // neg_quot = -quot_abs
             let mut neg_quot: SmallVec<[Var; 32]> = SmallVec::new();
             for _ in 0..width {
                 neg_quot.push(self.sat.new_var());
             }
             self.encode_two_complement(&neg_quot, &quot_abs);
 
+            // signed_quot = result_sign ? neg_quot : quot_abs
+            let mut signed_quot: SmallVec<[Var; 32]> = SmallVec::new();
+            for _ in 0..width {
+                signed_quot.push(self.sat.new_var());
+            }
             for i in 0..width {
-                self.encode_mux(r.bits[i], result_sign, neg_quot[i], quot_abs[i]);
+                self.encode_mux(signed_quot[i], result_sign, neg_quot[i], quot_abs[i]);
+            }
+
+            // All 1s for division by zero result
+            let mut all_ones: SmallVec<[Var; 32]> = SmallVec::new();
+            for _ in 0..width {
+                let one = self.sat.new_var();
+                self.sat.add_clause([Lit::pos(one)]); // Force to 1
+                all_ones.push(one);
+            }
+
+            // result = b_is_zero ? all_ones : signed_quot
+            for i in 0..width {
+                self.encode_mux(r.bits[i], b_is_zero, all_ones[i], signed_quot[i]);
             }
         }
     }
 
     /// Signed remainder: result = a % b (signed)
     /// Sign of result matches sign of dividend a
+    /// If b = 0, result = a (SMT-LIB semantics)
     pub fn bv_srem(&mut self, result: TermId, a: TermId, b: TermId) {
         if let (Some(va), Some(vb)) = (
             self.term_to_bv.get(&a).cloned(),
@@ -1093,14 +1098,113 @@ impl BvSolver {
             let width = va.width as usize;
             let r = self.new_bv(result, va.width).clone();
 
+            // Check if divisor is zero
+            let b_is_zero = self.sat.new_var();
+            let mut all_zero_lits: SmallVec<[Var; 32]> = SmallVec::new();
+            for &bit in &vb.bits {
+                all_zero_lits.push(bit);
+            }
+            self.encode_all_zero(b_is_zero, &all_zero_lits);
+
+            // Get sign bits
             let sign_a = va.bits[width - 1];
+            let sign_b = vb.bits[width - 1];
 
-            // Compute remainder with sign matching dividend
-            // This is a simplified encoding
+            // Compute absolute values using MUX
+            let mut abs_a: SmallVec<[Var; 32]> = SmallVec::new();
+            let mut abs_b: SmallVec<[Var; 32]> = SmallVec::new();
+            for _ in 0..width {
+                abs_a.push(self.sat.new_var());
+                abs_b.push(self.sat.new_var());
+            }
 
-            // For now, just ensure result has same sign as a
-            let result_sign = r.bits[width - 1];
-            self.encode_bit_eq(result_sign, sign_a);
+            // neg_a = -a (two's complement)
+            let mut neg_a: SmallVec<[Var; 32]> = SmallVec::new();
+            for _ in 0..width {
+                neg_a.push(self.sat.new_var());
+            }
+            self.encode_two_complement(&neg_a, &va.bits);
+
+            // abs_a = sign_a ? neg_a : a
+            for i in 0..width {
+                self.encode_mux(abs_a[i], sign_a, neg_a[i], va.bits[i]);
+            }
+
+            // neg_b = -b (two's complement)
+            let mut neg_b: SmallVec<[Var; 32]> = SmallVec::new();
+            for _ in 0..width {
+                neg_b.push(self.sat.new_var());
+            }
+            self.encode_two_complement(&neg_b, &vb.bits);
+
+            // abs_b = sign_b ? neg_b : b
+            for i in 0..width {
+                self.encode_mux(abs_b[i], sign_b, neg_b[i], vb.bits[i]);
+            }
+
+            // Create quot_abs and rem_abs for unsigned division
+            let mut quot_abs: SmallVec<[Var; 32]> = SmallVec::new();
+            let mut rem_abs: SmallVec<[Var; 32]> = SmallVec::new();
+            for _ in 0..width {
+                quot_abs.push(self.sat.new_var());
+                rem_abs.push(self.sat.new_var());
+            }
+
+            // Encode division constraint: abs_a = quot_abs * abs_b + rem_abs
+            // Use double-width multiplication to detect overflow
+            let mut full_prod: SmallVec<[Var; 64]> = SmallVec::new();
+            for _ in 0..(2 * width) {
+                full_prod.push(self.sat.new_var());
+            }
+            self.encode_mul_full(&full_prod, &quot_abs, &abs_b);
+
+            // The low bits are our prod
+            let prod: SmallVec<[Var; 32]> = full_prod[0..width].iter().copied().collect();
+
+            // Enforce: high bits of product are zero (no overflow) when b != 0
+            for i in width..(2 * width) {
+                self.sat
+                    .add_clause([Lit::pos(b_is_zero), Lit::neg(full_prod[i])]);
+            }
+
+            let mut sum: SmallVec<[Var; 32]> = SmallVec::new();
+            for _ in 0..width {
+                sum.push(self.sat.new_var());
+            }
+            self.encode_adder(&sum, &prod, &rem_abs);
+
+            // Enforce abs_a = sum (unconditionally - division equation always holds)
+            for i in 0..width {
+                self.encode_bit_eq(abs_a[i], sum[i]);
+            }
+
+            // Enforce rem_abs < abs_b (only when b != 0)
+            let rem_lt_b = self.sat.new_var();
+            self.encode_ult_result(&rem_abs, &abs_b, rem_lt_b);
+            self.sat
+                .add_clause([Lit::pos(b_is_zero), Lit::pos(rem_lt_b)]);
+
+            // neg_rem = -rem_abs (for negative dividend case)
+            let mut neg_rem: SmallVec<[Var; 32]> = SmallVec::new();
+            for _ in 0..width {
+                neg_rem.push(self.sat.new_var());
+            }
+            self.encode_two_complement(&neg_rem, &rem_abs);
+
+            // signed_rem = sign_a ? neg_rem : rem_abs
+            // (sign of result matches sign of dividend)
+            let mut signed_rem: SmallVec<[Var; 32]> = SmallVec::new();
+            for _ in 0..width {
+                signed_rem.push(self.sat.new_var());
+            }
+            for i in 0..width {
+                self.encode_mux(signed_rem[i], sign_a, neg_rem[i], rem_abs[i]);
+            }
+
+            // result = b_is_zero ? a : signed_rem
+            for i in 0..width {
+                self.encode_mux(r.bits[i], b_is_zero, va.bits[i], signed_rem[i]);
+            }
         }
     }
 
@@ -1128,29 +1232,6 @@ impl BvSolver {
         self.sat.add_clause(clause);
     }
 
-    /// Encode conditional multiplication: result = (cond ? 0 : a * b)
-    fn encode_conditional_mul(&mut self, result: &[Var], a: &[Var], b: &[Var], cond: Var) {
-        let width = result.len();
-        assert_eq!(a.len(), width);
-        assert_eq!(b.len(), width);
-
-        // Compute a * b
-        let mut prod: SmallVec<[Var; 32]> = SmallVec::new();
-        for _ in 0..width {
-            prod.push(self.sat.new_var());
-        }
-
-        // Simplified multiplication (shift-and-add would be full implementation)
-        // For now, just use a basic constraint
-
-        // result = cond ? 0 : prod
-        for i in 0..width {
-            let zero = self.sat.new_var();
-            self.sat.add_clause([Lit::neg(zero)]);
-            self.encode_mux(result[i], cond, zero, prod[i]);
-        }
-    }
-
     /// Encode two's complement negation: result = -a
     fn encode_two_complement(&mut self, result: &[Var], a: &[Var]) {
         assert_eq!(result.len(), a.len());
@@ -1165,6 +1246,158 @@ impl BvSolver {
 
         // ~a + 1
         self.encode_add_const(result, &not_a, 1);
+    }
+
+    /// Encode multiplication using symmetric schoolbook method: result = a * b
+    /// This encoding is symmetric with respect to a and b, allowing solving for either operand.
+    /// Uses Wallace tree-style carry propagation with proper column tracking.
+    fn encode_mul(&mut self, result: &[Var], a: &[Var], b: &[Var]) {
+        assert_eq!(result.len(), a.len());
+        assert_eq!(result.len(), b.len());
+
+        let width = result.len();
+
+        // Create partial products: columns[k] contains all bits that contribute to result[k]
+        // Initially, columns[k] = { a[i] AND b[j] | i + j = k }
+        let mut columns: Vec<Vec<Var>> = vec![Vec::new(); width];
+
+        for (i, &a_bit) in a.iter().enumerate().take(width) {
+            for (j, &b_bit) in b.iter().enumerate().take(width) {
+                let sum_pos = i + j;
+                if sum_pos < width {
+                    let pp = self.sat.new_var();
+                    self.encode_and(pp, a_bit, b_bit);
+                    columns[sum_pos].push(pp);
+                }
+            }
+        }
+
+        // Use carry-save reduction to reduce each column to at most 2 bits
+        // Then do a final ripple-carry addition
+        self.reduce_columns_and_add(result, &mut columns);
+    }
+
+    /// Reduce columns using 3:2 compressors until each column has at most 2 bits,
+    /// then use a final ripple-carry adder to produce the result.
+    fn reduce_columns_and_add(&mut self, result: &[Var], columns: &mut Vec<Vec<Var>>) {
+        let width = columns.len();
+
+        // Repeatedly reduce columns using 3:2 compressors
+        // Each full adder takes 3 bits from column k and produces:
+        //   - 1 sum bit in column k
+        //   - 1 carry bit in column k+1
+        loop {
+            let max_height = columns.iter().map(|c| c.len()).max().unwrap_or(0);
+            if max_height <= 2 {
+                break;
+            }
+
+            let mut new_columns: Vec<Vec<Var>> = vec![Vec::new(); width];
+
+            for k in 0..width {
+                let bits = &columns[k];
+                let mut i = 0;
+
+                while i + 2 < bits.len() {
+                    // Full adder: sum stays in column k, carry goes to column k+1
+                    let sum = self.sat.new_var();
+                    let carry = self.sat.new_var();
+                    self.encode_full_adder_bit(sum, carry, bits[i], bits[i + 1], bits[i + 2]);
+                    new_columns[k].push(sum);
+                    if k + 1 < width {
+                        new_columns[k + 1].push(carry);
+                    }
+                    i += 3;
+                }
+
+                // Pass through remaining bits (0, 1, or 2)
+                for &bit in &bits[i..] {
+                    new_columns[k].push(bit);
+                }
+            }
+
+            *columns = new_columns;
+        }
+
+        // Now each column has at most 2 bits
+        // Create two operands for final addition
+        let mut operand_a: SmallVec<[Var; 32]> = SmallVec::new();
+        let mut operand_b: SmallVec<[Var; 32]> = SmallVec::new();
+
+        for column in columns.iter().take(width) {
+            match column.len() {
+                0 => {
+                    let zero = self.sat.new_var();
+                    self.sat.add_clause([Lit::neg(zero)]);
+                    operand_a.push(zero);
+                    let zero2 = self.sat.new_var();
+                    self.sat.add_clause([Lit::neg(zero2)]);
+                    operand_b.push(zero2);
+                }
+                1 => {
+                    operand_a.push(column[0]);
+                    let zero = self.sat.new_var();
+                    self.sat.add_clause([Lit::neg(zero)]);
+                    operand_b.push(zero);
+                }
+                2 => {
+                    operand_a.push(column[0]);
+                    operand_b.push(column[1]);
+                }
+                _ => unreachable!("Column should have at most 2 bits after reduction"),
+            }
+        }
+
+        // Final ripple-carry addition
+        self.encode_adder(result, &operand_a, &operand_b);
+    }
+
+    /// Full adder for single bits: sum = a XOR b XOR cin, cout = (a AND b) OR (cin AND (a XOR b))
+    fn encode_full_adder_bit(&mut self, sum: Var, cout: Var, a: Var, b: Var, cin: Var) {
+        // a XOR b
+        let a_xor_b = self.sat.new_var();
+        self.encode_xor(a_xor_b, a, b);
+
+        // sum = a_xor_b XOR cin
+        self.encode_xor(sum, a_xor_b, cin);
+
+        // a AND b
+        let a_and_b = self.sat.new_var();
+        self.encode_and(a_and_b, a, b);
+
+        // cin AND (a XOR b)
+        let cin_and_axorb = self.sat.new_var();
+        self.encode_and(cin_and_axorb, cin, a_xor_b);
+
+        // cout = (a AND b) OR (cin AND (a XOR b))
+        self.encode_or(cout, a_and_b, cin_and_axorb);
+    }
+
+    /// Encode full multiplication: result = a * b with double-width result
+    /// result has length 2*width, a and b have length width
+    /// result[0..width-1] = low bits, result[width..2*width-1] = high bits
+    /// Uses Wallace tree-style carry propagation with proper column tracking.
+    fn encode_mul_full(&mut self, result: &[Var], a: &[Var], b: &[Var]) {
+        let width = a.len();
+        assert_eq!(b.len(), width);
+        assert_eq!(result.len(), 2 * width);
+
+        let double_width = 2 * width;
+
+        // Create partial products: columns[k] contains all bits that contribute to result[k]
+        let mut columns: Vec<Vec<Var>> = vec![Vec::new(); double_width];
+
+        for (i, &a_bit) in a.iter().enumerate().take(width) {
+            for (j, &b_bit) in b.iter().enumerate().take(width) {
+                let sum_pos = i + j;
+                let pp = self.sat.new_var();
+                self.encode_and(pp, a_bit, b_bit);
+                columns[sum_pos].push(pp);
+            }
+        }
+
+        // Use carry-save reduction and final addition
+        self.reduce_columns_and_add(result, &mut columns);
     }
 
     /// Get the value of a bit vector from the model
@@ -1208,7 +1441,12 @@ impl Theory for BvSolver {
 
     fn check(&mut self) -> Result<TheoryResult> {
         match self.sat.solve() {
-            SolverResult::Sat => Ok(TheoryResult::Sat),
+            SolverResult::Sat => {
+                // Backtrack to root level so that new clauses can be added
+                // without conflicting with the current satisfying assignment
+                self.sat.backtrack_to_root();
+                Ok(TheoryResult::Sat)
+            }
             SolverResult::Unsat => Ok(TheoryResult::Unsat(Vec::new())),
             SolverResult::Unknown => Ok(TheoryResult::Unknown),
         }
@@ -1231,6 +1469,7 @@ impl Theory for BvSolver {
         self.term_to_bv.clear();
         self.assertions.clear();
         self.context_stack.clear();
+        self.ult_cache.clear();
     }
 }
 

@@ -186,7 +186,7 @@ impl PortfolioSolver {
                 let thread_start = Instant::now();
 
                 // Check if another solver found the answer
-                if *should_stop.lock().unwrap() {
+                if *should_stop.lock().unwrap_or_else(|e| e.into_inner()) {
                     return;
                 }
 
@@ -204,7 +204,7 @@ impl PortfolioSolver {
                 };
 
                 // Notify other threads to stop
-                *should_stop.lock().unwrap() = true;
+                *should_stop.lock().unwrap_or_else(|e| e.into_inner()) = true;
 
                 // Send result
                 let _ = tx.send(portfolio_result);
@@ -222,7 +222,7 @@ impl PortfolioSolver {
                 Ok(result) => Some(result),
                 Err(_) => {
                     // Timeout - signal all threads to stop
-                    *should_stop.lock().unwrap() = true;
+                    *should_stop.lock().unwrap_or_else(|e| e.into_inner()) = true;
                     None
                 }
             }
@@ -274,7 +274,7 @@ impl PortfolioSolver {
 
                 let thread_start = Instant::now();
 
-                if *should_stop.lock().unwrap() {
+                if *should_stop.lock().unwrap_or_else(|e| e.into_inner()) {
                     return;
                 }
 
@@ -290,7 +290,7 @@ impl PortfolioSolver {
                     conflicts: stats.conflicts,
                 };
 
-                *should_stop.lock().unwrap() = true;
+                *should_stop.lock().unwrap_or_else(|e| e.into_inner()) = true;
                 let _ = tx.send(portfolio_result);
             });
 
@@ -303,7 +303,7 @@ impl PortfolioSolver {
             match rx.recv_timeout(timeout) {
                 Ok(result) => Some(result),
                 Err(_) => {
-                    *should_stop.lock().unwrap() = true;
+                    *should_stop.lock().unwrap_or_else(|e| e.into_inner()) = true;
                     None
                 }
             }

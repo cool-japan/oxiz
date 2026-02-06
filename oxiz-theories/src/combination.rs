@@ -299,6 +299,7 @@ impl TheoryCombiner {
             TheoryId::Datatype => true,             // Datatypes are polite
             TheoryId::Strings => true,              // Strings can be polite with careful handling
             TheoryId::LRA | TheoryId::LIA => false, // Arithmetic is not polite
+            TheoryId::NIA | TheoryId::NRA => false, // Nonlinear arithmetic is not polite
             TheoryId::BV => false,                  // BitVectors are not polite (fixed width)
             TheoryId::FP => false,                  // Floating-point is not polite
             TheoryId::Bool => true,                 // Boolean is trivially polite
@@ -946,7 +947,9 @@ impl TheoryCombiner {
             if let Some(&theory) = self.term_theory.get(&assumption) {
                 match theory {
                     TheoryId::EUF => euf_assumptions.push(assumption),
-                    TheoryId::LRA | TheoryId::LIA => arith_assumptions.push(assumption),
+                    TheoryId::LRA | TheoryId::LIA | TheoryId::NIA | TheoryId::NRA => {
+                        arith_assumptions.push(assumption)
+                    }
                     _ => other_assumptions.push(assumption),
                 }
             } else {

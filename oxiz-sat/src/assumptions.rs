@@ -382,7 +382,7 @@ mod tests {
         let mut stack = AssumptionStack::new();
 
         let lit = Lit::pos(Var(0));
-        stack.push(lit).unwrap();
+        stack.push(lit).expect("First assumption push must succeed");
 
         let neg_lit = Lit::neg(Var(0));
         assert!(stack.push(neg_lit).is_err());
@@ -393,11 +393,15 @@ mod tests {
         let mut stack = AssumptionStack::new();
 
         let lit1 = Lit::pos(Var(0));
-        stack.push(lit1).unwrap();
+        stack
+            .push(lit1)
+            .expect("First assumption push must succeed");
 
         stack.new_level();
         let lit2 = Lit::pos(Var(1));
-        stack.push(lit2).unwrap();
+        stack
+            .push(lit2)
+            .expect("Second assumption push must succeed");
 
         assert_eq!(stack.len(), 2);
 
@@ -412,7 +416,9 @@ mod tests {
         let mut stack = AssumptionStack::new();
 
         let lit = Lit::pos(Var(0));
-        stack.push_with_data(lit, 42).unwrap();
+        stack
+            .push_with_data(lit, 42)
+            .expect("Assumption push with data must succeed");
 
         assert_eq!(stack.assumptions[0].user_data, Some(42));
     }

@@ -1,0 +1,54 @@
+[package]
+name = "oxiz-ml"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Machine Learning-Guided Heuristics for OxiZ SMT Solver"
+keywords = ["machine-learning", "smt", "solver", "heuristics", "neural-network"]
+categories = ["algorithms", "machine-learning", "science"]
+
+[dependencies]
+oxiz-core = { workspace = true }
+oxiz-sat = { workspace = true }
+oxiz-solver = { workspace = true }
+
+# Numerics & Math
+num-traits = { workspace = true }
+num-bigint = { workspace = true }
+num-rational = { workspace = true }
+
+# Collections & Utilities
+indexmap = { workspace = true }
+smallvec = { workspace = true }
+rustc-hash = { workspace = true }
+
+# Parallelism
+rayon = { workspace = true }
+
+# Serialization (for model persistence)
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# Random number generation (for initialization, dropout)
+rand = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+proptest = { workspace = true }
+
+[[bench]]
+name = "ml_overhead"
+harness = false
+
+[[bench]]
+name = "prediction_accuracy"
+harness = false
+
+[lints]
+workspace = true

@@ -12,6 +12,18 @@ mod extended_ops;
 mod helpers;
 mod types;
 
+pub mod factorization;
+pub mod gcd;
+pub mod gcd_advanced;
+pub mod gcd_multivariate;
+pub mod gcd_multivariate_advanced;
+pub mod interpolation;
+pub mod resultant;
+pub mod root_counting;
+pub mod root_isolation;
+pub mod sparse_ops;
+pub mod symbolic_differentiation;
+
 // Re-export all public types
 pub use types::{Monomial, MonomialOrder, NULL_VAR, Term, Var, VarPower};
 

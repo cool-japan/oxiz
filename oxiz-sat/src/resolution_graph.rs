@@ -539,7 +539,9 @@ mod tests {
         assert_eq!(id, 0);
         assert_eq!(graph.num_nodes(), 1);
 
-        let node = graph.get_node(id).unwrap();
+        let node = graph
+            .get_node(id)
+            .expect("Decision node must exist in graph");
         assert!(node.is_decision());
         assert_eq!(node.decision_level(), 1);
     }
@@ -564,7 +566,9 @@ mod tests {
 
         assert_eq!(graph.num_nodes(), 3);
 
-        let node = graph.get_node(id3).unwrap();
+        let node = graph
+            .get_node(id3)
+            .expect("Resolution node must exist in graph");
         assert_eq!(node.parents().len(), 2);
         assert_eq!(node.resolved_var(), Some(v0));
         assert_eq!(graph.stats().resolutions, 1);

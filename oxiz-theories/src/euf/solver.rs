@@ -469,13 +469,19 @@ impl Theory for EufSolver {
 
     fn pop(&mut self) {
         if let Some(state) = self.context_stack.pop() {
-            self.nodes.truncate(state.num_nodes);
+            let num_nodes = state.num_nodes;
+
+            self.nodes.truncate(num_nodes);
             self.diseqs.truncate(state.num_diseqs);
             self.uf.pop();
 
             // Also truncate related structures
-            self.use_list.truncate(state.num_nodes);
-            self.proof_forest.truncate(state.num_nodes);
+            self.use_list.truncate(num_nodes);
+            self.proof_forest.truncate(num_nodes);
+
+            // Remove term_to_node mappings that point to removed nodes
+            self.term_to_node
+                .retain(|_term, &mut idx| (idx as usize) < num_nodes);
 
             // Rebuild signature table for remaining nodes
             self.sig_table.clear();

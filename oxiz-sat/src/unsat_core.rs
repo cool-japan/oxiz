@@ -223,7 +223,7 @@ mod tests {
 
         let core = UnsatCore::extract(&clauses);
         assert!(core.is_some());
-        let core = core.unwrap();
+        let core = core.expect("UNSAT formula must have core");
         // Core should be non-empty for UNSAT formula
         assert!(!core.is_empty());
         // Core should not exceed original clause count
@@ -242,7 +242,7 @@ mod tests {
 
         let core = UnsatCore::extract(&clauses);
         assert!(core.is_some());
-        let core = core.unwrap();
+        let core = core.expect("UNSAT formula must have core");
 
         // Core should not include the redundant clause
         assert!(core.len() <= 2);

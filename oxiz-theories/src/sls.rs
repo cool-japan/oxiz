@@ -2940,8 +2940,10 @@ mod tests {
 
     #[test]
     fn test_walksat() {
-        let mut config = SlsConfig::default();
-        config.algorithm = SlsAlgorithm::WalkSat;
+        let config = SlsConfig {
+            algorithm: SlsAlgorithm::WalkSat,
+            ..Default::default()
+        };
         let mut solver = SlsSolver::new(config);
         solver.add_clause(&[1, 2]);
         solver.add_clause(&[-1, 2]);
@@ -2952,8 +2954,10 @@ mod tests {
 
     #[test]
     fn test_gsat() {
-        let mut config = SlsConfig::default();
-        config.algorithm = SlsAlgorithm::Gsat;
+        let config = SlsConfig {
+            algorithm: SlsAlgorithm::Gsat,
+            ..Default::default()
+        };
         let mut solver = SlsSolver::new(config);
         solver.add_clause(&[1, 2]);
         solver.add_clause(&[-1, 2]);
@@ -2963,8 +2967,10 @@ mod tests {
 
     #[test]
     fn test_probsat() {
-        let mut config = SlsConfig::default();
-        config.algorithm = SlsAlgorithm::ProbSat;
+        let config = SlsConfig {
+            algorithm: SlsAlgorithm::ProbSat,
+            ..Default::default()
+        };
         let mut solver = SlsSolver::new(config);
         solver.add_clause(&[1, 2, 3]);
         solver.add_clause(&[-1, -2, 3]);
@@ -2974,8 +2980,10 @@ mod tests {
 
     #[test]
     fn test_adaptive() {
-        let mut config = SlsConfig::default();
-        config.algorithm = SlsAlgorithm::Adaptive;
+        let config = SlsConfig {
+            algorithm: SlsAlgorithm::Adaptive,
+            ..Default::default()
+        };
         let mut solver = SlsSolver::new(config);
         solver.add_clause(&[1, 2]);
         solver.add_clause(&[-1, 3]);
@@ -2986,9 +2994,11 @@ mod tests {
 
     #[test]
     fn test_tabu() {
-        let mut config = SlsConfig::default();
-        config.tabu = true;
-        config.tabu_tenure = 5;
+        let config = SlsConfig {
+            tabu: true,
+            tabu_tenure: 5,
+            ..Default::default()
+        };
         let mut solver = SlsSolver::new(config);
         solver.add_clause(&[1, 2]);
         solver.add_clause(&[-1, -2]);
@@ -2999,8 +3009,10 @@ mod tests {
 
     #[test]
     fn test_adaptive_noise() {
-        let mut config = SlsConfig::default();
-        config.adaptive_noise = true;
+        let config = SlsConfig {
+            adaptive_noise: true,
+            ..Default::default()
+        };
         let mut solver = SlsSolver::new(config);
         solver.add_clause(&[1, 2]);
         solver.add_clause(&[-1, 2]);

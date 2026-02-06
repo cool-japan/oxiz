@@ -10,6 +10,11 @@ pub mod nla2bv;
 pub mod probe;
 pub mod quantifier;
 
+// Phase 2 enhancements
+pub mod arith;
+pub mod array;
+pub mod bv;
+
 // Refactored modules
 mod ackermann;
 mod bitblast;
@@ -681,10 +686,10 @@ mod tests {
             let split_term_false = goals[1].assertions.last().unwrap();
 
             // One should be a variable, the other should be its negation
-            if let Some(term_false) = manager.get(*split_term_false) {
-                if let TermKind::Not(inner) = term_false.kind {
-                    assert_eq!(inner, *split_term_true);
-                }
+            if let Some(term_false) = manager.get(*split_term_false)
+                && let TermKind::Not(inner) = term_false.kind
+            {
+                assert_eq!(inner, *split_term_true);
             }
         } else {
             panic!("Expected SubGoals result");

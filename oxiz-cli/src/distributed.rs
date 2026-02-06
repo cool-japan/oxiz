@@ -287,7 +287,9 @@ pub fn run_coordinator(
     let all_done_clone = Arc::clone(&all_done);
     let _aggregator = thread::spawn(move || {
         for (cube_id, status) in result_rx {
-            let mut states = cube_states_clone.lock().unwrap();
+            let mut states = cube_states_clone
+                .lock()
+                .expect("Failed to acquire lock on cube states in aggregator thread");
             if let Some(state) = states.get_mut(&cube_id) {
                 state.completed = true;
                 state.result = Some(status);
@@ -347,7 +349,9 @@ pub fn run_coordinator(
 
         // Check for dead workers
         {
-            let mut workers_guard = workers.lock().unwrap();
+            let mut workers_guard = workers
+                .lock()
+                .expect("Failed to acquire lock on workers map for timeout check");
             let now = Instant::now();
             let dead_workers: Vec<String> = workers_guard
                 .iter()
@@ -360,7 +364,9 @@ pub fn run_coordinator(
                 if let Some(state) = workers_guard.remove(&worker_id) {
                     // Re-queue the cube if it was assigned
                     if let Some(cube_id) = state.current_cube {
-                        let mut cube_states_guard = cube_states.lock().unwrap();
+                        let mut cube_states_guard = cube_states
+                            .lock()
+                            .expect("Failed to acquire lock on cube states for re-queueing");
                         if let Some(cube_state) = cube_states_guard.get_mut(&cube_id) {
                             if !cube_state.completed {
                                 cube_state.assigned = false;
@@ -376,7 +382,9 @@ pub fn run_coordinator(
 
     // Send shutdown to all workers
     {
-        let workers_guard = workers.lock().unwrap();
+        let workers_guard = workers
+            .lock()
+            .expect("Failed to acquire lock on workers map for shutdown");
         for (_, state) in workers_guard.iter() {
             let _ = send_message(&state.stream, &Message::Shutdown);
         }
@@ -386,7 +394,9 @@ pub fn run_coordinator(
     let final_result = if found_sat.load(Ordering::SeqCst) {
         CubeSolverResult::Sat
     } else {
-        let states = cube_states.lock().unwrap();
+        let states = cube_states
+            .lock()
+            .expect("Failed to acquire lock on cube states for result determination");
         let all_unsat = states
             .values()
             .all(|s| s.result == Some(CubeSolverResult::Unsat));
@@ -398,7 +408,9 @@ pub fn run_coordinator(
     };
 
     let cubes_processed = {
-        let states = cube_states.lock().unwrap();
+        let states = cube_states
+            .lock()
+            .expect("Failed to acquire lock on cube states for cube count");
         states.values().filter(|s| s.completed).count()
     };
 
@@ -434,7 +446,9 @@ fn handle_worker(
 
     // Register worker
     {
-        let mut workers_guard = workers.lock().unwrap();
+        let mut workers_guard = workers
+            .lock()
+            .expect("Failed to acquire lock on workers map for registration");
         workers_guard.insert(
             worker_id.to_string(),
             WorkerState {
@@ -476,7 +490,9 @@ fn handle_worker(
 
                 match msg {
                     Message::Heartbeat => {
-                        let mut workers_guard = workers.lock().unwrap();
+                        let mut workers_guard = workers
+                            .lock()
+                            .expect("Failed to acquire lock on workers map for heartbeat");
                         if let Some(state) = workers_guard.get_mut(worker_id) {
                             state.last_heartbeat = Instant::now();
                         }
@@ -486,7 +502,9 @@ fn handle_worker(
                     } => {
                         // Update worker state
                         {
-                            let mut workers_guard = workers.lock().unwrap();
+                            let mut workers_guard = workers.lock().expect(
+                                "Failed to acquire lock on workers map for result processing",
+                            );
                             if let Some(state) = workers_guard.get_mut(worker_id) {
                                 state.current_cube = None;
                             }
@@ -498,7 +516,9 @@ fn handle_worker(
                     Message::RequestWork => {
                         // Find an unassigned cube
                         let cube = {
-                            let mut cube_states_guard = cube_states.lock().unwrap();
+                            let mut cube_states_guard = cube_states.lock().expect(
+                                "Failed to acquire lock on cube states for work assignment",
+                            );
                             cube_states_guard
                                 .iter_mut()
                                 .find(|(_, state)| !state.assigned && !state.completed)
@@ -512,7 +532,9 @@ fn handle_worker(
                             Some((cube_id, assumptions)) => {
                                 // Update worker state
                                 {
-                                    let mut workers_guard = workers.lock().unwrap();
+                                    let mut workers_guard = workers.lock().expect(
+                                        "Failed to acquire lock on workers map for cube assignment",
+                                    );
                                     if let Some(state) = workers_guard.get_mut(worker_id) {
                                         state.current_cube = Some(cube_id);
                                     }
@@ -554,7 +576,9 @@ fn handle_worker(
 
     // Remove worker
     {
-        let mut workers_guard = workers.lock().unwrap();
+        let mut workers_guard = workers
+            .lock()
+            .expect("Failed to acquire lock on workers map for worker removal");
         workers_guard.remove(worker_id);
     }
 

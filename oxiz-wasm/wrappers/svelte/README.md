@@ -195,4 +195,4 @@ Create a Svelte store for the solver.
 
 ## License
 
-MIT
+Apache-2.0

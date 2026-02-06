@@ -358,7 +358,10 @@ mod tests {
         ));
 
         // This test just checks that vivification runs without errors
-        let clause = db.get(ClauseId(0)).unwrap().clone();
+        let clause = db
+            .get(ClauseId(0))
+            .expect("Clause 0 must exist in database")
+            .clone();
         let _result = viv.vivify_clause(&clause, &db);
     }
 

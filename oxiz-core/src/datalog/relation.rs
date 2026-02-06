@@ -628,7 +628,7 @@ mod tests {
         rel.insert(TupleBuilder::new().push_i64(3).push_i64(4).build());
         rel.insert(TupleBuilder::new().push_i64(5).push_i64(6).build());
 
-        let selected = rel.select(|t| t.get(0).and_then(|v| v.as_i64()).map_or(false, |n| n > 2));
+        let selected = rel.select(|t| t.get(0).and_then(|v| v.as_i64()).is_some_and(|n| n > 2));
 
         assert_eq!(selected.len(), 2);
     }

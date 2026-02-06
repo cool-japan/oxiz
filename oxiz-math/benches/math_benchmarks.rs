@@ -1,7 +1,8 @@
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use criterion::{Criterion, criterion_group, criterion_main};
 use num_bigint::BigInt;
 use num_rational::BigRational;
 use oxiz_math::*;
+use std::hint::black_box;
 
 // Helper to create rationals
 fn rat(n: i64) -> BigRational {

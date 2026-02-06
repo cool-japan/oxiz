@@ -350,9 +350,11 @@ mod tests {
 
     #[test]
     fn test_stats_compression_ratio() {
-        let mut stats = ImplicantStats::default();
-        stats.original_literals = 10;
-        stats.final_literals = 3;
+        let stats = ImplicantStats {
+            original_literals: 10,
+            final_literals: 3,
+            ..Default::default()
+        };
 
         assert!((stats.compression_ratio() - 0.7).abs() < 0.001);
     }

@@ -22,7 +22,10 @@ wasm-bindgen = { workspace = true }
 wasm-bindgen-futures = "0.4"
 js-sys = { workspace = true }
 console_error_panic_hook = "0.1"
-getrandom = { version = "0.3", features = ["wasm_js"] }
+getrandom = { version = "0.3.4", features = ["wasm_js"] }
+web-sys = { version = "0.3", features = ["console", "Window", "Performance", "Response"] }
+flate2 = "1.1"
+brotli = "8.0"
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"
@@ -35,5 +38,5 @@ harness = false
 # Note: Profile settings should be configured in the workspace root Cargo.toml
 # For WASM binary size optimization, use:
 #   opt-level = "z"
-#   lto = true
+#   lto = true (disabled for oxiz-wasm due to rlib incompatibility)
 #   codegen-units = 1

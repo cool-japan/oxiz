@@ -356,20 +356,87 @@ impl Simplifier {
                     return manager.mk_true();
                 }
 
-                // Check for contradictory constants
+                // Check for constant simplifications
                 if let (Some(lhs_term), Some(rhs_term)) =
                     (manager.get(lhs_simplified), manager.get(rhs_simplified))
                 {
-                    match (&lhs_term.kind, &rhs_term.kind) {
-                        (TermKind::True, TermKind::False) | (TermKind::False, TermKind::True) => {
+                    // Handle datatype constructor equalities:
+                    // C1(args) = C2(args') => false (different constructors)
+                    // C(args) = C(args') => args = args' (same constructor)
+                    if let (
+                        TermKind::DtConstructor {
+                            constructor: lhs_con,
+                            args: lhs_args,
+                        },
+                        TermKind::DtConstructor {
+                            constructor: rhs_con,
+                            args: rhs_args,
+                        },
+                    ) = (&lhs_term.kind, &rhs_term.kind)
+                    {
+                        if lhs_con != rhs_con {
+                            // Different constructors cannot be equal
                             self.stats.contradictions_found += 1;
                             return manager.mk_false();
-                        }
-                        (TermKind::True, TermKind::True) | (TermKind::False, TermKind::False) => {
+                        } else if lhs_args.is_empty() && rhs_args.is_empty() {
+                            // Same nullary constructor
                             self.stats.trivial_equalities += 1;
                             return manager.mk_true();
+                        } else if lhs_args.len() == rhs_args.len() {
+                            // Same constructor: decompose to field equalities
+                            self.stats.terms_eliminated += 1;
+                            let lhs_args = lhs_args.clone();
+                            let rhs_args = rhs_args.clone();
+                            let equalities: Vec<_> = lhs_args
+                                .iter()
+                                .zip(rhs_args.iter())
+                                .map(|(&a, &b)| manager.mk_eq(a, b))
+                                .collect();
+                            return manager.mk_and(equalities);
                         }
-                        _ => {}
+                    }
+
+                    // Handle boolean equalities with constants:
+                    // x = true  => x
+                    // x = false => NOT x
+                    // true = x  => x
+                    // false = x => NOT x
+                    if lhs_term.sort == manager.sorts.bool_sort {
+                        match (&lhs_term.kind, &rhs_term.kind) {
+                            // Contradictory constants
+                            (TermKind::True, TermKind::False)
+                            | (TermKind::False, TermKind::True) => {
+                                self.stats.contradictions_found += 1;
+                                return manager.mk_false();
+                            }
+                            // Same constants
+                            (TermKind::True, TermKind::True)
+                            | (TermKind::False, TermKind::False) => {
+                                self.stats.trivial_equalities += 1;
+                                return manager.mk_true();
+                            }
+                            // x = true => x
+                            (_, TermKind::True) => {
+                                self.stats.terms_eliminated += 1;
+                                return lhs_simplified;
+                            }
+                            // x = false => NOT x
+                            (_, TermKind::False) => {
+                                self.stats.terms_eliminated += 1;
+                                return manager.mk_not(lhs_simplified);
+                            }
+                            // true = x => x
+                            (TermKind::True, _) => {
+                                self.stats.terms_eliminated += 1;
+                                return rhs_simplified;
+                            }
+                            // false = x => NOT x
+                            (TermKind::False, _) => {
+                                self.stats.terms_eliminated += 1;
+                                return manager.mk_not(rhs_simplified);
+                            }
+                            _ => {}
+                        }
                     }
                 }
 
@@ -398,6 +465,10 @@ impl Simplifier {
         let mut simplified = Vec::new();
         let mut found_false = false;
 
+        // Track constructor constraints for each variable
+        // If a variable is constrained to multiple different constructors, it's UNSAT
+        let mut var_constructors: FxHashMap<TermId, lasso::Spur> = FxHashMap::default();
+
         for &assertion in assertions {
             let simp = self.simplify(assertion, manager);
 
@@ -410,12 +481,60 @@ impl Simplifier {
                 if matches!(term.kind, TermKind::True) {
                     continue;
                 }
+
+                // Check for datatype constructor mutual exclusivity
+                // If we see (= var Constructor), track it
+                if let TermKind::Eq(lhs, rhs) = &term.kind {
+                    let (var, cons) = self.extract_var_constructor(*lhs, *rhs, manager);
+                    if let Some((var_term, constructor)) = var.zip(cons) {
+                        if let Some(&existing_con) = var_constructors.get(&var_term) {
+                            if existing_con != constructor {
+                                // Variable constrained to two different constructors - UNSAT
+                                self.stats.contradictions_found += 1;
+                                found_false = true;
+                            }
+                        } else {
+                            var_constructors.insert(var_term, constructor);
+                        }
+                    }
+                }
             }
 
             simplified.push(simp);
         }
 
         (simplified, found_false)
+    }
+
+    /// Extract (variable, constructor) pair from an equality if one side is a variable
+    /// and the other is a DtConstructor
+    fn extract_var_constructor(
+        &self,
+        lhs: TermId,
+        rhs: TermId,
+        manager: &TermManager,
+    ) -> (Option<TermId>, Option<lasso::Spur>) {
+        let lhs_term = manager.get(lhs);
+        let rhs_term = manager.get(rhs);
+
+        match (lhs_term, rhs_term) {
+            (Some(lt), Some(rt)) => {
+                // lhs is var, rhs is constructor
+                if matches!(lt.kind, TermKind::Var(_)) {
+                    if let TermKind::DtConstructor { constructor, .. } = &rt.kind {
+                        return (Some(lhs), Some(*constructor));
+                    }
+                }
+                // rhs is var, lhs is constructor
+                if matches!(rt.kind, TermKind::Var(_)) {
+                    if let TermKind::DtConstructor { constructor, .. } = &lt.kind {
+                        return (Some(rhs), Some(*constructor));
+                    }
+                }
+                (None, None)
+            }
+            _ => (None, None),
+        }
     }
 
     /// Apply unit propagation at preprocessing level

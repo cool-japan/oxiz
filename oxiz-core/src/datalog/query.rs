@@ -683,7 +683,7 @@ mod tests {
         let optimizer = QueryOptimizer::new();
         let plan = optimizer.optimize(&query);
 
-        assert!(plan.nodes.len() > 0);
+        assert!(!plan.nodes.is_empty());
     }
 
     #[test]

@@ -352,8 +352,10 @@ mod tests {
 
     #[test]
     fn test_history_limit() {
-        let mut config = TheoryConflictConfig::default();
-        config.max_history = 3;
+        let config = TheoryConflictConfig {
+            max_history: 3,
+            ..Default::default()
+        };
         let mut tracker = TheoryConflictTracker::with_config(config);
 
         for i in 0..5 {

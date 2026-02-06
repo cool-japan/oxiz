@@ -1,0 +1,57 @@
+// Multi-pattern matching implementation
+// This will be used to create the final multi_pattern.rs
+// Target: ~2500 lines
+
+use crate::ast::{TermId, TermKind, TermManager};
+use crate::ematching::pattern::{Pattern, PatternKind};
+use crate::ematching::substitution::{Substitution, SubstitutionBuilder};
+use crate::error::{OxizError, Result};
+use crate::sort::SortId;
+use lasso::Spur;
+use rustc_hash::{FxHashMap, FxHashSet};
+use smallvec::SmallVec;
+use std::fmt;
+
+/// Configuration for multi-pattern matching
+#[derive(Debug, Clone)]
+pub struct MultiPatternConfig {
+    /// Maximum number of patterns per quantifier
+    pub max_patterns: usize,
+    /// Whether to enable pattern caching
+    pub enable_caching: bool,
+    /// Whether to use shared structure optimization
+    pub use_shared_structure: bool,
+    /// Maximum cache size
+    pub max_cache_size: usize,
+}
+
+impl Default for MultiPatternConfig {
+    fn default() -> Self {
+        Self {
+            max_patterns: 5,
+            enable_caching: true,
+            use_shared_structure: true,
+            max_cache_size: 10000,
+        }
+    }
+}
+
+/// Statistics for multi-pattern matching
+#[derive(Debug, Clone, Default)]
+pub struct MultiPatternStats {
+    /// Total patterns processed
+    pub patterns_processed: usize,
+    /// Multi-pattern matches found
+    pub multi_matches: usize,
+    /// Single-pattern matches found
+    pub single_matches: usize,
+    /// Cache hits
+    pub cache_hits: usize,
+    /// Cache misses
+    pub cache_misses: usize,
+    /// Average patterns per match
+    pub avg_patterns_per_match: f64,
+}
+
+// Add many more comprehensive structures and implementations here...
+// (This template shows the structure; the actual file will have full implementation)

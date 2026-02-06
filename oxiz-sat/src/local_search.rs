@@ -414,9 +414,9 @@ mod tests {
         assert!(assignment.is_some());
 
         // Verify the solution satisfies all clauses
-        let assignment = assignment.unwrap();
-        let clause1 = db.get(id1).unwrap();
-        let clause2 = db.get(id2).unwrap();
+        let assignment = assignment.expect("SAT result must have assignment");
+        let clause1 = db.get(id1).expect("Clause must exist in database");
+        let clause2 = db.get(id2).expect("Clause must exist in database");
 
         let sat1 = clause1.lits.iter().any(|&lit| {
             let var_value = assignment[lit.var().index()];

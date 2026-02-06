@@ -45,22 +45,22 @@ fn main() {
     println!("Result: {:?}\n", result);
 
     // Extract and verify solution
-    if let Some(model) = solver.get_model() {
-        if let (Some(x_val), Some(y_val)) = (model.arith_value(0), model.arith_value(1)) {
-            println!("Solution:");
-            println!("  x = {}", x_val);
-            println!("  y = {}", y_val);
-            println!("  x + y = {}\n", x_val + y_val);
+    if let Some(model) = solver.get_model()
+        && let (Some(x_val), Some(y_val)) = (model.arith_value(0), model.arith_value(1))
+    {
+        println!("Solution:");
+        println!("  x = {}", x_val);
+        println!("  y = {}", y_val);
+        println!("  x + y = {}\n", x_val + y_val);
 
-            // Verify constraints
-            println!("Verification:");
-            println!("  x > 0? {}", x_val.is_positive());
-            println!("  y > 0? {}", y_val.is_positive());
-            println!(
-                "  x + y < 10? {}",
-                (x_val + y_val) < BigRational::from_integer(10.into())
-            );
-        }
+        // Verify constraints
+        println!("Verification:");
+        println!("  x > 0? {}", x_val.is_positive());
+        println!("  y > 0? {}", y_val.is_positive());
+        println!(
+            "  x + y < 10? {}",
+            (x_val + y_val) < BigRational::from_integer(10.into())
+        );
     }
 
     println!("\n=== Example completed ===");

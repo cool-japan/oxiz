@@ -89,6 +89,9 @@
 
 #![warn(missing_docs)]
 
+// TODO: algebraic module needs refactoring to match Polynomial API
+// pub mod algebraic;
+pub mod algebraic_number;
 pub mod bdd;
 pub mod blas;
 pub mod blas_ops;
@@ -98,13 +101,17 @@ pub mod hilbert;
 pub mod interior_point;
 pub mod interval;
 pub mod lp;
+pub mod lp_core;
 pub mod matrix;
 pub mod mpfr;
 pub mod polynomial;
 pub mod rational;
 pub mod rational_function;
 pub mod realclosure;
+pub mod realclosure_advanced;
+pub mod simd;
 pub mod simplex;
+pub mod simplex_parametric;
 
 #[cfg(test)]
 mod integration_tests {

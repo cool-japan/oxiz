@@ -451,7 +451,6 @@ mod tests {
         let models = AllSatEnumerator::enumerate_all(&mut solver, 2);
         // Should find 3 models: {x1}, {x2}, {x1, x2}
         // (plus variations with negative literals)
-        assert!(models.len() >= 1);
         assert!(!models.is_empty());
     }
 

@@ -14,6 +14,10 @@ pub enum TheoryId {
     LRA,
     /// Linear Integer Arithmetic
     LIA,
+    /// Nonlinear Integer Arithmetic
+    NIA,
+    /// Nonlinear Real Arithmetic
+    NRA,
     /// BitVectors
     BV,
     /// Arrays

@@ -230,18 +230,20 @@ mod tests {
     fn test_lrb_unassign() {
         let mut lrb = LRB::new(5);
 
-        let v0 = lrb.select().unwrap();
-        let v1 = lrb.select().unwrap();
+        let v0 = lrb.select().expect("Must select first variable");
+        let v1 = lrb.select().expect("Must select second variable");
 
         // Unassign and should be able to select again
         // Note: heap doesn't guarantee order when scores are equal
         lrb.unassign(v0);
-        let v2 = lrb.select().unwrap();
+        let v2 = lrb.select().expect("Must select variable after unassign");
         // Just check that we got a valid variable
         assert!(v2.0 < 5);
 
         lrb.unassign(v1);
-        let v3 = lrb.select().unwrap();
+        let v3 = lrb
+            .select()
+            .expect("Must select variable after second unassign");
         assert!(v3.0 < 5);
     }
 

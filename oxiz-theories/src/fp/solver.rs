@@ -100,7 +100,7 @@ impl FpRoundingMode {
 }
 
 /// A floating-point value representation
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FpValue {
     /// Sign bit (true = negative)
     pub sign: bool,
@@ -1008,8 +1008,8 @@ mod tests {
         solver.new_fp(a, FpFormat::FLOAT32);
         solver.new_fp(b, FpFormat::FLOAT32);
 
-        // a = 3.14
-        solver.assert_const(a, &FpValue::from_f32(3.14));
+        // a = 2.75
+        solver.assert_const(a, &FpValue::from_f32(2.75));
 
         // b = -a
         solver.assert_fp_neg(b, a);
@@ -1018,7 +1018,7 @@ mod tests {
         assert!(matches!(result, TheoryResult::Sat));
 
         let b_val = solver.get_value(b).unwrap();
-        assert_eq!(b_val.to_f32(), Some(-3.14));
+        assert_eq!(b_val.to_f32(), Some(-2.75));
     }
 
     #[test]
@@ -1132,7 +1132,7 @@ mod tests {
         let b = TermId::new(2);
 
         solver.new_fp(a, FpFormat::FLOAT32);
-        solver.assert_const(a, &FpValue::from_f32(3.14));
+        solver.assert_const(a, &FpValue::from_f32(2.75));
 
         // Convert a to b (same format)
         solver.assert_fp_to_fp(b, a, FpFormat::FLOAT32);
@@ -1141,7 +1141,7 @@ mod tests {
         assert!(matches!(result, TheoryResult::Sat));
 
         let b_val = solver.get_value(b).unwrap();
-        assert_eq!(b_val.to_f32(), Some(3.14));
+        assert_eq!(b_val.to_f32(), Some(2.75));
     }
 
     #[test]

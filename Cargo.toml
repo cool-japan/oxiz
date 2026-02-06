@@ -15,13 +15,33 @@ members = [
     "oxiz-cli",
     "oxiz-smtcomp",
     "oxiz-py",
+    "oxiz-ml",
+]
+
+# Exclude oxiz-py from default build since it requires maturin for proper Python linking.
+# To build oxiz-py: cd oxiz-py && maturin build
+default-members = [
+    "oxiz",
+    "oxiz-core",
+    "oxiz-math",
+    "oxiz-sat",
+    "oxiz-nlsat",
+    "oxiz-theories",
+    "oxiz-solver",
+    "oxiz-opt",
+    "oxiz-spacer",
+    "oxiz-proof",
+    "oxiz-wasm",
+    "oxiz-cli",
+    "oxiz-smtcomp",
+    "oxiz-ml",
 ]
 
 [workspace.package]
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 authors = ["COOLJAPAN OU (Team KitaSan)"]
-license = "MIT OR Apache-2.0"
+license = "Apache-2.0"
 repository = "https://github.com/cool-japan/oxiz"
 description = "Next-Generation SMT Solver in Pure Rust"
 keywords = ["smt", "solver", "sat", "verification", "logic"]
@@ -34,22 +54,24 @@ dead_code = "allow"
 [workspace.lints.clippy]
 too_many_arguments = "allow"
 type_complexity = "allow"
+collapsible_if = "allow"
 
 [workspace.dependencies]
 # Meta crate
-oxiz = { version = "0.1.2", path = "oxiz" }
+oxiz = { version = "0.1.3", path = "oxiz" }
 
 # Core crates
-oxiz-core = { version = "0.1.2", path = "oxiz-core" }
-oxiz-math = { version = "0.1.2", path = "oxiz-math" }
-oxiz-sat = { version = "0.1.2", path = "oxiz-sat" }
-oxiz-nlsat = { version = "0.1.2", path = "oxiz-nlsat" }
-oxiz-theories = { version = "0.1.2", path = "oxiz-theories" }
-oxiz-solver = { version = "0.1.2", path = "oxiz-solver" }
-oxiz-opt = { version = "0.1.2", path = "oxiz-opt" }
-oxiz-spacer = { version = "0.1.2", path = "oxiz-spacer" }
-oxiz-proof = { version = "0.1.2", path = "oxiz-proof" }
-oxiz-smtcomp = { version = "0.1.2", path = "oxiz-smtcomp" }
+oxiz-core = { version = "0.1.3", path = "oxiz-core" }
+oxiz-math = { version = "0.1.3", path = "oxiz-math" }
+oxiz-sat = { version = "0.1.3", path = "oxiz-sat" }
+oxiz-nlsat = { version = "0.1.3", path = "oxiz-nlsat" }
+oxiz-theories = { version = "0.1.3", path = "oxiz-theories" }
+oxiz-solver = { version = "0.1.3", path = "oxiz-solver" }
+oxiz-opt = { version = "0.1.3", path = "oxiz-opt" }
+oxiz-spacer = { version = "0.1.3", path = "oxiz-spacer" }
+oxiz-proof = { version = "0.1.3", path = "oxiz-proof" }
+oxiz-smtcomp = { version = "0.1.3", path = "oxiz-smtcomp" }
+oxiz-ml = { version = "0.1.3", path = "oxiz-ml" }
 
 # Memory & Interning
 bumpalo = "3.19"
@@ -99,11 +121,11 @@ wasm-bindgen = "0.2"
 js-sys = "0.3"
 
 # Testing
-proptest = "1.9"
+proptest = "1.10"
 criterion = "0.7"
 
 # Utilities
-smallvec = "1.15"
+smallvec = { version = "1.15", features = ["serde"] }
 rustc-hash = "2.1"
 num-rational = "0.4"
 num-bigint = "0.4"

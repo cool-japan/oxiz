@@ -1,9 +1,11 @@
 //! SMT-LIB2 Parser
+#![allow(clippy::while_let_loop)] // Parser uses explicit loop control
 
 use super::lexer::{Lexer, TokenKind};
-use crate::ast::{TermId, TermManager};
+use crate::ast::{RoundingMode, TermId, TermManager};
 use crate::error::{OxizError, Result};
 use crate::sort::SortId;
+use num_rational::Rational64;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 
@@ -118,6 +120,9 @@ pub struct Parser<'a> {
     /// Collected errors during parsing
     #[allow(dead_code)]
     errors: Vec<OxizError>,
+    /// Datatype constructor names -> (datatype_sort, arity/selector_info)
+    /// For nullary constructors (enums), the Vec is empty
+    dt_constructors: FxHashMap<String, SortId>,
 }
 
 impl<'a> Parser<'a> {
@@ -134,6 +139,7 @@ impl<'a> Parser<'a> {
             annotations: FxHashMap::default(),
             recovery_mode: false,
             errors: Vec::new(),
+            dt_constructors: FxHashMap::default(),
         }
     }
 
@@ -151,6 +157,7 @@ impl<'a> Parser<'a> {
             annotations: FxHashMap::default(),
             recovery_mode: true,
             errors: Vec::new(),
+            dt_constructors: FxHashMap::default(),
         }
     }
 
@@ -230,6 +237,19 @@ impl<'a> Parser<'a> {
                 let width = b.len() as u32;
                 Ok(self.manager.mk_bitvec(value, width))
             }
+            TokenKind::Decimal(d) => {
+                // Parse decimal literal as Rational64
+                let rational =
+                    parse_decimal_to_rational(&d).map_err(|e| OxizError::ParseError {
+                        position: token.start,
+                        message: format!("invalid decimal: {d} - {e}"),
+                    })?;
+                Ok(self.manager.mk_real(rational))
+            }
+            TokenKind::StringLit(s) => {
+                // Parse string literal
+                Ok(self.manager.mk_string_lit(&s))
+            }
             _ => Err(OxizError::ParseError {
                 position: token.start,
                 message: format!("unexpected token: {:?}", token.kind),
@@ -245,6 +265,10 @@ impl<'a> Parser<'a> {
                 // Check bindings first
                 if let Some(&term) = self.bindings.get(s) {
                     return Ok(term);
+                }
+                // Check if this is a datatype constructor (e.g., Monday, nil, cons, etc.)
+                if let Some(&dt_sort) = self.dt_constructors.get(s) {
+                    return Ok(self.manager.mk_dt_constructor(s, vec![], dt_sort));
                 }
                 // Check constants
                 if let Some(&sort) = self.constants.get(s) {
@@ -265,6 +289,178 @@ impl<'a> Parser<'a> {
                 position: self.lexer.position(),
                 message: "unexpected end of input".to_string(),
             })?;
+
+        // Handle indexed identifiers that start with `(`: ((_ to_fp 8 24) RNE 1.5)
+        if matches!(op_token.kind, TokenKind::LParen) {
+            // Expect underscore
+            let underscore = self.expect_symbol()?;
+            if underscore != "_" {
+                return Err(OxizError::ParseError {
+                    position: self.lexer.position(),
+                    message: format!("expected '_' in indexed identifier, found '{underscore}'"),
+                });
+            }
+
+            let name = self.expect_symbol()?;
+
+            // Parse indices (can be numerals or symbols, depending on the operation)
+            let mut index_parts = Vec::new();
+            loop {
+                if let Some(token) = self.lexer.peek() {
+                    match &token.kind {
+                        TokenKind::RParen => {
+                            self.lexer.next_token(); // consume rparen
+                            break;
+                        }
+                        TokenKind::Numeral(n) => {
+                            let n = n.clone();
+                            self.lexer.next_token();
+                            index_parts.push(n);
+                        }
+                        TokenKind::Symbol(s) => {
+                            // For datatype testers like (_ is nil), the constructor name is a symbol
+                            let s = s.clone();
+                            self.lexer.next_token();
+                            index_parts.push(s);
+                        }
+                        _ => {
+                            return Err(OxizError::ParseError {
+                                position: token.start,
+                                message: format!(
+                                    "expected numeral, symbol, or ')' in indexed identifier, found {:?}",
+                                    token.kind
+                                ),
+                            });
+                        }
+                    }
+                } else {
+                    break;
+                }
+            }
+
+            // Handle special indexed operators
+            if name == "is" {
+                // Handle datatype tester: ((_ is constructor) arg)
+                if index_parts.len() != 1 {
+                    return Err(OxizError::ParseError {
+                        position: self.lexer.position(),
+                        message: format!(
+                            "(_ is) requires exactly 1 constructor name, got {}",
+                            index_parts.len()
+                        ),
+                    });
+                }
+                let constructor_name = &index_parts[0];
+                let arg = self.parse_term()?;
+                self.expect_rparen()?; // Close the outer application
+                return Ok(self.manager.mk_dt_tester(constructor_name, arg));
+            }
+
+            // Now parse the arguments and closing paren
+            // Build the indexed identifier name
+            let indices_str = index_parts.join(" ");
+            let func_name = if index_parts.is_empty() {
+                format!("(_ {name})")
+            } else {
+                format!("(_ {name} {indices_str})")
+            };
+
+            // Parse arguments
+            let args = self.parse_term_list()?;
+            let sort = self.manager.sorts.bool_sort; // Default
+            return Ok(self.manager.mk_apply(&func_name, args, sort));
+        }
+
+        // Handle indexed identifiers: (_ extract 7 4), (_ sign_extend 16), etc.
+        if matches!(op_token.kind, TokenKind::Symbol(ref s) if s == "_") {
+            let name = self.expect_symbol()?;
+
+            // Parse indices (can be numerals or symbols)
+            let mut indices = Vec::new();
+            let mut index_parts = Vec::new();
+            loop {
+                if let Some(token) = self.lexer.peek() {
+                    match &token.kind {
+                        TokenKind::RParen => {
+                            break;
+                        }
+                        TokenKind::Numeral(n) => {
+                            let n = n.clone();
+                            self.lexer.next_token();
+                            let idx = n.parse::<u32>().map_err(|_| OxizError::ParseError {
+                                position: token.start,
+                                message: format!("invalid index: {n}"),
+                            })?;
+                            indices.push(idx);
+                            index_parts.push(n);
+                        }
+                        TokenKind::Symbol(s) => {
+                            // For datatype testers and similar constructs
+                            let s = s.clone();
+                            self.lexer.next_token();
+                            index_parts.push(s);
+                        }
+                        _ => break,
+                    }
+                } else {
+                    break;
+                }
+            }
+
+            // Handle indexed operations
+            match name.as_str() {
+                "extract" => {
+                    if indices.len() != 2 {
+                        return Err(OxizError::ParseError {
+                            position: self.lexer.position(),
+                            message: format!(
+                                "extract requires exactly 2 indices, got {}",
+                                indices.len()
+                            ),
+                        });
+                    }
+                    let arg = self.parse_term()?;
+                    self.expect_rparen()?;
+                    return Ok(self.manager.mk_bv_extract(indices[0], indices[1], arg));
+                }
+                "is" => {
+                    // Handle datatype tester: (_ is constructor) arg
+                    if index_parts.len() != 1 {
+                        return Err(OxizError::ParseError {
+                            position: self.lexer.position(),
+                            message: format!(
+                                "(_ is) requires exactly 1 constructor name, got {}",
+                                index_parts.len()
+                            ),
+                        });
+                    }
+                    self.expect_rparen()?; // Close the (_ is X) part
+                    let constructor_name = &index_parts[0];
+                    let arg = self.parse_term()?;
+                    self.expect_rparen()?; // Close the outer application
+                    return Ok(self.manager.mk_dt_tester(constructor_name, arg));
+                }
+                _ => {
+                    // For unrecognized indexed identifiers (like to_fp, is, etc.),
+                    // treat them as function applications and parse arguments
+                    // Expect closing paren for the indexed identifier
+                    self.expect_rparen()?;
+
+                    // Build the indexed identifier name
+                    let indices_str = index_parts.join(" ");
+                    let func_name = if index_parts.is_empty() {
+                        format!("(_ {name})")
+                    } else {
+                        format!("(_ {name} {indices_str})")
+                    };
+
+                    // Parse arguments
+                    let args = self.parse_term_list()?;
+                    let sort = self.manager.sorts.bool_sort; // Default
+                    return Ok(self.manager.mk_apply(&func_name, args, sort));
+                }
+            }
+        }
 
         let op = match &op_token.kind {
             TokenKind::Symbol(s) => s.clone(),
@@ -348,8 +544,16 @@ impl<'a> Parser<'a> {
                     && matches!(token.kind, TokenKind::RParen)
                 {
                     self.lexer.next_token();
-                    // Unary minus
-                    let zero = self.manager.mk_int(0);
+                    // Unary minus - create zero of the appropriate sort
+                    let zero = if let Some(term) = self.manager.get(first) {
+                        if term.sort == self.manager.sorts.real_sort {
+                            self.manager.mk_real(Rational64::new(0, 1))
+                        } else {
+                            self.manager.mk_int(0)
+                        }
+                    } else {
+                        self.manager.mk_int(0)
+                    };
                     return Ok(self.manager.mk_sub(zero, first));
                 }
                 let second = self.parse_term()?;
@@ -462,11 +666,305 @@ impl<'a> Parser<'a> {
                 self.expect_rparen()?;
                 self.manager.mk_bv_slt(lhs, rhs)
             }
+            "bvule" => {
+                let lhs = self.parse_term()?;
+                let rhs = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_bv_ule(lhs, rhs)
+            }
+            "bvsle" => {
+                let lhs = self.parse_term()?;
+                let rhs = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_bv_sle(lhs, rhs)
+            }
+            "bvxor" => {
+                let lhs = self.parse_term()?;
+                let rhs = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_bv_xor(lhs, rhs)
+            }
+            "bvudiv" => {
+                let lhs = self.parse_term()?;
+                let rhs = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_bv_udiv(lhs, rhs)
+            }
+            "bvsdiv" => {
+                let lhs = self.parse_term()?;
+                let rhs = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_bv_sdiv(lhs, rhs)
+            }
+            "bvurem" => {
+                let lhs = self.parse_term()?;
+                let rhs = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_bv_urem(lhs, rhs)
+            }
+            "bvsrem" => {
+                let lhs = self.parse_term()?;
+                let rhs = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_bv_srem(lhs, rhs)
+            }
+            "bvshl" => {
+                let lhs = self.parse_term()?;
+                let rhs = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_bv_shl(lhs, rhs)
+            }
+            "bvlshr" => {
+                let lhs = self.parse_term()?;
+                let rhs = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_bv_lshr(lhs, rhs)
+            }
+            "bvashr" => {
+                let lhs = self.parse_term()?;
+                let rhs = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_bv_ashr(lhs, rhs)
+            }
             "concat" => {
                 let lhs = self.parse_term()?;
                 let rhs = self.parse_term()?;
                 self.expect_rparen()?;
                 self.manager.mk_bv_concat(lhs, rhs)
+            }
+            // Floating-point arithmetic operations (take rounding mode as first argument)
+            "fp.add" => {
+                let rm = self.parse_rounding_mode()?;
+                let lhs = self.parse_term()?;
+                let rhs = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_fp_add(rm, lhs, rhs)
+            }
+            "fp.sub" => {
+                let rm = self.parse_rounding_mode()?;
+                let lhs = self.parse_term()?;
+                let rhs = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_fp_sub(rm, lhs, rhs)
+            }
+            "fp.mul" => {
+                let rm = self.parse_rounding_mode()?;
+                let lhs = self.parse_term()?;
+                let rhs = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_fp_mul(rm, lhs, rhs)
+            }
+            "fp.div" => {
+                let rm = self.parse_rounding_mode()?;
+                let lhs = self.parse_term()?;
+                let rhs = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_fp_div(rm, lhs, rhs)
+            }
+            "fp.rem" => {
+                let lhs = self.parse_term()?;
+                let rhs = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_fp_rem(lhs, rhs)
+            }
+            "fp.sqrt" => {
+                let rm = self.parse_rounding_mode()?;
+                let arg = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_fp_sqrt(rm, arg)
+            }
+            "fp.fma" => {
+                let rm = self.parse_rounding_mode()?;
+                let x = self.parse_term()?;
+                let y = self.parse_term()?;
+                let z = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_fp_fma(rm, x, y, z)
+            }
+            "fp.roundToIntegral" => {
+                let rm = self.parse_rounding_mode()?;
+                let arg = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_fp_round_to_integral(rm, arg)
+            }
+            // Floating-point comparisons
+            "fp.eq" => {
+                let lhs = self.parse_term()?;
+                let rhs = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_fp_eq(lhs, rhs)
+            }
+            "fp.lt" => {
+                let lhs = self.parse_term()?;
+                let rhs = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_fp_lt(lhs, rhs)
+            }
+            "fp.gt" => {
+                let lhs = self.parse_term()?;
+                let rhs = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_fp_gt(lhs, rhs)
+            }
+            "fp.leq" => {
+                let lhs = self.parse_term()?;
+                let rhs = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_fp_leq(lhs, rhs)
+            }
+            "fp.geq" => {
+                let lhs = self.parse_term()?;
+                let rhs = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_fp_geq(lhs, rhs)
+            }
+            // Floating-point predicates
+            "fp.isNormal" => {
+                let arg = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_fp_is_normal(arg)
+            }
+            "fp.isSubnormal" => {
+                let arg = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_fp_is_subnormal(arg)
+            }
+            "fp.isZero" => {
+                let arg = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_fp_is_zero(arg)
+            }
+            "fp.isInfinite" => {
+                let arg = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_fp_is_infinite(arg)
+            }
+            "fp.isNaN" => {
+                let arg = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_fp_is_nan(arg)
+            }
+            "fp.isNegative" => {
+                let arg = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_fp_is_negative(arg)
+            }
+            "fp.isPositive" => {
+                let arg = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_fp_is_positive(arg)
+            }
+            // Floating-point unary operations
+            "fp.abs" => {
+                let arg = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_fp_abs(arg)
+            }
+            "fp.neg" => {
+                let arg = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_fp_neg(arg)
+            }
+            // Floating-point binary min/max
+            "fp.min" => {
+                let lhs = self.parse_term()?;
+                let rhs = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_fp_min(lhs, rhs)
+            }
+            "fp.max" => {
+                let lhs = self.parse_term()?;
+                let rhs = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_fp_max(lhs, rhs)
+            }
+            // String operations
+            "str.++" => {
+                let mut result = self.parse_term()?;
+                loop {
+                    if let Some(token) = self.lexer.peek()
+                        && matches!(token.kind, TokenKind::RParen)
+                    {
+                        self.lexer.next_token();
+                        break;
+                    }
+                    let next = self.parse_term()?;
+                    result = self.manager.mk_str_concat(result, next);
+                }
+                result
+            }
+            "str.len" => {
+                let arg = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_str_len(arg)
+            }
+            "str.substr" => {
+                let s = self.parse_term()?;
+                let start = self.parse_term()?;
+                let len = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_str_substr(s, start, len)
+            }
+            "str.at" => {
+                let s = self.parse_term()?;
+                let i = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_str_at(s, i)
+            }
+            "str.contains" => {
+                let s = self.parse_term()?;
+                let sub = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_str_contains(s, sub)
+            }
+            "str.prefixof" => {
+                let prefix = self.parse_term()?;
+                let s = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_str_prefixof(prefix, s)
+            }
+            "str.suffixof" => {
+                let suffix = self.parse_term()?;
+                let s = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_str_suffixof(suffix, s)
+            }
+            "str.indexof" => {
+                let s = self.parse_term()?;
+                let sub = self.parse_term()?;
+                let offset = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_str_indexof(s, sub, offset)
+            }
+            "str.replace" => {
+                let s = self.parse_term()?;
+                let pattern = self.parse_term()?;
+                let replacement = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_str_replace(s, pattern, replacement)
+            }
+            "str.replace_all" => {
+                let s = self.parse_term()?;
+                let pattern = self.parse_term()?;
+                let replacement = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_str_replace_all(s, pattern, replacement)
+            }
+            "str.to_int" | "str.to.int" => {
+                let s = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_str_to_int(s)
+            }
+            "int.to_str" | "int.to.str" | "str.from_int" => {
+                let n = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_int_to_str(n)
+            }
+            "str.in_re" | "str.in.re" => {
+                let s = self.parse_term()?;
+                let re = self.parse_term()?;
+                self.expect_rparen()?;
+                self.manager.mk_str_in_re(s, re)
             }
             _ => {
                 // Check for defined function
@@ -631,8 +1129,7 @@ impl<'a> Parser<'a> {
 
             self.expect_lparen()?;
             let name = self.expect_symbol()?;
-            let sort_name = self.expect_symbol()?;
-            let sort = self.parse_sort_name(&sort_name)?;
+            let sort = self.parse_sort()?;
             self.expect_rparen()?;
             vars.push((name, sort));
         }
@@ -644,6 +1141,7 @@ impl<'a> Parser<'a> {
             "Bool" => Ok(self.manager.sorts.bool_sort),
             "Int" => Ok(self.manager.sorts.int_sort),
             "Real" => Ok(self.manager.sorts.real_sort),
+            "String" => Ok(self.manager.sorts.string_sort()),
             _ => {
                 // Check for sort alias first
                 if let Some((params, base_sort)) = self.sort_aliases.get(name).cloned() {
@@ -686,6 +1184,191 @@ impl<'a> Parser<'a> {
                         .intern(crate::sort::SortKind::Uninterpreted(spur)))
                 }
             }
+        }
+    }
+
+    /// Parse an indexed identifier: (_ name index1 index2 ...)
+    /// Returns (name, indices)
+    fn parse_indexed_identifier(&mut self) -> Result<(String, Vec<u32>)> {
+        // Expect LParen (already consumed by caller)
+        // Expect underscore symbol
+        let underscore = self.expect_symbol()?;
+        if underscore != "_" {
+            return Err(OxizError::ParseError {
+                position: self.lexer.position(),
+                message: format!("expected '_', found '{underscore}'"),
+            });
+        }
+
+        // Get the identifier name
+        let name = self.expect_symbol()?;
+
+        // Parse indices (numerals)
+        let mut indices = Vec::new();
+        loop {
+            if let Some(token) = self.lexer.peek() {
+                match &token.kind {
+                    TokenKind::RParen => {
+                        self.lexer.next_token(); // consume rparen
+                        break;
+                    }
+                    TokenKind::Numeral(n) => {
+                        let n = n.clone();
+                        self.lexer.next_token();
+                        let idx = n.parse::<u32>().map_err(|_| OxizError::ParseError {
+                            position: token.start,
+                            message: format!("invalid index: {n}"),
+                        })?;
+                        indices.push(idx);
+                    }
+                    _ => {
+                        return Err(OxizError::ParseError {
+                            position: token.start,
+                            message: format!("expected numeral or ')', found {:?}", token.kind),
+                        });
+                    }
+                }
+            } else {
+                return Err(OxizError::ParseError {
+                    position: self.lexer.position(),
+                    message: "unexpected end of input in indexed identifier".to_string(),
+                });
+            }
+        }
+
+        Ok((name, indices))
+    }
+
+    /// Parse a sort (can be a simple name or indexed identifier)
+    fn parse_sort(&mut self) -> Result<SortId> {
+        if let Some(token) = self.lexer.peek() {
+            match &token.kind {
+                TokenKind::Symbol(s) => {
+                    let s = s.clone();
+                    self.lexer.next_token();
+                    self.parse_sort_name(&s)
+                }
+                TokenKind::LParen => {
+                    self.lexer.next_token(); // consume lparen
+
+                    // Check if this is an indexed identifier or a parametric sort like Array
+                    let next_token = self.lexer.peek().ok_or_else(|| OxizError::ParseError {
+                        position: self.lexer.position(),
+                        message: "unexpected end of input in sort".to_string(),
+                    })?;
+
+                    if matches!(next_token.kind, TokenKind::Symbol(ref s) if s == "_") {
+                        // Indexed identifier: (_ BitVec 32)
+                        let (name, indices) = self.parse_indexed_identifier()?;
+
+                        // Handle indexed sorts
+                        match name.as_str() {
+                            "BitVec" => {
+                                if indices.len() != 1 {
+                                    return Err(OxizError::ParseError {
+                                        position: self.lexer.position(),
+                                        message: format!(
+                                            "BitVec requires exactly 1 index, got {}",
+                                            indices.len()
+                                        ),
+                                    });
+                                }
+                                let width = indices[0];
+                                if width > 0 && width <= 65536 {
+                                    Ok(self.manager.sorts.bitvec(width))
+                                } else {
+                                    Err(OxizError::ParseError {
+                                        position: self.lexer.position(),
+                                        message: format!(
+                                            "invalid BitVec width: {width} (must be 1-65536)"
+                                        ),
+                                    })
+                                }
+                            }
+                            "FloatingPoint" => {
+                                if indices.len() != 2 {
+                                    return Err(OxizError::ParseError {
+                                        position: self.lexer.position(),
+                                        message: format!(
+                                            "FloatingPoint requires exactly 2 indices (eb, sb), got {}",
+                                            indices.len()
+                                        ),
+                                    });
+                                }
+                                let eb = indices[0]; // exponent bits
+                                let sb = indices[1]; // significand bits
+                                Ok(self.manager.sorts.float_sort(eb, sb))
+                            }
+                            _ => Err(OxizError::ParseError {
+                                position: self.lexer.position(),
+                                message: format!("unknown indexed sort: {name}"),
+                            }),
+                        }
+                    } else if let TokenKind::Symbol(s) = &next_token.kind {
+                        // Parametric sort like (Array Int Int)
+                        let sort_name = s.clone();
+                        self.lexer.next_token(); // consume the symbol
+
+                        match sort_name.as_str() {
+                            "Array" => {
+                                // Parse domain and range sorts
+                                let domain = self.parse_sort()?;
+                                let range = self.parse_sort()?;
+                                self.expect_rparen()?;
+                                Ok(self.manager.sorts.array(domain, range))
+                            }
+                            _ => Err(OxizError::ParseError {
+                                position: self.lexer.position(),
+                                message: format!("unknown parametric sort: {sort_name}"),
+                            }),
+                        }
+                    } else {
+                        Err(OxizError::ParseError {
+                            position: next_token.start,
+                            message: format!("unexpected token in sort: {:?}", next_token.kind),
+                        })
+                    }
+                }
+                _ => Err(OxizError::ParseError {
+                    position: token.start,
+                    message: format!("expected sort, found {:?}", token.kind),
+                }),
+            }
+        } else {
+            Err(OxizError::ParseError {
+                position: self.lexer.position(),
+                message: "expected sort, found end of input".to_string(),
+            })
+        }
+    }
+
+    /// Convert a SortId to its string representation for Command storage
+    fn sort_id_to_string(&self, sort_id: SortId) -> String {
+        if let Some(sort) = self.manager.sorts.get(sort_id) {
+            match &sort.kind {
+                crate::sort::SortKind::Bool => "Bool".to_string(),
+                crate::sort::SortKind::Int => "Int".to_string(),
+                crate::sort::SortKind::Real => "Real".to_string(),
+                crate::sort::SortKind::String => "String".to_string(),
+                crate::sort::SortKind::BitVec(w) => format!("(_ BitVec {w})"),
+                crate::sort::SortKind::FloatingPoint { eb, sb } => {
+                    format!("(_ FloatingPoint {eb} {sb})")
+                }
+                crate::sort::SortKind::Array { domain, range } => {
+                    let domain_str = self.sort_id_to_string(*domain);
+                    let range_str = self.sort_id_to_string(*range);
+                    format!("(Array {domain_str} {range_str})")
+                }
+                crate::sort::SortKind::Uninterpreted(spur) => {
+                    self.manager.resolve_str(*spur).to_string()
+                }
+                crate::sort::SortKind::Datatype(spur) => {
+                    self.manager.resolve_str(*spur).to_string()
+                }
+                _ => "Unknown".to_string(),
+            }
+        } else {
+            "Unknown".to_string()
         }
     }
 
@@ -756,16 +1439,25 @@ impl<'a> Parser<'a> {
             }
             "declare-const" => {
                 let name = self.expect_symbol()?;
-                let sort = self.expect_symbol()?;
+                let sort_id = self.parse_sort()?;
                 self.expect_rparen()?;
-                let sort_id = self.parse_sort_name(&sort)?;
                 self.constants.insert(name.clone(), sort_id);
-                Command::DeclareConst(name, sort)
+                // For the command, we'll use a simple string representation
+                let sort_str = format!(
+                    "BitVec{}",
+                    self.manager
+                        .sorts
+                        .get(sort_id)
+                        .and_then(|s| s.bitvec_width())
+                        .unwrap_or(32)
+                );
+                Command::DeclareConst(name, sort_str)
             }
             "declare-fun" => {
                 let name = self.expect_symbol()?;
                 self.expect_lparen()?;
                 let mut arg_sorts = Vec::new();
+                let mut arg_sort_ids = Vec::new();
                 loop {
                     if let Some(t) = self.lexer.peek()
                         && matches!(t.kind, TokenKind::RParen)
@@ -773,14 +1465,16 @@ impl<'a> Parser<'a> {
                         self.lexer.next_token();
                         break;
                     }
-                    arg_sorts.push(self.expect_symbol()?);
+                    let sort_id = self.parse_sort()?;
+                    arg_sort_ids.push(sort_id);
+                    arg_sorts.push(self.sort_id_to_string(sort_id));
                 }
-                let ret_sort = self.expect_symbol()?;
+                let ret_sort_id = self.parse_sort()?;
+                let ret_sort = self.sort_id_to_string(ret_sort_id);
                 self.expect_rparen()?;
 
                 if arg_sorts.is_empty() {
-                    let sort_id = self.parse_sort_name(&ret_sort)?;
-                    self.constants.insert(name.clone(), sort_id);
+                    self.constants.insert(name.clone(), ret_sort_id);
                 }
                 Command::DeclareFun(name, arg_sorts, ret_sort)
             }
@@ -815,13 +1509,12 @@ impl<'a> Parser<'a> {
             "push" => {
                 let n = if let Some(t) = self.lexer.peek() {
                     if matches!(t.kind, TokenKind::Numeral(_)) {
-                        if let TokenKind::Numeral(n) = self
-                            .lexer
-                            .next_token()
-                            .expect("token exists after peek check")
-                            .kind
-                        {
-                            n.parse().unwrap_or(1)
+                        if let Some(token) = self.lexer.next_token() {
+                            if let TokenKind::Numeral(n) = token.kind {
+                                n.parse().unwrap_or(1)
+                            } else {
+                                1
+                            }
                         } else {
                             1
                         }
@@ -837,13 +1530,12 @@ impl<'a> Parser<'a> {
             "pop" => {
                 let n = if let Some(t) = self.lexer.peek() {
                     if matches!(t.kind, TokenKind::Numeral(_)) {
-                        if let TokenKind::Numeral(n) = self
-                            .lexer
-                            .next_token()
-                            .expect("token exists after peek check")
-                            .kind
-                        {
-                            n.parse().unwrap_or(1)
+                        if let Some(token) = self.lexer.next_token() {
+                            if let TokenKind::Numeral(n) = token.kind {
+                                n.parse().unwrap_or(1)
+                            } else {
+                                1
+                            }
                         } else {
                             1
                         }
@@ -998,6 +1690,95 @@ impl<'a> Parser<'a> {
 
                 Command::DefineFun(name, params, ret_sort, body)
             }
+            "declare-datatypes" => {
+                // (declare-datatypes ((name1 arity1) (name2 arity2) ...)
+                //                    ((constructors1 ...) (constructors2 ...)))
+                // For now, we'll support single datatype declarations only
+                // Skip the names/arities list
+                self.expect_lparen()?;
+
+                // Parse datatype names and arities
+                let mut datatype_names = Vec::new();
+                loop {
+                    if let Some(t) = self.lexer.peek()
+                        && matches!(t.kind, TokenKind::RParen)
+                    {
+                        self.lexer.next_token();
+                        break;
+                    }
+
+                    self.expect_lparen()?;
+                    let dt_name = self.expect_symbol()?;
+                    // Skip the arity (we don't use it yet)
+                    if let Some(t) = self.lexer.peek()
+                        && matches!(t.kind, TokenKind::Numeral(_))
+                    {
+                        self.lexer.next_token();
+                    }
+                    self.expect_rparen()?;
+                    datatype_names.push(dt_name);
+                }
+
+                // Parse constructors list
+                self.expect_lparen()?;
+
+                // For simplicity, parse only the first datatype's constructors
+                // (multi-datatype support can be added later)
+                let mut constructors = Vec::new();
+
+                // Expect opening paren for constructor list
+                self.expect_lparen()?;
+
+                loop {
+                    if let Some(t) = self.lexer.peek()
+                        && matches!(t.kind, TokenKind::RParen)
+                    {
+                        self.lexer.next_token();
+                        break;
+                    }
+
+                    // Parse constructor
+                    self.expect_lparen()?;
+                    let ctor_name = self.expect_symbol()?;
+
+                    // Parse selectors
+                    let mut selectors = Vec::new();
+                    loop {
+                        if let Some(t) = self.lexer.peek()
+                            && matches!(t.kind, TokenKind::RParen)
+                        {
+                            self.lexer.next_token();
+                            break;
+                        }
+
+                        self.expect_lparen()?;
+                        let selector_name = self.expect_symbol()?;
+                        let selector_sort = self.expect_symbol()?;
+                        self.expect_rparen()?;
+                        selectors.push((selector_name, selector_sort));
+                    }
+
+                    constructors.push((ctor_name, selectors));
+                }
+
+                // Close constructor list and outer list
+                self.expect_rparen()?;
+                self.expect_rparen()?;
+
+                // Use the first datatype name
+                let name = datatype_names
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| "UnknownDatatype".to_string());
+
+                // Create the datatype sort and register constructors
+                let dt_sort = self.manager.sorts.mk_datatype_sort(&name);
+                for (ctor_name, _selectors) in &constructors {
+                    self.dt_constructors.insert(ctor_name.clone(), dt_sort);
+                }
+
+                Command::DeclareDatatype { name, constructors }
+            }
             "declare-datatype" => {
                 // (declare-datatype name ((constructor (selector sort) ...) ...))
                 let name = self.expect_symbol()?;
@@ -1037,6 +1818,13 @@ impl<'a> Parser<'a> {
                 }
 
                 self.expect_rparen()?;
+
+                // Create the datatype sort and register constructors
+                let dt_sort = self.manager.sorts.mk_datatype_sort(&name);
+                for (ctor_name, _selectors) in &constructors {
+                    self.dt_constructors.insert(ctor_name.clone(), dt_sort);
+                }
+
                 Command::DeclareDatatype { name, constructors }
             }
             _ => {
@@ -1089,6 +1877,35 @@ impl<'a> Parser<'a> {
             _ => Err(OxizError::ParseError {
                 position: token.start,
                 message: format!("expected string, found {:?}", token.kind),
+            }),
+        }
+    }
+
+    /// Parse an IEEE 754 rounding mode symbol
+    fn parse_rounding_mode(&mut self) -> Result<RoundingMode> {
+        let token = self
+            .lexer
+            .next_token()
+            .ok_or_else(|| OxizError::ParseError {
+                position: self.lexer.position(),
+                message: "expected rounding mode, found end of input".to_string(),
+            })?;
+
+        match &token.kind {
+            TokenKind::Symbol(s) => match s.as_str() {
+                "RNE" | "roundNearestTiesToEven" => Ok(RoundingMode::RNE),
+                "RNA" | "roundNearestTiesToAway" => Ok(RoundingMode::RNA),
+                "RTP" | "roundTowardPositive" => Ok(RoundingMode::RTP),
+                "RTN" | "roundTowardNegative" => Ok(RoundingMode::RTN),
+                "RTZ" | "roundTowardZero" => Ok(RoundingMode::RTZ),
+                _ => Err(OxizError::ParseError {
+                    position: token.start,
+                    message: format!("unknown rounding mode: {}", s),
+                }),
+            },
+            _ => Err(OxizError::ParseError {
+                position: token.start,
+                message: format!("expected rounding mode symbol, found {:?}", token.kind),
             }),
         }
     }
@@ -1191,6 +2008,59 @@ impl<'a> Parser<'a> {
     }
 }
 
+/// Parse a decimal string to a Rational64
+/// Handles decimal literals like "5.5", "3.14159", "0.0", etc.
+fn parse_decimal_to_rational(s: &str) -> Result<Rational64> {
+    // Split by decimal point
+    let parts: Vec<&str> = s.split('.').collect();
+
+    if parts.len() != 2 {
+        return Err(OxizError::ParseError {
+            position: 0,
+            message: format!("invalid decimal format: {s}"),
+        });
+    }
+
+    let integer_part = parts[0];
+    let fractional_part = parts[1];
+
+    // Parse integer part (can be empty for decimals like ".5")
+    let integer_value: i64 = if integer_part.is_empty() {
+        0
+    } else {
+        integer_part.parse().map_err(|_| OxizError::ParseError {
+            position: 0,
+            message: format!("invalid integer part in decimal: {integer_part}"),
+        })?
+    };
+
+    // Parse fractional part
+    let fractional_digits = fractional_part.len();
+    let fractional_value: i64 = fractional_part.parse().map_err(|_| OxizError::ParseError {
+        position: 0,
+        message: format!("invalid fractional part in decimal: {fractional_part}"),
+    })?;
+
+    // Convert to rational: integer_part + fractional_part / 10^fractional_digits
+    let denominator = 10_i64
+        .checked_pow(fractional_digits as u32)
+        .ok_or_else(|| OxizError::ParseError {
+            position: 0,
+            message: format!("decimal has too many fractional digits: {s}"),
+        })?;
+
+    // Create rational: (integer_part * denominator + fractional_value) / denominator
+    let numerator = integer_value
+        .checked_mul(denominator)
+        .and_then(|n| n.checked_add(fractional_value))
+        .ok_or_else(|| OxizError::ParseError {
+            position: 0,
+            message: format!("decimal value overflow: {s}"),
+        })?;
+
+    Ok(Rational64::new(numerator, denominator))
+}
+
 /// Parse a term from a string
 pub fn parse_term(input: &str, manager: &mut TermManager) -> Result<TermId> {
     let mut parser = Parser::new(input, manager);
@@ -1215,13 +2085,13 @@ mod tests {
     fn test_parse_constants() {
         let mut manager = TermManager::new();
 
-        let t = parse_term("true", &mut manager).unwrap();
+        let t = parse_term("true", &mut manager).expect("should parse true");
         assert_eq!(t, manager.mk_true());
 
-        let f = parse_term("false", &mut manager).unwrap();
+        let f = parse_term("false", &mut manager).expect("should parse false");
         assert_eq!(f, manager.mk_false());
 
-        let n = parse_term("42", &mut manager).unwrap();
+        let n = parse_term("42", &mut manager).expect("should parse 42");
         let expected = manager.mk_int(42);
         assert_eq!(n, expected);
     }
@@ -1230,13 +2100,15 @@ mod tests {
     fn test_parse_boolean_ops() {
         let mut manager = TermManager::new();
 
-        let not_true = parse_term("(not true)", &mut manager).unwrap();
+        let not_true = parse_term("(not true)", &mut manager).expect("should parse (not true)");
         assert_eq!(not_true, manager.mk_false());
 
-        let and_expr = parse_term("(and true false)", &mut manager).unwrap();
+        let and_expr =
+            parse_term("(and true false)", &mut manager).expect("should parse (and true false)");
         assert_eq!(and_expr, manager.mk_false());
 
-        let or_expr = parse_term("(or true false)", &mut manager).unwrap();
+        let or_expr =
+            parse_term("(or true false)", &mut manager).expect("should parse (or true false)");
         assert_eq!(or_expr, manager.mk_true());
     }
 
@@ -1244,8 +2116,8 @@ mod tests {
     fn test_parse_arithmetic() {
         let mut manager = TermManager::new();
 
-        let _add = parse_term("(+ 1 2 3)", &mut manager).unwrap();
-        let _lt = parse_term("(< x y)", &mut manager).unwrap();
+        let _add = parse_term("(+ 1 2 3)", &mut manager).expect("should parse (+ 1 2 3)");
+        let _lt = parse_term("(< x y)", &mut manager).expect("should parse (< x y)");
     }
 
     #[test]
@@ -1259,7 +2131,7 @@ mod tests {
             (check-sat)
         "#;
 
-        let commands = parse_script(script, &mut manager).unwrap();
+        let commands = parse_script(script, &mut manager).expect("should parse script");
         assert_eq!(commands.len(), 5);
     }
 
@@ -1272,7 +2144,7 @@ mod tests {
             (check-sat)
         "#;
 
-        let commands = parse_script(script, &mut manager).unwrap();
+        let commands = parse_script(script, &mut manager).expect("should parse define-sort script");
         assert_eq!(commands.len(), 3);
 
         // Check that define-sort command is correctly parsed
@@ -1296,7 +2168,7 @@ mod tests {
             (check-sat)
         "#;
 
-        let commands = parse_script(script, &mut manager).unwrap();
+        let commands = parse_script(script, &mut manager).expect("should parse define-fun script");
         assert_eq!(commands.len(), 4);
 
         // Check that define-fun command is correctly parsed
@@ -1321,7 +2193,8 @@ mod tests {
             (check-sat)
         "#;
 
-        let commands = parse_script(script, &mut manager).unwrap();
+        let commands =
+            parse_script(script, &mut manager).expect("should parse nullary define-fun script");
         assert_eq!(commands.len(), 3);
 
         match &commands[0] {
@@ -1347,7 +2220,8 @@ mod tests {
             (check-sat)
         "#;
 
-        let commands = parse_script(script, &mut manager).unwrap();
+        let commands =
+            parse_script(script, &mut manager).expect("should parse new commands script");
         assert_eq!(commands.len(), 7);
 
         assert!(matches!(&commands[0], Command::SetLogic(_)));
@@ -1368,7 +2242,8 @@ mod tests {
             (check-sat-assuming (p q))
         "#;
 
-        let commands = parse_script(script, &mut manager).unwrap();
+        let commands =
+            parse_script(script, &mut manager).expect("should parse check-sat-assuming script");
         assert_eq!(commands.len(), 3);
 
         match &commands[2] {
@@ -1386,7 +2261,7 @@ mod tests {
             (simplify (+ 1 2))
         "#;
 
-        let commands = parse_script(script, &mut manager).unwrap();
+        let commands = parse_script(script, &mut manager).expect("should parse simplify script");
         assert_eq!(commands.len(), 1);
 
         assert!(matches!(&commands[0], Command::Simplify(_)));
@@ -1398,7 +2273,7 @@ mod tests {
 
         // Test :named annotation
         let mut parser = Parser::new("(! (> x 0) :named myAssertion)", &mut manager);
-        let term = parser.parse_term().unwrap();
+        let term = parser.parse_term().expect("should parse annotated term");
 
         // Check that annotations were stored
         assert!(parser.annotations.contains_key(&term));
@@ -1420,7 +2295,9 @@ mod tests {
             "(forall ((x Int)) (! (> x 0) :pattern ((f x))))",
             &mut manager,
         );
-        let _term = parser.parse_term().unwrap();
+        let _term = parser
+            .parse_term()
+            .expect("should parse pattern annotation");
 
         // The annotation should be present on the body of the forall
         // We just verify that it parses without error for now
@@ -1432,7 +2309,9 @@ mod tests {
 
         // Test multiple annotations
         let mut parser = Parser::new("(! (> x 0) :named test :weight 10)", &mut manager);
-        let term = parser.parse_term().unwrap();
+        let term = parser
+            .parse_term()
+            .expect("should parse multiple annotations");
 
         // Check annotations
         assert!(parser.annotations.contains_key(&term));
@@ -1486,5 +2365,194 @@ mod tests {
 
         // Should successfully parse valid commands
         assert_eq!(commands.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_decimal_literals() {
+        let mut manager = TermManager::new();
+
+        // Test simple decimal
+        let decimal = parse_term("5.5", &mut manager).expect("should parse 5.5");
+        if let Some(term) = manager.get(decimal) {
+            assert_eq!(term.sort, manager.sorts.real_sort);
+            if let crate::ast::TermKind::RealConst(r) = &term.kind {
+                assert_eq!(*r, Rational64::new(11, 2)); // 5.5 = 11/2
+            } else {
+                panic!("Expected RealConst");
+            }
+        } else {
+            panic!("Term not found");
+        }
+
+        // Test decimal with many fractional digits
+        let pi_approx = parse_term("3.14159", &mut manager).expect("should parse 3.14159");
+        if let Some(term) = manager.get(pi_approx) {
+            assert_eq!(term.sort, manager.sorts.real_sort);
+            if let crate::ast::TermKind::RealConst(r) = &term.kind {
+                assert_eq!(*r, Rational64::new(314159, 100000));
+            } else {
+                panic!("Expected RealConst");
+            }
+        } else {
+            panic!("Term not found");
+        }
+
+        // Test zero decimal
+        let zero = parse_term("0.0", &mut manager).expect("should parse 0.0");
+        if let Some(term) = manager.get(zero) {
+            assert_eq!(term.sort, manager.sorts.real_sort);
+            if let crate::ast::TermKind::RealConst(r) = &term.kind {
+                assert_eq!(*r, Rational64::new(0, 1));
+            } else {
+                panic!("Expected RealConst");
+            }
+        } else {
+            panic!("Term not found");
+        }
+    }
+
+    #[test]
+    fn test_parse_real_arithmetic() {
+        let mut manager = TermManager::new();
+        let script = r#"
+            (set-logic QF_LRA)
+            (declare-const x Real)
+            (declare-const y Real)
+            (assert (= (+ x y) 5.5))
+            (assert (> x 0.0))
+            (assert (< y 10.25))
+            (check-sat)
+        "#;
+
+        let commands =
+            parse_script(script, &mut manager).expect("should parse real arithmetic script");
+        assert_eq!(commands.len(), 7); // set-logic, 2 declares, 3 asserts, check-sat
+
+        // Verify that Real constants are declared
+        assert!(matches!(&commands[0], Command::SetLogic(_)));
+    }
+
+    #[test]
+    fn test_parse_unary_minus_real() {
+        let mut manager = TermManager::new();
+
+        // Test unary minus with Real
+        let neg_real = parse_term("(- 2.5)", &mut manager).expect("should parse (- 2.5)");
+        if let Some(term) = manager.get(neg_real) {
+            // Should be a subtraction: 0.0 - 2.5
+            if let crate::ast::TermKind::Sub(lhs, rhs) = &term.kind {
+                // Check lhs is Real zero
+                if let Some(lhs_term) = manager.get(*lhs) {
+                    assert_eq!(lhs_term.sort, manager.sorts.real_sort);
+                    if let crate::ast::TermKind::RealConst(r) = &lhs_term.kind {
+                        assert_eq!(*r, Rational64::new(0, 1));
+                    } else {
+                        panic!("Expected RealConst for zero");
+                    }
+                } else {
+                    panic!("LHS term not found");
+                }
+                // Check rhs is 2.5
+                if let Some(rhs_term) = manager.get(*rhs) {
+                    assert_eq!(rhs_term.sort, manager.sorts.real_sort);
+                    if let crate::ast::TermKind::RealConst(r) = &rhs_term.kind {
+                        assert_eq!(*r, Rational64::new(5, 2)); // 2.5 = 5/2
+                    } else {
+                        panic!("Expected RealConst for 2.5");
+                    }
+                } else {
+                    panic!("RHS term not found");
+                }
+            } else {
+                panic!("Expected Sub for unary minus");
+            }
+        } else {
+            panic!("Term not found");
+        }
+    }
+
+    #[test]
+    fn test_parse_array_sort() {
+        let mut manager = TermManager::new();
+
+        // Test simple array sort: (Array Int Int)
+        let script = r#"
+            (declare-const arr (Array Int Int))
+            (check-sat)
+        "#;
+
+        let commands =
+            parse_script(script, &mut manager).expect("should parse simple array sort script");
+        assert_eq!(commands.len(), 2);
+
+        // Test nested array sort: (Array Int (Array Int Bool))
+        let script = r#"
+            (declare-const nested (Array Int (Array Int Bool)))
+            (check-sat)
+        "#;
+
+        let commands =
+            parse_script(script, &mut manager).expect("should parse nested array sort script");
+        assert_eq!(commands.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_string_literal() {
+        let mut manager = TermManager::new();
+
+        // Test simple string literal
+        let term =
+            parse_term("\"hello\"", &mut manager).expect("should parse string literal hello");
+        let string_sort = manager.sorts.string_sort();
+        if let Some(t) = manager.get(term) {
+            assert_eq!(t.sort, string_sort);
+            if let crate::ast::TermKind::StringLit(s) = &t.kind {
+                assert_eq!(s, "hello");
+            } else {
+                panic!("Expected StringLit");
+            }
+        } else {
+            panic!("Term not found");
+        }
+
+        // Test string literal in expression
+        let script = r#"
+            (declare-const s String)
+            (assert (= s "world"))
+            (check-sat)
+        "#;
+
+        let commands =
+            parse_script(script, &mut manager).expect("should parse string literal script");
+        assert_eq!(commands.len(), 3);
+
+        // Test empty string literal
+        let term = parse_term("\"\"", &mut manager).expect("should parse empty string literal");
+        if let Some(t) = manager.get(term) {
+            if let crate::ast::TermKind::StringLit(s) = &t.kind {
+                assert_eq!(s, "");
+            } else {
+                panic!("Expected StringLit");
+            }
+        } else {
+            panic!("Term not found");
+        }
+    }
+
+    #[test]
+    fn test_parse_array_operations() {
+        let mut manager = TermManager::new();
+
+        // Test array select and store operations
+        let script = r#"
+            (declare-const arr (Array Int Int))
+            (assert (= (select arr 0) 42))
+            (assert (= (select (store arr 1 100) 1) 100))
+            (check-sat)
+        "#;
+
+        let commands =
+            parse_script(script, &mut manager).expect("should parse array operations script");
+        assert_eq!(commands.len(), 4); // declare, 2 asserts, check-sat
     }
 }

@@ -312,13 +312,17 @@ mod tests {
 
     #[test]
     fn test_checker_stats() {
-        let mut stats1 = CheckerStats::default();
-        stats1.conflict_checks = 10;
-        stats1.valid_conflicts = 8;
+        let mut stats1 = CheckerStats {
+            conflict_checks: 10,
+            valid_conflicts: 8,
+            ..Default::default()
+        };
 
-        let mut stats2 = CheckerStats::default();
-        stats2.conflict_checks = 5;
-        stats2.valid_conflicts = 5;
+        let stats2 = CheckerStats {
+            conflict_checks: 5,
+            valid_conflicts: 5,
+            ..Default::default()
+        };
 
         stats1.merge(&stats2);
         assert_eq!(stats1.conflict_checks, 15);

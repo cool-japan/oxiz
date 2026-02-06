@@ -127,4 +127,4 @@ Hook to access the solver from context.
 
 ## License
 
-MIT
+Apache-2.0

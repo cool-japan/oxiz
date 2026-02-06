@@ -61,4 +61,4 @@ CHC is a fragment of first-order logic widely used in verification:
 
 ## License
 
-MIT OR Apache-2.0
+Apache-2.0

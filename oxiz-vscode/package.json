@@ -2,7 +2,7 @@
   "name": "oxiz-smt",
   "displayName": "OxiZ SMT Solver",
   "description": "VS Code extension for OxiZ SMT Solver with SMT-LIB2 language support",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "publisher": "cooljapan-ou",
   "license": "MIT",
   "repository": {

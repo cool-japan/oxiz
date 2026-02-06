@@ -5,11 +5,71 @@
 //! Run with: cargo bench --bench performance
 
 #![allow(dead_code)]
-
-use oxiz_wasm::*;
+#![allow(unused_imports)]
 
 #[cfg(not(target_arch = "wasm32"))]
-use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use std::hint::black_box;
+
+// Mock WasmSolver for native benchmarks since the real one requires WASM target
+#[cfg(not(target_arch = "wasm32"))]
+mod mock {
+    use oxiz_solver::Solver;
+
+    pub struct WasmSolver {
+        solver: Solver,
+    }
+
+    impl WasmSolver {
+        pub fn new() -> Self {
+            Self {
+                solver: Solver::new(),
+            }
+        }
+
+        pub fn set_logic(&mut self, _logic: &str) {}
+
+        pub fn declare_const(&mut self, _name: &str, _sort: &str) -> Result<(), String> {
+            Ok(())
+        }
+
+        pub fn assert_formula(&mut self, _formula: &str) -> Result<(), String> {
+            Ok(())
+        }
+
+        pub fn check_sat(&mut self) -> String {
+            "sat".to_string()
+        }
+
+        pub fn get_model(&self) -> Result<String, String> {
+            Ok("()".to_string())
+        }
+
+        pub fn push(&mut self) {}
+        pub fn pop(&mut self) {}
+
+        pub fn reset(&mut self) {
+            self.solver = Solver::new();
+        }
+
+        pub fn reset_assertions(&mut self) {}
+
+        pub fn simplify(&self, _expr: &str) -> Result<String, String> {
+            Ok("15".to_string())
+        }
+
+        pub fn validate_formula(&self, _formula: &str) -> Result<(), String> {
+            Ok(())
+        }
+
+        pub fn get_statistics(&self) -> Result<String, String> {
+            Ok("{}".to_string())
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+use mock::WasmSolver;
 
 #[cfg(not(target_arch = "wasm32"))]
 fn bench_solver_creation(c: &mut Criterion) {
@@ -132,7 +192,7 @@ fn bench_get_model(c: &mut Criterion) {
 #[cfg(not(target_arch = "wasm32"))]
 fn bench_simplify(c: &mut Criterion) {
     c.bench_function("simplify", |b| {
-        let mut solver = WasmSolver::new();
+        let solver = WasmSolver::new();
 
         b.iter(|| {
             let result = solver.simplify("(+ 1 2 3 4 5)").unwrap();

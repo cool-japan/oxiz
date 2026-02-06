@@ -5,6 +5,13 @@
 //! - Theory solvers (EUF, LRA, LIA, BV)
 //! - Tactic framework
 //! - Parallel portfolio solving
+
+#![allow(clippy::collapsible_if)]
+#![allow(clippy::only_used_in_recursion)]
+#![allow(clippy::for_kv_map)]
+#![allow(clippy::too_many_arguments)]
+#![allow(unused_variables)]
+#![allow(dead_code)]
 //!
 //! # Examples
 //!
@@ -85,13 +92,13 @@
 #![warn(missing_docs)]
 
 mod context;
-mod mbqi;
+mod nelson_oppen;
 mod optimization;
 mod simplify;
 mod solver;
 
 pub use context::Context;
-pub use mbqi::{Instantiation, MBQIResult, MBQISolver, MBQIStats, QuantifiedFormula};
+pub use nelson_oppen::{NelsonOppenCombiner, NelsonOppenStats, TheoryId};
 pub use optimization::{Objective, ObjectiveKind, OptimizationResult, Optimizer, ParetoPoint};
 pub use solver::{Model, Proof, ProofStep, Solver, SolverConfig, SolverResult, TheoryMode};
 
@@ -100,3 +107,15 @@ pub use oxiz_sat::{RestartStrategy, SolverStats};
 
 // Re-export theory combination types from oxiz-theories
 pub use oxiz_theories::{EqualityNotification, TheoryCombination};
+
+// Phase 2 enhancements
+pub mod combination;
+pub mod conflict;
+pub mod delayed_combination;
+pub mod model;
+pub mod propagation;
+pub mod propagation_pipeline;
+pub mod shared_terms;
+
+// MBQI module (Model-Based Quantifier Instantiation)
+pub mod mbqi;

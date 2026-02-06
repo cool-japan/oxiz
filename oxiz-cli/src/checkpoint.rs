@@ -63,7 +63,7 @@ pub struct ProgressInfo {
 }
 
 impl Checkpoint {
-    /// Create a new checkpoint
+    /// Create a new checkpoint with current timestamp
     #[allow(dead_code)]
     pub fn new(
         problem: String,
@@ -77,6 +77,19 @@ impl Checkpoint {
             .expect("SystemTime should be after UNIX_EPOCH")
             .as_secs();
 
+        Self::with_timestamp(timestamp, problem, logic, solver_state, progress, options)
+    }
+
+    /// Create a new checkpoint with explicit timestamp (useful for testing)
+    #[allow(dead_code)]
+    pub fn with_timestamp(
+        timestamp: u64,
+        problem: String,
+        logic: Option<String>,
+        solver_state: SolverState,
+        progress: ProgressInfo,
+        options: Vec<(String, String)>,
+    ) -> Self {
         let id = format!("checkpoint_{}", timestamp);
 
         Self {
@@ -135,11 +148,22 @@ impl Checkpoint {
             }
         }
 
-        // Sort by modification time (newest first)
+        // Sort by timestamp from filename (newest first)
+        // Filenames are in format: checkpoint_TIMESTAMP.json
         checkpoints.sort_by(|a, b| {
-            let a_time = fs::metadata(a).and_then(|m| m.modified()).ok();
-            let b_time = fs::metadata(b).and_then(|m| m.modified()).ok();
-            b_time.cmp(&a_time)
+            let a_timestamp = a
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .and_then(|s| s.strip_prefix("checkpoint_"))
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(0);
+            let b_timestamp = b
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .and_then(|s| s.strip_prefix("checkpoint_"))
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(0);
+            b_timestamp.cmp(&a_timestamp)
         });
 
         Ok(checkpoints)
@@ -360,7 +384,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Ignored because it requires time-based delays
     fn test_checkpoint_cleanup() {
         use std::env;
         let temp_dir = env::temp_dir().join(format!("oxiz_test_cleanup_{}", std::process::id()));
@@ -368,13 +391,10 @@ mod tests {
 
         let mut manager = CheckpointManager::new(temp_dir.clone(), 0, 2);
 
-        // Create 3 checkpoints
+        // Create 3 checkpoints with explicit timestamps (no need for sleep)
         for i in 0..3 {
-            // Sleep to ensure different timestamps
-            if i > 0 {
-                std::thread::sleep(std::time::Duration::from_millis(1100));
-            }
-            let checkpoint = Checkpoint::new(
+            let checkpoint = Checkpoint::with_timestamp(
+                1000 + i, // Different timestamps: 1000, 1001, 1002
                 format!("(assert (= x {}))", i),
                 None,
                 SolverState::new(),
@@ -387,6 +407,15 @@ mod tests {
         // Should have only 2 checkpoints (cleanup happens after each save)
         let checkpoints = Checkpoint::list_checkpoints(&temp_dir).unwrap();
         assert_eq!(checkpoints.len(), 2);
+
+        // Verify that the most recent 2 checkpoints are kept
+        let loaded1 = Checkpoint::load(&checkpoints[0]).unwrap();
+        let loaded2 = Checkpoint::load(&checkpoints[1]).unwrap();
+
+        // The most recent should be checkpoint_1002 and checkpoint_1001
+        assert!(loaded1.id == "checkpoint_1002" || loaded1.id == "checkpoint_1001");
+        assert!(loaded2.id == "checkpoint_1002" || loaded2.id == "checkpoint_1001");
+        assert_ne!(loaded1.id, loaded2.id);
 
         // Cleanup
         let _ = fs::remove_dir_all(&temp_dir);

@@ -527,7 +527,8 @@ impl TptpParser {
         }
 
         if operands.len() == 1 {
-            Ok(operands.pop().unwrap())
+            // Safety: len() == 1 ensures pop() succeeds, use into_iter for no-unwrap policy
+            Ok(operands.into_iter().next().unwrap_or(TptpFormula::True))
         } else {
             Ok(TptpFormula::Or(operands))
         }
@@ -548,7 +549,8 @@ impl TptpParser {
         }
 
         if operands.len() == 1 {
-            Ok(operands.pop().unwrap())
+            // Safety: len() == 1 ensures pop() succeeds, use into_iter for no-unwrap policy
+            Ok(operands.into_iter().next().unwrap_or(TptpFormula::True))
         } else {
             Ok(TptpFormula::And(operands))
         }

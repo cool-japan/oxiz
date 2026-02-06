@@ -12,7 +12,7 @@ use pyo3::types::PyDict;
 use std::cell::RefCell;
 
 /// Python wrapper for TermId
-#[pyclass(name = "Term")]
+#[pyclass(name = "Term", from_py_object)]
 #[derive(Clone)]
 pub struct PyTerm {
     id: TermId,
@@ -52,7 +52,7 @@ impl From<PyTerm> for TermId {
 }
 
 /// Python wrapper for SolverResult
-#[pyclass(name = "SolverResult", eq)]
+#[pyclass(name = "SolverResult", eq, from_py_object)]
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum PySolverResult {
     /// Satisfiable
@@ -862,7 +862,7 @@ impl PySolver {
 }
 
 /// Python wrapper for OptimizationResult
-#[pyclass(name = "OptimizationResult", eq)]
+#[pyclass(name = "OptimizationResult", eq, from_py_object)]
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum PyOptimizationResult {
     /// Optimal solution found

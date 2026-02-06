@@ -182,4 +182,4 @@ If regressions are detected due to system noise:
 
 ## License
 
-MIT OR Apache-2.0 (same as OxiZ)
+Apache-2.0 (same as OxiZ)

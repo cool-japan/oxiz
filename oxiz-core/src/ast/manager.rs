@@ -1143,6 +1143,34 @@ impl TermManager {
         self.intern(TermKind::BvSrem(lhs, rhs), sort)
     }
 
+    /// Create a bit vector XOR
+    pub fn mk_bv_xor(&mut self, lhs: TermId, rhs: TermId) -> TermId {
+        let sort = self.get(lhs).map(|t| t.sort);
+        let sort = sort.unwrap_or_else(|| self.sorts.bitvec(32));
+        self.intern(TermKind::BvXor(lhs, rhs), sort)
+    }
+
+    /// Create a bit vector shift left
+    pub fn mk_bv_shl(&mut self, lhs: TermId, rhs: TermId) -> TermId {
+        let sort = self.get(lhs).map(|t| t.sort);
+        let sort = sort.unwrap_or_else(|| self.sorts.bitvec(32));
+        self.intern(TermKind::BvShl(lhs, rhs), sort)
+    }
+
+    /// Create a bit vector logical shift right
+    pub fn mk_bv_lshr(&mut self, lhs: TermId, rhs: TermId) -> TermId {
+        let sort = self.get(lhs).map(|t| t.sort);
+        let sort = sort.unwrap_or_else(|| self.sorts.bitvec(32));
+        self.intern(TermKind::BvLshr(lhs, rhs), sort)
+    }
+
+    /// Create a bit vector arithmetic shift right
+    pub fn mk_bv_ashr(&mut self, lhs: TermId, rhs: TermId) -> TermId {
+        let sort = self.get(lhs).map(|t| t.sort);
+        let sort = sort.unwrap_or_else(|| self.sorts.bitvec(32));
+        self.intern(TermKind::BvAshr(lhs, rhs), sort)
+    }
+
     /// Get the number of terms allocated
     #[must_use]
     pub fn len(&self) -> usize {

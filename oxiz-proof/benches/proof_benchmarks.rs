@@ -1,4 +1,4 @@
-use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use oxiz_proof::alethe::AletheProof;
 use oxiz_proof::compress::ProofCompressor;
 use oxiz_proof::conversion::FormatConverter;
@@ -6,6 +6,7 @@ use oxiz_proof::diff::{compute_similarity, diff_proofs};
 use oxiz_proof::drat::DratProof;
 use oxiz_proof::merge::{merge_proofs, slice_proof};
 use oxiz_proof::proof::Proof;
+use std::hint::black_box;
 
 fn bench_proof_construction(c: &mut Criterion) {
     let mut group = c.benchmark_group("proof_construction");

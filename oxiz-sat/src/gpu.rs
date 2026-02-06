@@ -1124,21 +1124,27 @@ mod tests {
 
     #[test]
     fn test_gpu_stats_utilization() {
-        let mut stats = GpuStats::default();
-        stats.gpu_operations = 3;
-        stats.cpu_fallback_operations = 7;
+        let stats = GpuStats {
+            gpu_operations: 3,
+            cpu_fallback_operations: 7,
+            ..Default::default()
+        };
         assert!((stats.gpu_utilization() - 0.3).abs() < 0.001);
     }
 
     #[test]
     fn test_gpu_stats_merge() {
-        let mut stats1 = GpuStats::default();
-        stats1.kernel_invocations = 5;
-        stats1.gpu_operations = 3;
+        let mut stats1 = GpuStats {
+            kernel_invocations: 5,
+            gpu_operations: 3,
+            ..Default::default()
+        };
 
-        let mut stats2 = GpuStats::default();
-        stats2.kernel_invocations = 10;
-        stats2.gpu_operations = 7;
+        let stats2 = GpuStats {
+            kernel_invocations: 10,
+            gpu_operations: 7,
+            ..Default::default()
+        };
 
         stats1.merge(&stats2);
         assert_eq!(stats1.kernel_invocations, 15);
@@ -1181,7 +1187,7 @@ mod tests {
         let result = accel.parallel_conflict_analysis(&conflict_clause, &trail, &reasons);
         assert!(result.is_ok());
 
-        let analysis = result.unwrap();
+        let analysis = result.expect("Conflict analysis must succeed");
         assert!(!analysis.conflict_variables.is_empty());
         assert!(analysis.lbd > 0);
     }
@@ -1198,7 +1204,7 @@ mod tests {
         let result = accel.manage_clause_database(&activities, &lbds, &sizes, reduction_target);
         assert!(result.is_ok());
 
-        let mgmt = result.unwrap();
+        let mgmt = result.expect("Clause database management must succeed");
         assert_eq!(mgmt.clauses_to_delete.len(), 2);
     }
 
@@ -1208,7 +1214,12 @@ mod tests {
 
         let result = accel.manage_clause_database(&[], &[], &[], 10);
         assert!(result.is_ok());
-        assert!(result.unwrap().clauses_to_delete.is_empty());
+        assert!(
+            result
+                .expect("Empty database management must succeed")
+                .clauses_to_delete
+                .is_empty()
+        );
     }
 
     #[test]
@@ -1288,7 +1299,14 @@ mod tests {
             1000,
         );
         assert!(result.gpu_beneficial);
-        assert!((result.speedup.unwrap() - 2.0).abs() < 0.01);
+        assert!(
+            (result
+                .speedup
+                .expect("Speedup must be calculated for comparison")
+                - 2.0)
+                .abs()
+                < 0.01
+        );
     }
 
     #[test]

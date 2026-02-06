@@ -201,4 +201,4 @@ See the main [OxiZ WASM documentation](../README.md) for the complete API refere
 
 ## License
 
-MIT
+Apache-2.0

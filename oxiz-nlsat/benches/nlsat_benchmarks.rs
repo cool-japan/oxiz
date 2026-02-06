@@ -1,4 +1,4 @@
-use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use num_rational::BigRational;
 use num_traits::{One, Zero};
 use oxiz_math::interval::Interval;
@@ -9,6 +9,7 @@ use oxiz_nlsat::{
     types::{AtomKind, Literal},
     var_order::{OrderingStrategy, VariableOrdering},
 };
+use std::hint::black_box;
 
 /// Benchmark CAD projection operations
 fn bench_cad_projection(c: &mut Criterion) {

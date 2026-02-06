@@ -74,6 +74,7 @@ mod cardinality;
 mod cce;
 mod chb;
 mod chrono;
+mod chronological_backtrack;
 mod clause;
 mod clause_exchange;
 mod clause_maintenance;
@@ -87,6 +88,7 @@ mod dimacs;
 mod distillation;
 mod drat_inprocessing;
 mod dynamic_lbd;
+mod dynamic_subsumption;
 mod els;
 mod extended_resolution;
 mod gate;
@@ -101,8 +103,10 @@ mod memory;
 mod memory_opt;
 mod ml_branching;
 mod occurrence;
+pub mod parallel;
 mod portfolio;
-mod preprocessing;
+pub mod preprocessing;
+mod preprocessing_core;
 mod profiling;
 mod proof;
 mod recursive_minimization;
@@ -118,6 +122,7 @@ mod symmetry;
 mod target_phase;
 mod trail;
 mod trail_saving;
+mod uip_strategies;
 mod unsat_core;
 mod vivification;
 mod vmtf;
@@ -143,6 +148,9 @@ pub use benchmark::{BenchmarkHarness, BenchmarkResult};
 pub use big::{BigStats, BinaryImplicationGraph};
 pub use cardinality::CardinalityEncoder;
 pub use cce::{CceStats, CoveredClauseElimination};
+pub use chronological_backtrack::{
+    BacktrackDecision, ChronoBacktrackConfig, ChronoBacktrackEngine, ChronoBacktrackStats,
+};
 pub use clause::{Clause, ClauseDatabase, ClauseDatabaseStats, ClauseId, ClauseTier};
 pub use clause_exchange::{ClauseExchangeBuffer, ExchangeConfig, ExchangeStats, SharedClause};
 pub use clause_maintenance::{ClauseMaintenance, MaintenanceStats};
@@ -160,6 +168,10 @@ pub use dimacs::{DimacsError, DimacsParser, DimacsWriter};
 pub use distillation::{Distillation, DistillationStats};
 pub use drat_inprocessing::{DratInprocessingConfig, DratInprocessingStats, DratInprocessor};
 pub use dynamic_lbd::{DynamicLbdManager, DynamicLbdStats};
+pub use dynamic_subsumption::{
+    DynamicSubsumption, SubsumptionConfig as DynamicSubsumptionConfig, SubsumptionResult,
+    SubsumptionStats as DynamicSubsumptionStats,
+};
 pub use els::{ElsStats, EquivalentLiteralSubstitution};
 pub use extended_resolution::{ClauseSubstitution, ExtendedResolution, Extension, ExtensionType};
 pub use gate::{GateDetector, GateStats, GateType};
@@ -177,8 +189,13 @@ pub use memory::{ClauseArena, ClauseRef, MemoryStats};
 pub use memory_opt::{MemoryAction, MemoryOptStats, MemoryOptimizer, SizeClass};
 pub use ml_branching::{MLBranching, MLBranchingConfig, MLBranchingStats};
 pub use occurrence::{OccurrenceList, OccurrenceStats};
+pub use parallel::{
+    ParallelClauseSimplifier, ParallelProofChecker, PortfolioConfig as ParallelPortfolioConfig,
+    PortfolioResult as ParallelPortfolioResult, PortfolioSolver as ParallelPortfolioSolver,
+    ProofCheckConfig, ProofCheckResult, SimplificationConfig, SimplificationResult, SolverVariant,
+};
 pub use portfolio::{PortfolioConfig, PortfolioResult, PortfolioSolver, PortfolioStats};
-pub use preprocessing::Preprocessor;
+pub use preprocessing_core::Preprocessor;
 pub use profiling::{AutoTimer, PerformanceMetrics, Profiler, ScopedTimer};
 pub use proof::{DratProof, LratProof, ProofTrimmer};
 pub use recursive_minimization::{RecursiveMinStats, RecursiveMinimizer};
@@ -204,6 +221,7 @@ pub use symmetry::{
 pub use target_phase::{PhaseMode, TargetPhaseSelector, TargetPhaseStats};
 pub use trail::{Reason, Trail};
 pub use trail_saving::{SavedTrail, TrailSavingManager, TrailSavingStats};
+pub use uip_strategies::{UipAnalysisResult, UipAnalyzer, UipConfig, UipStats, UipStrategy};
 pub use unsat_core::UnsatCore;
 pub use vivification::{Vivification, VivificationStats};
 pub use vmtf::{VMTF, VmtfStats};

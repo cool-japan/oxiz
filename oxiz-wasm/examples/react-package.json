@@ -1,12 +1,12 @@
 {
   "name": "@oxiz/wasm-react",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "React hooks and components for OxiZ WASM SMT Solver",
   "main": "react-wrapper.tsx",
   "types": "react-wrapper.tsx",
   "peerDependencies": {
     "react": "^18.0.0",
-    "@oxiz/wasm": "^0.1.2"
+    "@oxiz/wasm": "^0.1.3"
   },
   "keywords": [
     "smt",

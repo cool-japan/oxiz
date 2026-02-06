@@ -1,6 +1,6 @@
 {
   "name": "oxiz-wasm",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "WebAssembly bindings for OxiZ SMT Solver - Pure Rust SMT solving in the browser",
   "main": "pkg/oxiz_wasm.js",
   "types": "pkg/oxiz_wasm.d.ts",
@@ -17,7 +17,7 @@
     "build:nodejs": "wasm-pack build --target nodejs --release --out-dir pkg-nodejs",
     "build:bundler": "wasm-pack build --target bundler --release --out-dir pkg-bundler",
     "build:all": "npm run build && npm run build:nodejs && npm run build:bundler",
-    "optimize": "wasm-opt -Oz -o pkg/oxiz_wasm_bg.wasm pkg/oxiz_wasm_bg.wasm",
+    "optimize": "command -v wasm-opt > /dev/null && wasm-opt -Oz -o pkg/oxiz_wasm_bg.wasm pkg/oxiz_wasm_bg.wasm || echo 'wasm-opt not found, skipping optimization'",
     "test": "wasm-pack test --headless --chrome",
     "test:firefox": "wasm-pack test --headless --firefox",
     "prepublishOnly": "npm run build && npm run optimize"

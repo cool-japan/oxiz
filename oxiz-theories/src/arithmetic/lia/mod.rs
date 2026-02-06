@@ -159,7 +159,7 @@ mod tests {
         // Presolve should succeed (no infeasibility detected)
         let result = solver.presolve();
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), true);
+        assert!(result.unwrap());
     }
 
     #[test]

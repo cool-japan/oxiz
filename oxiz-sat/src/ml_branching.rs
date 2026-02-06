@@ -457,7 +457,8 @@ mod tests {
         let result = ml.predict_branch(&candidates);
         assert!(result.is_some());
 
-        let (var, _polarity, confidence) = result.unwrap();
+        let (var, _polarity, confidence) =
+            result.expect("Prediction must succeed with valid candidates");
         assert!(candidates.contains(&var));
         assert!((0.0..=1.0).contains(&confidence));
         assert_eq!(ml.stats().predictions, 1);
@@ -506,7 +507,7 @@ mod tests {
         ml.update_depth_preference(v0, 5, 10);
 
         assert!(ml.features.contains_key(&v0));
-        let features = ml.features.get(&v0).unwrap();
+        let features = ml.features.get(&v0).expect("Features must exist for v0");
         assert!(features.depth_preference > 0.0);
     }
 
@@ -533,13 +534,29 @@ mod tests {
         ml.features.entry(v0).or_default().activity = 1.0;
         ml.features.entry(v0).or_default().conflict_rate = 0.8;
 
-        let initial_activity = ml.features.get(&v0).unwrap().activity;
-        let initial_conflict = ml.features.get(&v0).unwrap().conflict_rate;
+        let initial_activity = ml
+            .features
+            .get(&v0)
+            .expect("Features must exist for v0")
+            .activity;
+        let initial_conflict = ml
+            .features
+            .get(&v0)
+            .expect("Features must exist for v0")
+            .conflict_rate;
 
         ml.decay_features();
 
-        let decayed_activity = ml.features.get(&v0).unwrap().activity;
-        let decayed_conflict = ml.features.get(&v0).unwrap().conflict_rate;
+        let decayed_activity = ml
+            .features
+            .get(&v0)
+            .expect("Features must exist for v0 after decay")
+            .activity;
+        let decayed_conflict = ml
+            .features
+            .get(&v0)
+            .expect("Features must exist for v0 after decay")
+            .conflict_rate;
 
         assert!(decayed_activity < initial_activity);
         assert!(decayed_conflict < initial_conflict);

@@ -14,7 +14,8 @@
 //! - Z3's NIA solver in `nlsat/nlsat_solver.cpp`
 //! - Branch-and-bound for mixed integer non-linear programming (MINLP)
 
-use crate::cutting_planes::CuttingPlaneGenerator;
+// TODO: Update to use new cutting_planes API from oxiz_math::lp
+// use oxiz_math::lp::cutting_planes::CuttingPlaneGenerator;
 use crate::solver::{Model, NlsatSolver, SolverResult};
 use crate::types::AtomKind;
 use num_rational::BigRational;
@@ -94,8 +95,7 @@ pub struct NiaSolver {
     config: NiaConfig,
     /// Statistics.
     stats: NiaStats,
-    /// Cutting plane generator.
-    cut_generator: CuttingPlaneGenerator,
+    // TODO: Re-enable cutting plane generator after updating to new cutting_planes API from oxiz_math::lp
 }
 
 /// Statistics for NIA solver.
@@ -124,7 +124,8 @@ impl NiaSolver {
             var_types: Vec::new(),
             config,
             stats: NiaStats::default(),
-            cut_generator: CuttingPlaneGenerator::new(),
+            // TODO: Re-enable after updating to new cutting_planes API
+            // cut_generator: CuttingPlaneGenerator::new(),
         }
     }
 
@@ -419,9 +420,9 @@ impl NiaSolver {
     ///
     /// Gomory cutting planes can be used to cut off fractional solutions.
     #[allow(dead_code)]
-    pub fn add_cutting_plane(&mut self, model: &Model) -> bool {
+    pub fn add_cutting_plane(&mut self, _model: &Model) -> bool {
         // Collect integer variables
-        let integer_vars: Vec<Var> = self
+        let _integer_vars: Vec<Var> = self
             .var_types
             .iter()
             .enumerate()
@@ -434,29 +435,33 @@ impl NiaSolver {
             })
             .collect();
 
+        // TODO: Re-enable Gomory cuts after updating to new cutting_planes API
         // Generate Gomory cuts
-        let cuts = self
-            .cut_generator
-            .generate_gomory_cuts(model, &integer_vars);
+        // let cuts = self
+        //     .cut_generator
+        //     .generate_gomory_cuts(model, &integer_vars);
 
-        if cuts.is_empty() {
-            return false;
-        }
+        // if cuts.is_empty() {
+        //     return false;
+        // }
+
+        // Temporary: return false until cutting planes are re-enabled
+        false
 
         // Add cuts as constraints to the NLSAT solver
-        for cut in cuts {
-            // Convert the cutting plane constraint (poly >= 0) to a clause
-            // poly >= 0 is equivalent to NOT(poly < 0)
-            // So we create an atom for poly < 0 and negate it
-            let atom_id = self.nlsat.new_ineq_atom(cut.poly.clone(), AtomKind::Lt);
-            let literal = self.nlsat.atom_literal(atom_id, false); // Negated literal
-
-            // Add as a unit clause (must be satisfied)
-            self.nlsat.add_clause(vec![literal]);
-            self.stats.cutting_planes += 1;
-        }
-
-        true
+        // for cut in cuts {
+        //     // Convert the cutting plane constraint (poly >= 0) to a clause
+        //     // poly >= 0 is equivalent to NOT(poly < 0)
+        //     // So we create an atom for poly < 0 and negate it
+        //     let atom_id = self.nlsat.new_ineq_atom(cut.poly.clone(), AtomKind::Lt);
+        //     let literal = self.nlsat.atom_literal(atom_id, false); // Negated literal
+        //
+        //     // Add as a unit clause (must be satisfied)
+        //     self.nlsat.add_clause(vec![literal]);
+        //     self.stats.cutting_planes += 1;
+        // }
+        //
+        // true
     }
 }
 

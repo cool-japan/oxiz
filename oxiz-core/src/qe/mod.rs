@@ -30,3 +30,15 @@ mod term_graph;
 pub use mbi::{MbiConfig, MbiInterpolant, MbiSolver, MbiStats};
 pub use qe_lite::{QeLiteConfig, QeLiteResult, QeLiteSolver, QeLiteStats};
 pub use term_graph::{TermGraph, TermGraphConfig, TermGraphStats, TermNode, TermNodeKind};
+
+// Phase 2 enhancements
+pub mod arith;
+pub mod array;
+pub mod bv;
+pub mod cad;
+pub mod datatype;
+pub mod string;
+
+// NLQSAT for non-linear quantified satisfiability
+mod nlqsat;
+pub use nlqsat::{NlqsatConfig, NlqsatResult, NlqsatSolver, NlqsatStats};

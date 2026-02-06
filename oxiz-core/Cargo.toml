@@ -22,10 +22,14 @@ num-rational = { workspace = true }
 num-bigint = { workspace = true }
 num-traits = { workspace = true }
 num-integer = { workspace = true }
-rhai = { version = "1.23", features = ["sync"] }
-wide = "0.7"
+rhai = { version = "1.24", features = ["sync"] }
+wide = "1.1"
 rayon = { workspace = true }
 parking_lot = "0.12"
+
+[features]
+default = []
+property-tests = []
 
 [dev-dependencies]
 proptest = { workspace = true }

@@ -9,6 +9,13 @@ mod async_utils;
 mod pool;
 mod string_utils;
 
+// Phase 4.2: WebAssembly Optimization modules
+pub mod feature_gates;
+pub mod js_api;
+pub mod lazy_loader;
+pub mod module_registry;
+pub mod optimize;
+
 use oxiz_solver::Context;
 use std::fmt;
 use wasm_bindgen::prelude::*;

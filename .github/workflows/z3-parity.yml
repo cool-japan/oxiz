@@ -1,0 +1,71 @@
+name: Z3 Parity Tests
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly on Sunday
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  parity:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+      
+      - name: Install Z3 (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y z3
+          z3 --version
+      
+      - name: Install Z3 (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install z3
+          z3 --version
+      
+      - name: Build OxiZ
+        run: cargo build --release --workspace
+      
+      - name: Build parity suite
+        working-directory: bench/z3_parity
+        run: cargo build --release
+      
+      - name: Run parity tests
+        working-directory: bench/z3_parity
+        run: cargo run --release
+      
+      - name: Check results exist
+        run: test -f bench/z3_parity/results.json
+      
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: parity-results-${{ matrix.os }}
+          path: bench/z3_parity/results.json
+      
+      - name: Display summary
+        if: always()
+        run: |
+          if [ -f bench/z3_parity/results.json ]; then
+            echo "## Z3 Parity Test Results" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`json" >> $GITHUB_STEP_SUMMARY
+            cat bench/z3_parity/results.json >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          fi

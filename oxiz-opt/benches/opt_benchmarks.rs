@@ -2,13 +2,14 @@
 //!
 //! Comprehensive benchmarks for optimization algorithms and data structures
 
-use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use num_bigint::BigInt;
 use num_rational::BigRational;
 use oxiz_opt::{
     MaxSatAlgorithm, MaxSatConfig, MaxSatSolver, PreprocessConfig, Preprocessor, Weight,
 };
 use oxiz_sat::{Lit, Var};
+use std::hint::black_box;
 
 // ============================================================================
 // Weight Operations Benchmarks

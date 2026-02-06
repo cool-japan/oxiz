@@ -1,0 +1,14 @@
+# Workspace-wide cargo configuration
+
+# macOS-specific linker flags to allow undefined Python symbols in oxiz-py crate
+# (Python provides these symbols at runtime when loading the extension)
+# This is safe for other crates as they don't reference undefined Python symbols
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-args=-undefined dynamic_lookup"]
+
+[target.x86_64-apple-darwin]
+rustflags = ["-C", "link-args=-undefined dynamic_lookup"]
+
+# PyO3 configuration for Python 3.14+ compatibility
+[env]
+PYO3_USE_ABI3_FORWARD_COMPATIBILITY = "1"

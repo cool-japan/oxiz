@@ -337,8 +337,87 @@ impl DatatypeSolver {
         }
     }
 
+    /// Get the constructor tag for a term (if it's a constructor application)
+    fn get_constructor_tag(&self, term: TermId) -> Option<u32> {
+        // First check term_info
+        if let Some(info) = self.term_info.get(&term)
+            && info.constructor.is_some()
+        {
+            return info.constructor;
+        }
+        // If not found, check constructor_apps and lookup the tag
+        if let Some((cons_name, _)) = self.constructor_apps.get(&term)
+            && let Some(dt) = self.find_datatype_for_constructor(cons_name)
+            && let Some(cons) = dt.get_constructor(cons_name)
+        {
+            return Some(cons.tag);
+        }
+        None
+    }
+
+    /// Check for constructor mutual exclusivity conflicts
+    /// If a variable is equal to two different constructors, that's a conflict.
+    fn check_constructor_mutual_exclusivity(&self) -> Option<Vec<TermId>> {
+        // For each term, track what constructors it's constrained to equal
+        // Key: term, Value: list of (constructor_tag, reason_term)
+        let mut term_to_constructors: FxHashMap<TermId, Vec<(u32, TermId)>> = FxHashMap::default();
+
+        for constraint in &self.constraints {
+            if !constraint.is_eq {
+                continue;
+            }
+
+            let lhs_tag = self.get_constructor_tag(constraint.lhs);
+            let rhs_tag = self.get_constructor_tag(constraint.rhs);
+
+            match (lhs_tag, rhs_tag) {
+                // Both sides are constructors with known tags
+                (Some(l_tag), Some(r_tag)) if l_tag != r_tag => {
+                    // Direct conflict: two different constructors cannot be equal
+                    return Some(vec![constraint.reason]);
+                }
+                // RHS is a constructor, LHS is a variable or unknown
+                (None, Some(r_tag)) => {
+                    term_to_constructors
+                        .entry(constraint.lhs)
+                        .or_default()
+                        .push((r_tag, constraint.reason));
+                }
+                // LHS is a constructor, RHS is a variable or unknown
+                (Some(l_tag), None) => {
+                    term_to_constructors
+                        .entry(constraint.rhs)
+                        .or_default()
+                        .push((l_tag, constraint.reason));
+                }
+                _ => {}
+            }
+        }
+
+        // Check if any variable is constrained to equal different constructors
+        for constructors in term_to_constructors.values() {
+            if constructors.len() > 1 {
+                let first_tag = constructors[0].0;
+                for (tag, reason) in constructors.iter().skip(1) {
+                    if *tag != first_tag {
+                        // Same variable constrained to two different constructors - conflict
+                        return Some(vec![constructors[0].1, *reason]);
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
     /// Check for conflicts
     fn check_constraints(&self) -> Option<Vec<TermId>> {
+        // Check constructor mutual exclusivity first (this handles the case
+        // where a variable is equated to two different constructors)
+        if let Some(conflict) = self.check_constructor_mutual_exclusivity() {
+            return Some(conflict);
+        }
+
         // Check distinctness: different constructors => different values
         for constraint in &self.constraints {
             if constraint.is_eq {
@@ -760,7 +839,119 @@ mod tests {
 
         assert_eq!(option.sort.name, "Option");
         assert_eq!(option.constructors.len(), 2);
-        assert!(option.get_constructor("None").unwrap().is_nullary());
-        assert_eq!(option.get_constructor("Some").unwrap().arity(), 1);
+        assert!(option.get_constructor("None").is_some());
+        assert!(
+            option
+                .get_constructor("None")
+                .is_some_and(|c| c.is_nullary())
+        );
+        assert!(
+            option
+                .get_constructor("Some")
+                .is_some_and(|c| c.arity() == 1)
+        );
+    }
+
+    #[test]
+    fn test_solver_constructor_mutual_exclusivity() {
+        // Test: x = Monday AND x = Tuesday should be UNSAT
+        // This is the dt_08 test case
+        let mut solver = DatatypeSolver::new();
+
+        // Register a Weekday enumeration
+        let weekday = DatatypeDecl::enumeration(
+            "Weekday",
+            &[
+                "Monday",
+                "Tuesday",
+                "Wednesday",
+                "Thursday",
+                "Friday",
+                "Saturday",
+                "Sunday",
+            ],
+        );
+        solver.register_datatype(weekday);
+
+        // day is a variable (no constructor registered for it)
+        let day = TermId::new(1);
+
+        // Monday and Tuesday are constructor applications
+        let monday = TermId::new(2);
+        let tuesday = TermId::new(3);
+        solver.register_constructor(monday, "Monday", vec![]);
+        solver.register_constructor(tuesday, "Tuesday", vec![]);
+
+        let reason1 = TermId::new(100);
+        let reason2 = TermId::new(101);
+
+        // Assert day = Monday
+        solver.assert_eq(day, monday, reason1);
+        // Assert day = Tuesday (contradiction!)
+        solver.assert_eq(day, tuesday, reason2);
+
+        let result = solver.check();
+        assert!(result.is_ok());
+        assert!(
+            matches!(result, Ok(TheoryResult::Unsat(_))),
+            "Expected UNSAT when variable equals two different constructors"
+        );
+    }
+
+    #[test]
+    fn test_solver_same_constructor_multiple_eq() {
+        // Test: x = Monday AND y = Monday should be SAT (no conflict)
+        let mut solver = DatatypeSolver::new();
+
+        let weekday = DatatypeDecl::enumeration("Weekday", &["Monday", "Tuesday"]);
+        solver.register_datatype(weekday);
+
+        let x = TermId::new(1);
+        let y = TermId::new(2);
+        let monday1 = TermId::new(3);
+        let monday2 = TermId::new(4);
+        solver.register_constructor(monday1, "Monday", vec![]);
+        solver.register_constructor(monday2, "Monday", vec![]);
+
+        let reason1 = TermId::new(100);
+        let reason2 = TermId::new(101);
+
+        solver.assert_eq(x, monday1, reason1);
+        solver.assert_eq(y, monday2, reason2);
+
+        let result = solver.check();
+        assert!(result.is_ok());
+        assert!(
+            matches!(result, Ok(TheoryResult::Sat)),
+            "Expected SAT when different variables equal same constructor"
+        );
+    }
+
+    #[test]
+    fn test_solver_same_variable_same_constructor() {
+        // Test: x = Monday AND x = Monday should be SAT
+        let mut solver = DatatypeSolver::new();
+
+        let weekday = DatatypeDecl::enumeration("Weekday", &["Monday", "Tuesday"]);
+        solver.register_datatype(weekday);
+
+        let x = TermId::new(1);
+        let monday1 = TermId::new(2);
+        let monday2 = TermId::new(3);
+        solver.register_constructor(monday1, "Monday", vec![]);
+        solver.register_constructor(monday2, "Monday", vec![]);
+
+        let reason1 = TermId::new(100);
+        let reason2 = TermId::new(101);
+
+        solver.assert_eq(x, monday1, reason1);
+        solver.assert_eq(x, monday2, reason2);
+
+        let result = solver.check();
+        assert!(result.is_ok());
+        assert!(
+            matches!(result, Ok(TheoryResult::Sat)),
+            "Expected SAT when same variable equals same constructor"
+        );
     }
 }

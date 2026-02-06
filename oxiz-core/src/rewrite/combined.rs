@@ -815,8 +815,10 @@ mod tests {
 
     #[test]
     fn test_config() {
-        let mut config = CombinedRewriterConfig::default();
-        config.enable_bool = false;
+        let config = CombinedRewriterConfig {
+            enable_bool: false,
+            ..Default::default()
+        };
 
         let mut rewriter = CombinedRewriter::with_config(config);
         let (mut manager, mut ctx, _) = setup();

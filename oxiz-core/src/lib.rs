@@ -64,13 +64,20 @@
 //! let result = tactic.apply(&goal);
 //! ```
 
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 #![warn(missing_docs)]
 
+pub mod alloc;
 pub mod ast;
 pub mod config;
 pub mod datalog;
+pub mod diagnostics;
+pub mod ematching;
 pub mod error;
+pub mod error_context;
+pub mod error_recovery;
+pub mod error_utils;
+pub mod literal;
 pub mod model;
 pub mod qe;
 pub mod resource;
@@ -80,6 +87,7 @@ pub mod sort;
 pub mod statistics;
 pub mod tactic;
 pub mod theories;
+pub mod traits;
 pub mod unsat_core;
 
 pub use ast::{Term, TermId, TermKind, TermManager};
@@ -87,11 +95,28 @@ pub use config::{
     ClauseDeletionStrategy, Config, GeneralParams, PhaseSaving, ResourceLimits, SatParams,
     SimplifyParams,
 };
+pub use diagnostics::{Diagnostic, DiagnosticEmitter, Fix, RelatedDiagnostic, Severity};
 pub use error::{OxizError, Result};
+pub use error_context::{ErrorContext, ResultExt};
+pub use error_recovery::{
+    ErrorBatch, ErrorRecovery, RecoveryConfig, RecoveryResult, RecoveryStats, RecoveryStrategy,
+};
+pub use error_utils::{
+    ContextResult, OptionErrorExt, SortErrorExt, arity_mismatch, error_chain, parse_error,
+    sort_mismatch, suggest_fixes, type_error, undefined_symbol, validate_arity,
+    validate_arity_range, validate_max_arity, validate_min_arity,
+};
+pub use literal::{Lit, Var};
 pub use resource::{LimitStatus, ResourceManager};
 pub use sort::{DataTypeConstructor, Sort, SortId, SortKind};
 pub use statistics::{Statistics, Timer};
 pub use unsat_core::{UnsatCore, UnsatCoreBuilder, UnsatCoreStrategy};
+
+// Allocator exports
+pub use alloc::{
+    Arena, ArenaConfig, ArenaError, ArenaHandle, ObjectPool, PoolConfig, PoolGuard, PoolStats,
+    Region, RegionAllocator, RegionRef, RegionSlice, SharedObjectPool, SharedPoolGuard,
+};
 
 // Model exports
 pub use model::{
@@ -110,4 +135,16 @@ pub use rewrite::{
     ArithRewriter, ArrayRewriter, BoolRewriter, BottomUpRewriter, BvRewriter, CompositeRewriter,
     IteratingRewriter, Monomial, Polynomial, RewriteConfig, RewriteContext, RewriteResult,
     RewriteStats, RewriteStrategy, Rewriter, StringRewriter,
+};
+
+// Trait exports
+pub use traits::{
+    CachedRewriter as CachedRewriterTrait, ConditionalRewriter, FixpointRewriter, Goal,
+    GoalMetadata, IterativeTactic, LazyPropagator, ModelBasedPropagator, OptimizingTheory,
+    PropagationPriority, PropagationResult as TraitPropagationResult, Propagator,
+    PropagatorManager, PropagatorStatus, QuantifiedTheory, RewriteConfig as TraitRewriteConfig,
+    RewriteResult as TraitRewriteResult, RewriteStats as TraitRewriteStats,
+    Rewriter as RewriterTrait, SequentialRewriter as SequentialRewriterTrait, Tactic,
+    TacticCombinator, TacticConfig, TacticResult, TacticStats, Theory, TheoryCheckResult,
+    TheoryConflict, TheoryModel, TheoryPropagationResult, WatchedPropagator,
 };

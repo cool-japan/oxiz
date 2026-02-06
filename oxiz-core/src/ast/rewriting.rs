@@ -822,19 +822,19 @@ mod tests {
         // x > y → y < x
         let gt = manager.mk_gt(x, y);
         let result = rule.apply(gt, &mut manager);
-        if let Some(normalized) = result {
-            if let Some(term) = manager.get(normalized) {
-                assert!(matches!(term.kind, TermKind::Lt(..)));
-            }
+        if let Some(normalized) = result
+            && let Some(term) = manager.get(normalized)
+        {
+            assert!(matches!(term.kind, TermKind::Lt(..)));
         }
 
         // x ≥ y → y ≤ x
         let ge = manager.mk_ge(x, y);
         let result = rule.apply(ge, &mut manager);
-        if let Some(normalized) = result {
-            if let Some(term) = manager.get(normalized) {
-                assert!(matches!(term.kind, TermKind::Le(..)));
-            }
+        if let Some(normalized) = result
+            && let Some(term) = manager.get(normalized)
+        {
+            assert!(matches!(term.kind, TermKind::Le(..)));
         }
     }
 
@@ -854,10 +854,10 @@ mod tests {
         let result = rule.apply(mul, &mut manager);
         assert!(result.is_some());
 
-        if let Some(distributed) = result {
-            if let Some(term) = manager.get(distributed) {
-                assert!(matches!(term.kind, TermKind::Add(_)));
-            }
+        if let Some(distributed) = result
+            && let Some(term) = manager.get(distributed)
+        {
+            assert!(matches!(term.kind, TermKind::Add(_)));
         }
     }
 

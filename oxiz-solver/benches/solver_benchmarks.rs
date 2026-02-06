@@ -1,9 +1,10 @@
 //! Benchmarks for oxiz-solver
 
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use criterion::{Criterion, criterion_group, criterion_main};
 use num_bigint::BigInt;
 use oxiz_core::ast::TermManager;
 use oxiz_solver::{Context, Solver, SolverConfig};
+use std::hint::black_box;
 
 /// Benchmark simple boolean satisfiability
 fn bench_simple_sat(c: &mut Criterion) {

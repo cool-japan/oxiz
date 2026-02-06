@@ -32,19 +32,19 @@ fn main() {
     println!("Result: {:?}\n", result);
 
     // Extract model
-    if let Some(model) = solver.get_model() {
-        if let Some(x_val) = model.arith_value(0) {
-            println!("Solution: x ≈ {}", x_val);
+    if let Some(model) = solver.get_model()
+        && let Some(x_val) = model.arith_value(0)
+    {
+        println!("Solution: x ≈ {}", x_val);
 
-            // Verify: x² should equal 2
-            let x_squared_val = x_val * x_val;
-            let diff = (x_squared_val - BigRational::from_integer(2.into())).abs();
-            println!("Verification: x² = {}", x_val * x_val);
-            println!("Error: {}", diff);
+        // Verify: x² should equal 2
+        let x_squared_val = x_val * x_val;
+        let diff = (x_squared_val - BigRational::from_integer(2.into())).abs();
+        println!("Verification: x² = {}", x_val * x_val);
+        println!("Error: {}", diff);
 
-            if diff < BigRational::from_integer(1.into()) / BigRational::from_integer(1000.into()) {
-                println!("✓ Solution verified (within tolerance)");
-            }
+        if diff < BigRational::from_integer(1.into()) / BigRational::from_integer(1000.into()) {
+            println!("✓ Solution verified (within tolerance)");
         }
     }
 

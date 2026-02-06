@@ -1,5 +1,5 @@
 {
-  "version": "0.1.2",
+  "version": "0.1.3",
   "timestamp": "2026-01-17T00:00:00Z",
   "benchmarks": {
     "sat_3sat_small": {

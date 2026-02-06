@@ -84,29 +84,28 @@ fn main() {
     // Extract and verify solution
     match result {
         SolverResult::Sat => {
-            if let Some(model) = solver.nlsat().get_model() {
-                if let (Some(x_val), Some(y_val)) = (model.arith_value(0), model.arith_value(1)) {
-                    println!("\n✓ Integer solution found:");
-                    println!("  x = {}", x_val);
-                    println!("  y = {}", y_val);
+            if let Some(model) = solver.nlsat().get_model()
+                && let (Some(x_val), Some(y_val)) = (model.arith_value(0), model.arith_value(1))
+            {
+                println!("\n✓ Integer solution found:");
+                println!("  x = {}", x_val);
+                println!("  y = {}", y_val);
 
-                    // Check if values are actually integers
-                    if let (Some(x_int), Some(y_int)) = (
-                        x_val.to_f64().map(|f| f.round()),
-                        y_val.to_f64().map(|f| f.round()),
-                    ) {
-                        println!("  x (rounded) = {}", x_int);
-                        println!("  y (rounded) = {}", y_int);
-                    }
-
-                    // Verify constraint
-                    let sum_of_squares =
-                        x_val.clone() * x_val.clone() + y_val.clone() * y_val.clone();
-                    let fifty_rat = BigRational::from_integer(BigInt::from(50));
-                    println!("\nVerification:");
-                    println!("  x² + y² = {}", sum_of_squares);
-                    println!("  Is < 50? {}", sum_of_squares < fifty_rat);
+                // Check if values are actually integers
+                if let (Some(x_int), Some(y_int)) = (
+                    x_val.to_f64().map(|f| f.round()),
+                    y_val.to_f64().map(|f| f.round()),
+                ) {
+                    println!("  x (rounded) = {}", x_int);
+                    println!("  y (rounded) = {}", y_int);
                 }
+
+                // Verify constraint
+                let sum_of_squares = x_val.clone() * x_val.clone() + y_val.clone() * y_val.clone();
+                let fifty_rat = BigRational::from_integer(BigInt::from(50));
+                println!("\nVerification:");
+                println!("  x² + y² = {}", sum_of_squares);
+                println!("  Is < 50? {}", sum_of_squares < fifty_rat);
             }
         }
         SolverResult::Unsat => {

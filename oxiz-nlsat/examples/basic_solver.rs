@@ -32,11 +32,11 @@ fn main() {
     println!("Result: {:?}\n", result);
 
     // Extract model if SAT
-    if let Some(model) = solver.get_model() {
-        if let Some(x_val) = model.arith_value(0) {
-            println!("Solution: x = {}", x_val);
-            println!("Verified: x > 0? {}", x_val.is_positive());
-        }
+    if let Some(model) = solver.get_model()
+        && let Some(x_val) = model.arith_value(0)
+    {
+        println!("Solution: x = {}", x_val);
+        println!("Verified: x > 0? {}", x_val.is_positive());
     }
 
     println!("\n=== Example completed ===");

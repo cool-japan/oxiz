@@ -57,6 +57,17 @@ pub enum UtvpiResult {
     Unknown,
 }
 
+impl PartialEq for UtvpiResult {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (UtvpiResult::Ok, UtvpiResult::Ok) => true,
+            (UtvpiResult::Unknown, UtvpiResult::Unknown) => true,
+            (UtvpiResult::Conflict(a), UtvpiResult::Conflict(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
 /// A negative cycle in the doubled graph
 #[derive(Debug, Clone)]
 pub struct UtvpiNegativeCycle {
@@ -827,16 +838,5 @@ mod tests {
 
         let result = solver.check();
         assert!(matches!(result, UtvpiResult::Ok));
-    }
-}
-
-impl PartialEq for UtvpiResult {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (UtvpiResult::Ok, UtvpiResult::Ok) => true,
-            (UtvpiResult::Unknown, UtvpiResult::Unknown) => true,
-            (UtvpiResult::Conflict(a), UtvpiResult::Conflict(b)) => a == b,
-            _ => false,
-        }
     }
 }

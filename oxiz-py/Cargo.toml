@@ -18,6 +18,6 @@ crate-type = ["cdylib"]
 
 [dependencies]
 oxiz = { workspace = true, features = ["full"] }
-pyo3 = { version = "0.27", features = ["extension-module"] }
+pyo3 = { version = "0.28", features = ["extension-module"] }
 num-bigint = { workspace = true }
 num-rational = { workspace = true }

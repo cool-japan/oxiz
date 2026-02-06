@@ -331,7 +331,7 @@ mod tests {
 
         let elapsed = profiler.get_timer("operation1");
         assert!(elapsed.is_some());
-        assert!(elapsed.unwrap() >= Duration::from_millis(10));
+        assert!(elapsed.expect("Timer must have elapsed duration") >= Duration::from_millis(10));
     }
 
     #[test]

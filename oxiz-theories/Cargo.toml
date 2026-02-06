@@ -12,6 +12,8 @@ categories = ["algorithms", "mathematics"]
 [dependencies]
 oxiz-core = { workspace = true }
 oxiz-sat = { workspace = true }
+oxiz-nlsat = { workspace = true }
+oxiz-math = { workspace = true }
 egg = { workspace = true }
 tracing = { workspace = true }
 smallvec = { workspace = true }

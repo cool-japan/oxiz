@@ -63,17 +63,17 @@ It's recommended to pin to a specific version in production:
 
 ```javascript
 // unpkg
-import init from 'https://unpkg.com/oxiz-wasm@0.1.2/pkg/oxiz_wasm.js';
+import init from 'https://unpkg.com/oxiz-wasm@0.1.3/pkg/oxiz_wasm.js';
 
 // jsDelivr
-import init from 'https://cdn.jsdelivr.net/npm/oxiz-wasm@0.1.2/pkg/oxiz_wasm.js';
+import init from 'https://cdn.jsdelivr.net/npm/oxiz-wasm@0.1.3/pkg/oxiz_wasm.js';
 ```
 
 ### Version Ranges
 
 ```javascript
 // Latest 0.1.x
-import init from 'https://unpkg.com/oxiz-wasm@^0.1.2/pkg/oxiz_wasm.js';
+import init from 'https://unpkg.com/oxiz-wasm@^0.1.3/pkg/oxiz_wasm.js';
 
 // Latest 0.x.x
 import init from 'https://unpkg.com/oxiz-wasm@0/pkg/oxiz_wasm.js';
@@ -355,13 +355,13 @@ For production, use SRI hashes to ensure integrity:
 <script type="module"
     integrity="sha384-HASH_HERE"
     crossorigin="anonymous"
-    src="https://unpkg.com/oxiz-wasm@0.1.2/pkg/oxiz_wasm.js">
+    src="https://unpkg.com/oxiz-wasm@0.1.3/pkg/oxiz_wasm.js">
 </script>
 ```
 
 Generate SRI hash:
 ```bash
-curl https://unpkg.com/oxiz-wasm@0.1.2/pkg/oxiz_wasm.js | \
+curl https://unpkg.com/oxiz-wasm@0.1.3/pkg/oxiz_wasm.js | \
     openssl dgst -sha384 -binary | \
     openssl base64 -A
 ```

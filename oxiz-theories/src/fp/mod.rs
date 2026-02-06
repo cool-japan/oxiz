@@ -8,6 +8,8 @@
 //! - Rounding modes (RNE, RNA, RTP, RTN, RTZ)
 //! - Special values (NaN, +Inf, -Inf, +0, -0)
 //! - Comparisons and predicates
+//! - Complete IEEE 754-2019 implementation
+//! - Interval arithmetic for range analysis
 //!
 //! ## Implementation Strategy
 //!
@@ -15,6 +17,8 @@
 //! into SAT constraints. This is the most common approach for
 //! floating-point SMT solving (used by MathSAT, CVC5, etc.).
 
+pub mod ieee754_full;
+pub mod interval_arithmetic;
 mod solver;
 
 pub use solver::{FpFormat, FpRoundingMode, FpSolver, FpValue};

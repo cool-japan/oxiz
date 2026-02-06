@@ -1,3 +1,11 @@
 # PyO3 configuration for Python 3.14 compatibility
 [env]
 PYO3_USE_ABI3_FORWARD_COMPATIBILITY = "1"
+
+# macOS-specific linker flags to allow undefined Python symbols
+# (Python provides these symbols at runtime when loading the extension)
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-args=-undefined dynamic_lookup"]
+
+[target.x86_64-apple-darwin]
+rustflags = ["-C", "link-args=-undefined dynamic_lookup"]

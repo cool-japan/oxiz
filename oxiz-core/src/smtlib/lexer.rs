@@ -152,12 +152,12 @@ impl<'a> Lexer<'a> {
         loop {
             // Skip whitespace
             while self.pos < self.input.len() {
-                let c = self.input[self.pos..]
-                    .chars()
-                    .next()
-                    .expect("pos within input bounds");
-                if c.is_whitespace() {
-                    self.pos += c.len_utf8();
+                if let Some(c) = self.input[self.pos..].chars().next() {
+                    if c.is_whitespace() {
+                        self.pos += c.len_utf8();
+                    } else {
+                        break;
+                    }
                 } else {
                     break;
                 }
@@ -166,12 +166,12 @@ impl<'a> Lexer<'a> {
             // Skip comments
             if self.pos < self.input.len() && self.input[self.pos..].starts_with(';') {
                 while self.pos < self.input.len() {
-                    let c = self.input[self.pos..]
-                        .chars()
-                        .next()
-                        .expect("pos within input bounds");
-                    self.pos += c.len_utf8();
-                    if c == '\n' {
+                    if let Some(c) = self.input[self.pos..].chars().next() {
+                        self.pos += c.len_utf8();
+                        if c == '\n' {
+                            break;
+                        }
+                    } else {
                         break;
                     }
                 }
@@ -184,32 +184,32 @@ impl<'a> Lexer<'a> {
     fn read_symbol_chars(&mut self) -> String {
         let start = self.pos;
         while self.pos < self.input.len() {
-            let c = self.input[self.pos..]
-                .chars()
-                .next()
-                .expect("pos within input bounds");
-            if c.is_alphanumeric()
-                || matches!(
-                    c,
-                    '+' | '-'
-                        | '/'
-                        | '*'
-                        | '='
-                        | '%'
-                        | '?'
-                        | '!'
-                        | '.'
-                        | '$'
-                        | '_'
-                        | '~'
-                        | '&'
-                        | '^'
-                        | '<'
-                        | '>'
-                        | '@'
-                )
-            {
-                self.pos += c.len_utf8();
+            if let Some(c) = self.input[self.pos..].chars().next() {
+                if c.is_alphanumeric()
+                    || matches!(
+                        c,
+                        '+' | '-'
+                            | '/'
+                            | '*'
+                            | '='
+                            | '%'
+                            | '?'
+                            | '!'
+                            | '.'
+                            | '$'
+                            | '_'
+                            | '~'
+                            | '&'
+                            | '^'
+                            | '<'
+                            | '>'
+                            | '@'
+                    )
+                {
+                    self.pos += c.len_utf8();
+                } else {
+                    break;
+                }
             } else {
                 break;
             }
@@ -220,13 +220,13 @@ impl<'a> Lexer<'a> {
     fn read_quoted_symbol(&mut self) -> String {
         let start = self.pos;
         while self.pos < self.input.len() {
-            let c = self.input[self.pos..]
-                .chars()
-                .next()
-                .expect("pos within input bounds");
-            self.pos += c.len_utf8();
-            if c == '|' {
-                return self.input[start..self.pos - 1].to_string();
+            if let Some(c) = self.input[self.pos..].chars().next() {
+                self.pos += c.len_utf8();
+                if c == '|' {
+                    return self.input[start..self.pos - 1].to_string();
+                }
+            } else {
+                break;
             }
         }
         self.input[start..self.pos].to_string()
@@ -235,21 +235,21 @@ impl<'a> Lexer<'a> {
     fn read_string_lit(&mut self) -> String {
         let mut result = String::new();
         while self.pos < self.input.len() {
-            let c = self.input[self.pos..]
-                .chars()
-                .next()
-                .expect("pos within input bounds");
-            self.pos += c.len_utf8();
-            if c == '"' {
-                // Check for escaped quote
-                if self.pos < self.input.len() && self.input[self.pos..].starts_with('"') {
-                    result.push('"');
-                    self.pos += 1;
+            if let Some(c) = self.input[self.pos..].chars().next() {
+                self.pos += c.len_utf8();
+                if c == '"' {
+                    // Check for escaped quote
+                    if self.pos < self.input.len() && self.input[self.pos..].starts_with('"') {
+                        result.push('"');
+                        self.pos += 1;
+                    } else {
+                        break;
+                    }
                 } else {
-                    break;
+                    result.push(c);
                 }
             } else {
-                result.push(c);
+                break;
             }
         }
         result
@@ -258,12 +258,12 @@ impl<'a> Lexer<'a> {
     fn read_numeral(&mut self) -> String {
         let start = self.pos;
         while self.pos < self.input.len() {
-            let c = self.input[self.pos..]
-                .chars()
-                .next()
-                .expect("pos within input bounds");
-            if c.is_ascii_digit() {
-                self.pos += 1;
+            if let Some(c) = self.input[self.pos..].chars().next() {
+                if c.is_ascii_digit() {
+                    self.pos += 1;
+                } else {
+                    break;
+                }
             } else {
                 break;
             }
@@ -274,12 +274,12 @@ impl<'a> Lexer<'a> {
     fn read_hex_chars(&mut self) -> String {
         let start = self.pos;
         while self.pos < self.input.len() {
-            let c = self.input[self.pos..]
-                .chars()
-                .next()
-                .expect("pos within input bounds");
-            if c.is_ascii_hexdigit() {
-                self.pos += 1;
+            if let Some(c) = self.input[self.pos..].chars().next() {
+                if c.is_ascii_hexdigit() {
+                    self.pos += 1;
+                } else {
+                    break;
+                }
             } else {
                 break;
             }
@@ -290,12 +290,12 @@ impl<'a> Lexer<'a> {
     fn read_binary_chars(&mut self) -> String {
         let start = self.pos;
         while self.pos < self.input.len() {
-            let c = self.input[self.pos..]
-                .chars()
-                .next()
-                .expect("pos within input bounds");
-            if c == '0' || c == '1' {
-                self.pos += 1;
+            if let Some(c) = self.input[self.pos..].chars().next() {
+                if c == '0' || c == '1' {
+                    self.pos += 1;
+                } else {
+                    break;
+                }
             } else {
                 break;
             }
@@ -325,23 +325,23 @@ mod tests {
     fn test_basic_tokens() {
         let mut lexer = Lexer::new("(+ 1 2)");
         assert!(matches!(
-            lexer.next_token().unwrap().kind,
+            lexer.next_token().expect("should get lparen token").kind,
             TokenKind::LParen
         ));
         assert!(matches!(
-            lexer.next_token().unwrap().kind,
+            lexer.next_token().expect("should get plus symbol token").kind,
             TokenKind::Symbol(s) if s == "+"
         ));
         assert!(matches!(
-            lexer.next_token().unwrap().kind,
+            lexer.next_token().expect("should get numeral 1 token").kind,
             TokenKind::Numeral(n) if n == "1"
         ));
         assert!(matches!(
-            lexer.next_token().unwrap().kind,
+            lexer.next_token().expect("should get numeral 2 token").kind,
             TokenKind::Numeral(n) if n == "2"
         ));
         assert!(matches!(
-            lexer.next_token().unwrap().kind,
+            lexer.next_token().expect("should get rparen token").kind,
             TokenKind::RParen
         ));
     }
@@ -350,11 +350,14 @@ mod tests {
     fn test_comments() {
         let mut lexer = Lexer::new("; this is a comment\n(test)");
         assert!(matches!(
-            lexer.next_token().unwrap().kind,
+            lexer
+                .next_token()
+                .expect("should get lparen token after comment")
+                .kind,
             TokenKind::LParen
         ));
         assert!(matches!(
-            lexer.next_token().unwrap().kind,
+            lexer.next_token().expect("should get test symbol token").kind,
             TokenKind::Symbol(s) if s == "test"
         ));
     }
@@ -363,11 +366,11 @@ mod tests {
     fn test_hex_binary() {
         let mut lexer = Lexer::new("#xDEAD #b1010");
         assert!(matches!(
-            lexer.next_token().unwrap().kind,
+            lexer.next_token().expect("should get hexadecimal token").kind,
             TokenKind::Hexadecimal(h) if h == "DEAD"
         ));
         assert!(matches!(
-            lexer.next_token().unwrap().kind,
+            lexer.next_token().expect("should get binary token").kind,
             TokenKind::Binary(b) if b == "1010"
         ));
     }
@@ -376,7 +379,7 @@ mod tests {
     fn test_string_literal() {
         let mut lexer = Lexer::new("\"hello world\"");
         assert!(matches!(
-            lexer.next_token().unwrap().kind,
+            lexer.next_token().expect("should get string literal token").kind,
             TokenKind::StringLit(s) if s == "hello world"
         ));
     }
@@ -385,7 +388,7 @@ mod tests {
     fn test_keyword() {
         let mut lexer = Lexer::new(":named");
         assert!(matches!(
-            lexer.next_token().unwrap().kind,
+            lexer.next_token().expect("should get keyword token").kind,
             TokenKind::Keyword(k) if k == "named"
         ));
     }

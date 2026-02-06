@@ -8,6 +8,7 @@
 //! - **FP** (Floating-Point) IEEE 754 using bit-blasting
 //! - **Datatypes** (Algebraic Data Types) for lists, trees, enums
 //! - **Strings** (Word Equations + Regular Expressions) using Brzozowski derivatives
+//! - **Sets** (Set Theory) with union, intersection, membership, cardinality, and powerset
 //! - **Difference Logic** (DL) for constraints x - y ≤ c using Bellman-Ford
 //! - **UTVPI** (Unit Two-Variable Per Inequality) for constraints ±x ± y ≤ c
 //! - **Pseudo-Boolean** (PB) for cardinality and weighted constraints
@@ -58,6 +59,7 @@
 
 pub mod arithmetic;
 pub mod array;
+pub mod array_eager_expand;
 pub mod bv;
 pub mod character;
 pub mod checking;
@@ -68,16 +70,21 @@ pub mod diff_logic;
 pub mod error;
 pub mod euf;
 pub mod fp;
+pub mod fp_interval_prop;
 pub mod hashcons;
 mod lru_cache;
+pub mod nlsat;
 pub mod pb;
 pub mod propagation;
 pub mod quantifier;
+pub mod quantifier_code_tree;
 pub mod recfun;
+pub mod set;
 pub mod simplify;
 pub mod sls;
 pub mod special_relations;
 pub mod string;
+pub mod string_length_prop;
 mod theory;
 pub mod user_propagator;
 pub mod utvpi;
@@ -101,9 +108,25 @@ pub use theory::{
 };
 pub use watched::{WatchList, WatchStats, WatchedConstraint};
 
+// Array eager expansion exports
+pub use array_eager_expand::{
+    EagerArrayExpander, EagerExpandConfig, EagerExpandStats, ExpandedArray,
+};
+
+// Floating-point interval propagation exports
+pub use fp_interval_prop::{
+    FpInterval, FpIntervalPropagator, FpIntervalStats, RoundingMode as FpIntervalRoundingMode,
+};
+
+// String length propagation exports
+pub use string_length_prop::{LengthConstraint, LengthDomain, LengthPropStats, LengthPropagator};
+
 // Quantifier solver exports
 pub use quantifier::{
     InstantiationLemma, QuantifierConfig, QuantifierSolver, QuantifierStats, TrackedQuantifier,
+};
+pub use quantifier_code_tree::{
+    CodeTree, CodeTreeInstr, CodeTreeStats, CompiledPattern, Match, PatternVar,
 };
 
 // Recursive function solver exports
@@ -153,6 +176,17 @@ pub use character::{
     AdvancedCharSolver, CaseFoldMode, CaseFolder, CharClass, CharConfig, CharConstraint,
     CharDomain, CharNormalizer, CharResult, CharSolver, CharStats, CharValue, CharVar, CharWidth,
     CodePoint, NormalizationForm, UnicodeBlock, UnicodeCategory, UnicodeScript,
+};
+
+// Set theory exports
+pub use set::{
+    CardConstraint, CardConstraintKind, CardDomain, CardPropagator, CardResult, CardStats, EnumSet,
+    FiniteSetEnumerator, MemberConstraint, MemberDomain, MemberPropagator, MemberResult,
+    MemberStats, MemberVar, PowersetBuilder, PowersetConstraint, PowersetIter, PowersetResult,
+    PowersetStats, SetBinOp, SetComplement, SetConfig, SetConstraint, SetDifference, SetElement,
+    SetEnumConfig, SetEnumResult, SetEnumStats, SetExpr, SetIntersection, SetOp, SetOpBuilder,
+    SetOpResult, SetOpStats, SetResult, SetSolver, SetSort, SetStats, SetUnion, SetVar, SetVarId,
+    SubsetConstraint, SubsetDomain, SubsetGraph, SubsetPropagator, SubsetResult, SubsetStats,
 };
 
 // SLS theory exports

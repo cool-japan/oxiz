@@ -1031,9 +1031,9 @@ mod tests {
     #[test]
     fn test_from_f64_basic() {
         let prec = Precision::new(64);
-        let f = ArbitraryFloat::from_f64(3.14159, prec);
+        let f = ArbitraryFloat::from_f64(std::f64::consts::PI, prec);
         let back = f.to_f64(RoundingMode::RoundNearest);
-        assert!(approx_eq(back, 3.14159));
+        assert!(approx_eq(back, std::f64::consts::PI));
     }
 
     #[test]

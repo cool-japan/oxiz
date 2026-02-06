@@ -10,6 +10,10 @@
 //! - **Sequence operations**: extract, replace, replace_all, at, unit
 //! - **Word equation solving**: Nielsen transformation, Levi's lemma
 //! - **Automata-based solving**: NFA/DFA construction, product automaton
+//! - **Unicode normalization**: NFC, NFD, NFKC, NFKD
+//! - **Advanced regex**: Capture groups, backreferences, lookahead/lookbehind
+//! - **Length reasoning**: Constraint propagation and bounds analysis
+//! - **Replace operations**: replaceAll, replaceFirst with constraint generation
 //!
 //! ## Implementation Strategy
 //!
@@ -28,16 +32,26 @@
 //! (assert (> (str.len s) 10))
 //! ```
 
+pub mod advanced_regex;
 pub mod automata;
+pub mod char_ops;
+pub mod normalization;
 mod regex;
+pub mod regex_solver;
+pub mod replace_operations;
 pub mod sequence;
 mod solver;
+pub mod string_length_reasoning;
 mod unicode;
 pub mod word_eq;
 
 // Core exports
 pub use regex::{Regex, RegexOp};
-pub use solver::StringSolver;
+pub use regex_solver::{
+    Regex as RegexSolverRegex, RegexSolver, RegexSolverConfig, RegexSolverStats, StrVar,
+    StringConstraint,
+};
+pub use solver::{StringAtom, StringExpr, StringSolver};
 pub use unicode::UnicodeCategory;
 
 // Sequence operation exports
@@ -48,10 +62,37 @@ pub use sequence::{
 
 // Word equation exports
 pub use word_eq::{
-    CaseSplit, Conflict, ConflictReason, LengthAbstraction, LengthConstraint, LinearConstraint,
-    Relation, SolveResult as WordEqSolveResult, Substitution, WordEqConfig, WordEqSolver,
-    WordEqStats,
+    CaseSplit, Conflict, ConflictReason, LengthAbstraction,
+    LengthConstraint as WordEqLengthConstraint, LinearConstraint, Relation,
+    SolveResult as WordEqSolveResult, Substitution, WordEqConfig, WordEqSolver, WordEqStats,
 };
 
 // Automata exports
 pub use automata::{ConstraintAutomaton, Dfa, Label, Nfa, ProductAutomaton, StateId, Transition};
+
+// Character operations exports
+pub use char_ops::{CharAt, CharClass, CharOpSolver, CharOpStats, CodePoint, PredefinedClass};
+
+// Normalization exports
+pub use normalization::{
+    CombiningClass, Decomposition, NormalizationConstraint, NormalizationForm, NormalizationSolver,
+    UnicodeNormalizer,
+};
+
+// Advanced regex exports
+pub use advanced_regex::{
+    AdvancedRegex, BinaryProperty, CaptureGroup, CharacterClass, Condition, Match, RegexBuilder,
+    RegexMatcher, UnicodeBlock, UnicodeProperty, UnicodeScript,
+};
+
+// Length reasoning exports
+pub use string_length_reasoning::{
+    ArithmeticConstraint, LengthBound, LengthConstraint, LengthSolver, LengthSolverStats,
+    LengthVar, StringOp,
+};
+
+// Replace operations exports
+pub use replace_operations::{
+    Pattern, ReplaceAnalyzer, ReplaceBuilder, ReplaceConstraint, ReplaceConstraintGen, ReplaceMode,
+    ReplaceSolver, ReplaceSolverStats,
+};
