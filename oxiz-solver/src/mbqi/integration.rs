@@ -7,7 +7,7 @@
 #![allow(dead_code)]
 
 use lasso::Spur;
-use oxiz_core::ast::{TermId, TermManager};
+use oxiz_core::ast::{TermId, TermKind, TermManager};
 use oxiz_core::sort::SortId;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
@@ -110,7 +110,13 @@ impl MBQIIntegration {
         }
     }
 
-    /// Run MBQI with a partial model
+    /// Run MBQI with a partial model implementing the Ge & de Moura (2009) algorithm.
+    ///
+    /// The loop:
+    /// 1. Complete the partial model (fill in defaults, function interps, universes)
+    /// 2. For each tracked quantifier, check against the completed model
+    /// 3. If counterexamples found, generate instantiation lemmas and return them
+    /// 4. If no counterexamples for any quantifier, the model satisfies all -- return SAT
     pub fn run(
         &mut self,
         partial_model: &FxHashMap<TermId, TermId>,
@@ -124,49 +130,89 @@ impl MBQIIntegration {
             return MBQIResult::NoQuantifiers;
         }
 
-        // Main MBQI loop
-        while self.current_round < self.max_rounds {
-            if self.check_timeout() || callback.should_stop() {
-                return MBQIResult::Unknown;
+        // Check round limit
+        if self.current_round >= self.max_rounds {
+            self.update_final_stats();
+            return MBQIResult::Unknown;
+        }
+
+        if self.check_timeout() || callback.should_stop() {
+            return MBQIResult::Unknown;
+        }
+
+        self.current_round += 1;
+        callback.on_round_start(self.current_round);
+        self.stats.num_checks += 1;
+
+        let round_start = Instant::now();
+
+        // Step 1: Complete the model with proper Ge & de Moura completion
+        let completed_model =
+            match self
+                .model_completer
+                .complete(partial_model, &self.quantifiers, manager)
+            {
+                Ok(model) => {
+                    self.stats.num_completions += 1;
+                    model
+                }
+                Err(_) => {
+                    callback.on_round_end(self.current_round, &MBQIResult::Unknown);
+                    return MBQIResult::Unknown;
+                }
+            };
+
+        self.stats.completion_time_us += round_start.elapsed().as_micros() as u64;
+
+        // Step 2: Check each quantifier against the completed model
+        //         and generate counterexample-based instantiations
+        let cex_start = Instant::now();
+        let mut all_instantiations = Vec::new();
+        // Track whether ALL quantifier evaluations resolved to concrete
+        // boolean values.  We can only claim Satisfied when every evaluation
+        // across every quantifier was fully ground (i.e. concrete True).
+        let mut all_evaluations_fully_ground = true;
+
+        // Collect quantifiers first to avoid borrow checker issues
+        let quantifiers: Vec<_> = self.quantifiers.to_vec();
+        for quantifier in &quantifiers {
+            if !quantifier.can_instantiate() {
+                continue;
             }
 
-            self.current_round += 1;
-            callback.on_round_start(self.current_round);
-            self.stats.num_checks += 1;
+            // Use the counterexample generator directly to find
+            // assignments that falsify the quantifier body
+            let cex_result = self
+                .cex_generator
+                .generate(quantifier, &completed_model, manager);
 
-            let round_start = Instant::now();
+            if !cex_result.all_evaluations_ground {
+                all_evaluations_fully_ground = false;
+            }
 
-            // Step 1: Complete the model
-            let completed_model =
-                match self
-                    .model_completer
-                    .complete(partial_model, &self.quantifiers, manager)
-                {
-                    Ok(model) => {
-                        self.stats.num_completions += 1;
-                        model
-                    }
-                    Err(_) => {
-                        callback.on_round_end(self.current_round, &MBQIResult::Unknown);
-                        return MBQIResult::Unknown;
-                    }
-                };
+            self.stats.num_counterexamples += cex_result.counterexamples.len();
 
-            // Step 2: Generate instantiations
-            let mut all_instantiations = Vec::new();
+            for cex in &cex_result.counterexamples {
+                // Build the instantiation lemma: body[x1/v1, ..., xn/vn]
+                let ground_body =
+                    self.apply_substitution(quantifier.body, &cex.assignment, manager);
 
-            // Collect quantifiers first to avoid borrow checker issues
-            let quantifiers: Vec<_> = self.quantifiers.to_vec();
-            for quantifier in quantifiers {
-                if !quantifier.can_instantiate() {
-                    continue;
+                let inst = cex.to_instantiation(ground_body);
+
+                if !self.is_duplicate(&inst) {
+                    self.record_instantiation(&inst);
+                    callback.on_instantiation(&inst);
+                    all_instantiations.push(inst);
                 }
+            }
 
-                let instantiations =
+            // Also try instantiation engine strategies (pattern-based, enumerative)
+            if cex_result.counterexamples.is_empty() {
+                let engine_insts =
                     self.instantiation_engine
-                        .instantiate(&quantifier, &completed_model, manager);
+                        .instantiate(quantifier, &completed_model, manager);
 
-                for inst in instantiations {
+                for inst in engine_insts {
                     if !self.is_duplicate(&inst) {
                         self.record_instantiation(&inst);
                         callback.on_instantiation(&inst);
@@ -174,31 +220,178 @@ impl MBQIIntegration {
                     }
                 }
             }
+        }
 
-            self.stats.completion_time_us += round_start.elapsed().as_micros() as u64;
+        self.stats.cex_search_time_us += cex_start.elapsed().as_micros() as u64;
 
-            // Step 3: Check result
-            if all_instantiations.is_empty() {
+        // Step 3: Check result
+        if all_instantiations.is_empty() {
+            if all_evaluations_fully_ground {
+                // Every quantifier body evaluated to concrete True under every
+                // candidate assignment.  The completed model genuinely satisfies
+                // all quantifiers.
                 let result = MBQIResult::Satisfied;
                 callback.on_round_end(self.current_round, &result);
                 self.update_final_stats();
                 return result;
             }
-
-            // Step 4: Check instantiation limit
-            if self.stats.total_instantiations >= self.stats.max_instantiations {
-                let result = MBQIResult::InstantiationLimit;
-                callback.on_round_end(self.current_round, &result);
-                self.update_final_stats();
-                return result;
-            }
-
-            let result = MBQIResult::NewInstantiations(all_instantiations);
+            // Some evaluations produced symbolic residuals -- we cannot
+            // conclusively say the model satisfies all quantifiers.
+            // Conservatively return Unknown instead of the incorrect Satisfied.
+            let result = MBQIResult::Unknown;
             callback.on_round_end(self.current_round, &result);
+            self.update_final_stats();
+            return result;
         }
 
+        // Step 4: Check instantiation limit
+        if self.stats.max_instantiations > 0
+            && self.stats.total_instantiations >= self.stats.max_instantiations
+        {
+            let result = MBQIResult::InstantiationLimit;
+            callback.on_round_end(self.current_round, &result);
+            self.update_final_stats();
+            return result;
+        }
+
+        // Return the new instantiations to the solver.
+        // The solver will add them as lemmas and re-check SAT.
+        // On the next call to MBQI, we'll re-complete the model.
+        let result = MBQIResult::NewInstantiations(all_instantiations);
+        callback.on_round_end(self.current_round, &result);
         self.update_final_stats();
-        MBQIResult::Unknown
+        result
+    }
+
+    /// Apply substitution to a term (used for building instantiation lemmas)
+    fn apply_substitution(
+        &self,
+        term: TermId,
+        subst: &FxHashMap<Spur, TermId>,
+        manager: &mut TermManager,
+    ) -> TermId {
+        let mut cache = FxHashMap::default();
+        self.apply_substitution_cached(term, subst, manager, &mut cache)
+    }
+
+    fn apply_substitution_cached(
+        &self,
+        term: TermId,
+        subst: &FxHashMap<Spur, TermId>,
+        manager: &mut TermManager,
+        cache: &mut FxHashMap<TermId, TermId>,
+    ) -> TermId {
+        if let Some(&cached) = cache.get(&term) {
+            return cached;
+        }
+
+        let Some(t) = manager.get(term).cloned() else {
+            return term;
+        };
+
+        let result = match &t.kind {
+            TermKind::Var(name) => subst.get(name).copied().unwrap_or(term),
+            TermKind::Not(arg) => {
+                let new_arg = self.apply_substitution_cached(*arg, subst, manager, cache);
+                manager.mk_not(new_arg)
+            }
+            TermKind::And(args) => {
+                let new_args: Vec<_> = args
+                    .iter()
+                    .map(|&a| self.apply_substitution_cached(a, subst, manager, cache))
+                    .collect();
+                manager.mk_and(new_args)
+            }
+            TermKind::Or(args) => {
+                let new_args: Vec<_> = args
+                    .iter()
+                    .map(|&a| self.apply_substitution_cached(a, subst, manager, cache))
+                    .collect();
+                manager.mk_or(new_args)
+            }
+            TermKind::Implies(lhs, rhs) => {
+                let new_lhs = self.apply_substitution_cached(*lhs, subst, manager, cache);
+                let new_rhs = self.apply_substitution_cached(*rhs, subst, manager, cache);
+                manager.mk_implies(new_lhs, new_rhs)
+            }
+            TermKind::Eq(lhs, rhs) => {
+                let new_lhs = self.apply_substitution_cached(*lhs, subst, manager, cache);
+                let new_rhs = self.apply_substitution_cached(*rhs, subst, manager, cache);
+                manager.mk_eq(new_lhs, new_rhs)
+            }
+            TermKind::Lt(lhs, rhs) => {
+                let new_lhs = self.apply_substitution_cached(*lhs, subst, manager, cache);
+                let new_rhs = self.apply_substitution_cached(*rhs, subst, manager, cache);
+                manager.mk_lt(new_lhs, new_rhs)
+            }
+            TermKind::Le(lhs, rhs) => {
+                let new_lhs = self.apply_substitution_cached(*lhs, subst, manager, cache);
+                let new_rhs = self.apply_substitution_cached(*rhs, subst, manager, cache);
+                manager.mk_le(new_lhs, new_rhs)
+            }
+            TermKind::Gt(lhs, rhs) => {
+                let new_lhs = self.apply_substitution_cached(*lhs, subst, manager, cache);
+                let new_rhs = self.apply_substitution_cached(*rhs, subst, manager, cache);
+                manager.mk_gt(new_lhs, new_rhs)
+            }
+            TermKind::Ge(lhs, rhs) => {
+                let new_lhs = self.apply_substitution_cached(*lhs, subst, manager, cache);
+                let new_rhs = self.apply_substitution_cached(*rhs, subst, manager, cache);
+                manager.mk_ge(new_lhs, new_rhs)
+            }
+            TermKind::Add(args) => {
+                let new_args: SmallVec<[TermId; 4]> = args
+                    .iter()
+                    .map(|&a| self.apply_substitution_cached(a, subst, manager, cache))
+                    .collect();
+                manager.mk_add(new_args)
+            }
+            TermKind::Sub(lhs, rhs) => {
+                let new_lhs = self.apply_substitution_cached(*lhs, subst, manager, cache);
+                let new_rhs = self.apply_substitution_cached(*rhs, subst, manager, cache);
+                manager.mk_sub(new_lhs, new_rhs)
+            }
+            TermKind::Mul(args) => {
+                let new_args: SmallVec<[TermId; 4]> = args
+                    .iter()
+                    .map(|&a| self.apply_substitution_cached(a, subst, manager, cache))
+                    .collect();
+                manager.mk_mul(new_args)
+            }
+            TermKind::Div(lhs, rhs) => {
+                let new_lhs = self.apply_substitution_cached(*lhs, subst, manager, cache);
+                let new_rhs = self.apply_substitution_cached(*rhs, subst, manager, cache);
+                manager.mk_div(new_lhs, new_rhs)
+            }
+            TermKind::Mod(lhs, rhs) => {
+                let new_lhs = self.apply_substitution_cached(*lhs, subst, manager, cache);
+                let new_rhs = self.apply_substitution_cached(*rhs, subst, manager, cache);
+                manager.mk_mod(new_lhs, new_rhs)
+            }
+            TermKind::Neg(arg) => {
+                let new_arg = self.apply_substitution_cached(*arg, subst, manager, cache);
+                manager.mk_neg(new_arg)
+            }
+            TermKind::Ite(cond, then_br, else_br) => {
+                let new_cond = self.apply_substitution_cached(*cond, subst, manager, cache);
+                let new_then = self.apply_substitution_cached(*then_br, subst, manager, cache);
+                let new_else = self.apply_substitution_cached(*else_br, subst, manager, cache);
+                manager.mk_ite(new_cond, new_then, new_else)
+            }
+            TermKind::Apply { func, args } => {
+                let func_name = manager.resolve_str(*func).to_string();
+                let new_args: SmallVec<[TermId; 4]> = args
+                    .iter()
+                    .map(|&a| self.apply_substitution_cached(a, subst, manager, cache))
+                    .collect();
+                manager.mk_apply(&func_name, new_args, t.sort)
+            }
+            // Constants and other terms don't need substitution
+            _ => term,
+        };
+
+        cache.insert(term, result);
+        result
     }
 
     /// Check if an instantiation is a duplicate

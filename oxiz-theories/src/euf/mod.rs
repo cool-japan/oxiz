@@ -16,5 +16,5 @@ pub use incremental::{
     ENode, TheoryPropagator,
 };
 pub use proof::{Conflict, ProofForest, ProofManager, ProofStep};
-pub use solver::EufSolver;
+pub use solver::{ENodeFingerprint, EufSolver};
 pub use union_find::UnionFind;

@@ -28,9 +28,15 @@ use oxiz_core::sort::SortId;
 use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
 use std::cmp::Ordering;
+
+/// Entry type for function interpretation extraction: (domain_sorts, range_sort, args, result)
+type FuncEntry = (SmallVec<[SortId; 4]>, SortId, Vec<TermId>, TermId);
 use std::fmt;
 
 use super::QuantifiedFormula;
+
+/// Maximum number of elements per sort universe (to avoid combinatorial explosion)
+const MAX_UNIVERSE_SIZE: usize = 1000;
 
 /// A completed model that assigns values to all relevant terms
 #[derive(Debug, Clone)]
@@ -92,6 +98,132 @@ impl CompletedModel {
     /// Check if a sort has an uninterpreted universe
     pub fn has_uninterpreted_sort(&self, sort: SortId) -> bool {
         self.universes.contains_key(&sort)
+    }
+
+    /// Evaluate a function application f(v1, ..., vn) under this model.
+    ///
+    /// First evaluates each argument to its model value, then looks up the
+    /// function interpretation table. Falls back to else_value or sort default.
+    pub fn eval_apply(&self, func: Spur, evaluated_args: &[TermId]) -> Option<TermId> {
+        if let Some(interp) = self.function_interps.get(&func) {
+            // Try direct lookup with evaluated args
+            if let Some(result) = interp.lookup(evaluated_args) {
+                return Some(result);
+            }
+            // Try else_value
+            if let Some(else_val) = interp.else_value {
+                return Some(else_val);
+            }
+            // Try default for range sort
+            if let Some(default) = self.defaults.get(&interp.range) {
+                return Some(*default);
+            }
+        }
+        None
+    }
+
+    /// Collect the finite universe for each sort appearing in bound variables
+    /// of the given quantifiers, by scanning ground terms in the current model.
+    ///
+    /// For interpreted sorts (Int, Real, Bool, BV), collects values that actually
+    /// appear in the model assignments. For uninterpreted sorts, uses existing
+    /// universe or creates one from model values.
+    pub fn collect_universes_from_model(
+        &mut self,
+        quantifiers: &[QuantifiedFormula],
+        manager: &TermManager,
+    ) {
+        // Gather all sorts that appear in bound variables
+        let mut needed_sorts: FxHashSet<SortId> = FxHashSet::default();
+        for quant in quantifiers {
+            for &(_name, sort) in &quant.bound_vars {
+                needed_sorts.insert(sort);
+            }
+        }
+
+        // For each needed sort, build a universe from ground terms in the model
+        for sort in needed_sorts {
+            // Skip if universe already exists
+            if self.universes.contains_key(&sort) {
+                continue;
+            }
+
+            let mut universe_values: Vec<TermId> = Vec::new();
+            let mut seen: FxHashSet<TermId> = FxHashSet::default();
+
+            // Scan all model assignments for values of this sort
+            for (&term, &value) in &self.assignments {
+                // Check if the term has the right sort
+                if let Some(t) = manager.get(term) {
+                    if t.sort == sort && seen.insert(value) {
+                        universe_values.push(value);
+                    }
+                }
+                // Also check if the value itself has the right sort
+                if let Some(v) = manager.get(value) {
+                    if v.sort == sort && seen.insert(value) {
+                        universe_values.push(value);
+                    }
+                }
+            }
+
+            // Also scan function interpretation entries for values of this sort
+            for interp in self.function_interps.values() {
+                for entry in &interp.entries {
+                    // Check args
+                    for (i, &arg) in entry.args.iter().enumerate() {
+                        if i < interp.domain.len() && interp.domain[i] == sort && seen.insert(arg) {
+                            universe_values.push(arg);
+                        }
+                    }
+                    // Check result
+                    if interp.range == sort && seen.insert(entry.result) {
+                        universe_values.push(entry.result);
+                    }
+                }
+            }
+
+            // Enforce maximum universe size
+            universe_values.truncate(MAX_UNIVERSE_SIZE);
+
+            if !universe_values.is_empty() {
+                self.universes.insert(sort, universe_values);
+            }
+        }
+    }
+
+    /// Complete all function interpretations by ensuring they have an else_value.
+    ///
+    /// For each function f: S1 x ... x Sn -> S that appears in the model:
+    ///  - If it has explicit entries but no else_value, set else_value to
+    ///    the most common result value (or the sort default).
+    ///  - If it has no entries at all, set else_value to the sort default.
+    pub fn complete_function_interpretations(&mut self) {
+        // Collect updates to avoid borrow issues
+        let updates: Vec<(Spur, TermId)> = self
+            .function_interps
+            .iter()
+            .filter_map(|(&name, interp)| {
+                if interp.else_value.is_some() {
+                    return None;
+                }
+                // Try most common result
+                if let Some(most_common) = interp.max_occurrence_result() {
+                    return Some((name, most_common));
+                }
+                // Try sort default
+                if let Some(&default) = self.defaults.get(&interp.range) {
+                    return Some((name, default));
+                }
+                None
+            })
+            .collect();
+
+        for (name, else_val) in updates {
+            if let Some(interp) = self.function_interps.get_mut(&name) {
+                interp.else_value = Some(else_val);
+            }
+        }
     }
 }
 
@@ -258,7 +390,17 @@ impl ModelCompleter {
         }
     }
 
-    /// Complete a partial model
+    /// Complete a partial model using the Ge & de Moura (2009) approach.
+    ///
+    /// Steps:
+    /// 1. Start from the partial SAT+theory model
+    /// 2. Extract function interpretations from Apply terms in the model
+    /// 3. Try to solve macro quantifiers (forall x. f(x) = body)
+    /// 4. Fix incomplete function interpretations (add else values)
+    /// 5. Handle uninterpreted sorts (create finite universes)
+    /// 6. Collect universes for all sorts from ground terms in model
+    /// 7. Set default values for every sort
+    /// 8. Ensure every function has a complete interpretation
     pub fn complete(
         &mut self,
         partial_model: &FxHashMap<TermId, TermId>,
@@ -271,24 +413,103 @@ impl ModelCompleter {
         let mut completed = CompletedModel::new();
         completed.assignments = partial_model.clone();
 
-        // Try to solve some quantifiers as macros
+        // Step 1: Extract function interpretations from Apply terms in the model
+        self.extract_function_interpretations(&mut completed, manager);
+
+        // Step 2: Try to solve some quantifiers as macros
         let macro_results = self.macro_solver.solve_macros(quantifiers, manager)?;
         for (func_name, interp) in macro_results {
             completed.function_interps.insert(func_name, interp);
         }
 
-        // Complete function interpretations
+        // Step 3: Complete function interpretations (projections, else values)
         self.model_fixer
             .fix_model(&mut completed, quantifiers, manager)?;
 
-        // Handle uninterpreted sorts
+        // Step 4: Handle uninterpreted sorts
         self.uninterp_handler
             .complete_universes(&mut completed, manager)?;
 
-        // Set default values for all sorts
+        // Step 5: Set default values for all sorts
         self.set_default_values(&mut completed, manager)?;
 
+        // Step 6: Collect universes from ground terms in the model
+        // This implements the Ge & de Moura step: for each sort S, build
+        // U_S = set of all ground terms of sort S in the current model
+        completed.collect_universes_from_model(quantifiers, manager);
+
+        // Step 7: Add default values for sorts that got new universes
+        self.set_default_values(&mut completed, manager)?;
+
+        // Step 8: Ensure every function has a complete interpretation
+        completed.complete_function_interpretations();
+
         Ok(completed)
+    }
+
+    /// Extract function interpretations from Apply terms in the partial model.
+    ///
+    /// For each term f(t1,...,tn) in the model assignments that has a value,
+    /// record the entry (eval(t1),...,eval(tn)) -> value in f's interpretation.
+    fn extract_function_interpretations(&self, model: &mut CompletedModel, manager: &TermManager) {
+        // Collect all Apply terms and their values
+        let mut func_entries: FxHashMap<Spur, Vec<FuncEntry>> = FxHashMap::default();
+
+        for (&term, &value) in &model.assignments {
+            let Some(t) = manager.get(term) else {
+                continue;
+            };
+            if let TermKind::Apply { func, args } = &t.kind {
+                // Evaluate each argument in the model
+                let evaluated_args: Vec<TermId> = args
+                    .iter()
+                    .map(|&arg| model.eval(arg).unwrap_or(arg))
+                    .collect();
+
+                let domain: SmallVec<[SortId; 4]> = args
+                    .iter()
+                    .map(|&arg| manager.get(arg).map_or(manager.sorts.int_sort, |a| a.sort))
+                    .collect();
+
+                func_entries.entry(*func).or_default().push((
+                    domain,
+                    t.sort,
+                    evaluated_args,
+                    value,
+                ));
+            }
+        }
+
+        // Build function interpretations
+        for (func_name, entries) in func_entries {
+            match model.function_interps.entry(func_name) {
+                std::collections::hash_map::Entry::Occupied(mut occupied) => {
+                    // Already have an interpretation; just add entries
+                    let interp = occupied.get_mut();
+                    for (_domain, _range, args, result) in entries {
+                        let already_exists = interp.entries.iter().any(|e| e.args == args);
+                        if !already_exists {
+                            interp.add_entry(args, result);
+                        }
+                    }
+                }
+                std::collections::hash_map::Entry::Vacant(vacant) => {
+                    if let Some((domain, range, first_args, first_result)) = entries.first() {
+                        // Create new interpretation
+                        let mut interp =
+                            FunctionInterpretation::new(func_name, domain.clone(), *range);
+                        interp.add_entry(first_args.clone(), *first_result);
+                        for (_, _, args, result) in entries.iter().skip(1) {
+                            let already_exists = interp.entries.iter().any(|e| &e.args == args);
+                            if !already_exists {
+                                interp.add_entry(args.clone(), *result);
+                            }
+                        }
+                        vacant.insert(interp);
+                    }
+                }
+            }
+        }
     }
 
     /// Set default values for all sorts in the model
@@ -530,19 +751,28 @@ impl MacroSolver {
         }
     }
 
-    /// Convert a macro definition to a function interpretation
+    /// Convert a macro definition to a function interpretation.
+    ///
+    /// For a macro `forall x1:S1 ... xn:Sn. f(x1,...,xn) = body(x1,...,xn)`,
+    /// we build an interpretation where the function is defined by the body.
+    /// We record the domain sorts from the bound variables and the range sort
+    /// from the body, and mark the else_value as None (to be completed later
+    /// if needed by model completion).
     fn macro_to_interpretation(
         &self,
         macro_def: &MacroDefinition,
         manager: &mut TermManager,
     ) -> Result<FunctionInterpretation, CompletionError> {
-        // For now, create an empty interpretation
-        // In a full implementation, we would evaluate the body for various inputs
         let func_name = macro_def.func_name;
 
-        // Get function signature (this is simplified - real implementation would look it up)
-        let domain = SmallVec::new();
-        let range = manager.sorts.bool_sort; // Placeholder
+        // Extract domain sorts from bound variables
+        let domain: SmallVec<[SortId; 4]> =
+            macro_def.bound_vars.iter().map(|&(_, sort)| sort).collect();
+
+        // Determine range sort from the body term
+        let range = manager
+            .get(macro_def.body)
+            .map_or(manager.sorts.bool_sort, |t| t.sort);
 
         let interp = FunctionInterpretation::new(func_name, domain, range);
         Ok(interp)

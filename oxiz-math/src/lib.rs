@@ -96,6 +96,7 @@ pub mod bdd;
 pub mod blas;
 pub mod blas_ops;
 pub mod delta_rational;
+pub mod fast_rational;
 pub mod grobner;
 pub mod hilbert;
 pub mod interior_point;

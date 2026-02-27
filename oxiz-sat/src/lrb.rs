@@ -124,10 +124,21 @@ impl LRB {
     }
 
     /// Record that a variable appeared in conflict analysis
+    #[allow(dead_code)]
     pub fn on_reason(&mut self, var: Var) {
         let idx = var.0 as usize;
         if idx < self.num_vars {
             self.reasoned[idx] += 1;
+        }
+    }
+
+    /// Record a batch of variables that appeared in conflict analysis
+    pub fn on_reason_batch(&mut self, vars: &[Var]) {
+        for &var in vars {
+            let idx = var.0 as usize;
+            if idx < self.num_vars {
+                self.reasoned[idx] += 1;
+            }
         }
     }
 

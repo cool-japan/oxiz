@@ -357,6 +357,11 @@ mod matrix_edge_cases {
 #[cfg(test)]
 mod simplex_edge_cases {
     use super::*;
+    use oxiz_math::fast_rational::FastRational;
+
+    fn fr(n: i64) -> FastRational {
+        FastRational::from(n)
+    }
 
     #[test]
     fn test_empty_tableau() {
@@ -379,14 +384,14 @@ mod simplex_edge_cases {
     fn test_row_with_zero_coefficients() {
         let row = simplex::Row::from_expr(
             0,
-            rat(5),
+            fr(5),
             rustc_hash::FxHashMap::default(), // No coefficients
         );
 
         let mut assignment = rustc_hash::FxHashMap::default();
-        assignment.insert(1, rat(10));
+        assignment.insert(1, fr(10));
 
         // Row with no coefficients should evaluate to constant
-        assert_eq!(row.eval(&assignment), rat(5));
+        assert_eq!(row.eval(&assignment), fr(5));
     }
 }

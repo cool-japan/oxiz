@@ -862,7 +862,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // TODO: Fix IEEE754 multiplication - exponent calculation is incorrect
     fn test_interval_multiplication() {
         let mut engine = IntervalEngine::new();
 

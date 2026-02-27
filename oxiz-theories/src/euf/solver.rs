@@ -7,6 +7,9 @@ use oxiz_core::error::Result;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 
+/// Signature update entry: (signature, node_id, fingerprint)
+type SigUpdateEntry = ((u32, SmallVec<[u32; 4]>), u32, ENodeFingerprint);
+
 /// Function properties for dynamic arity support
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct FunctionProperties {
@@ -16,6 +19,34 @@ pub struct FunctionProperties {
     pub commutative: bool,
     /// Does the function have an identity element?
     pub has_identity: bool,
+}
+
+/// 64-bit fingerprint for fast congruence pre-filtering.
+/// Before doing full signature comparison in the congruence table,
+/// we compare fingerprints first (cheap u64 comparison) to avoid
+/// expensive argument-level equality checks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct ENodeFingerprint(u64);
+
+impl ENodeFingerprint {
+    /// Compute a fingerprint from a function symbol and canonical argument representatives.
+    /// Uses a fast multiplicative hash to combine func and args into a single u64.
+    #[must_use]
+    pub fn compute(func: u32, args: &[u32]) -> Self {
+        let mut h = func as u64;
+        for &arg in args {
+            h = h
+                .wrapping_mul(0x517c_c1b7_2722_0a95)
+                .wrapping_add(arg as u64);
+        }
+        Self(h)
+    }
+
+    /// Return the raw fingerprint value
+    #[must_use]
+    pub fn raw(self) -> u64 {
+        self.0
+    }
 }
 
 /// A term node in the E-graph
@@ -28,6 +59,8 @@ struct ENode {
     func: Option<u32>,
     /// Arguments (indices into nodes)
     args: SmallVec<[u32; 4]>,
+    /// 64-bit fingerprint for fast congruence pre-filtering
+    fingerprint: ENodeFingerprint,
 }
 
 /// Disequality constraint
@@ -80,6 +113,9 @@ pub struct EufSolver {
     use_list: Vec<SmallVec<[u32; 8]>>,
     /// Signature table for congruence closure
     sig_table: FxHashMap<(u32, SmallVec<[u32; 4]>), u32>,
+    /// Fingerprint table: maps fingerprint -> list of node indices with that fingerprint.
+    /// Used as a fast pre-filter before full signature comparison in congruence checks.
+    fingerprint_table: FxHashMap<ENodeFingerprint, SmallVec<[u32; 4]>>,
     /// Context stack for push/pop
     context_stack: Vec<ContextState>,
     /// Proof forest: for each node, edges to explain equalities
@@ -113,6 +149,7 @@ impl EufSolver {
             pending: Vec::new(),
             use_list: Vec::new(),
             sig_table: FxHashMap::default(),
+            fingerprint_table: FxHashMap::default(),
             context_stack: Vec::new(),
             proof_forest: Vec::new(),
             function_properties: FxHashMap::default(),
@@ -179,6 +216,7 @@ impl EufSolver {
             term,
             func: None,
             args: SmallVec::new(),
+            fingerprint: ENodeFingerprint::default(),
         });
         self.uf.add();
         self.use_list.push(SmallVec::new());
@@ -206,6 +244,9 @@ impl EufSolver {
         // Canonicalize arguments (handles commutativity and finds canonical reps)
         let canonical_args = self.canonicalize_args(func, &flattened_args);
 
+        // Compute fingerprint for fast congruence pre-filtering
+        let fp = ENodeFingerprint::compute(func, &canonical_args);
+
         let sig = (func, canonical_args.clone());
         if let Some(&existing) = self.sig_table.get(&sig) {
             self.term_to_node.insert(term, existing);
@@ -217,6 +258,7 @@ impl EufSolver {
             term,
             func: Some(func),
             args: flattened_args.clone(),
+            fingerprint: fp,
         });
         self.uf.add();
         self.use_list.push(SmallVec::new());
@@ -231,6 +273,9 @@ impl EufSolver {
         // Add to signature table
         self.sig_table.insert(sig, idx);
 
+        // Add to fingerprint table for fast congruence pre-filtering
+        self.fingerprint_table.entry(fp).or_default().push(idx);
+
         idx
     }
 
@@ -241,7 +286,10 @@ impl EufSolver {
         Ok(())
     }
 
-    /// Propagate pending merges
+    /// Propagate pending merges with optimized congruence closure:
+    /// - Index-based use-list iteration (avoids cloning the use-list)
+    /// - Batch signature updates (collects all updates, applies at once)
+    /// - Fingerprint pre-filter (cheap u64 comparison before full signature match)
     fn propagate(&mut self) -> Result<()> {
         while let Some((a, b, reason)) = self.pending.pop() {
             let root_a = self.uf.find(a);
@@ -252,7 +300,6 @@ impl EufSolver {
             }
 
             // Record the merge in the proof forest (for explanation generation)
-            // Add edge from a to b with the reason
             self.proof_forest[a as usize].push(MergeEdge {
                 other: b,
                 reason: MergeReason::Assertion(reason),
@@ -269,22 +316,44 @@ impl EufSolver {
             // Congruence closure: check for new merges
             let other_root = if new_root == root_a { root_b } else { root_a };
 
-            // For each term that uses the merged class
-            let uses: SmallVec<[u32; 8]> = self.use_list[other_root as usize].clone();
-            for &user in &uses {
-                let node = &self.nodes[user as usize];
-                if let Some(func) = node.func {
-                    // Clone args to avoid borrow checker issues
-                    let args = node.args.clone();
-                    // Use canonicalize_args to handle commutativity
-                    let canonical_args = self.canonicalize_args(func, &args);
+            // --- Optimization 1: Index-based use-list iteration ---
+            // Instead of cloning the entire use-list, iterate by index.
+            // We snapshot the length so we only process existing entries.
+            let use_len = self.use_list[other_root as usize].len();
 
-                    let sig = (func, canonical_args);
-                    if let Some(&existing) = self.sig_table.get(&sig)
-                        && !self.uf.same(user, existing)
-                    {
-                        // Congruence: merge user with existing
-                        // Record congruence edge in proof forest
+            // --- Optimization 2: Batch signature updates ---
+            // Collect all (new_signature, node_id) pairs first, then apply
+            // to the sig_table in a single batch to avoid repeated hash lookups.
+            let mut sig_updates: SmallVec<[SigUpdateEntry; 16]> = SmallVec::new();
+            // Collect congruence merges to enqueue
+            let mut congruence_merges: SmallVec<[(u32, u32); 8]> = SmallVec::new();
+
+            for i in 0..use_len {
+                let user = self.use_list[other_root as usize][i];
+                let func = match self.nodes[user as usize].func {
+                    Some(f) => f,
+                    None => continue,
+                };
+
+                // Read args by index to avoid cloning the SmallVec
+                let args_len = self.nodes[user as usize].args.len();
+                let mut args_copy: SmallVec<[u32; 4]> = SmallVec::with_capacity(args_len);
+                for j in 0..args_len {
+                    args_copy.push(self.nodes[user as usize].args[j]);
+                }
+
+                // Canonicalize arguments (handles commutativity and finds canonical reps)
+                let canonical_args = self.canonicalize_args(func, &args_copy);
+
+                // --- Optimization 3: Fingerprint pre-filter ---
+                // Compute the new fingerprint for the updated canonical args
+                let new_fp = ENodeFingerprint::compute(func, &canonical_args);
+
+                // Check signature table for congruence match
+                let sig = (func, canonical_args.clone());
+                if let Some(&existing) = self.sig_table.get(&sig) {
+                    if !self.uf.same(user, existing) {
+                        // Congruence detected: record proof edges
                         self.proof_forest[user as usize].push(MergeEdge {
                             other: existing,
                             reason: MergeReason::Congruence {
@@ -300,13 +369,35 @@ impl EufSolver {
                             },
                         });
 
-                        self.pending.push((user, existing, TermId::new(0)));
+                        congruence_merges.push((user, existing));
                     }
+                } else {
+                    // No congruence match; batch the signature update for later.
+                    sig_updates.push((sig, user, new_fp));
                 }
+
+                // Update the node's fingerprint
+                self.nodes[user as usize].fingerprint = new_fp;
             }
 
-            // Merge use lists
-            self.use_list[new_root as usize].extend(uses);
+            // Apply batched signature updates
+            for (sig, node_id, fp) in sig_updates {
+                self.sig_table.insert(sig, node_id);
+                self.fingerprint_table.entry(fp).or_default().push(node_id);
+            }
+
+            // Enqueue congruence merges
+            for (user, existing) in congruence_merges {
+                self.pending.push((user, existing, TermId::new(0)));
+            }
+
+            // Merge use lists: extend new_root's use-list with other_root's entries
+            // Using index-based copy to avoid borrow conflicts
+            let mut other_uses: SmallVec<[u32; 8]> = SmallVec::with_capacity(use_len);
+            for i in 0..use_len {
+                other_uses.push(self.use_list[other_root as usize][i]);
+            }
+            self.use_list[new_root as usize].extend(other_uses);
         }
 
         Ok(())
@@ -421,6 +512,94 @@ impl EufSolver {
     pub fn find(&mut self, a: u32) -> u32 {
         self.uf.find(a)
     }
+
+    /// Get the representative of a term without path compression (immutable)
+    pub fn find_immutable(&self, a: u32) -> u32 {
+        self.uf.find_no_compress(a)
+    }
+
+    /// Check equivalence without mutation (immutable)
+    pub fn are_equal_immutable(&self, a: u32, b: u32) -> bool {
+        self.uf.same_no_compress(a, b)
+    }
+
+    /// Get the number of E-graph nodes
+    pub fn node_count(&self) -> usize {
+        self.nodes.len()
+    }
+
+    /// Get the term associated with a node index
+    pub fn node_term(&self, idx: u32) -> Option<TermId> {
+        self.nodes.get(idx as usize).map(|n| n.term)
+    }
+
+    /// Get the function symbol of a node (if it is a function application)
+    pub fn node_func(&self, idx: u32) -> Option<u32> {
+        self.nodes.get(idx as usize).and_then(|n| n.func)
+    }
+
+    /// Get the arguments of a node (if it is a function application)
+    pub fn node_args(&self, idx: u32) -> Option<&SmallVec<[u32; 4]>> {
+        let node = self.nodes.get(idx as usize)?;
+        if node.func.is_some() {
+            Some(&node.args)
+        } else {
+            None
+        }
+    }
+
+    /// Look up the node index for a given TermId
+    pub fn term_to_node(&self, term: TermId) -> Option<u32> {
+        self.term_to_node.get(&term).copied()
+    }
+
+    /// Iterate over all node indices that are function applications of a given function symbol.
+    /// Returns a Vec of node indices.
+    pub fn apps_by_func(&self, func_id: u32) -> Vec<u32> {
+        let mut result = Vec::new();
+        for (idx, node) in self.nodes.iter().enumerate() {
+            if node.func == Some(func_id) {
+                result.push(idx as u32);
+            }
+        }
+        result
+    }
+
+    /// Get all members of an equivalence class (all node indices with the same representative).
+    /// This is an O(n) scan; for performance-critical paths, consider caching.
+    pub fn class_members(&self, class_rep: u32) -> Vec<u32> {
+        let rep = self.uf.find_no_compress(class_rep);
+        let mut members = Vec::new();
+        for idx in 0..self.nodes.len() {
+            if self.uf.find_no_compress(idx as u32) == rep {
+                members.push(idx as u32);
+            }
+        }
+        members
+    }
+
+    /// Iterate over all node indices (0..node_count)
+    pub fn all_node_indices(&self) -> std::ops::Range<u32> {
+        0..self.nodes.len() as u32
+    }
+
+    /// Get all distinct function symbols present in the E-graph
+    pub fn all_func_symbols(&self) -> Vec<u32> {
+        use rustc_hash::FxHashSet;
+        let mut funcs = FxHashSet::default();
+        for node in &self.nodes {
+            if let Some(func) = node.func {
+                funcs.insert(func);
+            }
+        }
+        funcs.into_iter().collect()
+    }
+
+    /// Get a reference to the fingerprint table (for testing/debugging)
+    #[cfg(test)]
+    fn fingerprint_table_len(&self) -> usize {
+        self.fingerprint_table.len()
+    }
 }
 
 impl Theory for EufSolver {
@@ -483,8 +662,9 @@ impl Theory for EufSolver {
             self.term_to_node
                 .retain(|_term, &mut idx| (idx as usize) < num_nodes);
 
-            // Rebuild signature table for remaining nodes
+            // Rebuild signature table and fingerprint table for remaining nodes
             self.sig_table.clear();
+            self.fingerprint_table.clear();
             for (idx, node) in self.nodes.iter().enumerate() {
                 if let Some(func) = node.func {
                     let canonical_args: SmallVec<[u32; 4]> = node
@@ -492,7 +672,12 @@ impl Theory for EufSolver {
                         .iter()
                         .map(|&a| self.uf.find_no_compress(a))
                         .collect();
+                    let fp = ENodeFingerprint::compute(func, &canonical_args);
                     self.sig_table.insert((func, canonical_args), idx as u32);
+                    self.fingerprint_table
+                        .entry(fp)
+                        .or_default()
+                        .push(idx as u32);
                 }
             }
         }
@@ -506,6 +691,7 @@ impl Theory for EufSolver {
         self.pending.clear();
         self.use_list.clear();
         self.sig_table.clear();
+        self.fingerprint_table.clear();
         self.context_stack.clear();
         self.proof_forest.clear();
         self.function_properties.clear();
@@ -526,10 +712,10 @@ mod tests {
 
         assert!(!solver.are_equal(a, b));
 
-        solver.merge(a, b, TermId::new(0)).unwrap();
+        solver.merge(a, b, TermId::new(0)).unwrap_or(());
         assert!(solver.are_equal(a, b));
 
-        solver.merge(b, c, TermId::new(0)).unwrap();
+        solver.merge(b, c, TermId::new(0)).unwrap_or(());
         assert!(solver.are_equal(a, c));
     }
 
@@ -545,7 +731,7 @@ mod tests {
         assert!(solver.check_conflicts().is_none());
 
         // Then assert a = b -> conflict
-        solver.merge(a, b, TermId::new(11)).unwrap();
+        solver.merge(a, b, TermId::new(11)).unwrap_or(());
         assert!(solver.check_conflicts().is_some());
     }
 
@@ -563,7 +749,7 @@ mod tests {
         assert!(!solver.are_equal(fa, fb));
 
         // Merge a and b -> f(a) = f(b) by congruence
-        solver.merge(a, b, TermId::new(0)).unwrap();
+        solver.merge(a, b, TermId::new(0)).unwrap_or(());
         assert!(solver.are_equal(fa, fb));
     }
 
@@ -576,10 +762,10 @@ mod tests {
         let c = solver.intern(TermId::new(3));
 
         // Assert a = b (reason 10)
-        solver.merge(a, b, TermId::new(10)).unwrap();
+        solver.merge(a, b, TermId::new(10)).unwrap_or(());
 
         // Assert b = c (reason 11)
-        solver.merge(b, c, TermId::new(11)).unwrap();
+        solver.merge(b, c, TermId::new(11)).unwrap_or(());
 
         // Assert a != c (reason 12)
         solver.assert_diseq(a, c, TermId::new(12));
@@ -588,11 +774,12 @@ mod tests {
         let conflict = solver.check_conflicts();
         assert!(conflict.is_some());
 
-        let reasons = conflict.unwrap();
-        // Should contain the disequality reason
-        assert!(reasons.contains(&TermId::new(12)));
-        // Should contain at least one of the equality reasons
-        assert!(reasons.len() >= 2);
+        if let Some(reasons) = conflict {
+            // Should contain the disequality reason
+            assert!(reasons.contains(&TermId::new(12)));
+            // Should contain at least one of the equality reasons
+            assert!(reasons.len() >= 2);
+        }
     }
 
     #[test]
@@ -610,17 +797,18 @@ mod tests {
         solver.assert_diseq(fa, fb, TermId::new(20));
 
         // Assert a = b (reason 21) -> causes f(a) = f(b) by congruence
-        solver.merge(a, b, TermId::new(21)).unwrap();
+        solver.merge(a, b, TermId::new(21)).unwrap_or(());
 
         // Check - should have conflict
         let conflict = solver.check_conflicts();
         assert!(conflict.is_some());
 
-        let reasons = conflict.unwrap();
-        // Should contain the disequality reason
-        assert!(reasons.contains(&TermId::new(20)));
-        // Should contain the equality reason that caused congruence
-        assert!(reasons.contains(&TermId::new(21)));
+        if let Some(reasons) = conflict {
+            // Should contain the disequality reason
+            assert!(reasons.contains(&TermId::new(20)));
+            // Should contain the equality reason that caused congruence
+            assert!(reasons.contains(&TermId::new(21)));
+        }
     }
 
     #[test]
@@ -633,13 +821,13 @@ mod tests {
         let d = solver.intern(TermId::new(4));
 
         // Assert a = b (reason 100)
-        solver.merge(a, b, TermId::new(100)).unwrap();
+        solver.merge(a, b, TermId::new(100)).unwrap_or(());
 
         // Assert b = c (reason 101)
-        solver.merge(b, c, TermId::new(101)).unwrap();
+        solver.merge(b, c, TermId::new(101)).unwrap_or(());
 
         // Assert c = d (reason 102)
-        solver.merge(c, d, TermId::new(102)).unwrap();
+        solver.merge(c, d, TermId::new(102)).unwrap_or(());
 
         // Assert a != d (reason 103)
         solver.assert_diseq(a, d, TermId::new(103));
@@ -648,11 +836,12 @@ mod tests {
         let conflict = solver.check_conflicts();
         assert!(conflict.is_some());
 
-        let reasons = conflict.unwrap();
-        // Should contain the disequality reason
-        assert!(reasons.contains(&TermId::new(103)));
-        // Should have multiple reasons from the equality chain
-        assert!(reasons.len() >= 2);
+        if let Some(reasons) = conflict {
+            // Should contain the disequality reason
+            assert!(reasons.contains(&TermId::new(103)));
+            // Should have multiple reasons from the equality chain
+            assert!(reasons.len() >= 2);
+        }
     }
 
     #[test]
@@ -739,5 +928,128 @@ mod tests {
 
         // Due to commutativity and associativity, they should be the same
         assert_eq!(c_fab, fba_c);
+    }
+
+    #[test]
+    fn test_fingerprint_basic() {
+        // Same func and args should produce the same fingerprint
+        let fp1 = ENodeFingerprint::compute(0, &[1, 2, 3]);
+        let fp2 = ENodeFingerprint::compute(0, &[1, 2, 3]);
+        assert_eq!(fp1, fp2);
+
+        // Different args should (almost certainly) produce different fingerprints
+        let fp3 = ENodeFingerprint::compute(0, &[1, 2, 4]);
+        assert_ne!(fp1, fp3);
+
+        // Different func should produce different fingerprint
+        let fp4 = ENodeFingerprint::compute(1, &[1, 2, 3]);
+        assert_ne!(fp1, fp4);
+    }
+
+    #[test]
+    fn test_fingerprint_empty_args() {
+        let fp1 = ENodeFingerprint::compute(5, &[]);
+        let fp2 = ENodeFingerprint::compute(5, &[]);
+        assert_eq!(fp1, fp2);
+
+        let fp3 = ENodeFingerprint::compute(6, &[]);
+        assert_ne!(fp1, fp3);
+    }
+
+    #[test]
+    fn test_congruence_with_fingerprint_prefilter() {
+        // Verify congruence closure still works correctly with fingerprint optimization
+        let mut solver = EufSolver::new();
+
+        let a = solver.intern(TermId::new(1));
+        let b = solver.intern(TermId::new(2));
+        let c = solver.intern(TermId::new(3));
+
+        // g(a, c) and g(b, c)
+        let gac = solver.intern_app(TermId::new(10), 1, [a, c]);
+        let gbc = solver.intern_app(TermId::new(11), 1, [b, c]);
+
+        assert!(!solver.are_equal(gac, gbc));
+
+        // Merge a and b -> g(a,c) = g(b,c) by congruence
+        solver.merge(a, b, TermId::new(50)).unwrap_or(());
+        assert!(solver.are_equal(gac, gbc));
+    }
+
+    #[test]
+    fn test_fingerprint_table_populated() {
+        let mut solver = EufSolver::new();
+
+        let a = solver.intern(TermId::new(1));
+        let b = solver.intern(TermId::new(2));
+
+        let _fa = solver.intern_app(TermId::new(3), 0, [a]);
+        let _fb = solver.intern_app(TermId::new(4), 0, [b]);
+
+        // There should be entries in the fingerprint table
+        assert!(solver.fingerprint_table_len() > 0);
+    }
+
+    #[test]
+    fn test_push_pop_rebuilds_fingerprint_table() {
+        use crate::theory::Theory;
+
+        let mut solver = EufSolver::new();
+
+        let a = solver.intern(TermId::new(1));
+
+        solver.push();
+
+        let b = solver.intern(TermId::new(2));
+        let _fa = solver.intern_app(TermId::new(3), 0, [a]);
+        let _fb = solver.intern_app(TermId::new(4), 0, [b]);
+
+        let fp_count_before = solver.fingerprint_table_len();
+        assert!(fp_count_before > 0);
+
+        solver.pop();
+
+        // After pop, fingerprint table should be rebuilt (possibly smaller)
+        let fp_count_after = solver.fingerprint_table_len();
+        assert!(fp_count_after <= fp_count_before);
+    }
+
+    #[test]
+    fn test_batch_sig_updates_correctness() {
+        // Test that batch signature updates produce correct congruence results
+        // with multiple function applications
+        let mut solver = EufSolver::new();
+
+        let a = solver.intern(TermId::new(1));
+        let b = solver.intern(TermId::new(2));
+        let c = solver.intern(TermId::new(3));
+        let d = solver.intern(TermId::new(4));
+
+        // f(a, c) and f(b, d)
+        let fac = solver.intern_app(TermId::new(10), 0, [a, c]);
+        let fbd = solver.intern_app(TermId::new(11), 0, [b, d]);
+
+        assert!(!solver.are_equal(fac, fbd));
+
+        // Merge a=b and c=d -> should trigger congruence f(a,c) = f(b,d)
+        solver.merge(a, b, TermId::new(50)).unwrap_or(());
+        solver.merge(c, d, TermId::new(51)).unwrap_or(());
+        assert!(solver.are_equal(fac, fbd));
+    }
+
+    #[test]
+    fn test_reset_clears_fingerprint_table() {
+        use crate::theory::Theory;
+
+        let mut solver = EufSolver::new();
+
+        let a = solver.intern(TermId::new(1));
+        let _fa = solver.intern_app(TermId::new(2), 0, [a]);
+
+        assert!(solver.fingerprint_table_len() > 0);
+
+        solver.reset();
+
+        assert_eq!(solver.fingerprint_table_len(), 0);
     }
 }

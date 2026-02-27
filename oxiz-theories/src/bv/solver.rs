@@ -1,7 +1,7 @@
 //! BitVector Theory Solver
 
 use crate::config::BvConfig;
-use crate::theory::{Theory, TheoryId, TheoryResult};
+use crate::theory::{EqualityNotification, Theory, TheoryCombination, TheoryId, TheoryResult};
 use oxiz_core::ast::TermId;
 use oxiz_core::error::Result;
 use oxiz_sat::{Lit, Solver as SatSolver, SolverResult, Var};
@@ -40,6 +40,12 @@ pub struct BvSolver {
     /// Track unsigned less-than comparisons for conflict detection
     /// Maps (a, b) -> SAT variable representing a < b
     ult_cache: FxHashMap<ComparisonKey, Var>,
+    /// Shared equalities derived by BV theory for Nelson-Oppen combination.
+    /// BV is a finite domain theory, so equalities are extracted from the
+    /// current model/assignment using model-based combination.
+    shared_equalities: Vec<EqualityNotification>,
+    /// Pending equality notifications received from other theories
+    equality_notifications: Vec<EqualityNotification>,
 }
 
 impl Default for BvSolver {
@@ -65,18 +71,17 @@ impl BvSolver {
             context_stack: Vec::new(),
             config,
             ult_cache: FxHashMap::default(),
+            shared_equalities: Vec::new(),
+            equality_notifications: Vec::new(),
         }
     }
 
     /// Create a new bit vector variable
     pub fn new_bv(&mut self, term: TermId, width: u32) -> &BvVar {
-        if !self.term_to_bv.contains_key(&term) {
+        self.term_to_bv.entry(term).or_insert_with(|| {
             let bits: SmallVec<[Var; 32]> = (0..width).map(|_| self.sat.new_var()).collect();
-            self.term_to_bv.insert(term, BvVar { bits, width });
-        }
-        self.term_to_bv
-            .get(&term)
-            .expect("BvVar should exist after insertion")
+            BvVar { bits, width }
+        })
     }
 
     /// Get the BV variable for a term
@@ -1470,6 +1475,133 @@ impl Theory for BvSolver {
         self.assertions.clear();
         self.context_stack.clear();
         self.ult_cache.clear();
+        self.shared_equalities.clear();
+        self.equality_notifications.clear();
+    }
+
+    fn get_model(&self) -> Vec<(TermId, TermId)> {
+        // Read the SAT model and construct bit-vector value assignments.
+        // For each BV variable term, read its bit values from the SAT model
+        // and group terms by their concrete value. For each group, the
+        // representative (first term) serves as the "value term", and all
+        // other terms in the group map to that representative.
+        //
+        // Additionally, each term maps to itself as a self-assignment to
+        // record its participation in the model.
+        let model = self.sat.model();
+        let mut value_to_terms: FxHashMap<(u64, u32), Vec<TermId>> = FxHashMap::default();
+
+        for (&term, bv_var) in &self.term_to_bv {
+            let mut value = 0u64;
+            for (i, &var) in bv_var.bits.iter().enumerate() {
+                if model.get(var.index()).is_some_and(|v| v.is_true()) {
+                    value |= 1u64 << i;
+                }
+            }
+            // Key by (value, width) so terms of different widths stay separate
+            value_to_terms
+                .entry((value, bv_var.width))
+                .or_default()
+                .push(term);
+        }
+
+        let mut assignments = Vec::new();
+        for terms in value_to_terms.values() {
+            if terms.is_empty() {
+                continue;
+            }
+            // The first term acts as the representative "value term" for this group.
+            let representative = terms[0];
+            for &term in terms {
+                assignments.push((term, representative));
+            }
+        }
+        assignments
+    }
+}
+
+impl TheoryCombination for BvSolver {
+    fn notify_equality(&mut self, eq: EqualityNotification) -> bool {
+        // Check if both terms are relevant to the BV theory
+        let lhs_known = self.term_to_bv.contains_key(&eq.lhs);
+        let rhs_known = self.term_to_bv.contains_key(&eq.rhs);
+
+        if lhs_known && rhs_known {
+            // Both terms are BV variables -- enforce bit-level equality
+            // via SAT encoding and check for consistency
+            self.assert_eq(eq.lhs, eq.rhs);
+            self.equality_notifications.push(eq);
+
+            // After encoding the equality, check if the SAT solver detects
+            // an immediate conflict (e.g., the two BVs were already constrained
+            // to different constant values)
+            match self.sat.solve() {
+                SolverResult::Unsat => {
+                    // The equality is inconsistent with current BV constraints
+                    self.sat.backtrack_to_root();
+                    false
+                }
+                _ => {
+                    // Extract model-based equalities: if two BV terms now have
+                    // the same value in the model, propagate that equality
+                    self.extract_model_equalities();
+                    self.sat.backtrack_to_root();
+                    true
+                }
+            }
+        } else if lhs_known || rhs_known {
+            // One term is a BV term, the other is foreign (shared variable).
+            // Record the notification for later processing.
+            self.equality_notifications.push(eq);
+            true
+        } else {
+            // Neither term is relevant to this theory
+            false
+        }
+    }
+
+    fn get_shared_equalities(&self) -> Vec<EqualityNotification> {
+        self.shared_equalities.clone()
+    }
+
+    fn is_relevant(&self, term: TermId) -> bool {
+        self.term_to_bv.contains_key(&term)
+    }
+}
+
+impl BvSolver {
+    /// Extract equalities from the current BV model.
+    ///
+    /// BV is a finite-domain theory, so we use model-based combination:
+    /// if two distinct BV terms evaluate to the same bit-vector value in
+    /// the current SAT model, we derive an equality between them.
+    fn extract_model_equalities(&mut self) {
+        // Collect (term, value) pairs from the current model
+        let model = self.sat.model();
+        let mut value_map: FxHashMap<u64, Vec<TermId>> = FxHashMap::default();
+
+        for (&term, bv_var) in &self.term_to_bv {
+            let mut value = 0u64;
+            for (i, &var) in bv_var.bits.iter().enumerate() {
+                if model.get(var.index()).is_some_and(|v| v.is_true()) {
+                    value |= 1u64 << i;
+                }
+            }
+            value_map.entry(value).or_default().push(term);
+        }
+
+        // For each group of terms with the same value, derive pairwise equalities
+        self.shared_equalities.clear();
+        for terms in value_map.values() {
+            if terms.len() >= 2 {
+                // Only propagate the first pair to avoid quadratic blowup
+                self.shared_equalities.push(EqualityNotification {
+                    lhs: terms[0],
+                    rhs: terms[1],
+                    reason: None,
+                });
+            }
+        }
     }
 }
 

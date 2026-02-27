@@ -5,6 +5,7 @@ use crate::chrono::ChronoBacktrack;
 use crate::clause::{ClauseDatabase, ClauseId};
 use crate::literal::{LBool, Lit, Var};
 use crate::lrb::LRB;
+use crate::memory_opt::{MemoryAction, MemoryOptimizer};
 use crate::trail::{Reason, Trail};
 use crate::vsids::VSIDS;
 use crate::watched::{WatchLists, Watcher};
@@ -342,6 +343,8 @@ pub struct Solver {
     chrono_backtrack: ChronoBacktrack,
     /// Clause activity bump increment (for MapleSAT-style clause bumping)
     clause_bump_increment: f64,
+    /// Memory optimizer with size-class pools for clause allocation
+    memory_optimizer: MemoryOptimizer,
 }
 
 impl Default for Solver {
@@ -398,6 +401,7 @@ impl Solver {
             conflicts_since_inprocessing: 0,
             chrono_backtrack: ChronoBacktrack::new(chrono_enabled, chrono_threshold),
             clause_bump_increment: 1.0,
+            memory_optimizer: MemoryOptimizer::new(),
         }
     }
 
@@ -956,6 +960,12 @@ impl Solver {
     }
 
     /// Unit propagation using two-watched literals
+    ///
+    /// Uses SIMD-friendly batch blocker pre-filtering: before entering the
+    /// fine-grained per-watcher loop, we check blockers in chunks of 8.
+    /// Watchers whose blockers are satisfied are fast-tracked back into the
+    /// watch list without touching the clause database, which is the most
+    /// expensive part of propagation.
     fn propagate(&mut self) -> Option<ClauseId> {
         while let Some(lit) = self.trail.next_to_propagate() {
             self.stats.propagations += 1;
@@ -981,20 +991,60 @@ impl Solver {
             // Get watches for the negation of the propagated literal
             let watches = std::mem::take(self.watches.get_mut(lit));
 
-            let mut i = 0;
-            while i < watches.len() {
-                let watcher = watches[i];
+            // === SIMD-friendly blocker pre-filter ===
+            // Process watchers in chunks of 8. For each chunk, check blockers
+            // in a tight loop that LLVM can auto-vectorize. Watchers whose
+            // blockers are already satisfied are immediately pushed back to
+            // the watch list (skipping the expensive clause database lookup).
+            // Non-satisfied watchers are collected for detailed processing.
+            const SIMD_CHUNK: usize = 8;
+            let mut needs_processing: SmallVec<[usize; 64]> = SmallVec::new();
 
-                // Check blocker
-                if self.trail.lit_value(watcher.blocker).is_true() {
-                    i += 1;
-                    continue;
+            // Batch blocker check in SIMD-friendly chunks
+            let mut chunk_start = 0;
+            while chunk_start + SIMD_CHUNK <= watches.len() {
+                // Tight loop over chunk for auto-vectorization of blocker checks
+                let mut satisfied_mask: [bool; SIMD_CHUNK] = [false; SIMD_CHUNK];
+                for k in 0..SIMD_CHUNK {
+                    satisfied_mask[k] = self
+                        .trail
+                        .lit_value(watches[chunk_start + k].blocker)
+                        .is_true();
                 }
+
+                // Dispatch based on mask
+                for (k, &satisfied) in satisfied_mask.iter().enumerate() {
+                    let idx = chunk_start + k;
+                    if satisfied {
+                        // Blocker is satisfied - fast path: push back directly
+                        self.watches.get_mut(lit).push(watches[idx]);
+                    } else {
+                        // Needs detailed processing
+                        needs_processing.push(idx);
+                    }
+                }
+                chunk_start += SIMD_CHUNK;
+            }
+
+            // Handle remaining watchers (< SIMD_CHUNK) with scalar blocker check
+            for idx in chunk_start..watches.len() {
+                if self.trail.lit_value(watches[idx].blocker).is_true() {
+                    self.watches.get_mut(lit).push(watches[idx]);
+                } else {
+                    needs_processing.push(idx);
+                }
+            }
+
+            // === Detailed processing for non-satisfied watchers ===
+            let mut conflict_found: Option<ClauseId> = None;
+
+            for (proc_idx, &wi) in needs_processing.iter().enumerate() {
+                let watcher = watches[wi];
 
                 let clause = match self.clauses.get_mut(watcher.clause) {
                     Some(c) if !c.deleted => c,
                     _ => {
-                        i += 1;
+                        // Deleted clause - skip, don't re-add to watch list
                         continue;
                     }
                 };
@@ -1007,11 +1057,10 @@ impl Solver {
                 // If first watch is true, clause is satisfied
                 let first = clause.lits[0];
                 if self.trail.lit_value(first).is_true() {
-                    // Update blocker
+                    // Update blocker to the satisfied literal
                     self.watches
                         .get_mut(lit)
                         .push(Watcher::new(watcher.clause, first));
-                    i += 1;
                     continue;
                 }
 
@@ -1029,7 +1078,6 @@ impl Solver {
                 }
 
                 if found {
-                    i += 1;
                     continue;
                 }
 
@@ -1039,12 +1087,12 @@ impl Solver {
                     .push(Watcher::new(watcher.clause, first));
 
                 if self.trail.lit_value(first).is_false() {
-                    // Conflict
-                    // Put remaining watches back
-                    for j in (i + 1)..watches.len() {
-                        self.watches.get_mut(lit).push(watches[j]);
+                    // Conflict - push remaining unprocessed watchers back
+                    for &remaining_wi in &needs_processing[(proc_idx + 1)..] {
+                        self.watches.get_mut(lit).push(watches[remaining_wi]);
                     }
-                    return Some(watcher.clause);
+                    conflict_found = Some(watcher.clause);
+                    break;
                 } else {
                     // Unit propagation
                     self.trail.assign_propagation(first, watcher.clause);
@@ -1054,8 +1102,10 @@ impl Solver {
                         self.check_hyper_binary_resolution(lit, first, watcher.clause);
                     }
                 }
+            }
 
-                i += 1;
+            if let Some(conflict) = conflict_found {
+                return Some(conflict);
             }
         }
 
@@ -1103,6 +1153,9 @@ impl Solver {
             *s = false;
         }
 
+        // Collect variables to bump in batch (avoids repeated heap sift-ups)
+        let mut vars_to_bump: SmallVec<[Var; 32]> = SmallVec::new();
+
         let mut reason_clause = conflict;
 
         loop {
@@ -1133,9 +1186,8 @@ impl Solver {
 
                 if !self.seen[var.index()] && level > 0 {
                     self.seen[var.index()] = true;
-                    self.vsids.bump(var);
-                    self.chb.bump(var);
-                    self.lrb.on_reason(var);
+                    // Collect variable for batch bumping instead of individual bumps
+                    vars_to_bump.push(var);
 
                     if level == current_level {
                         counter += 1;
@@ -1170,6 +1222,11 @@ impl Solver {
                 _ => break,
             }
         }
+
+        // Batch bump all collected variables at once (single heap rebuild)
+        self.vsids.bump_batch(&vars_to_bump);
+        self.chb.bump_batch(&vars_to_bump);
+        self.lrb.on_reason_batch(&vars_to_bump);
 
         // Set asserting literal (p is guaranteed to be Some at this point)
         if let Some(lit) = p {
@@ -1657,16 +1714,32 @@ impl Solver {
         let num_local_delete = (local_candidates.len() * 3) / 4;
 
         for (cid, _) in core_candidates.iter().take(num_core_delete) {
+            // Track clause size for memory pool accounting before removal
+            if let Some(clause) = self.clauses.get(*cid) {
+                let num_lits = clause.lits.len();
+                let buf = self.memory_optimizer.allocate(num_lits);
+                self.memory_optimizer.free(buf, num_lits);
+            }
             self.clauses.remove(*cid);
             self.stats.deleted_clauses += 1;
         }
 
         for (cid, _) in mid_candidates.iter().take(num_mid_delete) {
+            if let Some(clause) = self.clauses.get(*cid) {
+                let num_lits = clause.lits.len();
+                let buf = self.memory_optimizer.allocate(num_lits);
+                self.memory_optimizer.free(buf, num_lits);
+            }
             self.clauses.remove(*cid);
             self.stats.deleted_clauses += 1;
         }
 
         for (cid, _) in local_candidates.iter().take(num_local_delete) {
+            if let Some(clause) = self.clauses.get(*cid) {
+                let num_lits = clause.lits.len();
+                let buf = self.memory_optimizer.allocate(num_lits);
+                self.memory_optimizer.free(buf, num_lits);
+            }
             self.clauses.remove(*cid);
             self.stats.deleted_clauses += 1;
         }
@@ -1674,6 +1747,21 @@ impl Solver {
         // Clean up learned_clause_ids (remove deleted clauses)
         self.learned_clause_ids
             .retain(|&cid| self.clauses.get(cid).is_some_and(|c| !c.deleted));
+
+        // Apply memory optimizer recommendations after deletion
+        match self.memory_optimizer.recommend_action() {
+            MemoryAction::Compact => {
+                self.memory_optimizer.compact();
+                self.clauses.compact();
+            }
+            MemoryAction::ReduceClauseDatabase => {
+                // Already reduced; just compact the pool
+                self.memory_optimizer.compact();
+            }
+            MemoryAction::ExpandPools | MemoryAction::None => {
+                // No action needed
+            }
+        }
     }
 
     /// Save the model
@@ -1700,6 +1788,12 @@ impl Solver {
     #[must_use]
     pub fn stats(&self) -> &SolverStats {
         &self.stats
+    }
+
+    /// Get memory optimizer statistics
+    #[must_use]
+    pub fn memory_opt_stats(&self) -> &crate::memory_opt::MemoryOptStats {
+        self.memory_optimizer.stats()
     }
 
     /// Get number of variables
@@ -2016,6 +2110,9 @@ impl Solver {
             *s = false;
         }
 
+        // Collect variables for batch bumping
+        let mut vars_to_bump: SmallVec<[Var; 32]> = SmallVec::new();
+
         // Process conflict literals
         for &lit in conflict_lits {
             let var = lit.var();
@@ -2023,8 +2120,7 @@ impl Solver {
 
             if !self.seen[var.index()] && level > 0 {
                 self.seen[var.index()] = true;
-                self.vsids.bump(var);
-                self.chb.bump(var);
+                vars_to_bump.push(var);
 
                 if level == current_level {
                     counter += 1;
@@ -2062,8 +2158,7 @@ impl Solver {
 
                         if !self.seen[reason_var.index()] && level > 0 {
                             self.seen[reason_var.index()] = true;
-                            self.vsids.bump(reason_var);
-                            self.chb.bump(reason_var);
+                            vars_to_bump.push(reason_var);
 
                             if level == current_level {
                                 counter += 1;
@@ -2076,6 +2171,11 @@ impl Solver {
                 }
             }
         }
+
+        // Batch bump all collected variables
+        self.vsids.bump_batch(&vars_to_bump);
+        self.chb.bump_batch(&vars_to_bump);
+        self.lrb.on_reason_batch(&vars_to_bump);
 
         // Set asserting literal
         if let Some(uip) = p {
@@ -2131,7 +2231,11 @@ impl Solver {
 
     /// Learn a clause and set up watches
     /// Includes on-the-fly subsumption check
+    /// Tracks allocation via memory optimizer for size-class pool accounting
     fn learn_clause(&mut self, learnt_clause: SmallVec<[Lit; 16]>) {
+        // Track allocation in memory optimizer for pool accounting
+        let _pool_buf = self.memory_optimizer.allocate(learnt_clause.len());
+
         if learnt_clause.len() == 1 {
             // Store unit learned clause in database for persistence across backtracks
             let clause_id = self.clauses.add_learned(learnt_clause.iter().copied());

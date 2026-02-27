@@ -63,7 +63,9 @@ pub mod model_completion;
 pub mod patterns;
 
 // Re-export key types
-pub use counterexample::{CounterExample, CounterExampleGenerator, RefinementStrategy};
+pub use counterexample::{
+    CexGenerationResult, CounterExample, CounterExampleGenerator, RefinementStrategy,
+};
 pub use finite_model::{FiniteModel, FiniteModelFinder, SymmetryBreaker, UniverseSize};
 pub use heuristics::{InstantiationHeuristic, MBQIHeuristics, SelectionStrategy, TriggerSelection};
 pub use instantiation::{

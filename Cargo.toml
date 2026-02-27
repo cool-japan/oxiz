@@ -134,9 +134,14 @@ num-integer = "0.1"
 rand = "0.9"
 
 [profile.release]
-lto = true
+panic = "abort"
+lto = "thin"
 codegen-units = 1
 opt-level = 3
+
+[profile.bench]
+inherits = "release"
+debug = true
 
 [profile.dev]
 opt-level = 1

@@ -449,9 +449,9 @@ impl LazyInstantiator {
         let mut instantiations = Vec::new();
 
         for quantifier in quantifiers {
-            let cexs = self.cex_generator.generate(quantifier, model, manager);
+            let cex_result = self.cex_generator.generate(quantifier, model, manager);
 
-            for cex in cexs {
+            for cex in cex_result.counterexamples {
                 let substituted =
                     self.apply_substitution(quantifier.body, &cex.assignment, manager);
                 let inst = cex.to_instantiation(substituted);
@@ -489,11 +489,11 @@ impl LazyInstantiator {
                 break;
             };
 
-            let cexs = self
+            let cex_result = self
                 .cex_generator
                 .generate(&pending.quantifier, model, manager);
 
-            for cex in cexs {
+            for cex in cex_result.counterexamples {
                 if instantiations.len() >= max_instantiations {
                     break;
                 }
@@ -528,9 +528,9 @@ impl LazyInstantiator {
                 continue;
             }
 
-            let cexs = self.cex_generator.generate(quantifier, model, manager);
+            let cex_result = self.cex_generator.generate(quantifier, model, manager);
 
-            for cex in cexs {
+            for cex in cex_result.counterexamples {
                 let substituted =
                     self.apply_substitution(quantifier.body, &cex.assignment, manager);
                 let inst = cex.to_instantiation(substituted);
@@ -565,11 +565,11 @@ impl LazyInstantiator {
 
         // Process in priority order
         while let Some(scored) = self.priority_queue.pop() {
-            let cexs = self
+            let cex_result = self
                 .cex_generator
                 .generate(&scored.quantifier, model, manager);
 
-            for cex in cexs {
+            for cex in cex_result.counterexamples {
                 let substituted =
                     self.apply_substitution(scored.quantifier.body, &cex.assignment, manager);
                 let inst = cex.to_instantiation(substituted);
@@ -601,9 +601,9 @@ impl LazyInstantiator {
                 break;
             }
 
-            let cexs = self.cex_generator.generate(quantifier, model, manager);
+            let cex_result = self.cex_generator.generate(quantifier, model, manager);
 
-            for cex in cexs {
+            for cex in cex_result.counterexamples {
                 if instantiations.len() >= max_per_round {
                     break;
                 }

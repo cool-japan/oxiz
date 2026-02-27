@@ -146,6 +146,17 @@ impl CounterExample {
     }
 }
 
+/// Result of counterexample generation for a single quantifier
+#[derive(Debug, Clone)]
+pub struct CexGenerationResult {
+    /// Counterexamples found
+    pub counterexamples: Vec<CounterExample>,
+    /// Whether all candidate evaluations resolved to concrete boolean values.
+    /// If false, some evaluations produced symbolic residuals, meaning we cannot
+    /// be sure the quantifier is satisfied even if no counterexamples were found.
+    pub all_evaluations_ground: bool,
+}
+
 /// Counter-example generator
 #[derive(Debug)]
 pub struct CounterExampleGenerator {
@@ -185,15 +196,19 @@ impl CounterExampleGenerator {
         generator
     }
 
-    /// Generate counterexamples for a quantifier
+    /// Generate counterexamples for a quantifier.
+    ///
+    /// Returns a `CexGenerationResult` containing the counterexamples found and
+    /// a flag indicating whether all evaluations resolved to concrete booleans.
     pub fn generate(
         &mut self,
         quantifier: &QuantifiedFormula,
         model: &CompletedModel,
         manager: &mut TermManager,
-    ) -> Vec<CounterExample> {
+    ) -> CexGenerationResult {
         let start_time = Instant::now();
         let mut counterexamples = Vec::new();
+        let mut all_ground = true;
         self.stats.num_searches += 1;
 
         // Build candidate lists for each bound variable
@@ -208,9 +223,17 @@ impl CounterExampleGenerator {
 
         self.stats.num_combinations_tried += combinations.len();
 
+        // If there are no combinations to try, we cannot verify the quantifier
+        // is satisfied -- mark as non-ground.
+        if combinations.is_empty() {
+            all_ground = false;
+        }
+
         for combo in combinations {
             if start_time.elapsed() > self.max_search_time {
                 self.stats.num_timeouts += 1;
+                // Timeout means we could not fully verify -- not ground.
+                all_ground = false;
                 break;
             }
 
@@ -229,6 +252,11 @@ impl CounterExampleGenerator {
             // Apply substitution and evaluate
             let substituted = self.apply_substitution(quantifier.body, &assignment, manager);
             let evaluated = self.evaluate_under_model(substituted, model, manager);
+
+            // Track whether this evaluation resolved to a concrete boolean
+            if !self.is_ground_boolean(evaluated, manager) {
+                all_ground = false;
+            }
 
             // Check if this is a counterexample
             if self.is_counterexample(evaluated, quantifier.is_universal, manager) {
@@ -253,7 +281,10 @@ impl CounterExampleGenerator {
 
         self.stats.total_time += start_time.elapsed();
 
-        counterexamples
+        CexGenerationResult {
+            counterexamples,
+            all_evaluations_ground: all_ground,
+        }
     }
 
     /// Build candidate lists for bound variables
@@ -551,9 +582,15 @@ impl CounterExampleGenerator {
         };
 
         let result = match &t.kind {
-            TermKind::True | TermKind::False | TermKind::IntConst(_) | TermKind::RealConst(_) => {
-                term
-            }
+            // Constants evaluate to themselves
+            TermKind::True
+            | TermKind::False
+            | TermKind::IntConst(_)
+            | TermKind::RealConst(_)
+            | TermKind::BitVecConst { .. }
+            | TermKind::StringLit(_) => term,
+
+            // Boolean connectives
             TermKind::Not(arg) => {
                 let eval_arg = self.evaluate_under_model_cached(*arg, model, manager, cache);
                 if let Some(arg_t) = manager.get(eval_arg) {
@@ -567,29 +604,75 @@ impl CounterExampleGenerator {
                 }
             }
             TermKind::And(args) => {
+                let mut all_true = true;
                 for &arg in args.iter() {
                     let eval_arg = self.evaluate_under_model_cached(arg, model, manager, cache);
-                    if let Some(arg_t) = manager.get(eval_arg)
-                        && matches!(arg_t.kind, TermKind::False)
-                    {
-                        cache.insert(term, manager.mk_false());
-                        return manager.mk_false();
+                    if let Some(arg_t) = manager.get(eval_arg) {
+                        match arg_t.kind {
+                            TermKind::False => {
+                                let false_val = manager.mk_false();
+                                cache.insert(term, false_val);
+                                return false_val;
+                            }
+                            TermKind::True => { /* continue */ }
+                            _ => {
+                                all_true = false;
+                            }
+                        }
+                    } else {
+                        all_true = false;
                     }
                 }
-                manager.mk_true()
+                if all_true {
+                    manager.mk_true()
+                } else {
+                    // Not fully evaluated -- return symbolic
+                    term
+                }
             }
             TermKind::Or(args) => {
+                let mut all_false = true;
                 for &arg in args.iter() {
                     let eval_arg = self.evaluate_under_model_cached(arg, model, manager, cache);
-                    if let Some(arg_t) = manager.get(eval_arg)
-                        && matches!(arg_t.kind, TermKind::True)
-                    {
-                        cache.insert(term, manager.mk_true());
-                        return manager.mk_true();
+                    if let Some(arg_t) = manager.get(eval_arg) {
+                        match arg_t.kind {
+                            TermKind::True => {
+                                let true_val = manager.mk_true();
+                                cache.insert(term, true_val);
+                                return true_val;
+                            }
+                            TermKind::False => { /* continue */ }
+                            _ => {
+                                all_false = false;
+                            }
+                        }
+                    } else {
+                        all_false = false;
                     }
                 }
-                manager.mk_false()
+                if all_false { manager.mk_false() } else { term }
             }
+            TermKind::Implies(lhs, rhs) => {
+                let eval_lhs = self.evaluate_under_model_cached(*lhs, model, manager, cache);
+                if let Some(lhs_t) = manager.get(eval_lhs) {
+                    match lhs_t.kind {
+                        TermKind::False => manager.mk_true(),
+                        TermKind::True => {
+                            self.evaluate_under_model_cached(*rhs, model, manager, cache)
+                        }
+                        _ => {
+                            let eval_rhs =
+                                self.evaluate_under_model_cached(*rhs, model, manager, cache);
+                            manager.mk_implies(eval_lhs, eval_rhs)
+                        }
+                    }
+                } else {
+                    let eval_rhs = self.evaluate_under_model_cached(*rhs, model, manager, cache);
+                    manager.mk_implies(eval_lhs, eval_rhs)
+                }
+            }
+
+            // Comparisons
             TermKind::Eq(lhs, rhs) => {
                 let eval_lhs = self.evaluate_under_model_cached(*lhs, model, manager, cache);
                 let eval_rhs = self.evaluate_under_model_cached(*rhs, model, manager, cache);
@@ -615,6 +698,8 @@ impl CounterExampleGenerator {
                 let eval_rhs = self.evaluate_under_model_cached(*rhs, model, manager, cache);
                 self.eval_ge(eval_lhs, eval_rhs, manager)
             }
+
+            // Arithmetic
             TermKind::Add(args) => {
                 let eval_args: SmallVec<[TermId; 4]> = args
                     .iter()
@@ -629,10 +714,79 @@ impl CounterExampleGenerator {
                     .collect();
                 self.eval_mul(&eval_args, manager)
             }
-            _ => {
-                // For complex terms, try simplification
-                manager.simplify(term)
+            TermKind::Sub(lhs, rhs) => {
+                let eval_lhs = self.evaluate_under_model_cached(*lhs, model, manager, cache);
+                let eval_rhs = self.evaluate_under_model_cached(*rhs, model, manager, cache);
+                self.eval_sub(eval_lhs, eval_rhs, manager)
             }
+            TermKind::Div(lhs, rhs) => {
+                let eval_lhs = self.evaluate_under_model_cached(*lhs, model, manager, cache);
+                let eval_rhs = self.evaluate_under_model_cached(*rhs, model, manager, cache);
+                self.eval_div(eval_lhs, eval_rhs, manager)
+            }
+            TermKind::Mod(lhs, rhs) => {
+                let eval_lhs = self.evaluate_under_model_cached(*lhs, model, manager, cache);
+                let eval_rhs = self.evaluate_under_model_cached(*rhs, model, manager, cache);
+                self.eval_modulo(eval_lhs, eval_rhs, manager)
+            }
+            TermKind::Neg(arg) => {
+                let eval_arg = self.evaluate_under_model_cached(*arg, model, manager, cache);
+                self.eval_neg(eval_arg, manager)
+            }
+
+            // If-then-else
+            TermKind::Ite(cond, then_br, else_br) => {
+                let eval_cond = self.evaluate_under_model_cached(*cond, model, manager, cache);
+                if let Some(cond_t) = manager.get(eval_cond) {
+                    match cond_t.kind {
+                        TermKind::True => {
+                            self.evaluate_under_model_cached(*then_br, model, manager, cache)
+                        }
+                        TermKind::False => {
+                            self.evaluate_under_model_cached(*else_br, model, manager, cache)
+                        }
+                        _ => {
+                            // Can't determine branch -- evaluate both and return ite
+                            let eval_then =
+                                self.evaluate_under_model_cached(*then_br, model, manager, cache);
+                            let eval_else =
+                                self.evaluate_under_model_cached(*else_br, model, manager, cache);
+                            manager.mk_ite(eval_cond, eval_then, eval_else)
+                        }
+                    }
+                } else {
+                    term
+                }
+            }
+
+            // Function applications: evaluate args, then look up in function table
+            TermKind::Apply { func, args } => {
+                let evaluated_args: Vec<TermId> = args
+                    .iter()
+                    .map(|&a| self.evaluate_under_model_cached(a, model, manager, cache))
+                    .collect();
+
+                // Try looking up the function in the model's interpretation table
+                if let Some(result) = model.eval_apply(*func, &evaluated_args) {
+                    result
+                } else {
+                    // Rebuild with evaluated args and check model for the new term
+                    let func_name = manager.resolve_str(*func).to_string();
+                    let new_term =
+                        manager.mk_apply(&func_name, evaluated_args.iter().copied(), t.sort);
+                    model.eval(new_term).unwrap_or(new_term)
+                }
+            }
+
+            // Quantifiers: return "unknown" -- don't try to evaluate nested quantifiers
+            // Return the term itself (neither true nor false)
+            TermKind::Forall { .. } | TermKind::Exists { .. } => term,
+
+            // Variables that haven't been substituted -- look up in model or return as-is
+            TermKind::Var(_) => model.eval(term).unwrap_or(term),
+
+            // Anything else: try simplification
+            _ => manager.simplify(term),
         };
 
         cache.insert(term, result);
@@ -789,7 +943,71 @@ impl CounterExampleGenerator {
         }
     }
 
-    /// Check if an evaluated term is a counterexample
+    /// Evaluate subtraction
+    fn eval_sub(&self, lhs: TermId, rhs: TermId, manager: &mut TermManager) -> TermId {
+        let lhs_t = manager.get(lhs);
+        let rhs_t = manager.get(rhs);
+
+        if let (Some(l), Some(r)) = (lhs_t, rhs_t) {
+            if let (TermKind::IntConst(a), TermKind::IntConst(b)) = (&l.kind, &r.kind) {
+                return manager.mk_int(a - b);
+            }
+        }
+
+        manager.mk_sub(lhs, rhs)
+    }
+
+    /// Evaluate integer division
+    fn eval_div(&self, lhs: TermId, rhs: TermId, manager: &mut TermManager) -> TermId {
+        let lhs_t = manager.get(lhs);
+        let rhs_t = manager.get(rhs);
+
+        if let (Some(l), Some(r)) = (lhs_t, rhs_t) {
+            if let (TermKind::IntConst(a), TermKind::IntConst(b)) = (&l.kind, &r.kind) {
+                if *b != BigInt::from(0) {
+                    return manager.mk_int(a / b);
+                }
+            }
+        }
+
+        manager.mk_div(lhs, rhs)
+    }
+
+    /// Evaluate modulo
+    fn eval_modulo(&self, lhs: TermId, rhs: TermId, manager: &mut TermManager) -> TermId {
+        let lhs_t = manager.get(lhs);
+        let rhs_t = manager.get(rhs);
+
+        if let (Some(l), Some(r)) = (lhs_t, rhs_t) {
+            if let (TermKind::IntConst(a), TermKind::IntConst(b)) = (&l.kind, &r.kind) {
+                if *b != BigInt::from(0) {
+                    return manager.mk_int(a % b);
+                }
+            }
+        }
+
+        manager.mk_mod(lhs, rhs)
+    }
+
+    /// Evaluate negation
+    fn eval_neg(&self, arg: TermId, manager: &mut TermManager) -> TermId {
+        if let Some(arg_t) = manager.get(arg) {
+            if let TermKind::IntConst(val) = &arg_t.kind {
+                return manager.mk_int(-val);
+            }
+        }
+
+        manager.mk_neg(arg)
+    }
+
+    /// Check if an evaluated term is a counterexample.
+    ///
+    /// For soundness, we treat symbolic residuals (terms that did not evaluate to
+    /// a concrete boolean) conservatively:
+    /// - For ∀x.φ(x): only a concrete True means "definitely not a counterexample".
+    ///   False or symbolic => treat as a (potential) counterexample.
+    /// - For ∃x.φ(x): only a concrete True means "definitely a witness".
+    ///   False or symbolic => not a witness (conservative).
     fn is_counterexample(
         &self,
         evaluated: TermId,
@@ -797,16 +1015,29 @@ impl CounterExampleGenerator {
         manager: &TermManager,
     ) -> bool {
         let Some(eval_t) = manager.get(evaluated) else {
-            return false;
+            // Cannot resolve the term at all -- conservatively treat as
+            // counterexample for universal, not-a-witness for existential.
+            return is_universal;
         };
 
         if is_universal {
-            // For ∀x.φ(x), a counterexample is when φ(x) = false
-            matches!(eval_t.kind, TermKind::False)
+            // For ∀x.φ(x): the body must evaluate to concrete True for this
+            // assignment to be safe.  Anything else (False *or* symbolic residual)
+            // is conservatively a counterexample.
+            !matches!(eval_t.kind, TermKind::True)
         } else {
-            // For ∃x.φ(x), a counterexample is when φ(x) = true
+            // For ∃x.φ(x): only concrete True counts as a witness.
             matches!(eval_t.kind, TermKind::True)
         }
+    }
+
+    /// Check whether an evaluated term resolved to a concrete boolean value
+    /// (True or False) as opposed to a symbolic residual.
+    fn is_ground_boolean(&self, evaluated: TermId, manager: &TermManager) -> bool {
+        let Some(eval_t) = manager.get(evaluated) else {
+            return false;
+        };
+        matches!(eval_t.kind, TermKind::True | TermKind::False)
     }
 
     /// Set generation bound for candidate selection

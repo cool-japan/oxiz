@@ -39,6 +39,7 @@ pub use crate::lp::farkas::{
     LinearConstraint as FarkasConstraint,
 };
 
+use crate::fast_rational::FastRational;
 use crate::simplex::{BoundType, SimplexResult, SimplexTableau};
 use num_bigint::BigInt;
 use num_rational::BigRational;
@@ -497,19 +498,21 @@ impl LPSolver {
         // Initialize simplex tableau
         let mut tableau = SimplexTableau::new();
 
-        // Add variables
+        // Add variables (convert BigRational -> FastRational at boundary)
         let mut var_map: FxHashMap<VarId, u32> = FxHashMap::default();
         for (id, var) in &self.variables {
-            let simplex_var = tableau.add_var(var.lower.clone(), var.upper.clone());
+            let lower_fr: Option<FastRational> = var.lower.as_ref().map(|v| v.into());
+            let upper_fr: Option<FastRational> = var.upper.as_ref().map(|v| v.into());
+            let simplex_var = tableau.add_var(lower_fr, upper_fr);
             var_map.insert(*id, simplex_var);
         }
 
-        // Add constraints
+        // Add constraints (convert BigRational -> FastRational at boundary)
         for (idx, constraint) in self.constraints.iter().enumerate() {
-            let mut coeffs = FxHashMap::default();
+            let mut coeffs: FxHashMap<u32, FastRational> = FxHashMap::default();
             for (var, coeff) in &constraint.coeffs {
                 if let Some(&simplex_var) = var_map.get(var) {
-                    coeffs.insert(simplex_var, coeff.clone());
+                    coeffs.insert(simplex_var, coeff.into());
                 }
             }
 
@@ -520,7 +523,7 @@ impl LPSolver {
             };
 
             // Rearrange to: sum(coeffs) - rhs <= 0 (or >= 0 or = 0)
-            let constant = -constraint.rhs.clone();
+            let constant: FastRational = (-constraint.rhs.clone()).into();
 
             if let Err(_conflict) =
                 tableau.assert_constraint(coeffs, constant, bound_type, idx as ConstraintId)
@@ -532,16 +535,17 @@ impl LPSolver {
         // Solve using dual simplex
         match tableau.check_dual() {
             Ok(SimplexResult::Sat) => {
-                // Extract solution
+                // Extract solution (convert FastRational -> BigRational at boundary)
                 let mut values = FxHashMap::default();
                 let mut objective = BigRational::zero();
 
                 for (&orig_id, &simplex_var) in &var_map {
                     if let Some(val) = tableau.get_value(simplex_var) {
-                        values.insert(orig_id, val.clone());
+                        let big_val = val.to_big_rational();
+                        values.insert(orig_id, big_val.clone());
 
                         if let Some(var) = self.variables.get(&orig_id) {
-                            objective += &var.obj_coeff * val;
+                            objective += &var.obj_coeff * &big_val;
                         }
                     }
                 }

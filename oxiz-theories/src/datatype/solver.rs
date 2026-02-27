@@ -1,6 +1,6 @@
 //! Datatype Theory Solver for Algebraic Data Types.
 
-use crate::theory::{Theory, TheoryId, TheoryResult};
+use crate::theory::{EqualityNotification, Theory, TheoryCombination, TheoryId, TheoryResult};
 use oxiz_core::ast::TermId;
 use oxiz_core::error::Result;
 use rustc_hash::FxHashMap;
@@ -211,6 +211,9 @@ pub struct DatatypeSolver {
     recognizer_apps: FxHashMap<TermId, (String, TermId)>,
     /// Context stack for push/pop
     context_stack: Vec<ContextState>,
+    /// Shared equalities derived by the datatype theory for Nelson-Oppen combination.
+    /// These include constructor injectivity equalities and recognizer propagations.
+    shared_equalities: Vec<EqualityNotification>,
 }
 
 /// State for push/pop
@@ -237,6 +240,7 @@ impl DatatypeSolver {
             selector_apps: FxHashMap::default(),
             recognizer_apps: FxHashMap::default(),
             context_stack: Vec::new(),
+            shared_equalities: Vec::new(),
         }
     }
 
@@ -338,7 +342,7 @@ impl DatatypeSolver {
     }
 
     /// Get the constructor tag for a term (if it's a constructor application)
-    fn get_constructor_tag(&self, term: TermId) -> Option<u32> {
+    pub fn get_constructor_tag(&self, term: TermId) -> Option<u32> {
         // First check term_info
         if let Some(info) = self.term_info.get(&term)
             && info.constructor.is_some()
@@ -583,6 +587,255 @@ impl Theory for DatatypeSolver {
         self.selector_apps.clear();
         self.recognizer_apps.clear();
         self.context_stack.clear();
+        self.shared_equalities.clear();
+    }
+
+    fn get_model(&self) -> Vec<(TermId, TermId)> {
+        // Build a model from the datatype solver's state.
+        //
+        // 1. For constructor applications: map each result term to itself
+        //    (it is its own value -- a fully applied constructor).
+        //
+        // 2. For equality constraints (x = C(...)), map the variable to
+        //    the constructor application term.
+        //
+        // 3. For selector applications: if the argument is a known constructor
+        //    application and we can resolve the field, map the selector result
+        //    to the field argument term.
+        //
+        // 4. For terms with known constructor tags but no explicit constructor
+        //    application, try to find a matching constructor application to
+        //    use as the value.
+
+        let mut assignments: Vec<(TermId, TermId)> = Vec::new();
+        let mut seen: rustc_hash::FxHashSet<TermId> = rustc_hash::FxHashSet::default();
+
+        // (1) Constructor applications: each is its own value
+        for &term in self.constructor_apps.keys() {
+            if seen.insert(term) {
+                assignments.push((term, term));
+            }
+        }
+
+        // (2) Equality constraints: map variables to constructor terms
+        for constraint in &self.constraints {
+            if !constraint.is_eq {
+                continue;
+            }
+
+            let lhs_is_cons = self.constructor_apps.contains_key(&constraint.lhs);
+            let rhs_is_cons = self.constructor_apps.contains_key(&constraint.rhs);
+
+            match (lhs_is_cons, rhs_is_cons) {
+                (false, true) => {
+                    // Variable = Constructor: map variable to constructor term
+                    if seen.insert(constraint.lhs) {
+                        assignments.push((constraint.lhs, constraint.rhs));
+                    }
+                }
+                (true, false) => {
+                    // Constructor = Variable: map variable to constructor term
+                    if seen.insert(constraint.rhs) {
+                        assignments.push((constraint.rhs, constraint.lhs));
+                    }
+                }
+                (true, true) => {
+                    // Both are constructors: they should be equal (same constructor)
+                    // Map each to the other as confirmation
+                    if seen.insert(constraint.lhs) {
+                        assignments.push((constraint.lhs, constraint.rhs));
+                    }
+                }
+                (false, false) => {
+                    // Both are variables: map rhs to lhs as representative
+                    if seen.insert(constraint.rhs) {
+                        assignments.push((constraint.rhs, constraint.lhs));
+                    }
+                }
+            }
+        }
+
+        // (3) Selector applications: resolve field values
+        for (&sel_term, (sel_name, arg)) in &self.selector_apps {
+            if seen.contains(&sel_term) {
+                continue;
+            }
+            // If the argument is a constructor application, resolve the field
+            if let Some((cons_name, args)) = self.constructor_apps.get(arg)
+                && let Some(dt) = self.find_datatype_for_constructor(cons_name)
+                && let Some(cons) = dt.get_constructor(cons_name)
+            {
+                for (idx, field) in cons.fields.iter().enumerate() {
+                    if &field.name == sel_name {
+                        if let Some(&field_term) = args.get(idx)
+                            && seen.insert(sel_term)
+                        {
+                            assignments.push((sel_term, field_term));
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        // (4) Terms with known constructor tags: find a matching constructor app
+        for (&term, info) in &self.term_info {
+            if seen.contains(&term) {
+                continue;
+            }
+            if let Some(tag) = info.constructor {
+                // Find a constructor application with the same tag and matching datatype
+                for (&cons_term, (cons_name, _)) in &self.constructor_apps {
+                    let dt_match = self
+                        .find_datatype_for_constructor(cons_name)
+                        .and_then(|dt| {
+                            let cons = dt.get_constructor(cons_name)?;
+                            if cons.tag == tag && dt.sort.name == info.datatype {
+                                Some(())
+                            } else {
+                                None
+                            }
+                        });
+                    if dt_match.is_some() {
+                        if seen.insert(term) {
+                            assignments.push((term, cons_term));
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        assignments
+    }
+}
+
+impl DatatypeSolver {
+    /// Get constructor applications for model construction.
+    /// Returns (result_term, constructor_name, argument_terms) for each constructor app.
+    pub fn get_constructor_applications(&self) -> Vec<(TermId, String, Vec<TermId>)> {
+        self.constructor_apps
+            .iter()
+            .map(|(&term, (cons, args))| (term, cons.clone(), args.clone()))
+            .collect()
+    }
+
+    /// Get all interned datatype terms.
+    pub fn get_interned_terms(&self) -> Vec<TermId> {
+        self.term_info.keys().copied().collect()
+    }
+
+    /// Check if a term is a datatype term.
+    pub fn is_datatype_term(&self, term: TermId) -> bool {
+        self.term_info.contains_key(&term)
+            || self.constructor_apps.contains_key(&term)
+            || self.selector_apps.contains_key(&term)
+    }
+
+    /// Get the constructor name for a constructor tag and datatype.
+    pub fn get_constructor_name_by_tag(&self, datatype: &str, tag: u32) -> Option<String> {
+        self.datatypes
+            .get(datatype)
+            .and_then(|dt| dt.get_constructor_by_tag(tag))
+            .map(|c| c.name.clone())
+    }
+}
+
+impl TheoryCombination for DatatypeSolver {
+    fn notify_equality(&mut self, eq: EqualityNotification) -> bool {
+        let lhs_info = self.constructor_apps.get(&eq.lhs).cloned();
+        let rhs_info = self.constructor_apps.get(&eq.rhs).cloned();
+
+        // Check constructor clash: c1(...) = c2(...) with c1 != c2 => conflict
+        if let (Some((cons_lhs, args_lhs)), Some((cons_rhs, args_rhs))) = (&lhs_info, &rhs_info) {
+            if cons_lhs != cons_rhs {
+                // Different constructors -- this is a conflict
+                return false;
+            }
+
+            // Same constructor: c(a1,...,an) = c(b1,...,bn) implies ai = bi (injectivity)
+            // Propagate these equalities to be shared with other theories.
+            self.shared_equalities.clear();
+            let n = args_lhs.len().min(args_rhs.len());
+            for i in 0..n {
+                if args_lhs[i] != args_rhs[i] {
+                    self.shared_equalities.push(EqualityNotification {
+                        lhs: args_lhs[i],
+                        rhs: args_rhs[i],
+                        reason: eq.reason,
+                    });
+                }
+            }
+
+            // Also record this as an equality constraint in the solver
+            let reason = eq.reason.unwrap_or(eq.lhs);
+            self.assert_eq(eq.lhs, eq.rhs, reason);
+
+            true
+        } else if lhs_info.is_some() || rhs_info.is_some() {
+            // One side is a constructor application, the other might be a variable.
+            // Accept the equality -- this constrains the variable to that constructor.
+            let reason = eq.reason.unwrap_or(eq.lhs);
+            self.assert_eq(eq.lhs, eq.rhs, reason);
+
+            // If the variable side has a known constructor from a previous equality,
+            // check for clash
+            if let Some((cons_name, _)) = &lhs_info
+                && let Some(info) = self.term_info.get(&eq.rhs)
+                && let Some(tag) = info.constructor
+            {
+                let lhs_tag = self
+                    .find_datatype_for_constructor(cons_name)
+                    .and_then(|dt| dt.get_constructor(cons_name))
+                    .map(|c| c.tag);
+                if let Some(lt) = lhs_tag
+                    && lt != tag
+                {
+                    return false;
+                }
+            }
+
+            if let Some((cons_name, _)) = &rhs_info
+                && let Some(info) = self.term_info.get(&eq.lhs)
+                && let Some(tag) = info.constructor
+            {
+                let rhs_tag = self
+                    .find_datatype_for_constructor(cons_name)
+                    .and_then(|dt| dt.get_constructor(cons_name))
+                    .map(|c| c.tag);
+                if let Some(rt) = rhs_tag
+                    && rt != tag
+                {
+                    return false;
+                }
+            }
+
+            true
+        } else {
+            // Check if either term is registered as a datatype value
+            let lhs_registered = self.term_info.contains_key(&eq.lhs);
+            let rhs_registered = self.term_info.contains_key(&eq.rhs);
+
+            if lhs_registered || rhs_registered {
+                let reason = eq.reason.unwrap_or(eq.lhs);
+                self.assert_eq(eq.lhs, eq.rhs, reason);
+                true
+            } else {
+                // Neither term is relevant to the datatype theory
+                false
+            }
+        }
+    }
+
+    fn get_shared_equalities(&self) -> Vec<EqualityNotification> {
+        self.shared_equalities.clone()
+    }
+
+    fn is_relevant(&self, term: TermId) -> bool {
+        self.term_info.contains_key(&term)
+            || self.constructor_apps.contains_key(&term)
+            || self.selector_apps.contains_key(&term)
+            || self.recognizer_apps.contains_key(&term)
     }
 }
 

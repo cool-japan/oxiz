@@ -302,10 +302,10 @@ impl QuantifierInstantiator {
         let mut instantiations = Vec::new();
 
         // Generate counterexamples
-        let counterexamples = self.cex_generator.generate(quantifier, model, manager);
+        let cex_result = self.cex_generator.generate(quantifier, model, manager);
 
         // Convert counterexamples to instantiations
-        for cex in counterexamples {
+        for cex in cex_result.counterexamples {
             // Apply substitution to get ground instance
             let ground_body = self.apply_substitution(quantifier.body, &cex.assignment, manager);
 

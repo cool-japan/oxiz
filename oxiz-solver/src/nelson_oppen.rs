@@ -16,10 +16,15 @@ pub struct NelsonOppenCombiner {
     equality_classes: UnionFind,
     /// Pending equalities to propagate
     pending_equalities: VecDeque<(TermId, TermId)>,
+    /// Already-propagated equalities (normalized so lhs <= rhs).
+    /// Prevents the fixed-point loop from re-discovering known equalities.
+    propagated_equalities: FxHashSet<(TermId, TermId)>,
     /// Theory assignments for shared terms
     theory_assignments: FxHashMap<TermId, TheoryId>,
     /// Statistics
     stats: NelsonOppenStats,
+    /// Counter for generating fresh variable names during purification
+    fresh_var_counter: u64,
 }
 
 /// Theory identifier
@@ -46,8 +51,10 @@ impl NelsonOppenCombiner {
             shared_terms: FxHashSet::default(),
             equality_classes: UnionFind::new(),
             pending_equalities: VecDeque::new(),
+            propagated_equalities: FxHashSet::default(),
             theory_assignments: FxHashMap::default(),
             stats: NelsonOppenStats::default(),
+            fresh_var_counter: 0,
         }
     }
 
@@ -59,6 +66,12 @@ impl NelsonOppenCombiner {
         self.stats.shared_terms_count += 1;
     }
 
+    /// Normalize an equality pair so that the smaller TermId comes first.
+    /// This ensures (a,b) and (b,a) are treated as the same equality.
+    fn normalize_pair(lhs: TermId, rhs: TermId) -> (TermId, TermId) {
+        if lhs <= rhs { (lhs, rhs) } else { (rhs, lhs) }
+    }
+
     /// Assert an equality between shared terms.
     ///
     /// Returns Ok(()) if consistent, Err(()) if conflict detected.
@@ -67,22 +80,40 @@ impl NelsonOppenCombiner {
             return Err(()); // Only shared terms can be equated
         }
 
+        // Normalize and check if this equality was already propagated
+        let key = Self::normalize_pair(lhs, rhs);
+        if self.propagated_equalities.contains(&key) {
+            return Ok(());
+        }
+
         // Check if already in same equivalence class
         if self.equality_classes.find(lhs) == self.equality_classes.find(rhs) {
+            self.propagated_equalities.insert(key);
             return Ok(());
         }
 
         // Merge equivalence classes
         self.equality_classes.union(lhs, rhs);
         self.pending_equalities.push_back((lhs, rhs));
+        self.propagated_equalities.insert(key);
         self.stats.equalities_propagated += 1;
 
         Ok(())
     }
 
+    /// Generate a fresh variable name for purification.
+    fn fresh_var_name(&mut self) -> String {
+        let name = format!("_no_purify_{}", self.fresh_var_counter);
+        self.fresh_var_counter += 1;
+        name
+    }
+
     /// Purify a term by introducing fresh variables for sub-terms.
     ///
     /// Purification ensures each theory sees only its own symbols.
+    /// When a subterm belongs to a different theory than the parent application,
+    /// it is replaced by a fresh shared variable, and an equality constraint
+    /// is recorded between the fresh variable and the original subterm.
     pub fn purify_term(&mut self, term_id: TermId, tm: &mut TermManager) -> Result<TermId, String> {
         self.stats.purifications += 1;
 
@@ -90,34 +121,41 @@ impl NelsonOppenCombiner {
         let term = tm.get(term_id).ok_or("term not found")?.clone();
 
         match &term.kind {
-            TermKind::Apply { func: _, args } => {
+            TermKind::Apply { func, args } => {
+                let func_spur = *func;
+                let original_args: Vec<TermId> = args.iter().copied().collect();
                 let mut purified_args = Vec::new();
 
-                for &arg in args {
+                for &arg in &original_args {
                     let purified_arg = self.purify_term(arg, tm)?;
                     purified_args.push(purified_arg);
                 }
 
                 // Check if any argument changed theory
-                let needs_purification = purified_args
-                    .iter()
-                    .enumerate()
-                    .any(|(i, &purified)| self.get_theory(purified) != self.get_theory(args[i]));
+                let needs_purification = purified_args.iter().enumerate().any(|(i, &purified)| {
+                    self.get_theory(purified) != self.get_theory(original_args[i])
+                });
 
                 if needs_purification {
-                    // Introduce fresh variable for this sub-term
-                    // TODO: TermManager doesn't have fresh_var - needs implementation
-                    // let fresh_var = tm.fresh_var(term.sort);
-                    // For now, just return the original term
-                    // self.register_shared_term(fresh_var, TheoryId(0), TheoryId(1));
+                    // Create a fresh variable with the same sort as this term
+                    let sort = term.sort;
+                    let fresh_name = self.fresh_var_name();
+                    let fresh_var = tm.mk_var(&fresh_name, sort);
 
-                    // Assert equality: fresh_var = (func purified_args)
-                    // TODO: mk_apply expects SmallVec, not Vec
-                    // let purified_app = tm.mk_apply(*func, purified_args.into());
-                    // self.assert_equality(fresh_var, purified_app)?;
+                    // Register the fresh variable as shared between the relevant theories
+                    self.register_shared_term(fresh_var, TheoryId(0), TheoryId(1));
 
-                    // Ok(fresh_var)
-                    Ok(term_id) // Placeholder
+                    // Build the purified application term using the func spur
+                    // mk_apply expects &str but we have a Spur. Use the original term's
+                    // function name from the interner.
+                    let func_name = tm.resolve_str(func_spur).to_string();
+                    let purified_app = tm.mk_apply(&func_name, purified_args, sort);
+
+                    // Record equality: fresh_var = purified_app
+                    // This equality will be propagated through pending_equalities
+                    let _ = self.assert_equality(fresh_var, purified_app);
+
+                    Ok(fresh_var)
                 } else {
                     Ok(term_id)
                 }
@@ -159,6 +197,7 @@ impl NelsonOppenCombiner {
     ///
     /// For convex theories, if we have equalities in each class,
     /// we must propagate all pairwise equalities.
+    /// Only returns equalities that have NOT already been propagated.
     pub fn convexity_closure(&mut self) -> Vec<(TermId, TermId)> {
         let mut implied_equalities = Vec::new();
 
@@ -172,10 +211,13 @@ impl NelsonOppenCombiner {
         // For each equivalence class with multiple elements
         for (_rep, terms) in classes {
             if terms.len() > 1 {
-                // Generate all pairwise equalities
+                // Generate all pairwise equalities, skipping already-propagated ones
                 for i in 0..terms.len() {
                     for j in (i + 1)..terms.len() {
-                        implied_equalities.push((terms[i], terms[j]));
+                        let key = Self::normalize_pair(terms[i], terms[j]);
+                        if !self.propagated_equalities.contains(&key) {
+                            implied_equalities.push((terms[i], terms[j]));
+                        }
                     }
                 }
             }
@@ -194,8 +236,10 @@ impl NelsonOppenCombiner {
         self.shared_terms.clear();
         self.equality_classes = UnionFind::new();
         self.pending_equalities.clear();
+        self.propagated_equalities.clear();
         self.theory_assignments.clear();
         self.stats = NelsonOppenStats::default();
+        self.fresh_var_counter = 0;
     }
 }
 

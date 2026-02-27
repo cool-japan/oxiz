@@ -1,6 +1,6 @@
 //! Floating-Point Theory Solver using bit-blasting.
 
-use crate::theory::{Theory, TheoryId, TheoryResult};
+use crate::theory::{EqualityNotification, Theory, TheoryCombination, TheoryId, TheoryResult};
 use oxiz_core::ast::TermId;
 use oxiz_core::error::Result;
 use oxiz_sat::{Lit, Solver as SatSolver, SolverResult, Var};
@@ -292,6 +292,12 @@ pub struct FpSolver {
     context_stack: Vec<usize>,
     /// Current rounding mode
     rounding_mode: FpRoundingMode,
+    /// Shared equalities derived by FP theory for Nelson-Oppen combination.
+    /// FP is typically a "polite" theory -- it rarely generates shared equalities,
+    /// but may do so from rounding mode constraints or value equivalences.
+    shared_equalities: Vec<EqualityNotification>,
+    /// Pending equality notifications from other theories
+    equality_notifications: Vec<EqualityNotification>,
 }
 
 impl Default for FpSolver {
@@ -310,6 +316,8 @@ impl FpSolver {
             assertions: Vec::new(),
             context_stack: Vec::new(),
             rounding_mode: FpRoundingMode::default(),
+            shared_equalities: Vec::new(),
+            equality_notifications: Vec::new(),
         }
     }
 
@@ -352,11 +360,10 @@ impl FpSolver {
     /// Assert a constant floating-point value
     pub fn assert_const(&mut self, term: TermId, value: &FpValue) {
         self.new_fp(term, value.format);
-        let fp = self
-            .term_to_fp
-            .get(&term)
-            .expect("term exists after new_fp call")
-            .clone();
+        let fp = match self.term_to_fp.get(&term).cloned() {
+            Some(fp) => fp,
+            None => return, // should not happen after new_fp, but avoid panic
+        };
 
         // Set sign
         if value.sign {
@@ -860,6 +867,16 @@ impl FpSolver {
             format: fp.format,
         })
     }
+
+    /// Get all floating-point term IDs registered with this solver.
+    pub fn get_interned_terms(&self) -> Vec<TermId> {
+        self.term_to_fp.keys().copied().collect()
+    }
+
+    /// Check if a term is a floating-point term.
+    pub fn is_fp_term(&self, term: TermId) -> bool {
+        self.term_to_fp.contains_key(&term)
+    }
 }
 
 impl Theory for FpSolver {
@@ -910,6 +927,102 @@ impl Theory for FpSolver {
         self.term_to_fp.clear();
         self.assertions.clear();
         self.context_stack.clear();
+        self.shared_equalities.clear();
+        self.equality_notifications.clear();
+    }
+
+    fn get_model(&self) -> Vec<(TermId, TermId)> {
+        // Build a model from the FP solver's SAT assignment.
+        // For each floating-point variable term, read its sign, exponent, and
+        // significand bits from the SAT model to determine the concrete IEEE 754
+        // value. Group terms by their (sign, exponent, significand, format) tuple
+        // and map each to the representative of its group.
+        let model = self.sat.model();
+
+        // Key: (sign_bit, exponent, significand, exp_bits, sig_bits)
+        let mut value_to_terms: FxHashMap<(bool, u64, u64, u32, u32), Vec<TermId>> =
+            FxHashMap::default();
+
+        for (&term, fp_var) in &self.term_to_fp {
+            let sign = model.get(fp_var.sign.index()).is_some_and(|v| v.is_true());
+
+            let mut exponent = 0u64;
+            for (i, &var) in fp_var.exponent.iter().enumerate() {
+                if model.get(var.index()).is_some_and(|v| v.is_true()) {
+                    exponent |= 1u64 << i;
+                }
+            }
+
+            let mut significand = 0u64;
+            for (i, &var) in fp_var.significand.iter().enumerate() {
+                if model.get(var.index()).is_some_and(|v| v.is_true()) {
+                    significand |= 1u64 << i;
+                }
+            }
+
+            let key = (
+                sign,
+                exponent,
+                significand,
+                fp_var.format.exponent_bits,
+                fp_var.format.significand_bits,
+            );
+            value_to_terms.entry(key).or_default().push(term);
+        }
+
+        let mut assignments = Vec::new();
+        for terms in value_to_terms.values() {
+            if terms.is_empty() {
+                continue;
+            }
+            let representative = terms[0];
+            for &term in terms {
+                assignments.push((term, representative));
+            }
+        }
+        assignments
+    }
+}
+
+impl TheoryCombination for FpSolver {
+    fn notify_equality(&mut self, eq: EqualityNotification) -> bool {
+        let lhs_known = self.term_to_fp.contains_key(&eq.lhs);
+        let rhs_known = self.term_to_fp.contains_key(&eq.rhs);
+
+        if lhs_known && rhs_known {
+            // Both terms are FP variables -- enforce bit-level equality
+            // through the SAT solver and check consistency.
+            self.assert_fp_eq(eq.lhs, eq.rhs);
+            self.equality_notifications.push(eq);
+
+            // Check if the equality is consistent with current FP constraints
+            match self.sat.solve() {
+                SolverResult::Unsat => {
+                    // The equality conflicts with existing FP constraints
+                    false
+                }
+                _ => true,
+            }
+        } else if lhs_known || rhs_known {
+            // One term is FP, the other is foreign (shared variable).
+            // FP is a polite theory -- accept and record the notification.
+            self.equality_notifications.push(eq);
+            true
+        } else {
+            // Neither term is relevant to FP
+            false
+        }
+    }
+
+    fn get_shared_equalities(&self) -> Vec<EqualityNotification> {
+        // FP is a "polite" theory: it can witness all possible arrangements
+        // of shared variables. In practice, FP rarely generates shared equalities
+        // on its own -- it mostly consumes equalities from other theories.
+        self.shared_equalities.clone()
+    }
+
+    fn is_relevant(&self, term: TermId) -> bool {
+        self.term_to_fp.contains_key(&term)
     }
 }
 
