@@ -1437,20 +1437,37 @@ impl<'a> Parser<'a> {
                 self.expect_rparen()?;
                 Command::SetOption(opt, val)
             }
+            "declare-sort" => {
+                let name = self.expect_symbol()?;
+                let arity = if let Some(t) = self.lexer.peek()
+                    && matches!(t.kind, TokenKind::Numeral(_))
+                {
+                    if let Some(token) = self.lexer.next_token() {
+                        if let TokenKind::Numeral(n) = token.kind {
+                            n.parse().unwrap_or(0)
+                        } else {
+                            0
+                        }
+                    } else {
+                        0
+                    }
+                } else {
+                    0
+                };
+                self.expect_rparen()?;
+                // Register the sort as an uninterpreted sort so it can be used in declarations
+                let spur = self.manager.intern_str(&name);
+                self.manager
+                    .sorts
+                    .intern(crate::sort::SortKind::Uninterpreted(spur));
+                Command::DeclareSort(name, arity)
+            }
             "declare-const" => {
                 let name = self.expect_symbol()?;
                 let sort_id = self.parse_sort()?;
                 self.expect_rparen()?;
                 self.constants.insert(name.clone(), sort_id);
-                // For the command, we'll use a simple string representation
-                let sort_str = format!(
-                    "BitVec{}",
-                    self.manager
-                        .sorts
-                        .get(sort_id)
-                        .and_then(|s| s.bitvec_width())
-                        .unwrap_or(32)
-                );
+                let sort_str = self.sort_id_to_string(sort_id);
                 Command::DeclareConst(name, sort_str)
             }
             "declare-fun" => {
