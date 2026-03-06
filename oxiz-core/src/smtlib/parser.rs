@@ -5,6 +5,7 @@ use super::lexer::{Lexer, TokenKind};
 use crate::ast::{RoundingMode, TermId, TermManager};
 use crate::error::{OxizError, Result};
 use crate::sort::SortId;
+use num_bigint::BigInt;
 use num_rational::Rational64;
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
@@ -215,24 +216,28 @@ impl<'a> Parser<'a> {
             TokenKind::LParen => self.parse_compound_term(),
             TokenKind::Symbol(s) => self.parse_symbol(&s),
             TokenKind::Numeral(n) => {
-                let value: i64 = n.parse().map_err(|_| OxizError::ParseError {
+                let value: BigInt = n.parse().map_err(|_| OxizError::ParseError {
                     position: token.start,
                     message: format!("invalid numeral: {n}"),
                 })?;
                 Ok(self.manager.mk_int(value))
             }
             TokenKind::Hexadecimal(h) => {
-                let value = i64::from_str_radix(&h, 16).map_err(|_| OxizError::ParseError {
-                    position: token.start,
-                    message: format!("invalid hexadecimal: {h}"),
+                let value = BigInt::parse_bytes(h.as_bytes(), 16).ok_or_else(|| {
+                    OxizError::ParseError {
+                        position: token.start,
+                        message: format!("invalid hexadecimal: {h}"),
+                    }
                 })?;
                 let width = (h.len() * 4) as u32;
                 Ok(self.manager.mk_bitvec(value, width))
             }
             TokenKind::Binary(b) => {
-                let value = i64::from_str_radix(&b, 2).map_err(|_| OxizError::ParseError {
-                    position: token.start,
-                    message: format!("invalid binary: {b}"),
+                let value = BigInt::parse_bytes(b.as_bytes(), 2).ok_or_else(|| {
+                    OxizError::ParseError {
+                        position: token.start,
+                        message: format!("invalid binary: {b}"),
+                    }
                 })?;
                 let width = b.len() as u32;
                 Ok(self.manager.mk_bitvec(value, width))
@@ -2094,6 +2099,23 @@ mod tests {
         let n = parse_term("42", &mut manager).expect("should parse 42");
         let expected = manager.mk_int(42);
         assert_eq!(n, expected);
+    }
+
+    #[test]
+    fn test_parse_large_numerals() {
+        let mut manager = TermManager::new();
+
+        // 2^64 = 18446744073709551616, which exceeds u64::MAX and i64::MAX
+        let n = parse_term("18446744073709551616", &mut manager)
+            .expect("should parse 18446744073709551616 (2^64)");
+        let expected = manager.mk_int("18446744073709551616".parse::<BigInt>().unwrap());
+        assert_eq!(n, expected);
+
+        // i64::MAX + 1 = 9223372036854775808
+        let n2 = parse_term("9223372036854775808", &mut manager)
+            .expect("should parse 9223372036854775808 (i64::MAX + 1)");
+        let expected2 = manager.mk_int("9223372036854775808".parse::<BigInt>().unwrap());
+        assert_eq!(n2, expected2);
     }
 
     #[test]
