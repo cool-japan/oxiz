@@ -421,6 +421,11 @@ impl EufSolver {
     pub fn find(&mut self, a: u32) -> u32 {
         self.uf.find(a)
     }
+
+    /// Public wrapper for explain_equality (for use in conflict generation)
+    pub fn explain_equality_pub(&self, a: u32, b: u32) -> Vec<TermId> {
+        self.explain_equality(a, b)
+    }
 }
 
 impl Theory for EufSolver {

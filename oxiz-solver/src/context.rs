@@ -455,14 +455,24 @@ impl Context {
             "Int" => self.terms.sorts.int_sort,
             "Real" => self.terms.sorts.real_sort,
             _ => {
-                // Check for BitVec
+                // Check for (_ BitVec n) syntax produced by sort_id_to_string
+                if let Some(rest) = name.strip_prefix("(_ BitVec ")
+                    && let Some(width_str) = rest.strip_suffix(')')
+                    && let Ok(width) = width_str.trim().parse::<u32>()
+                {
+                    return self.terms.sorts.bitvec(width);
+                }
+                // Check for simple BitVec n (legacy)
                 if let Some(width_str) = name.strip_prefix("BitVec")
                     && let Ok(width) = width_str.trim().parse::<u32>()
                 {
                     return self.terms.sorts.bitvec(width);
                 }
-                // Default to Bool for unknown sorts
-                self.terms.sorts.bool_sort
+                // Treat as an uninterpreted sort (e.g., user-declared sorts)
+                let spur = self.terms.intern_str(name);
+                self.terms
+                    .sorts
+                    .intern(oxiz_core::sort::SortKind::Uninterpreted(spur))
             }
         }
     }
@@ -476,6 +486,13 @@ impl Context {
             match cmd {
                 Command::SetLogic(logic) => {
                     self.set_logic(&logic);
+                }
+                Command::DeclareSort(name, _arity) => {
+                    // Register the sort as an uninterpreted sort
+                    let spur = self.terms.intern_str(&name);
+                    self.terms
+                        .sorts
+                        .intern(oxiz_core::sort::SortKind::Uninterpreted(spur));
                 }
                 Command::DeclareConst(name, sort_name) => {
                     let sort = self.parse_sort_name(&sort_name);
@@ -604,7 +621,6 @@ impl Context {
                     }
                 }
                 Command::SetInfo(_, _)
-                | Command::DeclareSort(_, _)
                 | Command::DefineSort(_, _, _)
                 | Command::DefineFun(_, _, _, _)
                 | Command::DeclareDatatype { .. } => {
@@ -922,5 +938,69 @@ mod tests {
         assert_eq!(output.len(), 2);
         assert_eq!(output[0], "unsat");
         assert!(output[1].contains("error") || output[1].contains("No model"));
+    }
+
+    #[test]
+    fn test_uf_congruence_unsat() {
+        // The example from the issue: should return unsat because
+        // (t m) and (not (t co)) together with (= m co) is contradictory
+        // (if m=co then t(m) must equal t(co), but one is true and one is false)
+        let mut ctx = Context::new();
+
+        let script = r#"
+            (declare-sort c 0)
+            (declare-const co c)
+            (declare-fun t (c) Bool)
+            (declare-const m c)
+            (assert (t m))
+            (assert (not (t co)))
+            (assert (= m co))
+            (check-sat)
+        "#;
+
+        let output = ctx.execute_script(script).unwrap();
+        assert_eq!(output.len(), 1);
+        assert_eq!(output[0], "unsat");
+    }
+
+    #[test]
+    fn test_uf_congruence_sat() {
+        // Similar setup but SAT: m and co are different, so t(m) and t(co) can differ
+        let mut ctx = Context::new();
+
+        let script = r#"
+            (declare-sort c 0)
+            (declare-const co c)
+            (declare-fun t (c) Bool)
+            (declare-const m c)
+            (assert (t m))
+            (assert (not (t co)))
+            (check-sat)
+        "#;
+
+        let output = ctx.execute_script(script).unwrap();
+        assert_eq!(output.len(), 1);
+        assert_eq!(output[0], "sat");
+    }
+
+    #[test]
+    fn test_uf_congruence_same_value_sat() {
+        // Both t(m) and t(co) are true, and m=co: SAT because values are consistent
+        let mut ctx = Context::new();
+
+        let script = r#"
+            (declare-sort c 0)
+            (declare-const co c)
+            (declare-fun t (c) Bool)
+            (declare-const m c)
+            (assert (t m))
+            (assert (t co))
+            (assert (= m co))
+            (check-sat)
+        "#;
+
+        let output = ctx.execute_script(script).unwrap();
+        assert_eq!(output.len(), 1);
+        assert_eq!(output[0], "sat");
     }
 }

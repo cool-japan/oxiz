@@ -163,6 +163,8 @@ enum Constraint {
     Gt(TermId, TermId),
     /// Greater-than-or-equal constraint: lhs >= rhs
     Ge(TermId, TermId),
+    /// Boolean predicate (Apply term returning Bool) - for EUF congruence tracking
+    BoolPred(TermId),
 }
 
 /// Type of arithmetic constraint
@@ -884,6 +886,9 @@ pub struct Solver {
     /// Datatype constructor constraints: variable -> constructor name
     /// Used to detect mutual exclusivity conflicts (var = C1 AND var = C2 where C1 != C2)
     dt_var_constructors: FxHashMap<TermId, lasso::Spur>,
+    /// Boolean predicate terms registered in EUF for congruence closure
+    /// Maps TermId of a boolean Apply term to its EUF node index
+    bool_pred_terms: FxHashMap<TermId, u32>,
 }
 
 /// Theory decision hint
@@ -940,6 +945,10 @@ struct TheoryManager<'a> {
     max_decisions: u64,
     /// Whether formula contains BV arithmetic operations (division/remainder)
     has_bv_arith_ops: bool,
+    /// Boolean predicate terms registered in EUF (for congruence conflict detection)
+    bool_pred_terms: &'a FxHashMap<TermId, u32>,
+    /// Recorded assignments for boolean predicate variables: (Var, TermId, is_positive)
+    bool_pred_assignments: Vec<(Var, TermId, bool)>,
 }
 
 impl<'a> TheoryManager<'a> {
@@ -958,6 +967,7 @@ impl<'a> TheoryManager<'a> {
         max_conflicts: u64,
         max_decisions: u64,
         has_bv_arith_ops: bool,
+        bool_pred_terms: &'a FxHashMap<TermId, u32>,
     ) -> Self {
         Self {
             manager,
@@ -979,6 +989,8 @@ impl<'a> TheoryManager<'a> {
             max_conflicts,
             max_decisions,
             has_bv_arith_ops,
+            bool_pred_terms,
+            bool_pred_assignments: Vec::new(),
         }
     }
 
@@ -1564,8 +1576,70 @@ impl<'a> TheoryManager<'a> {
                     }
                 }
             }
+            // Boolean predicate constraint - record assignment for congruence checking
+            Constraint::BoolPred(apply_term) => {
+                self.bool_pred_assignments.push((var, apply_term, is_positive));
+            }
         }
         TheoryCheckResult::Sat
+    }
+
+    /// Check for congruence conflicts among boolean predicate applications.
+    ///
+    /// When two boolean predicate terms (e.g., `t(m)` and `t(co)`) are in the same
+    /// EUF equivalence class (by congruence closure) but were assigned different boolean
+    /// values, that's a conflict: the same function applied to equal arguments must give
+    /// the same result.
+    ///
+    /// Returns a conflict clause if a conflict is detected, or `None` otherwise.
+    fn check_bool_pred_congruences(&mut self) -> Option<SmallVec<[Lit; 8]>> {
+        // Fast path: need at least 2 bool pred assignments with different values
+        if self.bool_pred_assignments.len() < 2 {
+            return None;
+        }
+
+        // Check all pairs of bool pred assignments with different truth values
+        let n = self.bool_pred_assignments.len();
+        for i in 0..n {
+            let (var_i, term_i, pos_i) = self.bool_pred_assignments[i];
+            for j in (i + 1)..n {
+                let (var_j, term_j, pos_j) = self.bool_pred_assignments[j];
+
+                // Only interested in pairs with different truth values
+                if pos_i == pos_j {
+                    continue;
+                }
+
+                // Get EUF nodes for both terms
+                let node_i = self.euf.intern(term_i);
+                let node_j = self.euf.intern(term_j);
+
+                // Check if they're in the same EUF equivalence class
+                if !self.euf.are_equal(node_i, node_j) {
+                    continue;
+                }
+
+                // Conflict found! Build the conflict clause.
+                // The conflict is: these two terms are EUF-equal (by congruence from some
+                // equality assertion), but one is true and the other is false.
+                //
+                // Get the EUF explanation for why node_i == node_j
+                let eq_reasons = self.euf.explain_equality_pub(node_i, node_j);
+                let mut conflict = self.terms_to_conflict_clause(&eq_reasons);
+
+                // Add the bool pred literals with correct polarity for the conflict clause.
+                // A conflict clause negates all assignments that caused the conflict:
+                // - If var was assigned true (pos=true), add Lit::neg(var) to conflict
+                // - If var was assigned false (pos=false), add Lit::pos(var) to conflict
+                //   (negating the negative assignment restores the original variable as positive)
+                conflict.push(if pos_i { Lit::neg(var_i) } else { Lit::pos(var_i) });
+                conflict.push(if pos_j { Lit::neg(var_j) } else { Lit::pos(var_j) });
+
+                return Some(conflict);
+            }
+        }
+
+        None
     }
 }
 
@@ -1640,7 +1714,7 @@ impl TheoryCallback for TheoryManager<'_> {
             self.pending_assignments.clear();
         }
 
-        // Check EUF for conflicts
+        // Check EUF for conflicts (disequality violations)
         if let Some(conflict_terms) = self.euf.check_conflicts() {
             // Convert TermIds to Lits for the conflict clause
             let conflict_lits = self.terms_to_conflict_clause(&conflict_terms);
@@ -1653,6 +1727,20 @@ impl TheoryCallback for TheoryManager<'_> {
             }
 
             return TheoryCheckResult::Conflict(conflict_lits);
+        }
+
+        // Check for boolean predicate congruence conflicts:
+        // If two boolean predicate applications (e.g., t(m) and t(co)) are in the same
+        // EUF equivalence class but were assigned different boolean values, that's a conflict.
+        if let Some(conflict) = self.check_bool_pred_congruences() {
+            self.statistics.theory_conflicts += 1;
+            self.statistics.conflicts += 1;
+
+            if self.max_conflicts > 0 && self.statistics.conflicts >= self.max_conflicts {
+                return TheoryCheckResult::Sat;
+            }
+
+            return TheoryCheckResult::Conflict(conflict);
         }
 
         // Check arithmetic
@@ -1745,6 +1833,8 @@ enum TrailOp {
     BvTermAdded { term: TermId },
     /// An arithmetic term was added
     ArithTermAdded { term: TermId },
+    /// A boolean predicate term was registered in EUF
+    BoolPredAdded { term: TermId },
 }
 
 /// State for push/pop with trail-based undo
@@ -2306,6 +2396,7 @@ impl Solver {
             has_bv_arith_ops: false,
             arith_terms: FxHashSet::default(),
             dt_var_constructors: FxHashMap::default(),
+            bool_pred_terms: FxHashMap::default(),
         }
     }
 
@@ -3373,9 +3464,40 @@ impl Solver {
                 let var = self.get_or_create_var(term);
                 Lit::pos(var)
             }
-            TermKind::Apply { .. } => {
-                // Uninterpreted function application - theory term
+            TermKind::Apply { func, args } => {
+                let is_bool_pred = t.sort == manager.sorts.bool_sort;
+                let func_spur = func;
+                let args_copy: SmallVec<[TermId; 4]> = args.clone();
+
                 let var = self.get_or_create_var(term);
+
+                // For boolean predicate applications (Apply returning Bool), register
+                // in EUF so congruence closure can detect conflicts when arguments
+                // become equal. For example: t(m) and t(co) where m=co implies t(m)=t(co).
+                if is_bool_pred {
+                    use std::collections::hash_map::Entry;
+                    if let Entry::Vacant(e) = self.bool_pred_terms.entry(term) {
+                        // Intern each argument in EUF
+                        let arg_nodes: SmallVec<[u32; 4]> = args_copy
+                            .iter()
+                            .map(|&arg| self.euf.intern(arg))
+                            .collect();
+                        // Intern the function application in EUF using the func's string key as ID
+                        let func_id = func_spur.into_inner().get();
+                        let euf_node =
+                            self.euf.intern_app(term, func_id, arg_nodes.into_iter());
+                        e.insert(euf_node);
+                        self.trail.push(TrailOp::BoolPredAdded { term });
+
+                        // Register BoolPred constraint so on_assignment is called for this var
+                        if !self.var_to_constraint.contains_key(&var) {
+                            self.var_to_constraint
+                                .insert(var, Constraint::BoolPred(term));
+                            self.trail.push(TrailOp::ConstraintAdded { var });
+                        }
+                    }
+                }
+
                 Lit::pos(var)
             }
             TermKind::Forall { patterns, .. } => {
@@ -3563,6 +3685,7 @@ impl Solver {
             self.config.max_conflicts,
             self.config.max_decisions,
             self.has_bv_arith_ops,
+            &self.bool_pred_terms,
         );
 
         // MBQI loop for quantified formulas
@@ -3659,6 +3782,7 @@ impl Solver {
                         self.config.max_conflicts,
                         self.config.max_decisions,
                         self.has_bv_arith_ops,
+                        &self.bool_pred_terms,
                     );
                 }
             }
@@ -7585,6 +7709,10 @@ impl Solver {
                             // Remove the arithmetic term
                             self.arith_terms.remove(&term);
                         }
+                        TrailOp::BoolPredAdded { term } => {
+                            // Remove the boolean predicate term registration
+                            self.bool_pred_terms.remove(&term);
+                        }
                     }
                 }
             }
@@ -7625,6 +7753,7 @@ impl Solver {
         self.bv_terms.clear();
         self.arith_terms.clear();
         self.dt_var_constructors.clear();
+        self.bool_pred_terms.clear();
     }
 
     /// Get the configuration
