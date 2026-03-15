@@ -4,9 +4,9 @@
 //! based on how recently it participated in conflicts.
 
 use crate::literal::Var;
-use rustc_hash::FxHashMap;
-use std::cmp::Ordering;
-use std::collections::BinaryHeap;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::cmp::Ordering;
 
 /// Variable with its CHB score
 #[derive(Debug, Clone)]

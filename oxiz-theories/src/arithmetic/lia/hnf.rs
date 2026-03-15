@@ -1,4 +1,8 @@
-//\! Hermite Normal Form for integer linear systems
+//! Hermite Normal Form for integer linear systems
+
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 /// Hermite Normal Form (HNF) transformation
 ///
 /// Used for analyzing integer linear systems.

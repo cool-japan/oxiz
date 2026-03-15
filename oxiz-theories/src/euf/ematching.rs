@@ -44,10 +44,11 @@
 //! - Ge & de Moura, "Complete Instantiation for Quantified Formulas in SMT" (2009)
 //! - Z3's `src/smt/smt_quantifier.cpp` and `src/smt/smt_model_based_quantifier.cpp`
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::fmt;
 use oxiz_core::ast::TermId;
-use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
-use std::fmt;
 
 /// Type alias for application storage
 type AppStorage = Vec<(TermId, SmallVec<[TermId; 4]>)>;

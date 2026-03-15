@@ -1,6 +1,8 @@
 //! Helper functions for polynomial operations.
 
 use super::types::*;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_bigint::BigInt;
 use num_rational::BigRational;
 use num_traits::{One, Signed, Zero};

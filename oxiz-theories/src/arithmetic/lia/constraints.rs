@@ -2,6 +2,8 @@
 
 use super::super::simplex::LinExpr;
 use super::types::LiaSolver;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 impl LiaSolver {
     /// Add a linear constraint: expr <= 0

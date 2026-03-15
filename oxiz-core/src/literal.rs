@@ -3,7 +3,9 @@
 //! Provides a minimal literal representation for use in trait definitions.
 //! This avoids circular dependencies with oxiz-sat.
 
-use std::fmt;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::fmt;
 
 /// A Boolean variable identifier.
 pub type Var = u32;

@@ -14,7 +14,8 @@
 
 use crate::clause::ClauseDatabase;
 use crate::literal::Lit;
-use std::collections::HashSet;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Statistics for BIG optimization
 #[derive(Debug, Clone, Default)]

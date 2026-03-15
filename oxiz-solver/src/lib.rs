@@ -88,8 +88,14 @@
 //! assert_eq!(solver.check(&mut tm), SolverResult::Sat);
 //! ```
 
+#![cfg_attr(not(feature = "std"), no_std)]
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
+
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+
+mod prelude;
 
 mod context;
 mod nelson_oppen;

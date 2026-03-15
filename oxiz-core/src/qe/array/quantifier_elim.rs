@@ -8,9 +8,9 @@
 //! - Array property templates
 //! - Skolemization for existential quantifiers
 
-use rustc_hash::{FxHashMap, FxHashSet};
-
 /// Placeholder term identifier
+#[allow(unused_imports)]
+use crate::prelude::*;
 pub type TermId = usize;
 
 /// Array term representation

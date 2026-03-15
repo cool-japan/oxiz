@@ -15,8 +15,9 @@
 use super::{RewriteContext, RewriteResult, Rewriter};
 use crate::SortId;
 use crate::ast::{TermId, TermKind, TermManager};
-use lasso::Spur;
-use rustc_hash::FxHashSet;
+use crate::interner::Spur;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use smallvec::SmallVec;
 
 /// Instantiation pattern type alias
@@ -479,7 +480,7 @@ mod tests {
 
         let body = manager.mk_true();
         // Use empty array for vars
-        let forall = manager.mk_forall(std::iter::empty::<(&str, SortId)>(), body);
+        let forall = manager.mk_forall(core::iter::empty::<(&str, SortId)>(), body);
 
         let result = rewriter.rewrite(forall, &mut ctx, &mut manager);
         // Empty forall returns body directly, which is already true

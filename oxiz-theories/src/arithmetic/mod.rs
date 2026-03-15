@@ -3,6 +3,9 @@
 //! Implements the Dual Simplex algorithm for Linear Real Arithmetic (LRA)
 //! with extensions for Linear Integer Arithmetic (LIA).
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 mod delta;
 mod gaussian;
 mod lia;

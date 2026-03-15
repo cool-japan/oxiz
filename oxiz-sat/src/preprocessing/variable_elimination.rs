@@ -6,8 +6,9 @@
 //! - Asymmetric Variable Elimination
 //! - Resolution-based elimination with cost analysis
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::{Clause, Lit, Var};
-use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Variable elimination engine for SAT preprocessing.
 pub struct VariableEliminator {
@@ -132,7 +133,7 @@ impl VariableEliminator {
         }
 
         // Sort by cost
-        costs.sort_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        costs.sort_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(core::cmp::Ordering::Equal));
 
         costs.into_iter().map(|(var, _)| var).collect()
     }

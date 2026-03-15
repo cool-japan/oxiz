@@ -7,12 +7,12 @@
 //! - Lazy axiom instantiation
 
 use super::regex::{Regex, RegexAutomaton};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::theory::{Theory, TheoryId, TheoryResult};
 use oxiz_core::ast::TermId;
 use oxiz_core::error::Result;
-use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
-use std::sync::Arc;
 
 /// String constraint kinds
 #[allow(dead_code)]
@@ -802,7 +802,7 @@ impl Theory for StringSolver {
 
         // Check propagations
         if !self.propagated.is_empty() {
-            let props = std::mem::take(&mut self.propagated);
+            let props = core::mem::take(&mut self.propagated);
             return Ok(TheoryResult::Propagate(props));
         }
 

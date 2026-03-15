@@ -3,6 +3,8 @@
 //! This module provides structures for collecting and reporting
 //! various solver statistics like decisions, propagations, conflicts, etc.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use std::time::{Duration, Instant};
 
 /// Statistics for solver performance tracking
@@ -196,8 +198,8 @@ impl Statistics {
     }
 }
 
-impl std::fmt::Display for Statistics {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for Statistics {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         writeln!(f, "Statistics:")?;
         writeln!(f, "  Decisions:       {}", self.decisions)?;
         writeln!(f, "  Propagations:    {}", self.propagations)?;

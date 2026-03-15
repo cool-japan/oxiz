@@ -1,5 +1,4 @@
 //! Advanced Model Builder for Theory Combination
-#![allow(dead_code, missing_docs)] // Under development
 //!
 //! This module provides sophisticated model construction for CDCL(T) solving,
 //! including:
@@ -8,8 +7,10 @@
 //! - Model minimization and optimization
 //! - Cross-theory consistency checking
 
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::BTreeMap;
+#![allow(dead_code, missing_docs)] // Under development
+
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Represents a model assignment for a term
 #[derive(Debug, Clone, PartialEq, Eq)]

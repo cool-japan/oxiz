@@ -10,18 +10,22 @@ keywords = ["sat", "cdcl", "solver"]
 categories = ["algorithms"]
 
 [features]
-default = []
+default = ["std"]
+std = ["rayon", "tracing", "rustc-hash/std", "oxiz-core/std"]
 # GPU acceleration backends (placeholder for future implementation)
 cuda = []
 opencl = []
 vulkan = []
 
 [dependencies]
-oxiz-core = { workspace = true }
-tracing = { workspace = true }
+oxiz-core = { workspace = true, default-features = false }
+tracing = { workspace = true, default-features = false, optional = true }
 smallvec = { workspace = true }
 rustc-hash = { workspace = true }
-rayon = { workspace = true }
+rayon = { workspace = true, optional = true }
+hashbrown.workspace = true
+portable-atomic-util = { workspace = true }
+libm.workspace = true
 
 [dev-dependencies]
 proptest = { workspace = true }

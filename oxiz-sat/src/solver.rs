@@ -5,6 +5,8 @@ use crate::chrono::ChronoBacktrack;
 use crate::clause::{ClauseDatabase, ClauseId};
 use crate::literal::{LBool, Lit, Var};
 use crate::lrb::LRB;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::trail::{Reason, Trail};
 use crate::vsids::VSIDS;
 use crate::watched::{WatchLists, Watcher};
@@ -979,7 +981,7 @@ impl Solver {
             }
 
             // Get watches for the negation of the propagated literal
-            let watches = std::mem::take(self.watches.get_mut(lit));
+            let watches = core::mem::take(self.watches.get_mut(lit));
 
             let mut i = 0;
             while i < watches.len() {
@@ -1644,9 +1646,10 @@ impl Solver {
         }
 
         // Sort by activity (ascending) - delete low-activity clauses first
-        core_candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-        mid_candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-        local_candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        core_candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(core::cmp::Ordering::Equal));
+        mid_candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(core::cmp::Ordering::Equal));
+        local_candidates
+            .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(core::cmp::Ordering::Equal));
 
         // Delete different percentages from each tier
         // Core: Delete bottom 10% (very conservative)
@@ -2482,7 +2485,7 @@ impl Solver {
         }
 
         // Sort by LBD (prioritize higher LBD clauses for strengthening)
-        candidates.sort_by_key(|(_, lbd)| std::cmp::Reverse(*lbd));
+        candidates.sort_by_key(|(_, lbd)| core::cmp::Reverse(*lbd));
 
         for (clause_id, _) in candidates.iter().take(max_clauses_to_strengthen) {
             if strengthened_count >= max_clauses_to_strengthen {

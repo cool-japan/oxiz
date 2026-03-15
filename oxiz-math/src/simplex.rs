@@ -9,11 +9,12 @@
 //!
 //! Reference: Z3's `math/simplex/` directory and standard LP textbooks.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::fmt;
 use num_bigint::BigInt;
 use num_rational::BigRational;
 use num_traits::{One, Signed, Zero};
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::fmt;
 
 /// Variable identifier for simplex.
 pub type VarId = u32;

@@ -5,6 +5,8 @@ use super::probe::Probe;
 use crate::ast::normal_forms::{to_cnf, to_nnf};
 use crate::ast::{TermId, TermKind, TermManager};
 use crate::error::Result;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_integer::Integer;
 use num_traits::Signed;
 
@@ -67,7 +69,7 @@ impl<'a> SolveEqsTactic<'a> {
                 total_changed = true;
 
                 // Build substitution map
-                let mut subst = rustc_hash::FxHashMap::default();
+                let mut subst = crate::prelude::FxHashMap::default();
                 subst.insert(var, expr);
 
                 // Apply substitution to all assertions except the solved one
@@ -351,7 +353,7 @@ struct LinearConstraint {
     id: usize,
     /// Coefficients for each variable (indexed by variable id)
     /// Only non-zero coefficients are stored
-    coefficients: rustc_hash::FxHashMap<TermId, Coefficient>,
+    coefficients: crate::prelude::FxHashMap<TermId, Coefficient>,
     /// Right-hand side constant
     constant: Coefficient,
     /// Whether this is a strict inequality (<) or non-strict (≤)
@@ -366,7 +368,7 @@ impl LinearConstraint {
     fn new(id: usize) -> Self {
         Self {
             id,
-            coefficients: rustc_hash::FxHashMap::default(),
+            coefficients: crate::prelude::FxHashMap::default(),
             constant: Coefficient::zero(),
             strict: false,
             literals: smallvec::SmallVec::new(),
@@ -550,7 +552,7 @@ impl<'a> FourierMotzkinTactic<'a> {
         }
 
         // Phase 2: Collect all variables
-        let mut all_vars: rustc_hash::FxHashSet<TermId> = rustc_hash::FxHashSet::default();
+        let mut all_vars: crate::prelude::FxHashSet<TermId> = crate::prelude::FxHashSet::default();
         for c in &constraints {
             for var in c.variables() {
                 all_vars.insert(var);
@@ -558,10 +560,10 @@ impl<'a> FourierMotzkinTactic<'a> {
         }
 
         // Phase 3: Build variable bounds index
-        let mut lowers: rustc_hash::FxHashMap<TermId, Vec<usize>> =
-            rustc_hash::FxHashMap::default();
-        let mut uppers: rustc_hash::FxHashMap<TermId, Vec<usize>> =
-            rustc_hash::FxHashMap::default();
+        let mut lowers: crate::prelude::FxHashMap<TermId, Vec<usize>> =
+            crate::prelude::FxHashMap::default();
+        let mut uppers: crate::prelude::FxHashMap<TermId, Vec<usize>> =
+            crate::prelude::FxHashMap::default();
 
         for (idx, c) in constraints.iter().enumerate() {
             for var in c.variables() {
@@ -1246,8 +1248,8 @@ pub struct CondTactic {
     if_false: std::sync::Arc<dyn Tactic>,
 }
 
-impl std::fmt::Debug for CondTactic {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for CondTactic {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("CondTactic")
             .field("probe_name", &self.probe.name())
             .field("threshold", &self.threshold)
@@ -1333,8 +1335,8 @@ pub struct WhenTactic {
     tactic: std::sync::Arc<dyn Tactic>,
 }
 
-impl std::fmt::Debug for WhenTactic {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for WhenTactic {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("WhenTactic")
             .field("probe_name", &self.probe.name())
             .field("threshold", &self.threshold)
@@ -1390,8 +1392,8 @@ pub struct FailIfTactic {
     message: String,
 }
 
-impl std::fmt::Debug for FailIfTactic {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for FailIfTactic {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("FailIfTactic")
             .field("probe_name", &self.probe.name())
             .field("threshold", &self.threshold)

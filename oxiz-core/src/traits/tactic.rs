@@ -4,8 +4,9 @@
 //! Tactics are transformations applied to goals (formulas) to simplify them,
 //! decompose them, or prepare them for specific solvers.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::{TermId, TermManager};
-use rustc_hash::FxHashSet;
 
 /// Result of applying a tactic.
 #[derive(Debug, Clone)]

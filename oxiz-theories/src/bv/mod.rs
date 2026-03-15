@@ -12,6 +12,9 @@
 //! - **word_level**: Word-level reasoning without bit-blasting
 //! - **division_opt**: Optimized division and modulo operations
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 mod aig;
 mod aig_builder;
 mod bitblast_advanced;

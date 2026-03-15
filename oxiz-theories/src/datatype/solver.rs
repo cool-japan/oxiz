@@ -1,9 +1,10 @@
 //! Datatype Theory Solver for Algebraic Data Types.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::theory::{Theory, TheoryId, TheoryResult};
 use oxiz_core::ast::TermId;
 use oxiz_core::error::Result;
-use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 
 /// A field in a constructor

@@ -35,8 +35,10 @@ pub use bv::BvChecker;
 pub use proof::{ProofChecker, ProofStep, ProofStepKind};
 pub use quant::QuantChecker;
 
+use crate::prelude::HashSet;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::ast::TermId;
-use std::collections::HashSet;
 
 /// Result of checking a theory inference
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -192,7 +194,7 @@ pub struct CombinedChecker {
     /// Quantifier checker
     pub quant: QuantChecker,
     /// Terms that belong to each theory
-    theory_terms: std::collections::HashMap<TermId, TheoryKind>,
+    theory_terms: crate::prelude::HashMap<TermId, TheoryKind>,
 }
 
 /// Kind of theory a term belongs to
@@ -220,7 +222,7 @@ impl CombinedChecker {
             array: ArrayChecker::new(),
             bv: BvChecker::new(),
             quant: QuantChecker::new(),
-            theory_terms: std::collections::HashMap::new(),
+            theory_terms: crate::prelude::HashMap::new(),
         }
     }
 

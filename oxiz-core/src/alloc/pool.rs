@@ -3,8 +3,10 @@
 //!
 //! Provides efficient reuse of frequently allocated objects like clauses and literals.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::cell::RefCell;
 use parking_lot::Mutex;
-use std::cell::RefCell;
 use std::sync::Arc;
 
 /// Configuration for object pool.
@@ -143,7 +145,7 @@ impl<'a, T> Drop for PoolGuard<'a, T> {
     }
 }
 
-impl<'a, T> std::ops::Deref for PoolGuard<'a, T> {
+impl<'a, T> core::ops::Deref for PoolGuard<'a, T> {
     type Target = T;
 
     fn deref(&self) -> &T {
@@ -151,7 +153,7 @@ impl<'a, T> std::ops::Deref for PoolGuard<'a, T> {
     }
 }
 
-impl<'a, T> std::ops::DerefMut for PoolGuard<'a, T> {
+impl<'a, T> core::ops::DerefMut for PoolGuard<'a, T> {
     fn deref_mut(&mut self) -> &mut T {
         self.get_mut()
     }
@@ -282,7 +284,7 @@ impl<T> Drop for SharedPoolGuard<T> {
     }
 }
 
-impl<T> std::ops::Deref for SharedPoolGuard<T> {
+impl<T> core::ops::Deref for SharedPoolGuard<T> {
     type Target = T;
 
     fn deref(&self) -> &T {
@@ -290,7 +292,7 @@ impl<T> std::ops::Deref for SharedPoolGuard<T> {
     }
 }
 
-impl<T> std::ops::DerefMut for SharedPoolGuard<T> {
+impl<T> core::ops::DerefMut for SharedPoolGuard<T> {
     fn deref_mut(&mut self) -> &mut T {
         self.get_mut()
     }

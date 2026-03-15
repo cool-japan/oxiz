@@ -15,9 +15,10 @@
 //! ```
 
 use super::regex::Regex;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::ast::TermId;
 use oxiz_core::error::{OxizError, Result};
-use rustc_hash::FxHashMap;
 
 /// Replace operation mode
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

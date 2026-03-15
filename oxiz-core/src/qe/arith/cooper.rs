@@ -4,9 +4,10 @@
 //! integer arithmetic (Presburger arithmetic).
 
 use crate::ast::{TermId, TermManager};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_bigint::BigInt;
 use num_traits::{One, ToPrimitive};
-use rustc_hash::FxHashSet;
 
 /// Cooper's algorithm QE engine.
 pub struct CooperEliminator {

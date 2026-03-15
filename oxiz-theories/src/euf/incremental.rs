@@ -7,9 +7,9 @@
 //! - Worklist-based congruence closure
 //! - Theory propagation hooks
 
-use rustc_hash::{FxHashMap, FxHashSet};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use smallvec::SmallVec;
-use std::collections::VecDeque;
 
 /// E-class identifier
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -360,13 +360,13 @@ impl EGraph {
         self.parent[loser.raw() as usize] = winner.raw();
 
         // Merge E-nodes
-        let loser_nodes = std::mem::take(&mut self.classes[loser.raw() as usize].nodes);
+        let loser_nodes = core::mem::take(&mut self.classes[loser.raw() as usize].nodes);
         for node in loser_nodes {
             self.classes[winner.raw() as usize].add_node(node);
         }
 
         // Merge parents
-        let loser_parents = std::mem::take(&mut self.classes[loser.raw() as usize].parents);
+        let loser_parents = core::mem::take(&mut self.classes[loser.raw() as usize].parents);
         for parent in loser_parents {
             self.classes[winner.raw() as usize].parents.insert(parent);
             self.dirty.insert(parent);

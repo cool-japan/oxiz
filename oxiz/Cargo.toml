@@ -17,34 +17,34 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-# Core modules - always included
+# Core modules - always included (no_std compatible, std propagated via features)
 oxiz-core = { workspace = true }
 oxiz-math = { workspace = true }
+oxiz-sat = { workspace = true }
+oxiz-theories = { workspace = true }
+oxiz-solver = { workspace = true }
 
-# Solver modules - optional
-oxiz-sat = { workspace = true, optional = true }
-oxiz-theories = { workspace = true, optional = true }
-oxiz-solver = { workspace = true, optional = true }
+# Advanced (optional, require std)
 oxiz-nlsat = { workspace = true, optional = true }
 oxiz-opt = { workspace = true, optional = true }
 oxiz-spacer = { workspace = true, optional = true }
 oxiz-proof = { workspace = true, optional = true }
 
 [dev-dependencies]
-num-bigint = { workspace = true }
+num-bigint = { workspace = true, features = ["std"] }
 
 [features]
-default = ["solver"]
-
-# Core solver functionality
-solver = ["dep:oxiz-sat", "dep:oxiz-theories", "dep:oxiz-solver"]
-
-# Advanced features
-nlsat = ["dep:oxiz-nlsat", "solver"]
-optimization = ["dep:oxiz-opt", "solver"]
-spacer = ["dep:oxiz-spacer", "solver"]
-proof = ["dep:oxiz-proof", "solver"]
-
-# Convenience groupings
-standard = ["solver", "nlsat", "optimization", "proof"]
+default = ["std"]
+std = [
+    "oxiz-core/std",
+    "oxiz-math/std",
+    "oxiz-sat/std",
+    "oxiz-theories/std",
+    "oxiz-solver/std",
+]
+nlsat = ["dep:oxiz-nlsat", "std"]
+optimization = ["dep:oxiz-opt", "std"]
+spacer = ["dep:oxiz-spacer", "std"]
+proof = ["dep:oxiz-proof", "std"]
+standard = ["nlsat", "optimization", "proof"]
 full = ["standard", "spacer"]

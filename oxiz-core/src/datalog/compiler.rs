@@ -2,6 +2,8 @@
 //!
 //! Compiles Datalog rules into efficient execution plans.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use std::collections::{HashMap, HashSet};
 
 use super::index::IndexId;

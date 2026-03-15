@@ -3,7 +3,9 @@
 //! Tools for profiling and analyzing SAT solver performance.
 //! Includes timers, operation counters, and bottleneck detection.
 
-use std::collections::HashMap;
+use crate::prelude::HashMap;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use std::time::{Duration, Instant};
 
 /// A named timer for profiling code sections

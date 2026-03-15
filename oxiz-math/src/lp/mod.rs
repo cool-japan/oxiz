@@ -1,5 +1,8 @@
 //! Linear Programming and Mixed Integer Programming.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 pub mod basis_update;
 pub mod branch_cut;
 pub mod cutting_planes;

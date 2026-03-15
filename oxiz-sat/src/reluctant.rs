@@ -12,6 +12,9 @@
 //!
 //! Reference: "Adaptive Restart Strategies for Conflict Driven SAT Solvers"
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 /// Statistics for reluctant doubling
 #[derive(Debug, Default, Clone)]
 pub struct ReluctantStats {

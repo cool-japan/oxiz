@@ -4,6 +4,9 @@
 //! They form the basis of the strategy layer in the solver.
 
 // Existing submodules
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 pub mod lia2card;
 pub mod mbp;
 pub mod nla2bv;

@@ -30,9 +30,10 @@
 //! - Implementation inspired by Z3's `smt/theory_lra.cpp` preprocessing
 
 use super::simplex::{LinExpr, VarId};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_rational::Rational64;
 use num_traits::{One, Zero};
-use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 
 /// A linear equation: sum(coef_i * var_i) = constant

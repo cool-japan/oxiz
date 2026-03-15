@@ -3,6 +3,8 @@
 //! Implements the complete CAD algorithm for quantifier elimination
 //! in real closed fields, including projection, lifting, and sample point construction.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use super::base::{AlgebraicPoint, CadCell, CadConfig, CadError, CadStats, ProjectionOperator};
 use super::cell_decomposition::CellDecomposer;
 use super::lifting::LiftingEngine;
@@ -11,8 +13,7 @@ use super::sample::SamplePointGenerator;
 use crate::ast::{Term, TermId, TermKind, TermManager};
 use num_rational::BigRational;
 use num_traits::{One, Zero};
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::VecDeque;
+use crate::prelude::VecDeque;
 
 /// Complete CAD solver for quantifier elimination.
 pub struct CadSolver {

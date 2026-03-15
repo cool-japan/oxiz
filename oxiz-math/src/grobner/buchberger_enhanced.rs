@@ -7,11 +7,11 @@
 //! - Gebauer-Möller installation strategy
 //! - Sugar cube selection strategy
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::cmp::Ordering;
 use num_rational::BigRational;
 use num_traits::{One, Zero};
-use rustc_hash::FxHashMap;
-use std::cmp::Ordering;
-use std::collections::BinaryHeap;
 
 /// Monomial (variable -> exponent)
 pub type Monomial = FxHashMap<usize, usize>;

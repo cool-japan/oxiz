@@ -5,6 +5,8 @@
 
 use crate::TermId;
 use crate::literal::Lit;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Result of a propagation operation.
 #[derive(Debug, Clone)]

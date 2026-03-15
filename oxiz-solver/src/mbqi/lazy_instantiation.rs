@@ -11,11 +11,11 @@
 //! - **Cost-Guided**: Prioritize instantiations by estimated cost
 //! - **Incremental**: Add instantiations incrementally with backtracking
 
-use lasso::Spur;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::ast::{TermId, TermKind, TermManager};
+use oxiz_core::interner::Spur;
 use oxiz_core::sort::SortId;
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::{BinaryHeap, VecDeque};
 
 use super::counterexample::CounterExampleGenerator;
 use super::model_completion::CompletedModel;
@@ -762,18 +762,18 @@ impl PartialEq for ScoredInstantiation {
 impl Eq for ScoredInstantiation {}
 
 impl PartialOrd for ScoredInstantiation {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
 impl Ord for ScoredInstantiation {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         // Lower score = higher priority (min-heap behavior)
         other
             .score
             .partial_cmp(&self.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
+            .unwrap_or(core::cmp::Ordering::Equal)
     }
 }
 

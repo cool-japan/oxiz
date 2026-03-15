@@ -7,9 +7,9 @@
 //! - Equality explanation generation
 //! - Watched equalities for lazy propagation
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::ast::{TermId, TermKind, TermManager};
-use rustc_hash::FxHashMap;
-use std::collections::VecDeque;
 
 /// Equality propagation engine.
 pub struct EqualityPropagator {
@@ -147,7 +147,7 @@ impl UnionFind {
 
     /// Find the representative of a set.
     pub fn find(&mut self, x: TermId) -> TermId {
-        if let std::collections::hash_map::Entry::Vacant(e) = self.parent.entry(x) {
+        if let crate::prelude::hash_map::Entry::Vacant(e) = self.parent.entry(x) {
             e.insert(x);
             self.rank.insert(x, 0);
             self.size.insert(x, 1);
@@ -319,7 +319,7 @@ impl EqualityPropagator {
         let term2 = tm.get(t2).ok_or("term not found")?;
 
         // Must have same kind
-        if std::mem::discriminant(&term1.kind) != std::mem::discriminant(&term2.kind) {
+        if core::mem::discriminant(&term1.kind) != core::mem::discriminant(&term2.kind) {
             return Ok(false);
         }
 

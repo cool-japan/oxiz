@@ -31,6 +31,8 @@
 //! ```
 
 use crate::matrix::Matrix;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_rational::Rational64;
 use num_traits::{One, Zero};
 

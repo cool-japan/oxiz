@@ -3,6 +3,8 @@
 use super::core::*;
 use crate::ast::{TermId, TermKind, TermManager};
 use crate::error::Result;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Goal splitting tactic
 pub struct SplitTactic<'a> {
@@ -18,7 +20,7 @@ impl<'a> SplitTactic<'a> {
     /// Find a good boolean term to split on
     fn find_split_candidate(&self, goal: &Goal) -> Option<TermId> {
         use crate::ast::traversal::collect_subterms;
-        use rustc_hash::FxHashSet;
+        use crate::prelude::FxHashSet;
 
         let mut candidates = Vec::new();
 

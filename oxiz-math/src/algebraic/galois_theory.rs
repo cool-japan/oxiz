@@ -3,10 +3,11 @@
 //! Provides fundamental Galois theory operations needed for understanding
 //! polynomial splitting fields and solvability by radicals.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use super::field_extension::{FieldExtension, FieldExtensionManager, ExtensionId};
 use num_rational::BigRational;
 use num_traits::{One, Zero};
-use std::collections::{HashMap, HashSet};
 
 /// Represents an automorphism of a field extension.
 ///

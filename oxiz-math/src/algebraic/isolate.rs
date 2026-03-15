@@ -14,10 +14,11 @@
 //! - "Algorithms in Real Algebraic Geometry" (Basu et al., 2006)
 //! - Z3's `math/polynomial/algebraic_numbers.cpp`
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::polynomial::Polynomial;
 use num_bigint::BigInt;
 use num_rational::BigRational;
-use rustc_hash::FxHashMap;
 
 /// Isolating interval for a root.
 #[derive(Debug, Clone)]

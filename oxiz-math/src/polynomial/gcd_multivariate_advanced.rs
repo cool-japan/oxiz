@@ -8,10 +8,11 @@
 //! - Heuristic GCD for sparse polynomials
 //! - Content and primitive part computation
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_bigint::BigInt;
 use num_rational::BigRational;
 use num_traits::{One, Zero};
-use rustc_hash::FxHashMap;
 
 /// Monomial representation (variable -> exponent)
 pub type Monomial = FxHashMap<usize, usize>;

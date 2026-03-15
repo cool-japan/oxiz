@@ -54,15 +54,21 @@
 //! }
 //! ```
 
+#![cfg_attr(not(feature = "std"), no_std)]
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+
+mod prelude;
+
+// === Always-available modules (no_std compatible) ===
 pub mod arithmetic;
 pub mod array;
 pub mod array_eager_expand;
 pub mod bv;
 pub mod character;
-pub mod checking;
 pub mod combination;
 pub mod config;
 pub mod datatype;
@@ -73,15 +79,14 @@ pub mod fp;
 pub mod fp_interval_prop;
 pub mod hashcons;
 mod lru_cache;
-pub mod nlsat;
 pub mod pb;
 pub mod propagation;
+#[cfg(feature = "std")]
 pub mod quantifier;
 pub mod quantifier_code_tree;
 pub mod recfun;
 pub mod set;
 pub mod simplify;
-pub mod sls;
 pub mod special_relations;
 pub mod string;
 pub mod string_length_prop;
@@ -91,6 +96,15 @@ pub mod utvpi;
 pub mod watched;
 pub mod wmaxsat;
 
+// === std-only modules ===
+#[cfg(feature = "std")]
+pub mod checking;
+#[cfg(feature = "std")]
+pub mod nlsat;
+#[cfg(feature = "std")]
+pub mod sls;
+
+// === Always-available exports ===
 pub use combination::{Purifier, SharedVar, TheoryCombiner};
 pub use config::{
     BranchingHeuristic, BvConfig, CombinationConfig, CombinationMode, LiaConfig, PivotingRule,
@@ -122,6 +136,7 @@ pub use fp_interval_prop::{
 pub use string_length_prop::{LengthConstraint, LengthDomain, LengthPropStats, LengthPropagator};
 
 // Quantifier solver exports
+#[cfg(feature = "std")]
 pub use quantifier::{
     InstantiationLemma, QuantifierConfig, QuantifierSolver, QuantifierStats, TrackedQuantifier,
 };
@@ -159,13 +174,6 @@ pub use utvpi::{
     UtvpiConfig, UtvpiDetector, UtvpiDetectorStats, UtvpiResult, UtvpiSolver, UtvpiStats,
 };
 
-// Theory checking exports
-pub use checking::{
-    ArithCheckConfig, ArithChecker, ArrayChecker, BvChecker, CheckResult, CheckerStats,
-    CombinedChecker, Literal, ProofChecker, ProofStep, ProofStepKind, QuantChecker, TheoryChecker,
-    TheoryKind,
-};
-
 // Weighted MaxSAT exports
 pub use wmaxsat::{
     SoftClause, WMaxSatConfig, WMaxSatResult, WMaxSatSolver, WMaxSatStats, Weight as WMaxWeight,
@@ -189,7 +197,18 @@ pub use set::{
     SubsetConstraint, SubsetDomain, SubsetGraph, SubsetPropagator, SubsetResult, SubsetStats,
 };
 
+// === std-only exports ===
+
+// Theory checking exports
+#[cfg(feature = "std")]
+pub use checking::{
+    ArithCheckConfig, ArithChecker, ArrayChecker, BvChecker, CheckResult, CheckerStats,
+    CombinedChecker, Literal, ProofChecker, ProofStep, ProofStepKind, QuantChecker, TheoryChecker,
+    TheoryKind,
+};
+
 // SLS theory exports
+#[cfg(feature = "std")]
 pub use sls::{
     // Backbone detection
     BackboneDetector,

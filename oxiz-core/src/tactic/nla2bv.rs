@@ -26,12 +26,13 @@
 
 use crate::ast::{TermId, TermKind, TermManager};
 use crate::error::Result;
+use crate::interner::Spur;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::sort::SortId;
 use crate::tactic::{Goal, Tactic, TacticResult};
-use lasso::Spur;
 use num_bigint::BigInt;
 use num_traits::{Signed, Zero};
-use rustc_hash::FxHashMap;
 
 /// Comparison operator for bounds extraction
 #[derive(Debug, Clone, Copy)]

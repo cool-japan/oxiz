@@ -1,12 +1,13 @@
 //! Arithmetic Theory Solver
 
 use super::simplex::{LinExpr, Simplex, VarId};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::theory::{EqualityNotification, Theory, TheoryCombination, TheoryId, TheoryResult};
 use num_rational::Rational64;
 use num_traits::{One, Signed};
 use oxiz_core::ast::TermId;
 use oxiz_core::error::Result;
-use rustc_hash::FxHashMap;
 
 /// Compute GCD of two i64 values
 fn gcd_i64(mut a: i64, mut b: i64) -> i64 {

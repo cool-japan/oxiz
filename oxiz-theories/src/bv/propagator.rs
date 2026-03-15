@@ -3,8 +3,9 @@
 //! Word-level propagators reason about bitvectors at a higher abstraction level,
 //! detecting conflicts and deriving bounds without bit-blasting.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::ast::TermId;
-use rustc_hash::FxHashMap;
 
 /// Propagation error indicating a conflict
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

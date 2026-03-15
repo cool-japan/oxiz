@@ -5,7 +5,8 @@
 #![allow(dead_code)]
 
 use super::{SetConflict, SetVar, SetVarId};
-use rustc_hash::{FxHashMap, FxHashSet};
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Set element (for enumeration)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -313,7 +314,7 @@ impl FiniteSetEnumerator {
         } else {
             self.universe
                 .difference(&var.must_members)
-                .filter(|e| !var.must_not_members.contains(e))
+                .filter(|e| !var.must_not_members.contains(*e))
                 .copied()
                 .collect()
         }

@@ -9,6 +9,8 @@
 //! learned clause is still satisfied at higher levels.
 
 use crate::literal::Lit;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::trail::Trail;
 
 /// Chronological backtracking helper

@@ -5,7 +5,8 @@
 #![allow(dead_code)]
 
 use super::{SetConflict, SetVarId};
-use rustc_hash::{FxHashMap, FxHashSet};
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Powerset constraint: S2 = P(S1)
 #[derive(Debug, Clone)]

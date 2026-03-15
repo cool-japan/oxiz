@@ -9,7 +9,8 @@
 
 use super::proof::{Proof, ProofId, ProofRule};
 use crate::ast::{TermId, TermManager};
-use rustc_hash::FxHashMap;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 #[cfg(test)]
 use super::proof::ProofNode;

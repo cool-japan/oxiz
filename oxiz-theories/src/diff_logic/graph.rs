@@ -2,9 +2,10 @@
 //!
 //! Represents difference constraints as a weighted directed graph.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_rational::Rational64;
 use oxiz_core::ast::TermId;
-use std::collections::HashMap;
 
 /// Variable identifier in difference logic
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -298,7 +299,7 @@ impl ConstraintGraph {
 
     /// All nodes including source
     pub fn nodes(&self) -> impl Iterator<Item = DiffVar> + '_ {
-        std::iter::once(DiffVar::SOURCE).chain(self.vars())
+        core::iter::once(DiffVar::SOURCE).chain(self.vars())
     }
 
     /// Push a new decision level

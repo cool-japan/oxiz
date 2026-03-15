@@ -11,6 +11,8 @@
 //! - No periodic rescaling needed
 
 use crate::literal::Var;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Node in the VMTF doubly-linked list
 #[derive(Debug, Clone, Copy)]

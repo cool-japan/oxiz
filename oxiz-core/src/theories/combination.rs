@@ -6,7 +6,8 @@
 //! Reference: Z3's `src/smt/theory.cpp` and Nelson-Oppen combination framework
 
 use crate::ast::{TermId, TermKind, TermManager};
-use rustc_hash::{FxHashMap, FxHashSet};
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Interface for a theory decision procedure
 pub trait Theory {

@@ -7,6 +7,8 @@
 //! that includes clause IDs and resolution hints for more efficient verification.
 
 use crate::literal::Lit;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::Path;
@@ -255,7 +257,7 @@ impl Drop for LratProof {
 #[derive(Debug)]
 pub struct ProofTrimmer {
     /// Clauses that are actually used in the proof
-    used_clauses: std::collections::HashSet<u64>,
+    used_clauses: crate::prelude::HashSet<u64>,
     /// The final clause ID (usually the empty clause)
     #[allow(dead_code)]
     final_clause_id: u64,
@@ -264,7 +266,7 @@ pub struct ProofTrimmer {
 impl ProofTrimmer {
     /// Create a new proof trimmer
     pub fn new(final_clause_id: u64) -> Self {
-        let mut used = std::collections::HashSet::new();
+        let mut used = crate::prelude::HashSet::new();
         used.insert(final_clause_id);
 
         Self {

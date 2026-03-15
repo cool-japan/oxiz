@@ -6,6 +6,8 @@
 #![allow(unsafe_code)]
 
 use crate::literal::Lit;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Clause reference in the memory arena
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -92,8 +94,8 @@ impl ClauseArena {
     /// Allocate a clause in the arena
     pub fn alloc(&mut self, lits: &[Lit], learned: bool) -> ClauseRef {
         let header = ClauseHeader::new(lits.len() as u32, learned);
-        let header_size = std::mem::size_of::<ClauseHeader>();
-        let lits_size = std::mem::size_of_val(lits);
+        let header_size = core::mem::size_of::<ClauseHeader>();
+        let lits_size = core::mem::size_of_val(lits);
         let total_size = header_size + lits_size;
 
         // Ensure alignment
@@ -114,11 +116,11 @@ impl ClauseArena {
         let clause_ref = ClauseRef(aligned_pos as u32);
         unsafe {
             let header_ptr = self.buffer.as_mut_ptr().add(aligned_pos) as *mut ClauseHeader;
-            std::ptr::write(header_ptr, header);
+            core::ptr::write(header_ptr, header);
 
             // Write literals
             let lits_ptr = header_ptr.add(1) as *mut Lit;
-            std::ptr::copy_nonoverlapping(lits.as_ptr(), lits_ptr, lits.len());
+            core::ptr::copy_nonoverlapping(lits.as_ptr(), lits_ptr, lits.len());
         }
 
         self.pos = aligned_pos + total_size;
@@ -147,7 +149,7 @@ impl ClauseArena {
             }
 
             let lits_ptr = header_ptr.add(1) as *const Lit;
-            Some(std::slice::from_raw_parts(lits_ptr, header.len as usize))
+            Some(core::slice::from_raw_parts(lits_ptr, header.len as usize))
         }
     }
 
@@ -213,8 +215,8 @@ impl ClauseArena {
                 header.mark_deleted();
                 self.num_deleted += 1;
 
-                let header_size = std::mem::size_of::<ClauseHeader>();
-                let lits_size = header.len as usize * std::mem::size_of::<Lit>();
+                let header_size = core::mem::size_of::<ClauseHeader>();
+                let lits_size = header.len as usize * core::mem::size_of::<Lit>();
                 self.wasted_bytes += header_size + lits_size;
             }
         }
@@ -231,8 +233,8 @@ impl ClauseArena {
 
     /// Compact the arena by removing deleted clauses
     /// Returns a mapping from old refs to new refs
-    pub fn compact(&mut self) -> std::collections::HashMap<ClauseRef, ClauseRef> {
-        let mut mapping = std::collections::HashMap::new();
+    pub fn compact(&mut self) -> crate::prelude::HashMap<ClauseRef, ClauseRef> {
+        let mut mapping = crate::prelude::HashMap::new();
         let mut new_buffer: Vec<u8> = Vec::with_capacity(self.buffer.len() - self.wasted_bytes);
         let mut new_pos = 0;
 
@@ -250,8 +252,8 @@ impl ClauseArena {
                 let header_ptr = self.buffer.as_ptr().add(offset) as *const ClauseHeader;
                 let header = &*header_ptr;
 
-                let header_size = std::mem::size_of::<ClauseHeader>();
-                let lits_size = header.len as usize * std::mem::size_of::<Lit>();
+                let header_size = core::mem::size_of::<ClauseHeader>();
+                let lits_size = header.len as usize * core::mem::size_of::<Lit>();
                 let clause_size = header_size + lits_size;
 
                 if !header.is_deleted() {
@@ -271,7 +273,7 @@ impl ClauseArena {
                     // Copy data
                     let src = self.buffer.as_ptr().add(offset);
                     let dst = new_buffer.as_mut_ptr().add(new_pos);
-                    std::ptr::copy_nonoverlapping(src, dst, clause_size);
+                    core::ptr::copy_nonoverlapping(src, dst, clause_size);
 
                     new_pos += clause_size;
                 }

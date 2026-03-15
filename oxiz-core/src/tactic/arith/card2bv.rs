@@ -1,4 +1,5 @@
 //! Cardinality to BitVector Encoding Tactic.
+
 #![allow(missing_docs, dead_code)] // Under development
 //!
 //! This tactic converts cardinality constraints (at-most-k, at-least-k)
@@ -28,6 +29,8 @@
 //! - Z3's `tactic/arith/card2bv_tactic.cpp`
 
 /// Boolean literal (variable or negation).
+#[allow(unused_imports)]
+use crate::prelude::*;
 pub type BoolLit = i32;
 
 /// BitVector width type.

@@ -10,15 +10,15 @@ keywords = ["smt", "nlsat", "nonlinear", "arithmetic", "cad"]
 categories = ["algorithms", "mathematics"]
 
 [dependencies]
-oxiz-core.workspace = true
-oxiz-math.workspace = true
-num-rational.workspace = true
-num-bigint.workspace = true
-num-traits.workspace = true
+oxiz-core = { workspace = true, features = ["std"] }
+oxiz-math = { workspace = true, features = ["std"] }
+num-rational = { workspace = true, features = ["std"] }
+num-bigint = { workspace = true, features = ["std"] }
+num-traits = { workspace = true, features = ["std"] }
 smallvec.workspace = true
-rustc-hash.workspace = true
-thiserror.workspace = true
-tracing.workspace = true
+rustc-hash = { workspace = true, features = ["std"] }
+thiserror = { workspace = true, features = ["std"] }
+tracing = { workspace = true, features = ["std"] }
 rayon.workspace = true
 num_cpus.workspace = true
 

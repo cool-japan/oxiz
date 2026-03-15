@@ -5,9 +5,10 @@
 
 use super::bellman_ford::NegativeCycle;
 use super::graph::{DiffConstraint, DiffVar};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_rational::Rational64;
 use oxiz_core::ast::TermId;
-use std::collections::HashMap;
 
 /// Maximum number of variables for dense representation
 const MAX_DENSE_VARS: usize = 50;

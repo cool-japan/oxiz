@@ -16,9 +16,10 @@
 //! - "The Omega Test" (Pugh, 1992)
 //! - Z3's `qe/qe_arith.cpp`
 
-use rustc_hash::FxHashMap;
-
 /// Variable identifier.
+#[allow(unused_imports)]
+use crate::prelude::*;
+/// Variable identifier for Omega test.
 pub type VarId = usize;
 
 /// Linear constraint: Σ aᵢxᵢ ≤ b.

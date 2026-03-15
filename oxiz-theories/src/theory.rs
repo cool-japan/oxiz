@@ -1,5 +1,7 @@
 //! Theory trait and common types
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::ast::TermId;
 use oxiz_core::error::Result;
 

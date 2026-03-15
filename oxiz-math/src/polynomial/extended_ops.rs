@@ -2,10 +2,11 @@
 
 use super::helpers::*;
 use super::types::*;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_bigint::BigInt;
 use num_rational::BigRational;
 use num_traits::{One, Signed, Zero};
-use rustc_hash::FxHashMap;
 
 type Polynomial = super::Polynomial;
 
@@ -336,11 +337,11 @@ impl super::Polynomial {
         let antideriv = self.integrate(var);
 
         // Evaluate at upper and lower bounds
-        let mut upper_assignment = rustc_hash::FxHashMap::default();
+        let mut upper_assignment = crate::prelude::FxHashMap::default();
         upper_assignment.insert(var, upper.clone());
         let upper_val = antideriv.eval(&upper_assignment);
 
-        let mut lower_assignment = rustc_hash::FxHashMap::default();
+        let mut lower_assignment = crate::prelude::FxHashMap::default();
         lower_assignment.insert(var, lower.clone());
         let lower_val = antideriv.eval(&lower_assignment);
 
@@ -427,7 +428,7 @@ impl super::Polynomial {
         let mut sum = BigRational::zero();
 
         // First and last terms: f(a)/2 + f(b)/2
-        let mut assignment = rustc_hash::FxHashMap::default();
+        let mut assignment = crate::prelude::FxHashMap::default();
         assignment.insert(var, lower.clone());
         sum += &self.eval(&assignment) / BigRational::from_integer(BigInt::from(2));
 
@@ -491,7 +492,7 @@ impl super::Polynomial {
         let h = (upper - lower) / BigRational::from_integer(BigInt::from(n));
 
         let mut sum = BigRational::zero();
-        let mut assignment = rustc_hash::FxHashMap::default();
+        let mut assignment = crate::prelude::FxHashMap::default();
 
         // First and last terms: f(a) + f(b)
         assignment.insert(var, lower.clone());
@@ -687,7 +688,7 @@ impl super::Polynomial {
 
         // Ensure deg(a) >= deg(b)
         if a.degree(var) < b.degree(var) {
-            std::mem::swap(&mut a, &mut b);
+            core::mem::swap(&mut a, &mut b);
         }
 
         // Limit iterations for safety
@@ -828,7 +829,7 @@ impl super::Polynomial {
 
         // Ensure deg(a) >= deg(b)
         if a.degree(var) < b.degree(var) {
-            std::mem::swap(&mut a, &mut b);
+            core::mem::swap(&mut a, &mut b);
         }
 
         prs.push(a.clone());
@@ -923,7 +924,7 @@ impl super::Polynomial {
             iter_count += 1;
             let delta = a.degree(var) as i32 - b.degree(var) as i32;
             if delta < 0 {
-                std::mem::swap(&mut a, &mut b);
+                core::mem::swap(&mut a, &mut b);
                 if (a.degree(var) & 1 == 1) && (b.degree(var) & 1 == 1) {
                     sign = -sign;
                 }

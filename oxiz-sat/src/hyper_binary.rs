@@ -10,6 +10,8 @@
 //! - "Vivification and Hyper-Binary Resolution" (Biere)
 
 use crate::literal::Lit;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use smallvec::SmallVec;
 
 /// Statistics for hyper-binary resolution

@@ -9,11 +9,12 @@
 #![allow(missing_docs)]
 #![allow(dead_code)]
 
-use lasso::Spur;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_bigint::BigInt;
 use oxiz_core::ast::{TermId, TermKind, TermManager};
+use oxiz_core::interner::Spur;
 use oxiz_core::sort::SortId;
-use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
 
 use super::counterexample::CounterExampleGenerator;
@@ -938,7 +939,7 @@ pub struct EngineStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lasso::Key;
+    use oxiz_core::interner::Key;
 
     #[test]
     fn test_instantiation_context_creation() {

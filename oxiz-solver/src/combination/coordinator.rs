@@ -1,5 +1,4 @@
 //! Theory Combination Coordinator
-#![allow(missing_docs)] // Under development
 //!
 //! This module coordinates multiple theory solvers using the Nelson-Oppen method
 //! with optimizations:
@@ -8,8 +7,10 @@
 //! - Equality sharing between theories
 //! - Conflict minimization across theories
 
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::VecDeque;
+#![allow(missing_docs)] // Under development
+
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Placeholder term identifier
 pub type TermId = usize;

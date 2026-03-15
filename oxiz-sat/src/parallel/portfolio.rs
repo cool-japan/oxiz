@@ -2,9 +2,11 @@
 //!
 //! Runs multiple solver configurations in parallel and returns the first result.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::{Clause, Solver, SolverResult};
+use core::sync::atomic::{AtomicBool, Ordering};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 

@@ -2,6 +2,9 @@
 //!
 //! This module provides parsing and printing for the SMT-LIB2 standard format.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 mod lexer;
 mod parser;
 mod printer;

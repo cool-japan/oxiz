@@ -9,7 +9,8 @@
 //! - Adaptive parameter tuning during solving
 //! - Configuration scoring and comparison
 
-use std::collections::HashMap;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// A tunable parameter
 #[derive(Debug, Clone)]
@@ -370,11 +371,10 @@ impl Autotuner {
 
     /// Random search - randomly sample parameter space
     fn random_search_next(&mut self) -> HashMap<String, f64> {
-        use std::collections::hash_map::RandomState;
-        use std::hash::{BuildHasher, Hash, Hasher};
+        use core::hash::{BuildHasher, Hash, Hasher};
 
         let mut result = HashMap::new();
-        let state = RandomState::new();
+        let state = core::hash::BuildHasherDefault::<rustc_hash::FxHasher>::default();
 
         for (name, param) in &self.parameters {
             // Simple pseudo-random value generation using hash

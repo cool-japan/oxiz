@@ -3,6 +3,10 @@
 //! 🤖 Generated with [SplitRS](https://github.com/cool-japan/splitrs)
 
 /// Character value (Unicode code point)
+#[allow(unused_imports)]
+use crate::prelude::*;
+
+/// Unicode code point value.
 pub type CodePoint = u32;
 #[cfg(test)]
 mod tests {

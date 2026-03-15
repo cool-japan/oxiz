@@ -3,6 +3,9 @@
 //! Provides vectorized implementations of common mathematical operations
 //! using Rust's portable SIMD support.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 pub mod matrix_simd;
 pub mod polynomial_simd;
 pub mod simplex_simd;

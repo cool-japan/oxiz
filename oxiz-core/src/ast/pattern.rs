@@ -4,8 +4,9 @@
 //! powerful pattern-based transformations and analysis.
 
 use super::{TermId, TermKind, TermManager};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::sort::SortId;
-use rustc_hash::FxHashMap;
 
 /// A pattern for matching terms
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

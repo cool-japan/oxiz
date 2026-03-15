@@ -8,7 +8,8 @@
 #![allow(dead_code)]
 
 use super::{SetConflict, SetLiteral, SetProofStep, SetVar, SetVarId};
-use rustc_hash::FxHashMap;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use smallvec::SmallVec;
 
 /// Cardinality constraint kind

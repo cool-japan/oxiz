@@ -4,6 +4,8 @@
 //! for better cache locality and reduced allocation overhead.
 
 use super::term::Term;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Size of each chunk in the pool (in number of terms)
 const CHUNK_SIZE: usize = 4096;
@@ -61,8 +63,8 @@ impl Chunk {
     /// Get memory usage statistics for this chunk
     fn memory_usage(&self) -> MemoryStats {
         MemoryStats {
-            allocated_bytes: self.terms.capacity() * std::mem::size_of::<Term>(),
-            used_bytes: self.used * std::mem::size_of::<Term>(),
+            allocated_bytes: self.terms.capacity() * core::mem::size_of::<Term>(),
+            used_bytes: self.used * core::mem::size_of::<Term>(),
             num_terms: self.used,
         }
     }

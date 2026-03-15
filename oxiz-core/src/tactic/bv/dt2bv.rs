@@ -19,9 +19,10 @@
 //! - Z3's `tactic/bv/dt2bv_tactic.cpp`
 
 use crate::error::Result;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::tactic::core::{Goal, Tactic, TacticResult};
-use rustc_hash::FxHashMap;
-use std::fmt;
+use core::fmt;
 
 /// Datatype identifier.
 pub type DatatypeId = usize;

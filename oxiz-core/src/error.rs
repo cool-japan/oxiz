@@ -1,5 +1,7 @@
 //! Error types for OxiZ
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use thiserror::Error;
 
 /// Source location information for error reporting
@@ -35,8 +37,8 @@ impl SourceLocation {
     }
 }
 
-impl std::fmt::Display for SourceLocation {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for SourceLocation {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}:{}", self.line, self.column)
     }
 }
@@ -67,8 +69,8 @@ impl SourceSpan {
     }
 }
 
-impl std::fmt::Display for SourceSpan {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for SourceSpan {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         if self.start.line == self.end.line {
             write!(
                 f,
@@ -296,7 +298,7 @@ impl OxizError {
 }
 
 /// Result type alias using OxizError
-pub type Result<T> = std::result::Result<T, OxizError>;
+pub type Result<T> = core::result::Result<T, OxizError>;
 
 #[cfg(test)]
 mod tests {

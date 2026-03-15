@@ -3,10 +3,11 @@
 //! Implements semi-naive evaluation with stratification support.
 //! Supports both bottom-up and top-down evaluation strategies.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::sync::atomic::{AtomicU64, Ordering};
 use lasso::{Spur, ThreadedRodeo};
-use rustc_hash::FxHashSet;
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::relation::{Relation, RelationId, RelationKind};
 use super::rule::{ArithOp, Atom, AtomKind, Binding, ComparisonOp, Rule, RuleId, Term};
@@ -867,8 +868,8 @@ pub enum StratificationError {
     UnresolvedRelation(String),
 }
 
-impl std::fmt::Display for StratificationError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for StratificationError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             StratificationError::CycleWithNegation => {
                 write!(
@@ -883,7 +884,7 @@ impl std::fmt::Display for StratificationError {
     }
 }
 
-impl std::error::Error for StratificationError {}
+impl core::error::Error for StratificationError {}
 
 /// Error during evaluation
 #[derive(Debug)]
@@ -908,8 +909,8 @@ pub enum EvaluationError {
     MaxIterationsExceeded,
 }
 
-impl std::fmt::Display for EvaluationError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for EvaluationError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             EvaluationError::Stratification(e) => write!(f, "Stratification error: {}", e),
             EvaluationError::RuleNotFound(id) => write!(f, "Rule not found: {:?}", id),
@@ -924,7 +925,7 @@ impl std::fmt::Display for EvaluationError {
     }
 }
 
-impl std::error::Error for EvaluationError {}
+impl core::error::Error for EvaluationError {}
 
 #[cfg(test)]
 mod tests {

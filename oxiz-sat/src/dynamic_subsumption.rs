@@ -34,7 +34,8 @@
 
 use crate::clause::{ClauseDatabase, ClauseId};
 use crate::literal::Lit;
-use rustc_hash::{FxHashMap, FxHashSet};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use smallvec::SmallVec;
 
 #[cfg(test)]
@@ -171,6 +172,7 @@ impl DynamicSubsumption {
             return vec![]; // Skip large clauses
         }
 
+        #[cfg(feature = "std")]
         let start = std::time::Instant::now();
         let mut results = Vec::new();
 
@@ -181,6 +183,7 @@ impl DynamicSubsumption {
 
         for &candidate_id in &candidates {
             // Check time budget
+            #[cfg(feature = "std")]
             if start.elapsed().as_micros() as u64 > self.config.time_budget_us {
                 self.stats.checks_timeout += 1;
                 break;
@@ -219,7 +222,10 @@ impl DynamicSubsumption {
             }
         }
 
-        self.stats.total_time_us += start.elapsed().as_micros() as u64;
+        #[cfg(feature = "std")]
+        {
+            self.stats.total_time_us += start.elapsed().as_micros() as u64;
+        }
         results
     }
 
@@ -271,26 +277,30 @@ impl DynamicSubsumption {
             return vec![];
         }
 
+        #[cfg(feature = "std")]
         let start = std::time::Instant::now();
         let results = Vec::new();
 
         // Check all learned clauses against each other
         // This is expensive, so we limit the time budget
-        let budget_ms = 10; // 10ms budget for periodic checks
-        let deadline = start + std::time::Duration::from_millis(budget_ms);
+        #[cfg(feature = "std")]
+        {
+            let budget_ms = 10; // 10ms budget for periodic checks
+            let deadline = start + std::time::Duration::from_millis(budget_ms);
 
-        // Iterate over clauses (simplified - real implementation would be more efficient)
-        for _i in 0..clause_db.len() {
-            if std::time::Instant::now() > deadline {
-                self.stats.checks_timeout += 1;
-                break;
+            // Iterate over clauses (simplified - real implementation would be more efficient)
+            for _i in 0..clause_db.len() {
+                if std::time::Instant::now() > deadline {
+                    self.stats.checks_timeout += 1;
+                    break;
+                }
+
+                // TODO: Actual subsumption checking logic
+                // This would compare clause i with other clauses
             }
 
-            // TODO: Actual subsumption checking logic
-            // This would compare clause i with other clauses
+            self.stats.total_time_us += start.elapsed().as_micros() as u64;
         }
-
-        self.stats.total_time_us += start.elapsed().as_micros() as u64;
         results
     }
 

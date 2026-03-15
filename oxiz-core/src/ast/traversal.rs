@@ -5,7 +5,8 @@
 //! subterms, free variables, and other structural information.
 
 use super::{TermId, TermKind, TermManager};
-use rustc_hash::FxHashSet;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use smallvec::SmallVec;
 
 /// Visitor trait for traversing term DAGs
@@ -297,7 +298,7 @@ pub fn collect_subterms(term_id: TermId, manager: &TermManager) -> Vec<TermId> {
 pub fn collect_free_vars(term_id: TermId, manager: &TermManager) -> FxHashSet<TermId> {
     struct VarCollector {
         vars: FxHashSet<TermId>,
-        bound_vars: Vec<FxHashSet<lasso::Spur>>,
+        bound_vars: Vec<FxHashSet<crate::interner::Spur>>,
     }
 
     impl TermVisitor for VarCollector {
@@ -365,7 +366,7 @@ pub fn count_nodes(term_id: TermId, manager: &TermManager) -> usize {
 #[must_use]
 pub fn compute_depth(term_id: TermId, manager: &TermManager) -> usize {
     struct DepthCalculator {
-        depths: rustc_hash::FxHashMap<TermId, usize>,
+        depths: crate::prelude::FxHashMap<TermId, usize>,
     }
 
     impl TermVisitor for DepthCalculator {
@@ -383,7 +384,7 @@ pub fn compute_depth(term_id: TermId, manager: &TermManager) -> usize {
     }
 
     let mut calculator = DepthCalculator {
-        depths: rustc_hash::FxHashMap::default(),
+        depths: crate::prelude::FxHashMap::default(),
     };
 
     let _ = traverse(term_id, manager, &mut calculator);
@@ -423,7 +424,7 @@ pub fn map_terms<F>(term_id: TermId, manager: &mut TermManager, mut f: F) -> Ter
 where
     F: FnMut(TermId, &TermManager) -> Option<TermId>,
 {
-    use rustc_hash::FxHashMap;
+    use crate::prelude::FxHashMap;
 
     let mut cache: FxHashMap<TermId, TermId> = FxHashMap::default();
     let subterms = collect_subterms(term_id, manager);
@@ -445,7 +446,10 @@ where
 }
 
 /// Transform children of a term kind using a substitution cache
-fn transform_children(kind: &TermKind, cache: &rustc_hash::FxHashMap<TermId, TermId>) -> TermKind {
+fn transform_children(
+    kind: &TermKind,
+    cache: &crate::prelude::FxHashMap<TermId, TermId>,
+) -> TermKind {
     let subst = |id: &TermId| cache.get(id).copied().unwrap_or(*id);
 
     match kind {

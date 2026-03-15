@@ -14,6 +14,8 @@
 //! - "DPLL(T): Fast Decision Procedures" (Ganzinger et al., 2004)
 //! - Z3's `smt/smt_theory.h`
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_sat::Lit;
 
 /// Theory identifier.

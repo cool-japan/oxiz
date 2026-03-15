@@ -33,10 +33,11 @@
 //! - Dantzig & Eaves: "Fourier-Motzkin Elimination and Its Dual" (1973)
 //! - Z3's `tactic/arith/fm_tactic.cpp`
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_bigint::BigInt;
 use num_rational::BigRational;
 use num_traits::{One, Signed, Zero};
-use rustc_hash::FxHashSet;
 
 /// Configuration for FM tactic.
 #[derive(Debug, Clone)]
@@ -116,7 +117,7 @@ impl LinearInequality {
         let nums: Vec<BigInt> = self
             .coeffs
             .iter()
-            .chain(std::iter::once(&self.constant))
+            .chain(core::iter::once(&self.constant))
             .map(|r| r.numer().clone())
             .collect();
 

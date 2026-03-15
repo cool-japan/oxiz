@@ -24,8 +24,9 @@
 //! - de Moura & Bjørner: "Z3: An Efficient SMT Solver" (TACAS 2008)
 //! - Z3's `smt/theory_explanation.cpp`
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_sat::Lit;
-use rustc_hash::FxHashSet;
 
 /// Type of theory explanation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -146,6 +147,7 @@ impl TheoryExplainer {
         lits: Vec<Lit>,
         description: Option<String>,
     ) -> TheoryExplanation {
+        #[cfg(feature = "std")]
         let start = std::time::Instant::now();
 
         let minimized_lits = if self.config.minimize {
@@ -171,7 +173,10 @@ impl TheoryExplainer {
         self.stats.explanations_generated += 1;
         self.stats.total_literals += minimized_lits.len() as u64;
         self.update_avg_size();
-        self.stats.time_us += start.elapsed().as_micros() as u64;
+        #[cfg(feature = "std")]
+        {
+            self.stats.time_us += start.elapsed().as_micros() as u64;
+        }
 
         TheoryExplanation {
             explanation_type: ExplanationType::Equality,
@@ -189,6 +194,7 @@ impl TheoryExplainer {
         lits: Vec<Lit>,
         description: Option<String>,
     ) -> TheoryExplanation {
+        #[cfg(feature = "std")]
         let start = std::time::Instant::now();
 
         let minimized_lits = if self.config.minimize {
@@ -214,7 +220,10 @@ impl TheoryExplainer {
         self.stats.explanations_generated += 1;
         self.stats.total_literals += minimized_lits.len() as u64;
         self.update_avg_size();
-        self.stats.time_us += start.elapsed().as_micros() as u64;
+        #[cfg(feature = "std")]
+        {
+            self.stats.time_us += start.elapsed().as_micros() as u64;
+        }
 
         TheoryExplanation {
             explanation_type: ExplanationType::Bounds,
@@ -234,6 +243,7 @@ impl TheoryExplainer {
         _farkas_coefficients: Option<Vec<i64>>,
         description: Option<String>,
     ) -> TheoryExplanation {
+        #[cfg(feature = "std")]
         let start = std::time::Instant::now();
 
         // In full implementation, use Farkas coefficients to generate
@@ -260,7 +270,10 @@ impl TheoryExplainer {
         self.stats.explanations_generated += 1;
         self.stats.total_literals += minimized_lits.len() as u64;
         self.update_avg_size();
-        self.stats.time_us += start.elapsed().as_micros() as u64;
+        #[cfg(feature = "std")]
+        {
+            self.stats.time_us += start.elapsed().as_micros() as u64;
+        }
 
         TheoryExplanation {
             explanation_type: ExplanationType::Arithmetic,

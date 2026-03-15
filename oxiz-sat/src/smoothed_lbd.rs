@@ -8,6 +8,9 @@
 //! - "Glucose: Combining Fast Local Search and Heuristics in the SAT Case"
 //! - "Predicting Learnt Clauses Quality in Modern SAT Solvers"
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 /// Statistics for smoothed LBD tracking
 #[derive(Debug, Clone, Default)]
 pub struct SmoothedLbdStats {

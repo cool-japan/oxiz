@@ -14,9 +14,10 @@
 //! - "The Simplex Method" (Chvátal, 1983)
 //! - "Implementing the Simplex Method" (Bixby, 2002)
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_rational::BigRational;
 use num_traits::One;
-use rustc_hash::FxHashMap;
 
 /// Variable ID in the LP.
 pub type VarId = usize;

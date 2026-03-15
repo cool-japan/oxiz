@@ -7,7 +7,8 @@ use crate::ast::traversal::{
     TermVisitor, VisitorAction, collect_subterms, compute_depth, traverse,
 };
 use crate::ast::{TermId, TermKind, TermManager};
-use rustc_hash::FxHashSet;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 use super::Goal;
 

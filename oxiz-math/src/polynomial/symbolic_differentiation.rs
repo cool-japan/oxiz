@@ -7,10 +7,11 @@
 //! - Hessian matrix
 //! - Jacobian matrix
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_bigint::BigInt;
 use num_rational::BigRational;
 use num_traits::{One, Zero};
-use rustc_hash::FxHashMap;
 
 /// Symbolic differentiation engine.
 pub struct SymbolicDifferentiator {

@@ -4,6 +4,8 @@
 //! Based on Garcia-Contreras et al. (CAV'23) term graph analysis.
 
 use crate::ast::{TermId, TermKind, TermManager};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Configuration for term graph analysis
@@ -460,10 +462,10 @@ mod tests {
 
     #[test]
     fn test_classify_term() {
-        use lasso::Key;
+        use crate::interner::Key;
         assert_eq!(
             TermGraph::classify_term(&TermKind::Var(
-                lasso::Spur::try_from_usize(0).expect("valid")
+                crate::interner::Spur::try_from_usize(0).expect("valid")
             )),
             TermNodeKind::Variable
         );

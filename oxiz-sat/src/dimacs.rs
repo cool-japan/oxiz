@@ -8,8 +8,10 @@
 //! - Positive literal i represents variable i, negative -i represents NOT i
 
 use crate::literal::{Lit, Var};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::solver::{Solver, SolverResult};
-use std::fmt;
+use core::fmt;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
@@ -38,7 +40,7 @@ impl fmt::Display for DimacsError {
     }
 }
 
-impl std::error::Error for DimacsError {}
+impl core::error::Error for DimacsError {}
 
 impl From<io::Error> for DimacsError {
     fn from(e: io::Error) -> Self {

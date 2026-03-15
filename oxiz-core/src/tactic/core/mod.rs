@@ -2,6 +2,8 @@
 
 use crate::ast::TermId;
 use crate::error::Result;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// A goal represents a formula to be solved
 #[derive(Debug, Clone)]

@@ -1,6 +1,8 @@
 //! Pseudo-Boolean constraint solver
 
 use super::helpers::gcd;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Pseudo-Boolean constraint solver for 0-1 linear constraints
 pub struct PseudoBooleanSolver {

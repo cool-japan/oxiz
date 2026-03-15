@@ -5,8 +5,9 @@
 #![allow(clippy::type_complexity)]
 
 use crate::ast::{TermId, TermKind, TermManager};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_bigint::BigInt;
-use rustc_hash::FxHashSet;
 
 /// Virtual term substitution QE engine.
 pub struct VirtualTermEliminator {

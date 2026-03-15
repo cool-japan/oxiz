@@ -14,8 +14,9 @@
 //! PB: 3*x + 2*y + z >= 5
 //! ```
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::ast::TermId;
-use std::collections::HashMap;
 
 /// A weighted literal in a PB constraint
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

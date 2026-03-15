@@ -15,10 +15,11 @@
 //! - "Abstract DPLL and Abstract DPLL Modulo Theories" (Nieuwenhuis et al., 2006)
 
 use crate::TermId;
+use crate::prelude::VecDeque;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::tactic::{Goal, Tactic, TacticResult};
 use num_rational::BigRational;
-use rustc_hash::FxHashMap;
-use std::collections::VecDeque;
 
 /// Variable identifier.
 pub type VarId = usize;
@@ -232,8 +233,8 @@ pub enum PropagateIneqsError {
     MaxIterations,
 }
 
-impl std::fmt::Display for PropagateIneqsError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for PropagateIneqsError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             PropagateIneqsError::Conflict => write!(f, "conflict detected"),
             PropagateIneqsError::MaxIterations => write!(f, "max iterations exceeded"),
@@ -241,7 +242,7 @@ impl std::fmt::Display for PropagateIneqsError {
     }
 }
 
-impl std::error::Error for PropagateIneqsError {}
+impl core::error::Error for PropagateIneqsError {}
 
 #[cfg(test)]
 mod tests {

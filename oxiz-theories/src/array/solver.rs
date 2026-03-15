@@ -3,10 +3,11 @@
 //! Implements the theory of extensional arrays using a combination
 //! of read-over-write axioms and a delayed lemma approach.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::theory::{Theory, TheoryId, TheoryResult};
 use oxiz_core::ast::TermId;
 use oxiz_core::error::Result;
-use rustc_hash::FxHashMap;
 
 /// Represents a select operation: select(array, index)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -284,7 +285,7 @@ impl ArraySolver {
 
     /// Process pending lemmas
     fn process_lemmas(&mut self) -> Result<TheoryResult> {
-        let lemmas = std::mem::take(&mut self.pending_lemmas);
+        let lemmas = core::mem::take(&mut self.pending_lemmas);
         let mut propagations: Vec<(TermId, Vec<TermId>)> = Vec::new();
         let mut pending_merges: Vec<(u32, u32)> = Vec::new();
 

@@ -35,6 +35,9 @@
 //!
 //! - Lahiri & Musuvathi (2005). An Efficient Decision Procedure for UTVPI Constraints
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 mod detection;
 mod graph;
 mod solver;

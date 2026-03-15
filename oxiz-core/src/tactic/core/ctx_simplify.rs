@@ -15,9 +15,10 @@
 //! - "Simplification by Cooperating Decision Procedures" (Nelson & Oppen, 1979)
 //! - Z3's `tactic/core/ctx_simplify_tactic.cpp`
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::tactic::{Goal, Tactic, TacticResult};
 use crate::{Term, TermId};
-use rustc_hash::FxHashMap;
 
 /// Context entry (known fact).
 #[derive(Debug, Clone)]

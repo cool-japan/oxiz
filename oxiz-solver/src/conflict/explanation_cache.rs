@@ -13,9 +13,9 @@
 //!
 //! - Z3's `smt/smt_theory.cpp` explanation caching
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_sat::Lit;
-use rustc_hash::FxHashMap;
-use std::collections::VecDeque;
 
 /// Cache key (theory conflict identifier).
 pub type CacheKey = u64;

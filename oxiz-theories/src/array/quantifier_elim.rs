@@ -12,10 +12,11 @@
 #![allow(missing_docs)]
 #![allow(dead_code)]
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::fmt;
 use oxiz_core::ast::TermId;
 use oxiz_core::error::{OxizError, Result};
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::fmt;
 
 /// Quantifier type in array context
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -87,13 +87,21 @@
 //! let sum = a.add(&b, RoundingMode::RoundNearest);
 //! ```
 
+#![cfg_attr(not(feature = "std"), no_std)]
 #![warn(missing_docs)]
+
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+
+mod prelude;
 
 // TODO: algebraic module needs refactoring to match Polynomial API
 // pub mod algebraic;
 pub mod algebraic_number;
 pub mod bdd;
+#[cfg(feature = "std")]
 pub mod blas;
+#[cfg(feature = "std")]
 pub mod blas_ops;
 pub mod delta_rational;
 pub mod grobner;
@@ -103,12 +111,14 @@ pub mod interval;
 pub mod lp;
 pub mod lp_core;
 pub mod matrix;
+#[cfg(feature = "std")]
 pub mod mpfr;
 pub mod polynomial;
 pub mod rational;
 pub mod rational_function;
 pub mod realclosure;
 pub mod realclosure_advanced;
+#[cfg(feature = "std")]
 pub mod simd;
 pub mod simplex;
 pub mod simplex_parametric;
@@ -187,13 +197,13 @@ mod integration_tests {
         let x_squared = polynomial::Polynomial::from_coeffs_int(&[(1, &[(0, 2)])]);
 
         // Evaluate at x = 1
-        let mut assignment1 = rustc_hash::FxHashMap::default();
+        let mut assignment1 = crate::prelude::FxHashMap::default();
         assignment1.insert(0, rat(1));
         let val1 = x_squared.eval(&assignment1);
         assert_eq!(val1, rat(1));
 
         // Evaluate at x = 2
-        let mut assignment2 = rustc_hash::FxHashMap::default();
+        let mut assignment2 = crate::prelude::FxHashMap::default();
         assignment2.insert(0, rat(2));
         let val2 = x_squared.eval(&assignment2);
         assert_eq!(val2, rat(4));

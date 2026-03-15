@@ -6,13 +6,14 @@
 //! - Polynomial arithmetic (add, sub, mul)
 //! - Monomial ordering for AC normalization
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::cmp::Ordering;
+use core::fmt;
+use core::hash::{Hash, Hasher};
 use num_bigint::BigInt;
 use num_rational::BigRational;
 use num_traits::{One, Signed, Zero};
-use rustc_hash::FxHashMap;
-use std::cmp::Ordering;
-use std::fmt;
-use std::hash::{Hash, Hasher};
 
 /// Type alias for rational numbers
 pub type Rational = BigRational;

@@ -4,9 +4,11 @@
 
 #![allow(unsafe_code, clippy::non_canonical_clone_impl)]
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::cell::Cell;
+use core::marker::PhantomData;
 use std::alloc::{Layout, alloc, dealloc};
-use std::cell::Cell;
-use std::marker::PhantomData;
 use std::ptr::NonNull;
 
 /// Configuration for arena allocator.
@@ -223,15 +225,15 @@ impl<T> Clone for ArenaHandle<T> {
 
 impl<T> Copy for ArenaHandle<T> {}
 
-impl<T: std::fmt::Debug> std::fmt::Debug for ArenaHandle<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<T: core::fmt::Debug> core::fmt::Debug for ArenaHandle<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("ArenaHandle")
             .field("value", self.get())
             .finish()
     }
 }
 
-impl<T> std::ops::Deref for ArenaHandle<T> {
+impl<T> core::ops::Deref for ArenaHandle<T> {
     type Target = T;
 
     fn deref(&self) -> &T {
@@ -248,8 +250,8 @@ pub enum ArenaError {
     AllocationFailed,
 }
 
-impl std::fmt::Display for ArenaError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for ArenaError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::LayoutError => write!(f, "invalid memory layout"),
             Self::AllocationFailed => write!(f, "allocation failed"),
@@ -257,7 +259,7 @@ impl std::fmt::Display for ArenaError {
     }
 }
 
-impl std::error::Error for ArenaError {}
+impl core::error::Error for ArenaError {}
 
 /// Align a value up to the given alignment.
 fn align_up(value: usize, align: usize) -> usize {

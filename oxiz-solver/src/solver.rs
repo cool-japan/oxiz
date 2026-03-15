@@ -1,6 +1,8 @@
 //! Main CDCL(T) Solver
 
 use crate::mbqi::{MBQIIntegration, MBQIResult};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::simplify::Simplifier;
 use num_rational::Rational64;
 use num_traits::{One, ToPrimitive, Zero};
@@ -13,7 +15,6 @@ use oxiz_theories::arithmetic::ArithSolver;
 use oxiz_theories::bv::BvSolver;
 use oxiz_theories::euf::EufSolver;
 use oxiz_theories::{EqualityNotification, Theory, TheoryCombination};
-use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
 
 /// Proof step for resolution-based proofs
@@ -714,6 +715,7 @@ impl Default for Model {
 
 impl Model {
     /// Pretty print the model in SMT-LIB2 format
+    #[cfg(feature = "std")]
     pub fn pretty_print(&self, manager: &TermManager) -> String {
         if self.assignments.is_empty() {
             return "(model)".to_string();
@@ -825,6 +827,7 @@ pub struct Solver {
     /// Bitvector theory solver
     bv: BvSolver,
     /// NLSAT solver for nonlinear arithmetic (QF_NIA/QF_NRA)
+    #[cfg(feature = "std")]
     nlsat: Option<oxiz_theories::nlsat::NlsatTheory>,
     /// MBQI solver for quantified formulas
     mbqi: MBQIIntegration,
@@ -883,7 +886,7 @@ pub struct Solver {
     arith_terms: FxHashSet<TermId>,
     /// Datatype constructor constraints: variable -> constructor name
     /// Used to detect mutual exclusivity conflicts (var = C1 AND var = C2 where C1 != C2)
-    dt_var_constructors: FxHashMap<TermId, lasso::Spur>,
+    dt_var_constructors: FxHashMap<TermId, oxiz_core::interner::Spur>,
 }
 
 /// Theory decision hint
@@ -2274,6 +2277,7 @@ impl Solver {
             euf: EufSolver::new(),
             arith: ArithSolver::lra(),
             bv: BvSolver::new(),
+            #[cfg(feature = "std")]
             nlsat: None,
             mbqi: MBQIIntegration::new(),
             has_quantifiers: false,
@@ -2350,13 +2354,21 @@ impl Solver {
         // QF_NIA and QF_NRA use NLSAT solver for nonlinear arithmetic
         if logic.contains("NIA") {
             // Nonlinear integer arithmetic - use NLSAT with integer mode
-            self.nlsat = Some(oxiz_theories::nlsat::NlsatTheory::new(true));
+            #[cfg(feature = "std")]
+            {
+                self.nlsat = Some(oxiz_theories::nlsat::NlsatTheory::new(true));
+            }
             self.arith = ArithSolver::lia(); // Keep LIA as fallback for linear constraints
+            #[cfg(feature = "tracing")]
             tracing::info!("Using NLSAT solver for QF_NIA (nonlinear integer arithmetic)");
         } else if logic.contains("NRA") {
             // Nonlinear real arithmetic - use NLSAT with real mode
-            self.nlsat = Some(oxiz_theories::nlsat::NlsatTheory::new(false));
+            #[cfg(feature = "std")]
+            {
+                self.nlsat = Some(oxiz_theories::nlsat::NlsatTheory::new(false));
+            }
             self.arith = ArithSolver::lra(); // Keep LRA as fallback for linear constraints
+            #[cfg(feature = "tracing")]
             tracing::info!("Using NLSAT solver for QF_NRA (nonlinear real arithmetic)");
         } else if logic.contains("LIA") || logic.contains("IDL") {
             // Integer arithmetic logic (QF_LIA, LIA, QF_AUFLIA, QF_IDL, etc.)
@@ -2379,7 +2391,7 @@ impl Solver {
         lhs: TermId,
         rhs: TermId,
         manager: &TermManager,
-    ) -> Option<(TermId, lasso::Spur)> {
+    ) -> Option<(TermId, oxiz_core::interner::Spur)> {
         let lhs_term = manager.get(lhs)?;
         let rhs_term = manager.get(rhs)?;
 
@@ -5807,7 +5819,7 @@ impl Solver {
 
         // BFS to find if term2 is reachable from term1 through equalities
         let mut visited = FxHashSet::default();
-        let mut queue = std::collections::VecDeque::new();
+        let mut queue = crate::prelude::VecDeque::new();
         queue.push_back(term1);
         visited.insert(term1);
 
@@ -7542,6 +7554,7 @@ impl Solver {
         self.sat.push();
         self.euf.push();
         self.arith.push();
+        #[cfg(feature = "std")]
         if let Some(nlsat) = &mut self.nlsat {
             nlsat.push();
         }
@@ -7597,6 +7610,7 @@ impl Solver {
             self.sat.pop();
             self.euf.pop();
             self.arith.pop();
+            #[cfg(feature = "std")]
             if let Some(nlsat) = &mut self.nlsat {
                 nlsat.pop();
             }

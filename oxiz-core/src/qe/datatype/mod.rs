@@ -2,6 +2,9 @@
 //!
 //! This module provides quantifier elimination for algebraic datatype formulas.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 pub mod case_analysis;
 pub mod plugin;
 

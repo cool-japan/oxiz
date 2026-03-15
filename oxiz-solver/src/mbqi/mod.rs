@@ -45,12 +45,13 @@
 #![allow(missing_docs)]
 #![allow(dead_code)]
 
-use lasso::Spur;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::fmt;
 use oxiz_core::ast::TermId;
+use oxiz_core::interner::Spur;
 use oxiz_core::sort::SortId;
-use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
-use std::fmt;
 
 pub mod counterexample;
 pub mod finite_model;
@@ -408,7 +409,7 @@ impl fmt::Display for MBQIStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lasso::Key;
+    use oxiz_core::interner::Key;
 
     #[test]
     fn test_quantified_formula_creation() {

@@ -4,6 +4,8 @@
 //! incremental solving with backtracking via push/pop operations.
 
 use crate::ast::TermId;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// A context for incremental solving
 #[derive(Debug, Clone)]

@@ -6,8 +6,9 @@
 //! - Undo/redo operations
 //! - Incremental solving state
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::ast::TermId;
-use rustc_hash::FxHashMap;
 
 /// Backtrack manager for incremental SMT solving.
 pub struct BacktrackManager {

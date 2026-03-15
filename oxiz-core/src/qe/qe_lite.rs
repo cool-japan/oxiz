@@ -4,9 +4,11 @@
 //! Falls back to full QE when approximation is not possible.
 
 use crate::ast::{TermId, TermKind, TermManager};
+use crate::interner::Spur;
+use crate::prelude::HashMap;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::sort::SortId;
-use lasso::Spur;
-use std::collections::HashMap;
 
 /// Configuration for QE Lite
 #[derive(Debug, Clone)]

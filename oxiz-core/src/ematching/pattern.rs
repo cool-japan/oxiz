@@ -19,11 +19,12 @@
 
 use crate::ast::{TermId, TermKind, TermManager};
 use crate::error::{OxizError, Result};
+use crate::interner::Spur;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::sort::SortId;
-use lasso::Spur;
-use rustc_hash::{FxHashMap, FxHashSet};
+use core::fmt;
 use smallvec::SmallVec;
-use std::fmt;
 
 /// A pattern for E-matching
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

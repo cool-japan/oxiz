@@ -37,12 +37,14 @@
 //! This is a simplified MPFR-like implementation suitable for SMT solving scenarios
 //! that require extended precision arithmetic.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::cmp::Ordering;
+use core::fmt;
+use core::ops::{Add, Div, Mul, Neg, Sub};
 use num_bigint::BigUint;
 use num_integer::Integer;
 use num_traits::{One, ToPrimitive, Zero};
-use std::cmp::Ordering;
-use std::fmt;
-use std::ops::{Add, Div, Mul, Neg, Sub};
 
 /// Precision specification for arbitrary precision floats.
 ///
@@ -1031,9 +1033,9 @@ mod tests {
     #[test]
     fn test_from_f64_basic() {
         let prec = Precision::new(64);
-        let f = ArbitraryFloat::from_f64(std::f64::consts::PI, prec);
+        let f = ArbitraryFloat::from_f64(core::f64::consts::PI, prec);
         let back = f.to_f64(RoundingMode::RoundNearest);
-        assert!(approx_eq(back, std::f64::consts::PI));
+        assert!(approx_eq(back, core::f64::consts::PI));
     }
 
     #[test]

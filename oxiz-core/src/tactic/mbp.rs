@@ -19,10 +19,11 @@
 
 use crate::ast::{TermId, TermKind, TermManager};
 use crate::error::Result;
-use lasso::Spur;
+use crate::interner::Spur;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_bigint::BigInt;
 use num_rational::BigRational;
-use rustc_hash::{FxHashMap, FxHashSet};
 
 /// Model for MBP - maps variables to their values
 #[derive(Debug, Clone, Default)]

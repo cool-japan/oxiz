@@ -14,13 +14,15 @@
 //! 3. **Conflict Analysis**: When no counterexamples exist, analyze why
 //! 4. **Refinement**: Use counterexamples to refine the search space
 
-use lasso::Spur;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::fmt;
 use num_bigint::BigInt;
 use oxiz_core::ast::{TermId, TermKind, TermManager};
+use oxiz_core::interner::Spur;
 use oxiz_core::sort::SortId;
-use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
-use std::fmt;
+#[cfg(feature = "std")]
 use std::time::{Duration, Instant};
 
 use super::model_completion::CompletedModel;
@@ -154,6 +156,7 @@ pub struct CounterExampleGenerator {
     /// Maximum number of candidates to try per variable
     max_candidates_per_var: usize,
     /// Maximum total search time
+    #[cfg(feature = "std")]
     max_search_time: Duration,
     /// Current generation bound for term selection
     generation_bound: u32,
@@ -169,6 +172,7 @@ impl CounterExampleGenerator {
         Self {
             max_cex_per_quantifier: 5,
             max_candidates_per_var: 10,
+            #[cfg(feature = "std")]
             max_search_time: Duration::from_secs(1),
             generation_bound: 0,
             stats: CexStats::default(),
@@ -177,6 +181,7 @@ impl CounterExampleGenerator {
     }
 
     /// Create with custom limits
+    #[cfg(feature = "std")]
     pub fn with_limits(max_cex: usize, max_candidates: usize, max_time: Duration) -> Self {
         let mut generator = Self::new();
         generator.max_cex_per_quantifier = max_cex;
@@ -192,6 +197,7 @@ impl CounterExampleGenerator {
         model: &CompletedModel,
         manager: &mut TermManager,
     ) -> Vec<CounterExample> {
+        #[cfg(feature = "std")]
         let start_time = Instant::now();
         let mut counterexamples = Vec::new();
         self.stats.num_searches += 1;
@@ -209,6 +215,7 @@ impl CounterExampleGenerator {
         self.stats.num_combinations_tried += combinations.len();
 
         for combo in combinations {
+            #[cfg(feature = "std")]
             if start_time.elapsed() > self.max_search_time {
                 self.stats.num_timeouts += 1;
                 break;
@@ -245,13 +252,16 @@ impl CounterExampleGenerator {
         counterexamples.sort_by(|a, b| {
             b.quality
                 .partial_cmp(&a.quality)
-                .unwrap_or(std::cmp::Ordering::Equal)
+                .unwrap_or(core::cmp::Ordering::Equal)
         });
 
         // Limit to max
         counterexamples.truncate(self.max_cex_per_quantifier);
 
-        self.stats.total_time += start_time.elapsed();
+        #[cfg(feature = "std")]
+        {
+            self.stats.total_time += start_time.elapsed();
+        }
 
         counterexamples
     }
@@ -856,6 +866,7 @@ pub struct CexStats {
     /// Number of timeouts
     pub num_timeouts: usize,
     /// Total time spent
+    #[cfg(feature = "std")]
     pub total_time: Duration,
 }
 
@@ -866,7 +877,9 @@ impl fmt::Display for CexStats {
         writeln!(f, "  CEX found: {}", self.num_counterexamples_found)?;
         writeln!(f, "  Combinations tried: {}", self.num_combinations_tried)?;
         writeln!(f, "  Timeouts: {}", self.num_timeouts)?;
-        writeln!(f, "  Total time: {:.2}ms", self.total_time.as_millis())
+        #[cfg(feature = "std")]
+        writeln!(f, "  Total time: {:.2}ms", self.total_time.as_millis())?;
+        Ok(())
     }
 }
 

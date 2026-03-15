@@ -14,8 +14,9 @@
 //! - "Satisfiability Modulo Theories" (Barrett et al., 2018)
 //! - Z3's `smt/smt_model_generator.cpp`
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::TermId;
-use rustc_hash::FxHashSet;
 
 /// Model assignment.
 #[derive(Debug, Clone)]

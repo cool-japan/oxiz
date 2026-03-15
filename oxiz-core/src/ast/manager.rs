@@ -2,13 +2,14 @@
 
 use super::term::{RoundingMode, Term, TermId, TermKind};
 use super::traversal::get_children;
+use crate::interner::{Rodeo, Spur};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::sort::{SortId, SortManager};
-use lasso::{Rodeo, Spur};
 use num_bigint::BigInt;
 use num_rational::Rational64;
-use rustc_hash::{FxHashMap, FxHashSet};
+use portable_atomic::{AtomicU32, Ordering};
 use smallvec::SmallVec;
-use std::sync::atomic::{AtomicU32, Ordering};
 
 /// Statistics for garbage collection
 #[derive(Debug, Clone, Default)]
@@ -895,7 +896,7 @@ impl TermManager {
         vars: impl IntoIterator<Item = (&'a str, SortId)>,
         body: TermId,
     ) -> TermId {
-        self.mk_forall_with_patterns(vars, body, std::iter::empty::<Vec<TermId>>())
+        self.mk_forall_with_patterns(vars, body, core::iter::empty::<Vec<TermId>>())
     }
 
     /// Create a universal quantifier with instantiation patterns
@@ -956,7 +957,7 @@ impl TermManager {
         vars: impl IntoIterator<Item = (&'a str, SortId)>,
         body: TermId,
     ) -> TermId {
-        self.mk_exists_with_patterns(vars, body, std::iter::empty::<Vec<TermId>>())
+        self.mk_exists_with_patterns(vars, body, core::iter::empty::<Vec<TermId>>())
     }
 
     /// Create an existential quantifier with instantiation patterns
@@ -2277,7 +2278,7 @@ mod tests {
         assert_eq!(manager.mk_and([t, x]), x);
         assert_eq!(manager.mk_and([f, x]), f);
         assert_eq!(manager.mk_and([t, t]), t);
-        assert_eq!(manager.mk_and(std::iter::empty()), t);
+        assert_eq!(manager.mk_and(core::iter::empty()), t);
     }
 
     #[test]
@@ -2290,7 +2291,7 @@ mod tests {
         assert_eq!(manager.mk_or([f, x]), x);
         assert_eq!(manager.mk_or([t, x]), t);
         assert_eq!(manager.mk_or([f, f]), f);
-        assert_eq!(manager.mk_or(std::iter::empty()), f);
+        assert_eq!(manager.mk_or(core::iter::empty()), f);
     }
 
     #[test]

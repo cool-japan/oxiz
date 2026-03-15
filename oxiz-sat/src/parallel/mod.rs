@@ -3,6 +3,9 @@
 //! Provides parallel clause simplification, portfolio solving, and
 //! parallel proof checking.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 pub mod clause_simplify;
 pub mod portfolio;
 pub mod proof_check;

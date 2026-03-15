@@ -4,9 +4,11 @@
 //! for linear programming solvers, including Gaussian elimination, LU decomposition,
 //! and linear system solving.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::fmt;
 use num_rational::Rational64;
 use num_traits::Signed;
-use std::fmt;
 
 /// A dense matrix stored in row-major order.
 #[derive(Debug, Clone, PartialEq)]

@@ -5,8 +5,9 @@
 //! Reference: Z3's `src/smt/theory_array.cpp` at `../z3/src/smt/`
 
 use crate::ast::{TermId, TermKind, TermManager};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::sort::{SortId, SortKind, SortManager};
-use rustc_hash::{FxHashMap, FxHashSet};
 
 /// Array theory axioms
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

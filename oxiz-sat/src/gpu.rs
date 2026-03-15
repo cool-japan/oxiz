@@ -58,6 +58,8 @@
 //! assert!(result.is_ok());
 //! ```
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use std::time::{Duration, Instant};
 
 /// GPU backend selection
@@ -314,8 +316,8 @@ pub enum GpuError {
     Timeout,
 }
 
-impl std::fmt::Display for GpuError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for GpuError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::DeviceNotAvailable => write!(f, "GPU device not available"),
             Self::OutOfMemory => write!(f, "Out of GPU memory"),
@@ -328,7 +330,7 @@ impl std::fmt::Display for GpuError {
     }
 }
 
-impl std::error::Error for GpuError {}
+impl core::error::Error for GpuError {}
 
 /// Trait for GPU-accelerated SAT solver operations
 ///
@@ -517,7 +519,7 @@ impl GpuSolverAccelerator for CpuReferenceAccelerator {
             .collect();
 
         // Find decision levels for LBD computation
-        let mut decision_levels = std::collections::HashSet::new();
+        let mut decision_levels = crate::prelude::HashSet::new();
         for &var in &conflict_variables {
             for &(trail_var, level) in trail {
                 if trail_var == var {
@@ -589,7 +591,7 @@ impl GpuSolverAccelerator for CpuReferenceAccelerator {
             .collect();
 
         // Sort by score (ascending - lowest scores are worst)
-        scores.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        scores.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(core::cmp::Ordering::Equal));
 
         // Mark lowest scoring clauses for deletion
         let delete_count = reduction_target.min(n / 2); // Never delete more than half

@@ -3,7 +3,8 @@
 use super::super::simplex::{Simplex, VarId};
 use super::types::{IntBound, LiaSolver};
 use crate::config::{LiaConfig, SimplexConfig};
-use rustc_hash::FxHashMap;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 impl LiaSolver {
     /// Create a new LIA solver

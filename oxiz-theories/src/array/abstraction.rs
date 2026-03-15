@@ -8,10 +8,11 @@
 //!
 //! Reference: Z3's array abstraction techniques and CEGAR implementations
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::fmt;
 use oxiz_core::ast::TermId;
 use oxiz_core::error::Result;
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::fmt;
 
 /// Abstract domain for array values
 #[derive(Debug, Clone, PartialEq, Eq)]

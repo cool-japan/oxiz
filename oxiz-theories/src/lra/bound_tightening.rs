@@ -3,10 +3,10 @@
 //! Implements sophisticated bound propagation and tightening techniques
 //! for LRA theory to improve constraint solving efficiency.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_rational::BigRational;
 use num_traits::{One, Zero};
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::VecDeque;
 
 /// Variable identifier for LRA.
 pub type VarId = usize;

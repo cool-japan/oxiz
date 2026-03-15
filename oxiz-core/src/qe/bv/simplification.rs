@@ -15,9 +15,10 @@
 //! - "Deciding Bit-Vector Arithmetic with Abstraction" (Bryant et al., 2007)
 //! - Z3's `qe/qe_bv.cpp`
 
-use rustc_hash::FxHashMap;
-
 /// Variable identifier.
+#[allow(unused_imports)]
+use crate::prelude::*;
+/// Variable identifier for BV simplification.
 pub type VarId = usize;
 
 /// Bitvector term.

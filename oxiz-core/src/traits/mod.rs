@@ -3,6 +3,9 @@
 //! This module defines core traits that enable modular, composable, and
 //! extensible SMT solver components.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 pub mod propagator;
 pub mod rewriter;
 pub mod tactic;

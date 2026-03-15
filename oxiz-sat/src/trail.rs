@@ -2,6 +2,8 @@
 
 use crate::clause::ClauseId;
 use crate::literal::{LBool, Lit, Var};
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Reason for an assignment
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

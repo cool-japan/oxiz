@@ -24,11 +24,12 @@
 
 use crate::ast::{TermId, TermKind, TermManager};
 use crate::error::Result;
+use crate::interner::Spur;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::tactic::{Goal, Tactic, TacticResult};
-use lasso::Spur;
 use num_bigint::BigInt;
 use num_traits::{One, ToPrimitive, Zero};
-use rustc_hash::FxHashSet;
 
 /// Cardinality constraint type
 #[derive(Debug, Clone)]

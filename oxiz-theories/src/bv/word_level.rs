@@ -49,10 +49,10 @@
 #![allow(missing_docs)]
 
 use super::propagator::Interval;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::ast::TermId;
 use oxiz_core::error::Result;
-use rustc_hash::FxHashMap;
-use std::collections::VecDeque;
 
 /// Sign information for a bitvector
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -478,7 +478,7 @@ impl WordLevelReasoner {
 
         // Propagate constants
         if let Some(val) = self.constants.get(&a).copied() {
-            if let std::collections::hash_map::Entry::Vacant(e) = self.constants.entry(b) {
+            if let crate::prelude::hash_map::Entry::Vacant(e) = self.constants.entry(b) {
                 e.insert(val);
                 self.stats.constants_propagated += 1;
             }

@@ -1,11 +1,12 @@
+use crate::clause::Clause;
+use crate::community::{Communities, CommunityOrdering, LouvainDetector, VariableIncidenceGraph};
 /// Community-based clause database partitioning for improved cache locality.
 ///
 /// This module integrates community detection with clause database management to partition
 /// clauses based on their variable communities. This improves cache locality and reduces
 /// memory access overhead during solving.
-use crate::clause::Clause;
-use crate::community::{Communities, CommunityOrdering, LouvainDetector, VariableIncidenceGraph};
-use std::collections::HashMap;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Partitioned clause database organized by variable communities.
 #[derive(Debug, Clone)]

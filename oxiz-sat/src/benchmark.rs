@@ -5,6 +5,8 @@
 
 use crate::config_presets::ConfigPreset;
 use crate::dimacs::{DimacsError, DimacsParser};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::solver::{Solver, SolverConfig, SolverResult};
 use crate::stats_dashboard::{StatsAggregator, StatsDashboard};
 use std::path::{Path, PathBuf};

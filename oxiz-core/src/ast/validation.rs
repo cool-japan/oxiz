@@ -5,10 +5,11 @@
 
 use crate::ast::{Model, ModelValue, TermId, TermKind, TermManager};
 use crate::error::{OxizError, Result};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_bigint::BigInt;
 use num_rational::BigRational;
 use num_traits::{One, Zero};
-use rustc_hash::FxHashMap;
 
 /// Evaluate a term under a given model
 ///

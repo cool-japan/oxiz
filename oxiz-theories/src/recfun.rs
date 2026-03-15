@@ -8,11 +8,12 @@
 //! - Depth-limited unrolling
 //! - Push/pop context management
 
-use lasso::Spur;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::ast::TermId;
 use oxiz_core::error::OxizError;
+use oxiz_core::interner::Spur;
 use oxiz_core::{Result, SortId};
-use std::collections::{HashMap, HashSet};
 
 /// Unique identifier for a recursive function definition
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -305,7 +306,7 @@ impl Default for RecFunSolver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lasso::Key;
+    use oxiz_core::interner::Key;
 
     #[test]
     fn test_recfun_id() {

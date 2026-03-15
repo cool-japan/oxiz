@@ -27,6 +27,8 @@
 //! let result = solver.solve();
 //! ```
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use std::collections::{HashMap, HashSet};
 
 /// Literal type (positive = variable, negative = negated variable)
@@ -2122,7 +2124,7 @@ impl BmsSelector {
                 let m = make_counts.get(v as usize).copied().unwrap_or(0);
                 (v, self.compute_score(v, b, m))
             })
-            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(core::cmp::Ordering::Equal))
             .map(|(v, _)| v)
     }
 
@@ -2422,7 +2424,7 @@ impl ClauseImportance {
         let mut indices: Vec<_> = (0..self.hit_counts.len())
             .map(|i| (i, self.importance(i)))
             .collect();
-        indices.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        indices.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(core::cmp::Ordering::Equal));
         indices.into_iter().take(n).map(|(i, _)| i).collect()
     }
 
@@ -2601,7 +2603,7 @@ impl HybridSlsInterface {
 
     /// Get and clear learned clauses
     pub fn take_learned_clauses(&mut self) -> Vec<Vec<Lit>> {
-        std::mem::take(&mut self.learned_clauses)
+        core::mem::take(&mut self.learned_clauses)
     }
 
     /// Set phase hint for variable
@@ -2857,7 +2859,7 @@ impl PortfolioSls {
             if self.config.adaptive && !self.algo_performance.is_empty() {
                 // Sort by performance (descending)
                 let mut indices: Vec<_> = (0..self.solvers.len()).collect();
-                indices.sort_by_key(|&i| std::cmp::Reverse(self.algo_performance[i]));
+                indices.sort_by_key(|&i| core::cmp::Reverse(self.algo_performance[i]));
                 // Could reorder solvers here for next round
             }
         }

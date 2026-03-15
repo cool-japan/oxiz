@@ -31,7 +31,8 @@ use super::{
     StringRewriter, UfRewriter,
 };
 use crate::ast::{TermId, TermKind, TermManager};
-use rustc_hash::FxHashMap;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Configuration for combined rewriting
 #[derive(Debug, Clone)]

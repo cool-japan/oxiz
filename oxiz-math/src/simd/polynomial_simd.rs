@@ -4,8 +4,10 @@
 //! Provides vectorized polynomial arithmetic for improved performance
 //! on dense polynomials.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::ops::{Add, Mul, Sub};
 use num_traits::{One, Zero};
-use std::ops::{Add, Mul, Sub};
 
 /// Add two polynomials using SIMD-friendly patterns.
 pub fn simd_poly_add<T>(a_coeffs: &[T], b_coeffs: &[T]) -> Vec<T>

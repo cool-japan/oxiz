@@ -1,4 +1,5 @@
 //! Bit-Level Blasting Tactic for BitVectors.
+
 #![allow(dead_code)] // Under development - not yet fully integrated
 //!
 //! This tactic decomposes bitvector operations into Boolean operations
@@ -35,6 +36,9 @@
 //! - Brummayer & Biere: "Boolector: An Efficient SMT Solver for Bit-Vectors and Arrays" (TACAS 2009)
 //! - Z3's `tactic/bv/bv1_blast_tactic.cpp`
 
+/// A Boolean literal (variable or negated variable).
+#[allow(unused_imports)]
+use crate::prelude::*;
 /// A Boolean literal (variable or negated variable).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BoolLit {

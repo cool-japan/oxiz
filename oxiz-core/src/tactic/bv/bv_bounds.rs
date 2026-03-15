@@ -1,4 +1,5 @@
 //! BitVector Bounds Analysis Tactic.
+
 #![allow(clippy::needless_range_loop, clippy::ptr_arg)] // Interval algorithms use explicit indexing
 //!
 //! Propagates and tightens bounds on bitvector variables using interval
@@ -22,6 +23,9 @@
 //! - Z3's `tactic/bv/bv_bounds_tactic.cpp`
 
 /// BitVector width.
+#[allow(unused_imports)]
+use crate::prelude::*;
+/// BitVector width in bits.
 pub type BvWidth = u32;
 
 /// Interval representing bounds.

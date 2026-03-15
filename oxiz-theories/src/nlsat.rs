@@ -21,6 +21,8 @@
 //! - NLSAT solver: oxiz-nlsat::solver::NlsatSolver
 //! - Integer solver: oxiz-nlsat::nia::NiaSolver
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::theory::{Theory, TheoryId, TheoryResult};
 use oxiz_core::ast::TermId;
 use oxiz_core::error::Result;
@@ -42,8 +44,8 @@ enum NlsatSolverWrapper {
     Integer(NiaSolver),
 }
 
-impl std::fmt::Debug for NlsatSolverWrapper {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for NlsatSolverWrapper {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Real(_) => write!(f, "NlsatSolverWrapper::Real(..)"),
             Self::Integer(_) => write!(f, "NlsatSolverWrapper::Integer(..)"),

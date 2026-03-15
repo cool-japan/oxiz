@@ -16,8 +16,9 @@
 //! - Cornuéjols: "Valid Inequalities for Mixed Integer Linear Programs" (2008)
 //! - Z3's `math/lp/gomory.cpp`
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_rational::BigRational;
-use rustc_hash::{FxHashMap, FxHashSet};
 
 /// Variable identifier.
 pub type VarId = usize;

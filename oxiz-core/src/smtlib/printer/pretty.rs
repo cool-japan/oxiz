@@ -3,8 +3,10 @@
 use super::basic::Printer;
 use super::config::PrettyConfig;
 use crate::ast::{TermId, TermKind, TermManager};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::sort::SortId;
-use std::fmt::Write;
+use core::fmt::Write;
 
 pub struct PrettyPrinter<'a> {
     manager: &'a TermManager,
@@ -851,7 +853,7 @@ impl<'a> PrettyPrinter<'a> {
         &self,
         w: &mut impl Write,
         quantifier: &str,
-        vars: &smallvec::SmallVec<[(lasso::Spur, crate::sort::SortId); 2]>,
+        vars: &smallvec::SmallVec<[(crate::interner::Spur, crate::sort::SortId); 2]>,
         body: TermId,
         patterns: &smallvec::SmallVec<[smallvec::SmallVec<[TermId; 2]>; 2]>,
         indent: usize,

@@ -5,9 +5,10 @@
 
 use crate::ast::{TermId, TermKind, TermManager};
 use crate::error::{OxizError, Result};
+use crate::interner::Spur;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::sort::SortId;
-use lasso::Spur;
-use rustc_hash::FxHashMap;
 
 /// Configuration for term indexing
 #[derive(Debug, Clone)]

@@ -7,9 +7,9 @@
 //! - Substitute known equalities
 //! - Simplify using solver state
 
-use rustc_hash::{FxHashMap, FxHashSet};
-
 /// Placeholder term identifier
+#[allow(unused_imports)]
+use crate::prelude::*;
 pub type TermId = usize;
 
 /// Simplification context

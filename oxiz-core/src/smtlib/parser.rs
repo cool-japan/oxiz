@@ -4,9 +4,10 @@
 use super::lexer::{Lexer, TokenKind};
 use crate::ast::{RoundingMode, TermId, TermManager};
 use crate::error::{OxizError, Result};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::sort::SortId;
 use num_rational::Rational64;
-use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 
 /// SMT-LIB2 attribute value

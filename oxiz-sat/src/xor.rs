@@ -9,7 +9,8 @@
 
 use crate::clause::ClauseId;
 use crate::literal::{Lit, Var};
-use std::collections::{HashMap, HashSet, VecDeque};
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// GF(2) row representation using bit vectors for efficient XOR operations
 #[derive(Debug, Clone)]

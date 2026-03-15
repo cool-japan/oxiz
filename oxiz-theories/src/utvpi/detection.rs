@@ -3,8 +3,9 @@
 //! Detects whether linear constraints are UTVPI (Unit Two-Variable Per Inequality).
 //! A constraint is UTVPI if it has the form: ax + by ≤ c where a, b ∈ {-1, 0, 1}
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_rational::Rational64;
-use std::collections::HashMap;
 
 /// Kind of UTVPI constraint detected
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

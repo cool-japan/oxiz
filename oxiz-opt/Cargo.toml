@@ -10,16 +10,16 @@ keywords = ["smt", "maxsmt", "optimization", "omt", "maxsat"]
 categories = ["algorithms", "mathematics"]
 
 [dependencies]
-oxiz-core.workspace = true
-oxiz-sat.workspace = true
-oxiz-solver.workspace = true
-num-rational.workspace = true
-num-bigint.workspace = true
-num-traits.workspace = true
+oxiz-core = { workspace = true, features = ["std"] }
+oxiz-sat = { workspace = true, features = ["std"] }
+oxiz-solver = { workspace = true, features = ["std"] }
+num-rational = { workspace = true, features = ["std"] }
+num-bigint = { workspace = true, features = ["std"] }
+num-traits = { workspace = true, features = ["std"] }
 smallvec.workspace = true
-rustc-hash.workspace = true
-thiserror.workspace = true
-tracing.workspace = true
+rustc-hash = { workspace = true, features = ["std"] }
+thiserror = { workspace = true, features = ["std"] }
+tracing = { workspace = true, features = ["std"] }
 rand.workspace = true
 rayon.workspace = true
 

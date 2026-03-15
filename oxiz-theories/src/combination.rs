@@ -50,10 +50,11 @@
 
 use crate::arithmetic::ArithSolver;
 use crate::euf::EufSolver;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::theory::{Theory, TheoryId, TheoryResult};
 use oxiz_core::ast::TermId;
 use oxiz_core::error::Result;
-use rustc_hash::{FxHashMap, FxHashSet};
 
 /// A shared variable between theories
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

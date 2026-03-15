@@ -10,7 +10,8 @@
 //! - seq.indexof: Find first occurrence
 //! - seq.last_indexof: Find last occurrence
 
-use rustc_hash::FxHashMap;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Sequence operation result
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -457,7 +458,7 @@ impl SeqConstraintGen {
 
     /// Take all constraints
     pub fn take_constraints(&mut self) -> Vec<SeqConstraint> {
-        std::mem::take(&mut self.constraints)
+        core::mem::take(&mut self.constraints)
     }
 
     /// Clear all constraints
@@ -634,7 +635,7 @@ impl SeqRewriter {
                         SeqExpr::Literal(s) => current_lit.push_str(&s),
                         other => {
                             if !current_lit.is_empty() {
-                                result.push(SeqExpr::Literal(std::mem::take(&mut current_lit)));
+                                result.push(SeqExpr::Literal(core::mem::take(&mut current_lit)));
                             }
                             // Skip empty concats
                             if !matches!(&other, SeqExpr::Concat(v) if v.is_empty()) {

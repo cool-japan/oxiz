@@ -14,8 +14,9 @@
 //! - "Efficient E-matching for SMT Solvers" (de Moura & Bjørner, 2007)
 //! - Z3's `smt/theory_explanation.cpp`
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_sat::Lit;
-use rustc_hash::{FxHashMap, FxHashSet};
 
 /// Theory identifier.
 pub type TheoryId = u32;

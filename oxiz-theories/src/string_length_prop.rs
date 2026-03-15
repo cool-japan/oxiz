@@ -33,8 +33,9 @@
 //! - Z3 string solver length abstraction
 //! - CVC4 string theory implementation
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::ast::TermId;
-use rustc_hash::FxHashMap;
 
 /// Length domain for a string variable (possible length range).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -211,6 +212,7 @@ impl LengthPropagator {
     ///
     /// Returns true if new information was propagated.
     pub fn propagate(&mut self) -> bool {
+        #[cfg(feature = "std")]
         let start = std::time::Instant::now();
         let mut changed = false;
 
@@ -298,7 +300,10 @@ impl LengthPropagator {
             }
         }
 
-        self.stats.propagation_time_us += start.elapsed().as_micros() as u64;
+        #[cfg(feature = "std")]
+        {
+            self.stats.propagation_time_us += start.elapsed().as_micros() as u64;
+        }
         changed
     }
 

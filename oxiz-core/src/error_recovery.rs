@@ -5,6 +5,8 @@
 //! and theory reasoning operations.
 
 use crate::error_context::ErrorContext;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Strategy for recovering from errors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -376,7 +378,7 @@ impl ErrorBatch {
 
     /// Take all errors, leaving batch empty.
     pub fn take_errors(&mut self) -> Vec<ErrorContext> {
-        std::mem::take(&mut self.errors)
+        core::mem::take(&mut self.errors)
     }
 }
 

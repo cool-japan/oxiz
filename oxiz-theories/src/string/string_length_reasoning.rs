@@ -20,11 +20,11 @@
 
 #![allow(missing_docs)]
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::cmp::{max, min};
 use oxiz_core::ast::TermId;
 use oxiz_core::error::{OxizError, Result};
-use rustc_hash::FxHashMap;
-use std::cmp::{max, min};
-use std::collections::VecDeque;
 
 /// Length variable representing str.len(string_var)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

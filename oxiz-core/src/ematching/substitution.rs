@@ -16,10 +16,11 @@
 
 use crate::ast::{TermId, TermKind, TermManager};
 use crate::error::{OxizError, Result};
-use lasso::Spur;
-use rustc_hash::FxHashMap;
+use crate::interner::Spur;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::fmt;
 use smallvec::SmallVec;
-use std::fmt;
 
 /// A substitution mapping variables to terms
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -642,8 +643,8 @@ impl SubstitutionCache {
 
     /// Hash a substitution for caching
     fn hash_substitution(&self, subst: &Substitution) -> u64 {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
+        use crate::prelude::hash_map::DefaultHasher;
+        use core::hash::{Hash, Hasher};
 
         let mut hasher = DefaultHasher::new();
 

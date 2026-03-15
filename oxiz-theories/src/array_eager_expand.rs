@@ -38,9 +38,10 @@
 //! - Brummayer & Biere: "Boolector: SMT Solver for Bit-Vectors and Arrays"
 //! - CVC4's array solver eager mode
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::ast::{TermId, TermManager};
 use oxiz_core::sort::SortId;
-use rustc_hash::FxHashMap;
 
 /// Configuration for eager expansion.
 #[derive(Debug, Clone)]
@@ -174,6 +175,7 @@ impl EagerArrayExpander {
             return Ok(()); // Already expanded
         }
 
+        #[cfg(feature = "std")]
         let start = std::time::Instant::now();
 
         // Create element variables
@@ -197,7 +199,10 @@ impl EagerArrayExpander {
 
         self.expanded.insert(array, expanded_array);
         self.stats.arrays_expanded += 1;
-        self.stats.expansion_time_us += start.elapsed().as_micros() as u64;
+        #[cfg(feature = "std")]
+        {
+            self.stats.expansion_time_us += start.elapsed().as_micros() as u64;
+        }
 
         Ok(())
     }

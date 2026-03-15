@@ -2,7 +2,8 @@
 //!
 //! 🤖 Generated with [SplitRS](https://github.com/cool-japan/splitrs)
 
-use std::collections::{HashMap, HashSet};
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 use super::functions::CodePoint;
 
@@ -954,13 +955,13 @@ impl CharSolver {
     fn all_assigned(&self) -> bool {
         self.variables
             .iter()
-            .all(|v| self.assignments.contains_key(v))
+            .all(|v| self.assignments.contains_key(&*v))
     }
     /// Pick an unassigned variable
     fn pick_unassigned(&self) -> Option<CharVar> {
         self.variables
             .iter()
-            .find(|v| !self.assignments.contains_key(v))
+            .find(|v| !self.assignments.contains_key(&**v))
             .copied()
     }
     /// Find a valid value for a variable

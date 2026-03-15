@@ -10,9 +10,10 @@
 
 #![allow(missing_docs)]
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::fmt;
 use oxiz_core::error::{OxizError, Result};
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::fmt;
 
 /// Represents the dimensionality of an array
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -94,7 +95,7 @@ impl MultiDimSelect {
 
     /// Compute hash for this select operation
     fn compute_hash(array: u32, indices: &[u32]) -> u64 {
-        use std::hash::{Hash, Hasher};
+        use core::hash::{Hash, Hasher};
         let mut hasher = rustc_hash::FxHasher::default();
         array.hash(&mut hasher);
         indices.hash(&mut hasher);
@@ -144,7 +145,7 @@ impl MultiDimStore {
 
     /// Compute hash for this store operation
     fn compute_hash(array: u32, indices: &[u32], value: u32) -> u64 {
-        use std::hash::{Hash, Hasher};
+        use core::hash::{Hash, Hasher};
         let mut hasher = rustc_hash::FxHasher::default();
         array.hash(&mut hasher);
         indices.hash(&mut hasher);

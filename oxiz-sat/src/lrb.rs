@@ -8,7 +8,8 @@
 //! by Jia Hui Liang et al. (SAT 2016)
 
 use crate::literal::Var;
-use std::collections::BinaryHeap;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// LRB score entry for priority queue
 #[derive(Debug, Clone)]
@@ -26,17 +27,17 @@ impl PartialEq for LrbEntry {
 impl Eq for LrbEntry {}
 
 impl PartialOrd for LrbEntry {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
 impl Ord for LrbEntry {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         // Higher scores should come first
         self.score
             .partial_cmp(&other.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
+            .unwrap_or(core::cmp::Ordering::Equal)
     }
 }
 

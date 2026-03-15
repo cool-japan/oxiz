@@ -3,6 +3,8 @@
 use super::core::*;
 use crate::ast::{TermId, TermManager};
 use crate::error::Result;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Value propagation tactic
 pub struct PropagateValuesTactic<'a> {
@@ -18,7 +20,7 @@ impl<'a> PropagateValuesTactic<'a> {
     /// Apply value propagation to a goal
     pub fn apply_mut(&mut self, goal: &Goal) -> Result<TacticResult> {
         use crate::ast::TermKind;
-        use rustc_hash::FxHashMap;
+        use crate::prelude::FxHashMap;
 
         // Phase 1: Collect equalities of the form (= var constant)
         let mut subst: FxHashMap<TermId, TermId> = FxHashMap::default();

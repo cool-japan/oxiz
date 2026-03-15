@@ -14,8 +14,9 @@
 //! - "Delayed Theory Combination vs. Nelson-Oppen" (Meng & Reynolds, 2015)
 //! - Z3's `smt/theory_combine.cpp`
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::TermId;
-use rustc_hash::FxHashMap;
 
 /// Theory identifier.
 pub type TheoryId = usize;

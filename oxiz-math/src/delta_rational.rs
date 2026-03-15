@@ -11,12 +11,14 @@
 //!
 //! Reference: Z3's delta_rational implementation.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::cmp::Ordering;
+use core::fmt;
+use core::ops::{Add, Neg, Sub};
 use num_bigint::BigInt;
 use num_rational::BigRational;
 use num_traits::{One, Signed, Zero};
-use std::cmp::Ordering;
-use std::fmt;
-use std::ops::{Add, Neg, Sub};
 
 /// A delta-rational number: r + δ*k
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -239,7 +241,7 @@ impl From<i64> for DeltaRational {
 
 impl PartialOrd for DeltaRational {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(std::cmp::Ord::cmp(self, other))
+        Some(core::cmp::Ord::cmp(self, other))
     }
 }
 

@@ -1,10 +1,11 @@
 //! Floating-Point Theory Solver using bit-blasting.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::theory::{Theory, TheoryId, TheoryResult};
 use oxiz_core::ast::TermId;
 use oxiz_core::error::Result;
 use oxiz_sat::{Lit, Solver as SatSolver, SolverResult, Var};
-use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 
 /// IEEE 754 Floating-point format specification

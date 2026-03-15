@@ -10,7 +10,8 @@
 //! - "Efficient Backbone Computation" (Kullmann)
 
 use crate::literal::Lit;
-use std::collections::HashSet;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Statistics for backbone computation
 #[derive(Debug, Clone, Default)]

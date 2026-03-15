@@ -3,8 +3,10 @@
 //! This module defines a comprehensive error type hierarchy for
 //! all theory solvers, providing better error handling and diagnostics.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::fmt;
 use oxiz_core::ast::TermId;
-use std::fmt;
 
 /// Result type for theory solver operations
 pub type TheoryResult<T> = Result<T, TheoryError>;
@@ -119,7 +121,8 @@ impl fmt::Display for TheoryError {
     }
 }
 
-impl std::error::Error for TheoryError {}
+#[cfg(feature = "std")]
+impl core::error::Error for TheoryError {}
 
 /// Statistics for solver performance
 #[derive(Debug, Clone, Default)]

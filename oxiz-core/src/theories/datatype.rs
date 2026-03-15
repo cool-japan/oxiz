@@ -5,8 +5,9 @@
 //! Reference: Z3's `src/smt/theory_datatype.cpp` at `../z3/src/smt/`
 
 use crate::ast::{TermId, TermKind, TermManager};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::sort::{SortId, SortKind, SortManager};
-use rustc_hash::{FxHashMap, FxHashSet};
 
 /// Datatype theory axioms
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -14,9 +15,9 @@ pub enum DatatypeAxiom {
     /// Constructor distinctness: C_i(...) ≠ C_j(...) for i ≠ j
     ConstructorDistinctness {
         /// Constructor 1
-        cons1: lasso::Spur,
+        cons1: crate::interner::Spur,
         /// Constructor 2
-        cons2: lasso::Spur,
+        cons2: crate::interner::Spur,
         /// Datatype sort
         datatype: SortId,
     },
@@ -25,7 +26,7 @@ pub enum DatatypeAxiom {
         /// Constructor term
         constructor: TermId,
         /// Selector
-        selector: lasso::Spur,
+        selector: crate::interner::Spur,
         /// Field index
         field_index: usize,
         /// Field value
@@ -36,14 +37,14 @@ pub enum DatatypeAxiom {
         /// Constructor term
         constructor: TermId,
         /// Tester (is_C)
-        tester: lasso::Spur,
+        tester: crate::interner::Spur,
     },
     /// Negative tester: is_C_i(C_j(...)) = false for i ≠ j
     NegativeTesterAxiom {
         /// Constructor term with constructor C_j
         constructor: TermId,
         /// Tester for different constructor C_i
-        tester: lasso::Spur,
+        tester: crate::interner::Spur,
     },
     /// Acyclicity: prevents cyclic structures in strictly positive positions
     Acyclicity {
@@ -57,7 +58,7 @@ pub enum DatatypeAxiom {
         /// Second constructor application
         cons2: TermId,
         /// Constructor name
-        constructor: lasso::Spur,
+        constructor: crate::interner::Spur,
     },
 }
 
@@ -69,9 +70,9 @@ pub struct DatatypeTheory {
     /// Constructor applications: maps constructor term to its arguments
     constructors: FxHashMap<TermId, ConstructorInfo>,
     /// Selector applications: maps selector term to (datatype, selector_name)
-    selectors: FxHashMap<TermId, (TermId, lasso::Spur)>,
+    selectors: FxHashMap<TermId, (TermId, crate::interner::Spur)>,
     /// Tester applications: maps tester term to (datatype, tester_name)
-    testers: FxHashMap<TermId, (TermId, lasso::Spur)>,
+    testers: FxHashMap<TermId, (TermId, crate::interner::Spur)>,
     /// Pending axiom instantiations
     pending_axioms: Vec<DatatypeAxiom>,
     /// Already instantiated axioms (to avoid duplicates)
@@ -85,7 +86,7 @@ pub struct DatatypeTheory {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ConstructorInfo {
     /// Constructor name
-    name: lasso::Spur,
+    name: crate::interner::Spur,
     /// Arguments to the constructor
     args: Vec<TermId>,
     /// Datatype sort
@@ -123,7 +124,7 @@ impl DatatypeTheory {
     pub fn register_constructor(
         &mut self,
         term: TermId,
-        name: lasso::Spur,
+        name: crate::interner::Spur,
         args: Vec<TermId>,
         sort: SortId,
     ) {
@@ -149,12 +150,22 @@ impl DatatypeTheory {
     }
 
     /// Register a selector application
-    pub fn register_selector(&mut self, term: TermId, datatype: TermId, selector: lasso::Spur) {
+    pub fn register_selector(
+        &mut self,
+        term: TermId,
+        datatype: TermId,
+        selector: crate::interner::Spur,
+    ) {
         self.selectors.insert(term, (datatype, selector));
     }
 
     /// Register a tester application
-    pub fn register_tester(&mut self, term: TermId, datatype: TermId, tester: lasso::Spur) {
+    pub fn register_tester(
+        &mut self,
+        term: TermId,
+        datatype: TermId,
+        tester: crate::interner::Spur,
+    ) {
         self.testers.insert(term, (datatype, tester));
 
         // If datatype is a constructor, generate tester axioms
@@ -206,7 +217,7 @@ impl DatatypeTheory {
     fn generate_distinctness_axioms(
         &mut self,
         _term: TermId,
-        cons_name: lasso::Spur,
+        cons_name: crate::interner::Spur,
         sort: SortId,
         sort_manager: &SortManager,
     ) {
@@ -227,7 +238,7 @@ impl DatatypeTheory {
         &mut self,
         _selector_term: TermId,
         constructor: TermId,
-        selector: lasso::Spur,
+        selector: crate::interner::Spur,
         cons_info: &ConstructorInfo,
     ) {
         // Find which field this selector corresponds to
@@ -251,7 +262,7 @@ impl DatatypeTheory {
 
     /// Get pending axioms and clear the list
     pub fn take_pending_axioms(&mut self) -> Vec<DatatypeAxiom> {
-        std::mem::take(&mut self.pending_axioms)
+        core::mem::take(&mut self.pending_axioms)
     }
 
     /// Convert an axiom to a term (requires term manager)
@@ -356,7 +367,7 @@ pub struct DatatypeStatistics {
 mod tests {
     use super::*;
 
-    use lasso::Key;
+    use crate::interner::Key;
 
     #[test]
     fn test_empty_theory() {
@@ -377,7 +388,7 @@ mod tests {
     #[test]
     fn test_register_constructor() {
         let mut theory = DatatypeTheory::new();
-        let cons_name = lasso::Spur::try_from_usize(1).unwrap();
+        let cons_name = crate::interner::Spur::try_from_usize(1).unwrap();
         let term = TermId(42);
         let sort = SortId(1);
         let args = vec![TermId(1), TermId(2)];
@@ -391,7 +402,7 @@ mod tests {
     #[test]
     fn test_register_selector() {
         let mut theory = DatatypeTheory::new();
-        let selector = lasso::Spur::try_from_usize(2).unwrap();
+        let selector = crate::interner::Spur::try_from_usize(2).unwrap();
         let term = TermId(42);
         let datatype = TermId(10);
 
@@ -402,7 +413,7 @@ mod tests {
     #[test]
     fn test_register_tester() {
         let mut theory = DatatypeTheory::new();
-        let tester = lasso::Spur::try_from_usize(3).unwrap();
+        let tester = crate::interner::Spur::try_from_usize(3).unwrap();
         let term = TermId(42);
         let datatype = TermId(10);
 
@@ -415,7 +426,7 @@ mod tests {
         let mut theory = DatatypeTheory::new();
         let axiom = DatatypeAxiom::TesterAxiom {
             constructor: TermId(1),
-            tester: lasso::Spur::try_from_usize(1).unwrap(),
+            tester: crate::interner::Spur::try_from_usize(1).unwrap(),
         };
 
         theory.add_axiom(axiom.clone());
@@ -427,7 +438,7 @@ mod tests {
     #[test]
     fn test_reset() {
         let mut theory = DatatypeTheory::new();
-        let cons_name = lasso::Spur::try_from_usize(1).unwrap();
+        let cons_name = crate::interner::Spur::try_from_usize(1).unwrap();
 
         theory.register_datatype(TermId(1), SortId(1));
         theory.register_constructor(TermId(2), cons_name, vec![], SortId(1));
@@ -442,7 +453,7 @@ mod tests {
     #[test]
     fn test_statistics() {
         let mut theory = DatatypeTheory::new();
-        let cons_name = lasso::Spur::try_from_usize(1).unwrap();
+        let cons_name = crate::interner::Spur::try_from_usize(1).unwrap();
 
         theory.register_datatype(TermId(1), SortId(1));
         theory.register_constructor(TermId(2), cons_name, vec![], SortId(1));
@@ -465,7 +476,7 @@ mod tests {
     #[test]
     fn test_selector_axiom_generation() {
         let mut theory = DatatypeTheory::new();
-        let cons_name = lasso::Spur::try_from_usize(1).unwrap();
+        let cons_name = crate::interner::Spur::try_from_usize(1).unwrap();
         let args = vec![TermId(10), TermId(20)];
 
         theory.register_constructor(TermId(1), cons_name, args, SortId(1));

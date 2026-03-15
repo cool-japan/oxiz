@@ -2,6 +2,8 @@
 
 use super::super::simplex::{LinExpr, VarId};
 use super::types::{IntBound, LiaSolver};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_rational::Rational64;
 use oxiz_core::error::Result;
 
@@ -133,7 +135,7 @@ impl LiaSolver {
         candidates.sort_by(|a, b| {
             // First, compare conflict scores (higher is better)
             let score_cmp = b.2.cmp(&a.2);
-            if score_cmp != std::cmp::Ordering::Equal {
+            if score_cmp != core::cmp::Ordering::Equal {
                 return score_cmp;
             }
 

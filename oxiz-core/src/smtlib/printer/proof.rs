@@ -1,7 +1,9 @@
 //! Proof printing functionality
 
 use crate::ast::{proof::Proof, proof::ProofRule};
-use std::fmt::Write;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::fmt::Write;
 
 use super::basic::Printer;
 

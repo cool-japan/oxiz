@@ -21,8 +21,9 @@
 //! - Beame et al.: "Understanding the Power of Clause Learning" (IJCAI 2003)
 //! - Z3's `smt/smt_relevancy.cpp`
 
-use rustc_hash::FxHashSet;
-
+/// Literal type (variable + polarity).
+#[allow(unused_imports)]
+use crate::prelude::*;
 /// Literal type (variable + polarity).
 pub type Lit = i32;
 

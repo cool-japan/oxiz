@@ -4,9 +4,10 @@
 //! which can then be efficiently converted to CNF for SAT solving.
 
 use super::aig::{AigCircuit, AigEdge};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::ast::TermId;
 use oxiz_sat::{Solver as SatSolver, Var};
-use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 
 /// BitVector circuit builder using AIG representation

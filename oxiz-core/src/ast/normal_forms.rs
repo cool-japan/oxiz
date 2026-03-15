@@ -5,7 +5,8 @@
 //! and NNF (Negation Normal Form). Also includes Skolemization for quantifier elimination.
 
 use super::{TermId, TermKind, TermManager};
-use rustc_hash::{FxHashMap, FxHashSet};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use smallvec::SmallVec;
 
 /// Convert a boolean formula to Conjunctive Normal Form (CNF)
@@ -18,14 +19,14 @@ use smallvec::SmallVec;
 /// 2. Push negations inward (De Morgan's laws)
 /// 3. Distribute OR over AND
 pub fn to_cnf(term_id: TermId, manager: &mut TermManager) -> TermId {
-    let mut cache = rustc_hash::FxHashMap::default();
+    let mut cache = crate::prelude::FxHashMap::default();
     to_cnf_cached(term_id, manager, &mut cache)
 }
 
 fn to_cnf_cached(
     term_id: TermId,
     manager: &mut TermManager,
-    cache: &mut rustc_hash::FxHashMap<TermId, TermId>,
+    cache: &mut crate::prelude::FxHashMap<TermId, TermId>,
 ) -> TermId {
     if let Some(&result) = cache.get(&term_id) {
         return result;
@@ -83,7 +84,7 @@ fn to_cnf_cached(
 fn to_cnf_not(
     term_id: TermId,
     manager: &mut TermManager,
-    cache: &mut rustc_hash::FxHashMap<TermId, TermId>,
+    cache: &mut crate::prelude::FxHashMap<TermId, TermId>,
 ) -> TermId {
     match manager.get(term_id).map(|t| t.kind.clone()) {
         Some(TermKind::True) => manager.mk_false(),
@@ -136,7 +137,7 @@ fn distribute_or_over_and(
     lhs: TermId,
     rhs: TermId,
     manager: &mut TermManager,
-    _cache: &mut rustc_hash::FxHashMap<TermId, TermId>,
+    _cache: &mut crate::prelude::FxHashMap<TermId, TermId>,
 ) -> TermId {
     let lhs_kind = manager.get(lhs).map(|t| t.kind.clone());
     let rhs_kind = manager.get(rhs).map(|t| t.kind.clone());
@@ -169,7 +170,7 @@ fn distribute_or_over_and(
 fn distribute_or_over_and_multi(
     args: SmallVec<[TermId; 4]>,
     manager: &mut TermManager,
-    cache: &mut rustc_hash::FxHashMap<TermId, TermId>,
+    cache: &mut crate::prelude::FxHashMap<TermId, TermId>,
 ) -> TermId {
     if args.is_empty() {
         return manager.mk_false();
@@ -196,14 +197,14 @@ fn distribute_or_over_and_multi(
 /// 2. Push negations inward
 /// 3. Distribute AND over OR
 pub fn to_dnf(term_id: TermId, manager: &mut TermManager) -> TermId {
-    let mut cache = rustc_hash::FxHashMap::default();
+    let mut cache = crate::prelude::FxHashMap::default();
     to_dnf_cached(term_id, manager, &mut cache)
 }
 
 fn to_dnf_cached(
     term_id: TermId,
     manager: &mut TermManager,
-    cache: &mut rustc_hash::FxHashMap<TermId, TermId>,
+    cache: &mut crate::prelude::FxHashMap<TermId, TermId>,
 ) -> TermId {
     if let Some(&result) = cache.get(&term_id) {
         return result;
@@ -261,7 +262,7 @@ fn to_dnf_cached(
 fn to_dnf_not(
     term_id: TermId,
     manager: &mut TermManager,
-    cache: &mut rustc_hash::FxHashMap<TermId, TermId>,
+    cache: &mut crate::prelude::FxHashMap<TermId, TermId>,
 ) -> TermId {
     match manager.get(term_id).map(|t| t.kind.clone()) {
         Some(TermKind::True) => manager.mk_false(),
@@ -318,7 +319,7 @@ fn distribute_and_over_or(
     lhs: TermId,
     rhs: TermId,
     manager: &mut TermManager,
-    _cache: &mut rustc_hash::FxHashMap<TermId, TermId>,
+    _cache: &mut crate::prelude::FxHashMap<TermId, TermId>,
 ) -> TermId {
     let lhs_kind = manager.get(lhs).map(|t| t.kind.clone());
     let rhs_kind = manager.get(rhs).map(|t| t.kind.clone());
@@ -351,7 +352,7 @@ fn distribute_and_over_or(
 fn distribute_and_over_or_multi(
     args: SmallVec<[TermId; 4]>,
     manager: &mut TermManager,
-    cache: &mut rustc_hash::FxHashMap<TermId, TermId>,
+    cache: &mut crate::prelude::FxHashMap<TermId, TermId>,
 ) -> TermId {
     if args.is_empty() {
         return manager.mk_true();
@@ -763,7 +764,7 @@ pub fn skolemize(term_id: TermId, manager: &mut TermManager) -> TermId {
 fn skolemize_impl(
     term_id: TermId,
     manager: &mut TermManager,
-    universal_vars: &[lasso::Spur],
+    universal_vars: &[crate::interner::Spur],
     counter: &mut usize,
 ) -> TermId {
     match manager.get(term_id).map(|t| t.kind.clone()) {

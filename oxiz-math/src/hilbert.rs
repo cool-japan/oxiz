@@ -9,6 +9,8 @@
 //!
 //! Reference: Z3's arithmetic theories and polyhedral computation literature.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_bigint::BigInt;
 use num_rational::BigRational;
 use num_traits::{One, Signed, Zero};

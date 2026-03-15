@@ -1,8 +1,10 @@
 //\! Basic SMT-LIB2 printer
 
 use crate::ast::{TermId, TermKind, TermManager};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::sort::{SortId, SortKind};
-use std::fmt::Write;
+use core::fmt::Write;
 
 /// Printer for SMT-LIB2 format
 pub struct Printer<'a> {

@@ -2,8 +2,10 @@
 //!
 //! Provides query parsing, optimization, and execution.
 
-use lasso::Spur;
-use std::collections::HashSet;
+use crate::interner::Spur;
+use crate::prelude::HashSet;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 use super::relation::RelationId;
 use super::rule::{Atom, Binding, ComparisonOp, Term, Variable};

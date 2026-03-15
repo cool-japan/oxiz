@@ -8,8 +8,9 @@
 #![allow(clippy::only_used_in_recursion)] // recursive simplification intentional
 #![allow(clippy::for_kv_map)] // iterating map keys with values pattern
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::ast::{TermId, TermKind, TermManager};
-use rustc_hash::FxHashMap;
 
 /// Simplification statistics
 #[derive(Debug, Clone, Default)]
@@ -467,7 +468,8 @@ impl Simplifier {
 
         // Track constructor constraints for each variable
         // If a variable is constrained to multiple different constructors, it's UNSAT
-        let mut var_constructors: FxHashMap<TermId, lasso::Spur> = FxHashMap::default();
+        let mut var_constructors: FxHashMap<TermId, oxiz_core::interner::Spur> =
+            FxHashMap::default();
 
         for &assertion in assertions {
             let simp = self.simplify(assertion, manager);
@@ -513,7 +515,7 @@ impl Simplifier {
         lhs: TermId,
         rhs: TermId,
         manager: &TermManager,
-    ) -> (Option<TermId>, Option<lasso::Spur>) {
+    ) -> (Option<TermId>, Option<oxiz_core::interner::Spur>) {
         let lhs_term = manager.get(lhs);
         let rhs_term = manager.get(rhs);
 

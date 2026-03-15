@@ -3,9 +3,10 @@
 //! Represents UTVPI constraints using a doubled graph where each variable
 //! x is represented by two nodes: x⁺ (positive) and x⁻ (negative).
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_rational::Rational64;
 use oxiz_core::ast::TermId;
-use std::collections::HashMap;
 
 /// Node in the doubled graph
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

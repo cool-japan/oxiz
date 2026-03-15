@@ -14,10 +14,10 @@
 //!
 //! - Z3's `smt/smt_context.cpp` propagation queue
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::cmp::Ordering;
 use oxiz_sat::Lit;
-use rustc_hash::FxHashMap;
-use std::cmp::Ordering;
-use std::collections::BinaryHeap;
 
 /// Priority level (lower = higher priority).
 pub type Priority = u8;

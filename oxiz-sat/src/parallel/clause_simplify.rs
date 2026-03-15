@@ -3,8 +3,9 @@
 //! Simplifies clause databases in parallel using multiple threads.
 
 use crate::Clause;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
-use rustc_hash::FxHashSet;
 
 /// Configuration for parallel simplification.
 #[derive(Debug, Clone)]

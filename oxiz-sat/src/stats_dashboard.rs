@@ -4,8 +4,10 @@
 //! This module provides a unified view of all solver statistics with
 //! formatted output for analysis and debugging.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::solver::SolverStats;
-use std::fmt;
+use core::fmt;
 use std::time::Duration;
 
 /// Comprehensive statistics dashboard

@@ -1,6 +1,8 @@
 //! Polynomial constructors and query methods.
 
 use super::types::*;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_bigint::BigInt;
 use num_rational::BigRational;
 use num_traits::{One, Zero};

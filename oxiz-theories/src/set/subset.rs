@@ -3,9 +3,9 @@
 //! Handles subset constraints (S1 ⊆ S2) and transitive closure
 
 use super::{SetConflict, SetLiteral, SetProofStep, SetVar, SetVarId};
-use rustc_hash::{FxHashMap, FxHashSet};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use smallvec::SmallVec;
-use std::collections::VecDeque;
 
 /// Subset constraint
 #[derive(Debug, Clone)]

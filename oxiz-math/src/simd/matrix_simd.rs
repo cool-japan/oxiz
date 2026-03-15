@@ -3,8 +3,10 @@
 //!
 //! Provides cache-friendly matrix operations with SIMD-style chunking.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::ops::{Add, Mul, Sub};
 use num_traits::{Float, Zero};
-use std::ops::{Add, Mul, Sub};
 
 /// SIMD-friendly matrix-vector multiplication.
 pub fn simd_matrix_vec_mul<T>(matrix: &[Vec<T>], vec: &[T]) -> Vec<T>

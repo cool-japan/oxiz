@@ -4,7 +4,10 @@
 //! resource limits, algorithmic choices, and optimization strategies
 //! across all theory solvers.
 
-use std::time::Duration;
+#[allow(unused_imports)]
+use crate::prelude::*;
+#[cfg(feature = "std")]
+use core::time::Duration;
 
 /// Configuration for simplex-based arithmetic solvers
 #[derive(Debug, Clone)]
@@ -163,6 +166,7 @@ pub struct TheoryConfig {
     /// Theory combination configuration
     pub combination: CombinationConfig,
     /// Global timeout (None = no timeout)
+    #[cfg(feature = "std")]
     pub timeout: Option<Duration>,
 }
 
@@ -204,6 +208,7 @@ impl TheoryConfig {
                 enable_conflict_minimization: true,
                 combination_mode: CombinationMode::ModelBased,
             },
+            #[cfg(feature = "std")]
             timeout: Some(Duration::from_secs(300)),
         }
     }
@@ -239,6 +244,7 @@ impl TheoryConfig {
                 enable_conflict_minimization: false,
                 combination_mode: CombinationMode::NelsonOppen,
             },
+            #[cfg(feature = "std")]
             timeout: Some(Duration::from_secs(10)),
         }
     }

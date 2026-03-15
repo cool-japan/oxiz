@@ -6,12 +6,14 @@
 #![allow(missing_docs)]
 #![allow(dead_code)]
 
-use lasso::Spur;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::fmt;
 use oxiz_core::ast::{TermId, TermManager};
+use oxiz_core::interner::Spur;
 use oxiz_core::sort::SortId;
-use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
-use std::fmt;
+#[cfg(feature = "std")]
 use std::time::{Duration, Instant};
 
 use super::counterexample::CounterExampleGenerator;
@@ -61,8 +63,10 @@ pub struct MBQIIntegration {
     /// Maximum rounds
     max_rounds: usize,
     /// Time limit
+    #[cfg(feature = "std")]
     time_limit: Option<Duration>,
     /// Start time
+    #[cfg(feature = "std")]
     start_time: Option<Instant>,
     /// Statistics
     stats: MBQIStats,
@@ -81,7 +85,9 @@ impl MBQIIntegration {
             generated_instantiations: FxHashMap::default(),
             current_round: 0,
             max_rounds: 100,
+            #[cfg(feature = "std")]
             time_limit: Some(Duration::from_secs(60)),
+            #[cfg(feature = "std")]
             start_time: None,
             stats: MBQIStats::new(),
         }
@@ -117,7 +123,10 @@ impl MBQIIntegration {
         manager: &mut TermManager,
         callback: &mut dyn SolverCallback,
     ) -> MBQIResult {
-        self.start_time = Some(Instant::now());
+        #[cfg(feature = "std")]
+        {
+            self.start_time = Some(Instant::now());
+        }
         self.current_round = 0;
 
         if self.quantifiers.is_empty() {
@@ -134,6 +143,7 @@ impl MBQIIntegration {
             callback.on_round_start(self.current_round);
             self.stats.num_checks += 1;
 
+            #[cfg(feature = "std")]
             let round_start = Instant::now();
 
             // Step 1: Complete the model
@@ -175,7 +185,10 @@ impl MBQIIntegration {
                 }
             }
 
-            self.stats.completion_time_us += round_start.elapsed().as_micros() as u64;
+            #[cfg(feature = "std")]
+            {
+                self.stats.completion_time_us += round_start.elapsed().as_micros() as u64;
+            }
 
             // Step 3: Check result
             if all_instantiations.is_empty() {
@@ -218,15 +231,18 @@ impl MBQIIntegration {
 
     /// Check for timeout
     fn check_timeout(&self) -> bool {
-        if let (Some(limit), Some(start)) = (self.time_limit, self.start_time) {
-            start.elapsed() >= limit
-        } else {
-            false
+        #[cfg(feature = "std")]
+        {
+            if let (Some(limit), Some(start)) = (self.time_limit, self.start_time) {
+                return start.elapsed() >= limit;
+            }
         }
+        false
     }
 
     /// Update final statistics
     fn update_final_stats(&mut self) {
+        #[cfg(feature = "std")]
         if let Some(start) = self.start_time {
             self.stats.total_time_us = start.elapsed().as_micros() as u64;
         }
@@ -237,7 +253,10 @@ impl MBQIIntegration {
         self.quantifiers.clear();
         self.generated_instantiations.clear();
         self.current_round = 0;
-        self.start_time = None;
+        #[cfg(feature = "std")]
+        {
+            self.start_time = None;
+        }
         self.instantiation_engine.clear_caches();
         self.lazy_instantiator.clear();
     }
@@ -281,6 +300,7 @@ impl MBQIIntegration {
     }
 
     /// Set time limit
+    #[cfg(feature = "std")]
     pub fn set_time_limit(&mut self, limit: Duration) {
         self.time_limit = Some(limit);
     }
@@ -308,7 +328,7 @@ impl Default for MBQIIntegration {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct InstantiationKey {
     quantifier: TermId,
-    binding: Vec<(lasso::Spur, TermId)>,
+    binding: Vec<(oxiz_core::interner::Spur, TermId)>,
 }
 
 impl From<&Instantiation> for InstantiationKey {

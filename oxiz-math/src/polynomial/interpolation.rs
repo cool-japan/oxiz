@@ -15,6 +15,8 @@
 //! - "Computer Algebra and Symbolic Computation" (Cohen, 2002)
 
 use crate::polynomial::{Polynomial, Term, Var};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_rational::BigRational;
 use num_traits::{One, Zero};
 
@@ -409,8 +411,8 @@ pub enum InterpolationError {
     NumericalInstability,
 }
 
-impl std::fmt::Display for InterpolationError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for InterpolationError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             InterpolationError::NoPoints => write!(f, "no interpolation points provided"),
             InterpolationError::DuplicateXValue => write!(f, "duplicate x-values in points"),
@@ -420,7 +422,7 @@ impl std::fmt::Display for InterpolationError {
     }
 }
 
-impl std::error::Error for InterpolationError {}
+impl core::error::Error for InterpolationError {}
 
 #[cfg(test)]
 mod tests {

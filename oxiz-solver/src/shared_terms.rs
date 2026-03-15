@@ -15,8 +15,9 @@
 //! - Nelson & Oppen: "Simplification by Cooperating Decision Procedures" (1979)
 //! - Z3's `smt/theory_combine.cpp`
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::TermId;
-use rustc_hash::{FxHashMap, FxHashSet};
 
 /// Theory identifier.
 pub type TheoryId = usize;

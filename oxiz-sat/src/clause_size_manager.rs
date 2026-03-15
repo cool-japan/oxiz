@@ -8,6 +8,9 @@
 //! - "Clause Size Management in CDCL SAT Solvers"
 //! - "Adaptive Learned Clause Minimization in SAT Solvers"
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 /// Statistics for clause size management
 #[derive(Debug, Clone, Default)]
 pub struct SizeManagerStats {

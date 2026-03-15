@@ -3,7 +3,8 @@
 use crate::ast::{TermId, TermManager};
 use crate::ematching::trigger::Trigger;
 use crate::error::Result;
-use rustc_hash::FxHashMap;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Configuration for the E-matching engine
 #[derive(Debug, Clone)]

@@ -5,7 +5,9 @@
 
 use crate::error::{OxizError, SourceSpan};
 use crate::error_context::ErrorContext;
-use std::fmt;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::fmt;
 
 /// Severity level for diagnostics.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

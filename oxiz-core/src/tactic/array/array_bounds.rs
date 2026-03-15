@@ -16,7 +16,8 @@
 //! - Z3's `tactic/smtlogics_tactics.cpp` (array tactics)
 
 use crate::ast::{TermId, TermKind, TermManager};
-use rustc_hash::FxHashMap;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Array identifier.
 pub type ArrayId = u32;

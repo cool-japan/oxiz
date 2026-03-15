@@ -3,8 +3,10 @@
 //!
 //! Provides cache-friendly simplex operations for linear programming.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::ops::{Add, Div, Mul, Sub};
 use num_traits::Float;
-use std::ops::{Add, Div, Mul, Sub};
 
 /// SIMD-friendly simplex tableau.
 #[derive(Debug, Clone)]
@@ -273,8 +275,8 @@ pub enum SimplexError {
     MaxIterationsReached,
 }
 
-impl std::fmt::Display for SimplexError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for SimplexError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Infeasible => write!(f, "linear program is infeasible"),
             Self::Unbounded => write!(f, "linear program is unbounded"),
@@ -283,7 +285,7 @@ impl std::fmt::Display for SimplexError {
     }
 }
 
-impl std::error::Error for SimplexError {}
+impl core::error::Error for SimplexError {}
 
 /// Dual simplex algorithm for handling infeasibility.
 pub fn simd_dual_simplex<T>(

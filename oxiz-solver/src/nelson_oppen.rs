@@ -4,9 +4,9 @@
 //! Implements the Nelson-Oppen framework for combining decision procedures
 //! of disjoint theories through equality sharing.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::ast::{TermId, TermKind, TermManager};
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::VecDeque;
 
 /// Nelson-Oppen theory combination engine.
 pub struct NelsonOppenCombiner {

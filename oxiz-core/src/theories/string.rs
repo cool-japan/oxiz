@@ -10,8 +10,9 @@
 //! Reference: SMT-LIB2 String Theory specification
 
 use crate::ast::{TermId, TermKind, TermManager};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::sort::SortManager;
-use rustc_hash::{FxHashMap, FxHashSet};
 
 /// String theory axioms and lemmas
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

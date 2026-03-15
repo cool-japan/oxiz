@@ -43,6 +43,8 @@
 //! - "Complete Decision Procedures for Satisfiability Problems" (Cantone et al.)
 
 #![allow(missing_docs)]
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 mod cardinality;
 mod finite_sets;

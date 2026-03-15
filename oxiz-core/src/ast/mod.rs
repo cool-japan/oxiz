@@ -3,6 +3,9 @@
 //! Terms are arena-allocated and referenced via `TermId` indices.
 //! This provides cache-friendly access and cheap copies.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 pub mod congruence;
 pub mod context;
 pub mod egraph;
@@ -10,12 +13,14 @@ pub mod interpolation;
 mod manager;
 pub mod model;
 pub mod normal_forms;
+#[cfg(feature = "std")]
 pub mod parallel;
 pub mod pattern;
 pub mod pool;
 pub mod proof;
 pub mod proof_transform;
 pub mod rewriting;
+#[cfg(feature = "std")]
 pub mod simd;
 mod term;
 pub mod traversal;
@@ -32,6 +37,7 @@ pub use normal_forms::{
     eliminate_universal_quantifiers, extract_cnf_clauses, is_cnf, is_dnf, is_nnf, simplify_boolean,
     skolemize, to_cnf, to_dnf, to_nnf,
 };
+#[cfg(feature = "std")]
 pub use parallel::{
     ParallelStats, parallel_all, parallel_all_distinct, parallel_any, parallel_count,
     parallel_filter, parallel_find, parallel_map, parallel_partition, parallel_reduce,
@@ -49,6 +55,7 @@ pub use rewriting::{
     DoubleNegationRule, EqualitySimplificationRule, ImplicationEliminationRule,
     IteSimplificationRule, RewriteRule, RewriteRuleSet, standard_rules,
 };
+#[cfg(feature = "std")]
 pub use simd::{simd_all_equal, simd_compare_termids, simd_contains, simd_hash_termids};
 pub use term::{InstPattern, RoundingMode, Term, TermId, TermKind};
 pub use traversal::{

@@ -18,8 +18,9 @@
 //! - Z3's `math/polynomial/polynomial_gcd.cpp`
 
 use super::{Monomial, MonomialOrder, Polynomial, Term, Var};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_traits::Zero;
-use rustc_hash::FxHashMap;
 
 /// Configuration for multivariate GCD.
 #[derive(Debug, Clone)]

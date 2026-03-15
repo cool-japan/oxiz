@@ -3,6 +3,9 @@
 //! This module implements focused and diversification modes to balance
 //! exploitation and exploration in the search strategy.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 /// Search mode for stabilization
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchMode {

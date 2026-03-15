@@ -20,8 +20,9 @@
 //! - Z3's `qe/qe_arith_plugin.cpp`
 
 use crate::ast::TermId;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_rational::BigRational;
-use rustc_hash::FxHashMap;
 
 /// Variable identifier.
 pub type VarId = usize;

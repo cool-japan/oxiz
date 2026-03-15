@@ -3,6 +3,8 @@
 use super::super::simplex::{LinExpr, VarId};
 use super::helpers::gcd;
 use super::types::LiaSolver;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_rational::Rational64;
 use num_traits::{One, Zero};
 impl LiaSolver {

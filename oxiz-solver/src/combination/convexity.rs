@@ -30,10 +30,10 @@
 //! - Tinelli & Harandi (1996): "A New Correctness Proof of the Nelson-Oppen Combination"
 //! - Z3's `smt/theory_opt.cpp`
 
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::VecDeque;
-
 /// Term identifier.
+#[allow(unused_imports)]
+use crate::prelude::*;
+/// Term identifier for convexity checking.
 pub type TermId = u32;
 
 /// Theory identifier.

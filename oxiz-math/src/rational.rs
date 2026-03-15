@@ -3,12 +3,13 @@
 //! This module provides utility functions for working with rational numbers
 //! beyond what the `num_rational` crate offers.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::cmp::Ordering;
 use num_bigint::BigInt;
 use num_integer::Integer;
 use num_rational::BigRational;
 use num_traits::{One, Signed, Zero};
-use rustc_hash::FxHashMap;
-use std::cmp::Ordering;
 
 /// Compare two rationals and return their ordering.
 #[inline]
@@ -611,6 +612,7 @@ pub fn solve_linear_diophantine(a: &BigInt, b: &BigInt, c: &BigInt) -> Option<(B
 /// assert!(is_prime(&BigInt::from(97), 5));
 /// assert!(!is_prime(&BigInt::from(15), 5));
 /// ```
+#[cfg(feature = "std")]
 pub fn is_prime(n: &BigInt, k: usize) -> bool {
     use num_traits::One;
     use rand::Rng;
@@ -733,6 +735,7 @@ pub fn trial_division(n: &BigInt, limit: u64) -> Vec<BigInt> {
 ///     assert!(factor > BigInt::from(1) && factor < n);
 /// }
 /// ```
+#[cfg(feature = "std")]
 pub fn pollard_rho(n: &BigInt) -> Option<BigInt> {
     use rand::Rng;
 
@@ -811,7 +814,7 @@ pub fn jacobi_symbol(a: &BigInt, n: &BigInt) -> i8 {
         }
 
         // Swap a and n
-        std::mem::swap(&mut a, &mut n);
+        core::mem::swap(&mut a, &mut n);
 
         // Quadratic reciprocity
         if &a % BigInt::from(4) == BigInt::from(3) && &n % BigInt::from(4) == BigInt::from(3) {
@@ -869,7 +872,7 @@ pub fn euler_totient(n: &BigInt) -> BigInt {
 
     // Find all prime factors using trial division
     let factors = trial_division(n, 1000000);
-    let mut seen_primes = std::collections::HashSet::new();
+    let mut seen_primes = crate::prelude::HashSet::new();
 
     for factor in factors {
         if seen_primes.insert(factor.clone()) {
@@ -1128,7 +1131,7 @@ pub fn mobius(n: &BigInt) -> i8 {
     }
 
     let factors = trial_division(n, 1000000);
-    let mut unique_primes = std::collections::HashSet::new();
+    let mut unique_primes = crate::prelude::HashSet::new();
 
     for factor in factors {
         unique_primes.insert(factor);
@@ -1235,7 +1238,7 @@ pub fn gcd_binary(mut a: BigInt, mut b: BigInt) -> BigInt {
 
         // Ensure a <= b
         if a > b {
-            std::mem::swap(&mut a, &mut b);
+            core::mem::swap(&mut a, &mut b);
         }
 
         b -= &a;
@@ -1371,7 +1374,7 @@ pub fn binomial(n: u32, k: u32) -> BigInt {
     }
 
     // Use symmetry: C(n,k) = C(n,n-k)
-    let k = std::cmp::min(k, n - k);
+    let k = core::cmp::min(k, n - k);
 
     let mut result = BigInt::one();
     for i in 0..k {

@@ -21,8 +21,10 @@
 mod simplified {
     use num_bigint::BigInt;
     use num_rational::BigRational;
-use std::cmp::Ordering;
-use std::fmt;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::cmp::Ordering;
+use core::fmt;
 
 /// Algebraic number error types.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,7 +50,7 @@ impl fmt::Display for AlgebraicNumberError {
     }
 }
 
-impl std::error::Error for AlgebraicNumberError {}
+impl core::error::Error for AlgebraicNumberError {}
 
 /// Algebraic number represented as a root of a polynomial.
 #[derive(Debug, Clone)]

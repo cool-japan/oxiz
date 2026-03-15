@@ -12,9 +12,10 @@ use crate::ast::traversal::{
 };
 use crate::ast::{TermId, TermKind, TermManager};
 use crate::error::Result;
+use crate::interner::Spur;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::sort::SortId;
-use lasso::Spur;
-use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
 
 use super::{Goal, TacticResult};
@@ -300,8 +301,8 @@ impl PatternMatcher {
                     _ => return false,
                 };
                 // Check same operation type
-                if std::mem::discriminant(&pattern_term.kind)
-                    != std::mem::discriminant(&ground_term.kind)
+                if core::mem::discriminant(&pattern_term.kind)
+                    != core::mem::discriminant(&ground_term.kind)
                 {
                     return false;
                 }
@@ -328,8 +329,8 @@ impl PatternMatcher {
                     | TermKind::Div(a, b) => (*a, *b),
                     _ => return false,
                 };
-                if std::mem::discriminant(&pattern_term.kind)
-                    != std::mem::discriminant(&ground_term.kind)
+                if core::mem::discriminant(&pattern_term.kind)
+                    != core::mem::discriminant(&ground_term.kind)
                 {
                     return false;
                 }

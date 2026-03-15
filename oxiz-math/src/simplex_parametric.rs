@@ -23,9 +23,10 @@
 
 // TODO: Re-enable after SimplexSolver API is available
 // use crate::simplex::SimplexSolver;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_rational::BigRational;
 use num_traits::{One, Zero};
-use rustc_hash::FxHashMap;
 
 /// Variable identifier.
 pub type VarId = usize;

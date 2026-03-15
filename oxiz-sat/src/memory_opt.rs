@@ -7,7 +7,8 @@
 //! - Fragmentation tracking and mitigation
 //! - Memory pressure monitoring
 
-use std::collections::HashMap;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Memory statistics
 #[derive(Debug, Default, Clone)]

@@ -13,7 +13,8 @@
 
 use crate::clause::{ClauseDatabase, ClauseId};
 use crate::literal::Lit;
-use rustc_hash::FxHashSet;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Statistics for subsumption checking
 #[derive(Debug, Default, Clone)]

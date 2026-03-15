@@ -16,6 +16,8 @@
 //! - Z3's `qe/qe_mbi.cpp`
 
 use crate::Term;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Variable identifier.
 pub type VarId = usize;

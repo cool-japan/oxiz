@@ -12,6 +12,8 @@
 //! Reference: "Target-Oriented Phase Selection" and CryptoMiniSat
 
 use crate::literal::{Lit, Var};
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Phase selection mode
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

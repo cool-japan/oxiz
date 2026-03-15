@@ -1,4 +1,5 @@
 //! Clause Splitting Tactic.
+
 #![allow(dead_code)] // Under development - not yet fully integrated
 //!
 //! Splits large clauses into smaller sub-clauses to improve SAT solver
@@ -23,6 +24,8 @@
 //! - Z3's `tactic/core/split_clause_tactic.cpp`
 
 /// Literal type.
+#[allow(unused_imports)]
+use crate::prelude::*;
 pub type Lit = i32;
 
 /// Variable type.

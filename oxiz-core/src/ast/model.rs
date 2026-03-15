@@ -4,10 +4,11 @@
 //! It maps variables to concrete values and provides function interpretations.
 
 use crate::ast::TermId;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::sort::SortId;
 use num_bigint::BigInt;
 use num_rational::BigRational;
-use rustc_hash::FxHashMap;
 
 /// A model represents a satisfying assignment
 #[derive(Debug, Clone)]
@@ -15,7 +16,7 @@ pub struct Model {
     /// Variable assignments: maps variable TermId to its value
     assignments: FxHashMap<TermId, ModelValue>,
     /// Function interpretations
-    functions: FxHashMap<lasso::Spur, FunctionInterpretation>,
+    functions: FxHashMap<crate::interner::Spur, FunctionInterpretation>,
 }
 
 /// A value in a model
@@ -96,19 +97,23 @@ impl Model {
     }
 
     /// Add a function interpretation
-    pub fn add_function(&mut self, name: lasso::Spur, interp: FunctionInterpretation) {
+    pub fn add_function(&mut self, name: crate::interner::Spur, interp: FunctionInterpretation) {
         self.functions.insert(name, interp);
     }
 
     /// Get a function interpretation
     #[must_use]
-    pub fn get_function(&self, name: lasso::Spur) -> Option<&FunctionInterpretation> {
+    pub fn get_function(&self, name: crate::interner::Spur) -> Option<&FunctionInterpretation> {
         self.functions.get(&name)
     }
 
     /// Evaluate a function application
     #[must_use]
-    pub fn eval_function(&self, name: lasso::Spur, args: &[ModelValue]) -> Option<ModelValue> {
+    pub fn eval_function(
+        &self,
+        name: crate::interner::Spur,
+        args: &[ModelValue],
+    ) -> Option<ModelValue> {
         let func = self.functions.get(&name)?;
         func.eval(args)
     }
@@ -137,7 +142,9 @@ impl Model {
     }
 
     /// Iterate over all function interpretations
-    pub fn functions(&self) -> impl Iterator<Item = (&lasso::Spur, &FunctionInterpretation)> {
+    pub fn functions(
+        &self,
+    ) -> impl Iterator<Item = (&crate::interner::Spur, &FunctionInterpretation)> {
         self.functions.iter()
     }
 }
@@ -209,8 +216,8 @@ impl Default for FunctionInterpretation {
     }
 }
 
-impl std::fmt::Display for ModelValue {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for ModelValue {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             ModelValue::Bool(b) => write!(f, "{}", b),
             ModelValue::Int(n) => write!(f, "{}", n),
@@ -326,7 +333,7 @@ mod tests {
     #[test]
     fn test_model_with_function() {
         let mut model = Model::new();
-        let mut rodeo = lasso::Rodeo::default();
+        let mut rodeo = crate::interner::Rodeo::default();
         let f_name = rodeo.get_or_intern("f");
 
         let mut func = FunctionInterpretation::with_default(ModelValue::Int(BigInt::from(0)));

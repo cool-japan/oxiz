@@ -14,9 +14,10 @@
 //! - Collins: \"Quantifier Elimination for Real Closed Fields\" (1975)
 //! - Z3's `nlsat/nlsat_solver.cpp` - sample point selection
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_rational::BigRational;
 use num_traits::{One, Signed, ToPrimitive, Zero};
-use rustc_hash::FxHashMap;
 
 /// A sample point in a CAD cell.
 #[derive(Debug, Clone, PartialEq, Eq)]

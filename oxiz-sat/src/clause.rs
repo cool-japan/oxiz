@@ -1,6 +1,8 @@
 //! Clause representation and database
 
 use crate::literal::Lit;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use smallvec::SmallVec;
 
 /// Unique identifier for a clause

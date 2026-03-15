@@ -15,8 +15,9 @@
 //! - "Chaff: Engineering an Efficient SAT Solver" (Moskewicz et al., 2001)
 //! - Z3's `sat/sat_cut_simplifier.cpp`
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_sat::Lit;
-use rustc_hash::{FxHashMap, FxHashSet};
 
 /// Decision level.
 pub type Level = usize;

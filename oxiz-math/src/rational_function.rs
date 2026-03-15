@@ -10,9 +10,11 @@
 //! - Approximation theory
 
 use crate::polynomial::{Polynomial, Var};
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::ops::{Add, Div, Mul, Neg, Sub};
 use num_rational::BigRational;
 use num_traits::Zero;
-use std::ops::{Add, Div, Mul, Neg, Sub};
 
 /// A rational function represented as numerator / denominator.
 ///
@@ -158,7 +160,7 @@ impl RationalFunction {
     /// use num_rational::BigRational;
     /// use oxiz_math::polynomial::Polynomial;
     /// use oxiz_math::rational_function::RationalFunction;
-    /// use rustc_hash::FxHashMap;
+    /// use crate::prelude::FxHashMap;
     ///
     /// let num = Polynomial::from_coeffs_int(&[(1, &[(0, 1)])]); // x
     /// let den = Polynomial::from_coeffs_int(&[(1, &[(0, 1)]), (1, &[])]); // x + 1
@@ -171,7 +173,7 @@ impl RationalFunction {
     /// ```
     pub fn eval(
         &self,
-        assignment: &rustc_hash::FxHashMap<Var, BigRational>,
+        assignment: &crate::prelude::FxHashMap<Var, BigRational>,
     ) -> Option<BigRational> {
         let num_val = self.numerator.eval(assignment);
         let den_val = self.denominator.eval(assignment);
@@ -488,7 +490,7 @@ mod tests {
         let rf2 = RationalFunction::from_constant(rat(1));
 
         let sum = rf1 + rf2;
-        let mut assignment = rustc_hash::FxHashMap::default();
+        let mut assignment = crate::prelude::FxHashMap::default();
         assignment.insert(0, rat(2));
         assert_eq!(sum.eval(&assignment).unwrap(), rat(3)); // 2 + 1 = 3
     }
@@ -502,7 +504,7 @@ mod tests {
         let rf2 = RationalFunction::from_constant(rat(2));
 
         let prod = rf1 * rf2;
-        let mut assignment = rustc_hash::FxHashMap::default();
+        let mut assignment = crate::prelude::FxHashMap::default();
         assignment.insert(0, rat(3));
         assert_eq!(prod.eval(&assignment).unwrap(), rat(6)); // 2 * 3 = 6
     }
@@ -515,7 +517,7 @@ mod tests {
 
         let rf = RationalFunction::new(num, den.clone());
 
-        let mut assignment = rustc_hash::FxHashMap::default();
+        let mut assignment = crate::prelude::FxHashMap::default();
         assignment.insert(0, rat(2));
         assert_eq!(
             rf.eval(&assignment).unwrap(),
@@ -532,7 +534,7 @@ mod tests {
         let rf = RationalFunction::new(num, den);
         let deriv = rf.derivative(0);
 
-        let mut assignment = rustc_hash::FxHashMap::default();
+        let mut assignment = crate::prelude::FxHashMap::default();
         assignment.insert(0, rat(1));
         // At x=1: derivative = 1/(1+1)^2 = 1/4
         assert_eq!(
@@ -556,7 +558,7 @@ mod tests {
         let rf = RationalFunction::new(num, den);
 
         // Should be reduced
-        let mut assignment = rustc_hash::FxHashMap::default();
+        let mut assignment = crate::prelude::FxHashMap::default();
         assignment.insert(0, rat(2));
         assert_eq!(rf.eval(&assignment).unwrap(), rat(3)); // (x + 1) at x=2 is 3
     }
@@ -577,7 +579,7 @@ mod tests {
         let rf = RationalFunction::from_constant(rat(5));
         let neg_rf = -rf;
 
-        let assignment = rustc_hash::FxHashMap::default();
+        let assignment = crate::prelude::FxHashMap::default();
         assert_eq!(neg_rf.eval(&assignment).unwrap(), rat(-5));
     }
 }

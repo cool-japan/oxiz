@@ -1,11 +1,12 @@
 //! BitVector Theory Solver
 
 use crate::config::BvConfig;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::theory::{Theory, TheoryId, TheoryResult};
 use oxiz_core::ast::TermId;
 use oxiz_core::error::Result;
 use oxiz_sat::{Lit, Solver as SatSolver, SolverResult, Var};
-use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 
 /// A bit vector variable (sequence of SAT variables)

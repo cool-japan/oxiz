@@ -3,9 +3,11 @@
 //! Creates default values for different sorts.
 
 use super::Value;
+use crate::prelude::HashMap;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::sort::SortId;
 use num_rational::Rational64;
-use std::collections::HashMap;
 
 /// Configuration for value factory
 #[derive(Debug, Clone)]

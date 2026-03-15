@@ -46,7 +46,8 @@
 //! - "Computer Arithmetic Algorithms" (Koren, 2002)
 
 use super::aig::{AigCircuit, AigEdge};
-use rustc_hash::FxHashMap;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Configuration for division optimization
 #[derive(Debug, Clone)]

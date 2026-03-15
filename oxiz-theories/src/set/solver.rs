@@ -11,14 +11,14 @@ use super::{
     CardConstraint, CardConstraintKind, CardPropagator, MemberConstraint, MemberPropagator,
     SetConflict, SetLiteral, SetProofStep, SetSort, SubsetConstraint, SubsetPropagator,
 };
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::theory::{
     EqualityNotification, Theory, TheoryCombination, TheoryId, TheoryResult as TR,
 };
 use oxiz_core::ast::TermId;
 use oxiz_core::error::Result;
-use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
-use std::collections::VecDeque;
 
 /// Set variable identifier
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -333,7 +333,7 @@ pub struct SetStats {
 }
 
 /// Set solver result
-pub type SetResult<T> = std::result::Result<T, SetConflict>;
+pub type SetResult<T> = core::result::Result<T, SetConflict>;
 
 /// Set solver state for push/pop
 #[derive(Debug, Clone)]

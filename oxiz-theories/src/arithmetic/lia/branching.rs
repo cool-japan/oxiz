@@ -3,6 +3,8 @@
 use super::super::simplex::{LinExpr, VarId};
 use super::types::{BranchNode, LiaSolver};
 use crate::config::BranchingHeuristic;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_rational::Rational64;
 use num_traits::One;
 use oxiz_core::error::{OxizError, Result};
@@ -278,7 +280,7 @@ impl LiaSolver {
                 let dist_b = (frac_b_f64 - 0.5).abs();
                 dist_a
                     .partial_cmp(&dist_b)
-                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .unwrap_or(core::cmp::Ordering::Equal)
             });
             candidates.truncate(max_candidates);
         }

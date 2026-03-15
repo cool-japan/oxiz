@@ -18,11 +18,12 @@
 
 use crate::ast::{TermId, TermKind, TermManager};
 use crate::error::{OxizError, Result};
+use crate::interner::Spur;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::sort::SortId;
-use lasso::Spur;
-use rustc_hash::FxHashSet;
+use core::fmt;
 use smallvec::SmallVec;
-use std::fmt;
 
 /// A trigger for quantifier instantiation
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -786,7 +787,7 @@ impl fmt::Display for Trigger {
 mod tests {
     use super::*;
     use crate::ast::TermManager;
-    use lasso::Key;
+    use crate::interner::Key;
 
     fn setup() -> TermManager {
         TermManager::new()

@@ -9,10 +9,10 @@
 //! - Deduplication of redundant propagations
 //! - Statistics tracking for tuning
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::theory::TheoryId;
 use oxiz_core::ast::TermId;
-use rustc_hash::FxHashSet;
-use std::collections::VecDeque;
 
 /// Priority level for theory propagations
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

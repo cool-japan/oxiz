@@ -3,9 +3,11 @@
 //! Rules are Horn clauses of the form: head :- body1, body2, ..., bodyn
 //! This module provides AST types for rules, atoms, and terms.
 
-use lasso::Spur;
+use crate::interner::Spur;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::fmt;
 use std::collections::{HashMap, HashSet};
-use std::fmt;
 
 use super::relation::RelationId;
 use super::tuple::Value;

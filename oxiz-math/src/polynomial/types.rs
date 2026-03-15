@@ -6,13 +6,14 @@
 //! - Term: Coefficient multiplied by a monomial
 //! - MonomialOrder: Ordering for polynomial canonicalization
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::cmp::Ordering;
+use core::fmt;
+use core::hash::{Hash, Hasher};
 use num_rational::BigRational;
 use num_traits::{One, Zero};
-use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
-use std::cmp::Ordering;
-use std::fmt;
-use std::hash::{Hash, Hasher};
 
 /// Variable identifier for polynomials.
 pub type Var = u32;
@@ -392,8 +393,9 @@ impl Monomial {
 }
 
 fn compute_monomial_hash(vars: &[VarPower]) -> u64 {
-    use std::collections::hash_map::DefaultHasher;
-    let mut hasher = DefaultHasher::new();
+    use core::hash::{BuildHasher, BuildHasherDefault};
+    use rustc_hash::FxHasher;
+    let mut hasher = BuildHasherDefault::<FxHasher>::default().build_hasher();
     for vp in vars {
         vp.hash(&mut hasher);
     }

@@ -29,6 +29,8 @@
 
 use crate::fp::ieee754_full::Ieee754Engine;
 use crate::fp::{FpFormat, FpRoundingMode, FpValue};
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// A floating-point interval [lower, upper]
 ///

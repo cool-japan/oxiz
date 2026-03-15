@@ -5,7 +5,8 @@
 #![allow(dead_code)]
 
 use super::{SetConflict, SetLiteral, SetProofStep, SetVar, SetVarId};
-use rustc_hash::{FxHashMap, FxHashSet};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use smallvec::SmallVec;
 
 /// Membership variable
@@ -633,7 +634,7 @@ impl MembershipInference {
 
             for rule in &self.rules {
                 if let Some((var, value)) = rule.apply(&self.known)
-                    && let std::collections::hash_map::Entry::Vacant(e) = self.known.entry(var)
+                    && let crate::prelude::hash_map::Entry::Vacant(e) = self.known.entry(var)
                 {
                     e.insert(value);
                     inferred.insert(var, value);

@@ -20,6 +20,8 @@
 //! - Brown: "The QEPCAD System" (2003)
 //! - Z3's `nlsat/nlsat_solver.cpp`
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_rational::BigRational;
 
 /// Variable identifier.

@@ -10,8 +10,9 @@
 //! - Proof generation: Smaller UNSAT cores lead to smaller proofs
 
 use crate::literal::Lit;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::solver::{Solver, SolverResult};
-use std::collections::HashSet;
 
 /// UNSAT core extractor
 pub struct UnsatCore {

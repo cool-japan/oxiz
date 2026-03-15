@@ -1,5 +1,8 @@
 //! Union-Find data structure for congruence closure
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 /// An undo entry for reverting a union operation
 #[derive(Debug, Clone, Copy)]
 pub struct UndoEntry {
@@ -85,7 +88,7 @@ impl UnionFind {
 
         // Union by rank (track for undo)
         match self.rank[root_x as usize].cmp(&self.rank[root_y as usize]) {
-            std::cmp::Ordering::Less => {
+            core::cmp::Ordering::Less => {
                 // root_x becomes child of root_y
                 self.trail.push(UndoEntry {
                     node: root_x,
@@ -95,7 +98,7 @@ impl UnionFind {
                 });
                 self.parent[root_x as usize] = root_y;
             }
-            std::cmp::Ordering::Greater => {
+            core::cmp::Ordering::Greater => {
                 // root_y becomes child of root_x
                 self.trail.push(UndoEntry {
                     node: root_y,
@@ -105,7 +108,7 @@ impl UnionFind {
                 });
                 self.parent[root_y as usize] = root_x;
             }
-            std::cmp::Ordering::Equal => {
+            core::cmp::Ordering::Equal => {
                 // root_y becomes child of root_x, rank increases
                 self.trail.push(UndoEntry {
                     node: root_y,
@@ -131,13 +134,13 @@ impl UnionFind {
         }
 
         match self.rank[root_x as usize].cmp(&self.rank[root_y as usize]) {
-            std::cmp::Ordering::Less => {
+            core::cmp::Ordering::Less => {
                 self.parent[root_x as usize] = root_y;
             }
-            std::cmp::Ordering::Greater => {
+            core::cmp::Ordering::Greater => {
                 self.parent[root_y as usize] = root_x;
             }
-            std::cmp::Ordering::Equal => {
+            core::cmp::Ordering::Equal => {
                 self.parent[root_y as usize] = root_x;
                 self.rank[root_x as usize] += 1;
             }

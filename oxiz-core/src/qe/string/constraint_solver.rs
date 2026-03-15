@@ -6,9 +6,10 @@
 //! - Prefix/suffix/contains constraints
 //! - Concatenation reasoning
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_bigint::BigInt;
 use num_traits::{One, Zero};
-use rustc_hash::FxHashMap;
 
 /// String constraint solver for QE.
 pub struct StringConstraintSolver {

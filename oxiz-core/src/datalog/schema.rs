@@ -2,9 +2,11 @@
 //!
 //! Provides typed column definitions and schema management.
 
-use lasso::Spur;
-use std::collections::HashMap;
-use std::fmt;
+use crate::interner::Spur;
+use crate::prelude::HashMap;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::fmt;
 
 /// Unique identifier for a column within a schema
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -3,10 +3,10 @@
 //! Implements sophisticated bit-vector solving using bit-blasting,
 //! word-level reasoning, and optimized propagation.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::bv::{BvConstraint, BvError, BvSolution, BvValue};
 use num_bigint::BigUint;
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::VecDeque;
 
 /// Advanced bit-vector solver.
 pub struct AdvancedBvSolver {

@@ -50,6 +50,9 @@
 
 /// Block size for cache-efficient matrix operations.
 /// Chosen to fit L1 cache (typically 32KB) for three blocks of f64s.
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 const BLOCK_SIZE: usize = 64;
 
 /// Transpose option for matrix operations.

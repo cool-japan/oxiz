@@ -10,8 +10,8 @@
 //! Reference: "Equality Saturation: A New Approach to Optimization" and Z3's E-matching
 
 use crate::ast::{TermId, TermKind, TermManager};
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::VecDeque;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// E-class ID representing an equivalence class of terms
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

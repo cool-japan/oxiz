@@ -7,8 +7,9 @@
 //! - Exhaustiveness checking
 //! - Structural induction
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::ast::{TermId, TermKind, TermManager};
-use rustc_hash::{FxHashMap, FxHashSet};
 
 /// Constructor theory solver.
 pub struct ConstructorTheory {

@@ -13,8 +13,9 @@
 
 use crate::clause::{ClauseDatabase, ClauseId};
 use crate::literal::{Lit, Var};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::proof::DratProof;
-use std::collections::{HashMap, HashSet};
 
 /// Statistics for DRAT-based inprocessing
 #[derive(Debug, Default, Clone)]

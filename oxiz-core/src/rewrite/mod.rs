@@ -38,8 +38,9 @@ pub mod string;
 pub mod uf;
 
 use crate::ast::{TermId, TermManager};
-use rustc_hash::FxHashMap;
-use std::fmt::Debug;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::fmt::Debug;
 
 /// Result of a rewrite operation
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

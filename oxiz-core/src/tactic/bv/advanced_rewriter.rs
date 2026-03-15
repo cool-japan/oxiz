@@ -8,9 +8,9 @@
 //! - Strength reduction (expensive ops → cheap ops)
 //! - Pattern-based rewriting
 
-use rustc_hash::FxHashMap;
-
 /// Placeholder term identifier
+#[allow(unused_imports)]
+use crate::prelude::*;
 pub type TermId = usize;
 
 /// Bit-vector operation

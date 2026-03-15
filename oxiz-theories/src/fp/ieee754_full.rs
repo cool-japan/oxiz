@@ -26,7 +26,9 @@
 //! - Z3's theory_fpa and fpa2bv_converter (for SMT integration patterns)
 
 use crate::fp::{FpFormat, FpRoundingMode, FpValue};
-use std::cmp::Ordering;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::cmp::Ordering;
 
 /// Extended precision representation for intermediate calculations
 ///

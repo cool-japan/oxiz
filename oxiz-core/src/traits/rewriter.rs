@@ -3,8 +3,9 @@
 //! Provides a generic interface for implementing term rewriters that transform
 //! expressions while preserving semantics.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::{TermId, TermManager};
-use rustc_hash::FxHashMap;
 
 /// Result of a rewrite operation.
 #[derive(Debug, Clone, PartialEq, Eq)]

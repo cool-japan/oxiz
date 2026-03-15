@@ -10,6 +10,9 @@
 //!
 //! Reference: Z3's `src/ast/` and `src/smt/theory_*.h`
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 pub mod array;
 pub mod bitvector;
 pub mod combination;

@@ -1,13 +1,14 @@
 //! Regular Expression Constraint Solver for String Theory
-#![allow(missing_docs)] // Under development - documentation in progress
 //!
 //! This module implements solving for string constraints with regular expressions:
 //! - Membership testing (str ∈ regex)
 //! - Negated membership (str ∉ regex)
 //! - Regex intersection and complement
 //! - Length-aware regex solving
+#![allow(missing_docs)] // Under development - documentation in progress
 
-use rustc_hash::{FxHashMap, FxHashSet};
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// String variable identifier
 pub type StrVar = usize;

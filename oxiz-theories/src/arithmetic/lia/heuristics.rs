@@ -2,6 +2,8 @@
 
 use super::super::simplex::VarId;
 use super::types::{CutInfo, LiaSolver};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_rational::Rational64;
 use oxiz_core::error::Result;
 impl LiaSolver {

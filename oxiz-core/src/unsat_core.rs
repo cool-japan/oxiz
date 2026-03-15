@@ -5,7 +5,8 @@
 //! that is still unsatisfiable.
 
 use crate::ast::{NamedAssertion, TermId};
-use rustc_hash::FxHashSet;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// An unsatisfiable core
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -138,8 +139,8 @@ impl Default for UnsatCoreBuilder {
     }
 }
 
-impl std::fmt::Display for UnsatCore {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for UnsatCore {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         writeln!(f, "Unsat Core ({} assertions):", self.len())?;
         for (i, assertion) in self.assertions.iter().enumerate() {
             if let Some(name) = &assertion.name {

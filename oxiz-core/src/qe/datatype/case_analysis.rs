@@ -16,7 +16,8 @@
 //! - Z3's `qe/qe_datatypes.cpp`
 
 use crate::Term;
-use rustc_hash::FxHashMap;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Variable identifier.
 pub type VarId = usize;

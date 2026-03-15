@@ -1,5 +1,8 @@
 //! Array Quantifier Elimination.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 pub mod index_abstraction;
 pub mod plugin;
 pub mod quantifier_elim;

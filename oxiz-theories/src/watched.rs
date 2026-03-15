@@ -12,9 +12,9 @@
 //! - Moskewicz et al., "Chaff: Engineering an Efficient SAT Solver" (2001)
 //! - Nieuwenhuis et al., "DPLL(T)" framework
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::ast::TermId;
-use rustc_hash::FxHashMap;
-use std::collections::VecDeque;
 
 /// A theory constraint with watched literals
 #[derive(Debug, Clone, PartialEq, Eq)]

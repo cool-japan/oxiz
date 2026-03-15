@@ -1,3 +1,4 @@
+use crate::clause::Clause;
 /// Community detection for SAT formulas using graph-based clustering.
 ///
 /// This module implements Variable Incidence Graph (VIG) construction and community
@@ -9,8 +10,8 @@
 ///
 /// The implementation uses the Louvain algorithm for community detection, which is
 /// fast and produces high-quality partitions with high modularity.
-use crate::clause::Clause;
-use std::collections::HashMap;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Variable Incidence Graph (VIG).
 ///

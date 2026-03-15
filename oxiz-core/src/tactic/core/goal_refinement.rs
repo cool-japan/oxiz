@@ -7,9 +7,10 @@
 //! - Proof obligation management
 //! - Dependency tracking between goals
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::ast::{TermId, TermKind, TermManager};
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::VecDeque;
+use crate::prelude::VecDeque;
 
 /// Goal refinement tactic.
 pub struct GoalRefinementTactic {

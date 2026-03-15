@@ -9,8 +9,9 @@
 
 pub mod inference;
 
-use rustc_hash::FxHashMap;
-use std::sync::atomic::{AtomicU32, Ordering};
+#[allow(unused_imports)]
+use crate::prelude::*;
+use portable_atomic::{AtomicU32, Ordering};
 
 /// Unique identifier for a sort
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -60,21 +61,21 @@ pub enum SortKind {
         range: SortId,
     },
     /// Uninterpreted sort with a name
-    Uninterpreted(lasso::Spur),
+    Uninterpreted(crate::interner::Spur),
     /// Sort parameter (used in parametric sort definitions)
     /// The Spur is the parameter name
-    Parameter(lasso::Spur),
+    Parameter(crate::interner::Spur),
     /// Parametric sort application: name applied to argument sorts
     /// Example: (List Int) where List is the name and \[Int\] are the args
     Parametric {
         /// Name of the parametric sort
-        name: lasso::Spur,
+        name: crate::interner::Spur,
         /// Sort arguments
         args: smallvec::SmallVec<[SortId; 2]>,
     },
     /// Datatype sort
     /// Reference to a datatype definition by name
-    Datatype(lasso::Spur),
+    Datatype(crate::interner::Spur),
 }
 
 /// A sort in the SMT-LIB2 sense
@@ -148,9 +149,9 @@ impl Sort {
 #[derive(Debug, Clone)]
 pub struct DataTypeConstructor {
     /// Name of the constructor
-    pub name: lasso::Spur,
+    pub name: crate::interner::Spur,
     /// Selector names and their sorts (field name, field sort)
-    pub selectors: smallvec::SmallVec<[(lasso::Spur, SortId); 4]>,
+    pub selectors: smallvec::SmallVec<[(crate::interner::Spur, SortId); 4]>,
 }
 
 /// Parametric sort declaration
@@ -160,7 +161,7 @@ pub struct DataTypeConstructor {
 #[derive(Debug, Clone)]
 pub struct ParametricSortDecl {
     /// Name of the parametric sort
-    pub name: lasso::Spur,
+    pub name: crate::interner::Spur,
     /// Number of parameters this sort takes
     pub arity: usize,
 }
@@ -172,9 +173,9 @@ pub struct ParametricSortDecl {
 #[derive(Debug, Clone)]
 pub struct ParametricSortDef {
     /// Name of the parametric sort
-    pub name: lasso::Spur,
+    pub name: crate::interner::Spur,
     /// Parameter names
-    pub params: smallvec::SmallVec<[lasso::Spur; 2]>,
+    pub params: smallvec::SmallVec<[crate::interner::Spur; 2]>,
     /// The body sort expression (may reference parameters)
     pub body: SortId,
 }
@@ -186,7 +187,7 @@ pub struct ParametricSortDef {
 #[derive(Debug, Clone)]
 pub struct DataTypeDef {
     /// Name of the datatype
-    pub name: lasso::Spur,
+    pub name: crate::interner::Spur,
     /// The sort ID for this datatype (self-reference for recursive types)
     pub sort_id: SortId,
     /// Constructors for this datatype
@@ -213,15 +214,15 @@ pub struct SortManager {
     float64_sort_cached: Option<SortId>,
     float128_sort_cached: Option<SortId>,
     /// Sort aliases: maps alias names to their underlying sorts
-    aliases: FxHashMap<lasso::Spur, SortId>,
+    aliases: FxHashMap<crate::interner::Spur, SortId>,
     /// String interner for alias names
-    interner: lasso::Rodeo,
+    interner: crate::interner::Rodeo,
     /// Declared parametric sorts (name -> arity)
-    parametric_decls: FxHashMap<lasso::Spur, ParametricSortDecl>,
+    parametric_decls: FxHashMap<crate::interner::Spur, ParametricSortDecl>,
     /// Defined parametric sorts (name -> definition)
-    parametric_defs: FxHashMap<lasso::Spur, ParametricSortDef>,
+    parametric_defs: FxHashMap<crate::interner::Spur, ParametricSortDef>,
     /// Datatype definitions (name -> definition)
-    datatypes: FxHashMap<lasso::Spur, DataTypeDef>,
+    datatypes: FxHashMap<crate::interner::Spur, DataTypeDef>,
 }
 
 impl Default for SortManager {
@@ -247,7 +248,7 @@ impl SortManager {
             float64_sort_cached: None,
             float128_sort_cached: None,
             aliases: FxHashMap::default(),
-            interner: lasso::Rodeo::default(),
+            interner: crate::interner::Rodeo::default(),
             parametric_decls: FxHashMap::default(),
             parametric_defs: FxHashMap::default(),
             datatypes: FxHashMap::default(),
@@ -467,7 +468,7 @@ impl SortManager {
     /// ```
     pub fn define_parametric_sort(&mut self, name: &str, params: &[&str], body: SortId) {
         let key = self.interner.get_or_intern(name);
-        let param_spurs: smallvec::SmallVec<[lasso::Spur; 2]> = params
+        let param_spurs: smallvec::SmallVec<[crate::interner::Spur; 2]> = params
             .iter()
             .map(|p| self.interner.get_or_intern(*p))
             .collect();
@@ -763,13 +764,13 @@ impl SortManager {
     /// Intern a string into the interner
     ///
     /// This is used for creating Spur values for datatype constructors and selectors.
-    pub fn intern_str(&mut self, s: &str) -> lasso::Spur {
+    pub fn intern_str(&mut self, s: &str) -> crate::interner::Spur {
         self.interner.get_or_intern(s)
     }
 
     /// Resolve a Spur back to a string
     #[must_use]
-    pub fn resolve_spur(&self, spur: lasso::Spur) -> &str {
+    pub fn resolve_spur(&self, spur: crate::interner::Spur) -> &str {
         self.interner.resolve(&spur)
     }
 }

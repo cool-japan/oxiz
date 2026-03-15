@@ -1,10 +1,11 @@
 //! EUF Theory Solver
 
 use super::union_find::UnionFind;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::theory::{Theory, TheoryId, TheoryResult};
 use oxiz_core::ast::TermId;
 use oxiz_core::error::Result;
-use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 
 /// Function properties for dynamic arity support
@@ -350,7 +351,7 @@ impl EufSolver {
         let mut parent = vec![None; n];
 
         // BFS to find path from a to b
-        let mut queue = std::collections::VecDeque::new();
+        let mut queue = crate::prelude::VecDeque::new();
         queue.push_back(a);
         visited[a as usize] = true;
 

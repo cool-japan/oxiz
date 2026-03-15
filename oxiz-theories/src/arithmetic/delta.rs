@@ -9,10 +9,12 @@
 //! - `x < c` becomes `x <= c - δ` (represented as (c, -1))
 //! - `x > c` becomes `x >= c + δ` (represented as (c, 1))
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::cmp::Ordering;
+use core::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 use num_rational::Rational64;
 use num_traits::{One, Zero};
-use std::cmp::Ordering;
-use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
 /// A delta-rational number: represents `real + delta * δ` where δ is infinitesimal
 #[derive(Debug, Clone, Copy, Default)]

@@ -34,10 +34,11 @@
 //! - Z3's `muz/rel/dl_mk_filter_rules.cpp` and `ast/pattern/pattern_inference.cpp`
 //! - Simplify's E-matching implementation
 
-use lasso::Spur;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::ast::{TermId, TermKind, TermManager};
+use oxiz_core::interner::Spur;
 use oxiz_core::sort::SortId;
-use rustc_hash::{FxHashMap, FxHashSet};
 
 /// Variable identifier in patterns.
 pub type PatternVar = u32;
@@ -403,6 +404,7 @@ impl CodeTree {
     ///
     /// Returns a list of matches (quantifier, pattern_index, substitution).
     pub fn find_matches(&mut self, tm: &TermManager) -> Vec<Match> {
+        #[cfg(feature = "std")]
         let start = std::time::Instant::now();
         let mut matches = Vec::new();
 
@@ -436,7 +438,10 @@ impl CodeTree {
             }
         }
 
-        self.stats.matching_time_us += start.elapsed().as_micros() as u64;
+        #[cfg(feature = "std")]
+        {
+            self.stats.matching_time_us += start.elapsed().as_micros() as u64;
+        }
         matches
     }
 
@@ -594,7 +599,7 @@ impl Default for CodeTree {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lasso::{Key, Rodeo};
+    use oxiz_core::interner::{Key, Rodeo};
 
     fn setup_term_manager() -> (TermManager, Rodeo) {
         (TermManager::new(), Rodeo::default())

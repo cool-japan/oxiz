@@ -15,7 +15,8 @@
 
 use crate::clause::{ClauseDatabase, ClauseId};
 use crate::literal::Lit;
-use rustc_hash::{FxHashMap, FxHashSet};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use smallvec::SmallVec;
 
 /// Covered Clause Elimination engine
@@ -83,7 +84,7 @@ impl CoveredClauseElimination {
         let c1_set: FxHashSet<Lit> = c1_lits.iter().copied().collect();
 
         // Count how many literals from c2 are in c1
-        let common_count = c2_lits.iter().filter(|lit| c1_set.contains(lit)).count();
+        let common_count = c2_lits.iter().filter(|lit| c1_set.contains(*lit)).count();
 
         // If all literals from c1 are in c2, then c1 covers c2
         common_count == c1_lits.len()

@@ -34,9 +34,9 @@
 //! - Nieuwenhuis & Oliveras (2005): "Proof-Producing Congruence Closure"
 //! - Z3's `smt/theory_combine.cpp`
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::TermId as CoreTermId;
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::VecDeque;
 
 /// Local term identifier (wrapper for core TermId).
 pub type TermId = CoreTermId;

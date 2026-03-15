@@ -8,6 +8,8 @@
 
 use crate::clause::{ClauseDatabase, ClauseId, ClauseTier};
 use crate::literal::LBool;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Statistics for clause maintenance operations
 #[derive(Debug, Clone, Default)]
@@ -260,7 +262,7 @@ impl ClauseMaintenance {
         }
 
         // Sort by score (highest first = most deletable)
-        candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(core::cmp::Ordering::Equal));
 
         // Return top candidates up to target_count
         candidates

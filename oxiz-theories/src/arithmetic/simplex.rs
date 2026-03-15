@@ -2,9 +2,10 @@
 
 use super::delta::DeltaRational;
 use crate::config::{PivotingRule, SimplexConfig};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_rational::Rational64;
 use num_traits::{One, Signed, Zero};
-use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 
 /// Variable index

@@ -6,10 +6,10 @@
 //! - Product automaton for intersection
 //! - Automata-based constraint solving
 
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::VecDeque;
-
 /// State ID
+#[allow(unused_imports)]
+use crate::prelude::*;
+/// State identifier for automata.
 pub type StateId = u32;
 
 /// Transition label

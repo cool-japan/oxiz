@@ -15,8 +15,9 @@
 use super::{RewriteContext, RewriteResult, Rewriter};
 use crate::SortId;
 use crate::ast::{TermId, TermKind, TermManager};
-use lasso::Spur;
-use rustc_hash::FxHashMap;
+use crate::interner::Spur;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Datatype rewriter for ADT simplification
 #[derive(Debug, Clone)]

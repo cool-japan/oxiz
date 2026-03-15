@@ -5,8 +5,9 @@
 //!
 //! Reference: Bryant, "Graph-Based Algorithms for Boolean Function Manipulation" (1986)
 
-use rustc_hash::FxHashMap;
-use std::fmt;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::fmt;
 
 /// Variable identifier in a BDD.
 pub type VarId = u32;

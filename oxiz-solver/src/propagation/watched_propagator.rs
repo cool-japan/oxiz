@@ -15,9 +15,9 @@
 //! - "Efficient Theory Propagation" (Nieuwenhuis et al., 2006)
 //! - Z3's `smt/watched.cpp`
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_sat::Lit;
-use rustc_hash::FxHashMap;
-use std::collections::VecDeque;
 
 /// Constraint identifier.
 pub type ConstraintId = usize;

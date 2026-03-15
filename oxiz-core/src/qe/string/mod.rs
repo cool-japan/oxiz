@@ -1,5 +1,8 @@
 //! String theory quantifier elimination.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 pub mod constraint_solver;
 pub mod plugin;
 

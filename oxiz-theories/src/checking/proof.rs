@@ -3,6 +3,8 @@
 //! Validates proof steps and integrates with DRAT/Alethe proof generation.
 
 use super::{CheckResult, CheckerStats, Literal};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::ast::TermId;
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;

@@ -18,10 +18,10 @@
 //! - Z3's `model/model.cpp`
 //! - "Model Construction in SMT" (Barrett et al., 2009)
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_bigint::BigInt;
 use num_rational::BigRational;
-use rustc_hash::FxHashMap;
-use std::sync::Arc;
 
 use crate::{Sort, Term, TermId};
 

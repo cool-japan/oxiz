@@ -1,8 +1,12 @@
 //! Solver context
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::solver::{Solver, SolverResult};
 use oxiz_core::ast::{TermId, TermKind, TermManager};
+#[cfg(feature = "std")]
 use oxiz_core::error::Result;
+#[cfg(feature = "std")]
 use oxiz_core::smtlib::{Command, parse_script};
 use oxiz_core::sort::SortId;
 
@@ -89,17 +93,17 @@ pub struct Context {
     /// Declared constants stack for push/pop
     const_stack: Vec<usize>,
     /// Mapping from constant names to indices (for efficient removal)
-    const_name_to_index: std::collections::HashMap<String, usize>,
+    const_name_to_index: crate::prelude::HashMap<String, usize>,
     /// Declared functions
     declared_funs: Vec<DeclaredFun>,
     /// Declared functions stack for push/pop
     fun_stack: Vec<usize>,
     /// Mapping from function names to indices
-    fun_name_to_index: std::collections::HashMap<String, usize>,
+    fun_name_to_index: crate::prelude::HashMap<String, usize>,
     /// Last check-sat result
     last_result: Option<SolverResult>,
     /// Options
-    options: std::collections::HashMap<String, String>,
+    options: crate::prelude::HashMap<String, String>,
 }
 
 impl Default for Context {
@@ -120,12 +124,12 @@ impl Context {
             assertion_stack: Vec::new(),
             declared_consts: Vec::new(),
             const_stack: Vec::new(),
-            const_name_to_index: std::collections::HashMap::new(),
+            const_name_to_index: crate::prelude::HashMap::new(),
             declared_funs: Vec::new(),
             fun_stack: Vec::new(),
-            fun_name_to_index: std::collections::HashMap::new(),
+            fun_name_to_index: crate::prelude::HashMap::new(),
             last_result: None,
-            options: std::collections::HashMap::new(),
+            options: crate::prelude::HashMap::new(),
         }
     }
 
@@ -358,6 +362,7 @@ impl Context {
     }
 
     /// Format assertions as SMT-LIB2
+    #[cfg(feature = "std")]
     pub fn format_assertions(&self) -> String {
         if self.assertions.is_empty() {
             return "()".to_string();
@@ -468,6 +473,7 @@ impl Context {
     }
 
     /// Execute an SMT-LIB2 script
+    #[cfg(feature = "std")]
     pub fn execute_script(&mut self, script: &str) -> Result<Vec<String>> {
         let commands = parse_script(script, &mut self.terms)?;
         let mut output = Vec::new();

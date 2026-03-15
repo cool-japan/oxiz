@@ -18,10 +18,11 @@
 
 use crate::ast::{TermId, TermKind, TermManager};
 use crate::error::{OxizError, Result};
+use crate::interner::Spur;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::sort::SortId;
-use lasso::Spur;
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::fmt;
+use core::fmt;
 
 /// A compiled code tree for pattern matching
 #[derive(Debug, Clone)]

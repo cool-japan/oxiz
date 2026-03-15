@@ -5,6 +5,8 @@
 
 use crate::ast::{Term, TermId, TermKind, TermManager};
 use crate::error::{OxizError, Result, SourceSpan};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::sort::{SortId, SortKind, SortManager};
 
 /// Infer the sort of a term based on its structure

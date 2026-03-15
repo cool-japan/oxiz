@@ -6,6 +6,9 @@
 //! - GCD-based infeasibility detection
 //! - Integer bound propagation
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 mod branching;
 mod constraints;
 mod constructors;

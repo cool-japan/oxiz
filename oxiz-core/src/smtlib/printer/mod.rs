@@ -4,6 +4,9 @@
 //! - [`Printer`]: A basic printer that outputs terms on a single line
 //! - [`PrettyPrinter`]: A configurable pretty printer with indentation support
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 mod basic;
 mod config;
 mod model;

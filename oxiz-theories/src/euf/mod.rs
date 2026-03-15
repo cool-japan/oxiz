@@ -2,6 +2,9 @@
 //!
 //! Uses Union-Find with path compression for congruence closure.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 mod ematching;
 mod incremental;
 mod proof;

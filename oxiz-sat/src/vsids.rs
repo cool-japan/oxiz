@@ -1,6 +1,8 @@
 //! VSIDS (Variable State Independent Decaying Sum) branching heuristic
 
 use crate::literal::Var;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// VSIDS branching heuristic
 #[derive(Debug)]

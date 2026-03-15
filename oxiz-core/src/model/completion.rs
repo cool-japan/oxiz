@@ -4,8 +4,10 @@
 
 use super::{Model, ValueFactory};
 use crate::ast::{TermId, TermKind, TermManager};
+use crate::prelude::HashSet;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::sort::SortId;
-use std::collections::HashSet;
 
 /// Configuration for model completion
 #[derive(Debug, Clone)]

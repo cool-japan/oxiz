@@ -15,6 +15,8 @@
 //! - Dutertre & de Moura: "A Fast Linear-Arithmetic Solver for DPLL(T)" (CAV 2006)
 
 use crate::Term;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_rational::BigRational;
 
 /// Variable identifier.

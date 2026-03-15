@@ -7,10 +7,12 @@
 //! Reference: Z3's algebraic number implementation.
 
 use crate::polynomial::{Polynomial, Var};
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::cmp::Ordering;
 use num_bigint::BigInt;
 use num_rational::BigRational;
 use num_traits::{Signed, Zero};
-use std::cmp::Ordering;
 
 /// An algebraic number represented by a polynomial and an isolating interval.
 ///

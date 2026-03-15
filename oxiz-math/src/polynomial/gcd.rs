@@ -24,6 +24,8 @@
 //! - Z3's `math/polynomial/polynomial_gcd.cpp`
 
 use super::Polynomial;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_rational::BigRational;
 use num_traits::{One, Zero};
 
@@ -91,6 +93,7 @@ impl PolynomialGcd {
 
     /// Compute GCD of two polynomials.
     pub fn gcd(&mut self, a: &Polynomial, b: &Polynomial) -> Polynomial {
+        #[cfg(feature = "std")]
         let start = std::time::Instant::now();
 
         // Handle special cases
@@ -120,7 +123,10 @@ impl PolynomialGcd {
         };
 
         self.stats.gcds_computed += 1;
-        self.stats.time_us += start.elapsed().as_micros() as u64;
+        #[cfg(feature = "std")]
+        {
+            self.stats.time_us += start.elapsed().as_micros() as u64;
+        }
 
         result
     }

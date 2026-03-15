@@ -4,9 +4,11 @@
 
 #![allow(unsafe_code, missing_docs)] // Memory management - docs in progress
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::cell::RefCell;
+use core::marker::PhantomData;
 use std::alloc::{Layout, alloc, dealloc};
-use std::cell::RefCell;
-use std::marker::PhantomData;
 use std::ptr::NonNull;
 
 /// A memory region that can be nested.
@@ -250,7 +252,7 @@ impl<'a, T> RegionRef<'a, T> {
     }
 }
 
-impl<'a, T> std::ops::Deref for RegionRef<'a, T> {
+impl<'a, T> core::ops::Deref for RegionRef<'a, T> {
     type Target = T;
 
     fn deref(&self) -> &T {
@@ -258,7 +260,7 @@ impl<'a, T> std::ops::Deref for RegionRef<'a, T> {
     }
 }
 
-impl<'a, T> std::ops::DerefMut for RegionRef<'a, T> {
+impl<'a, T> core::ops::DerefMut for RegionRef<'a, T> {
     fn deref_mut(&mut self) -> &mut T {
         self.get_mut()
     }
@@ -273,11 +275,11 @@ pub struct RegionSlice<'a, T> {
 
 impl<'a, T> RegionSlice<'a, T> {
     pub fn as_slice(&self) -> &[T] {
-        unsafe { std::slice::from_raw_parts(self.ptr.as_ptr(), self.len) }
+        unsafe { core::slice::from_raw_parts(self.ptr.as_ptr(), self.len) }
     }
 
     pub fn as_mut_slice(&mut self) -> &mut [T] {
-        unsafe { std::slice::from_raw_parts_mut(self.ptr.as_ptr(), self.len) }
+        unsafe { core::slice::from_raw_parts_mut(self.ptr.as_ptr(), self.len) }
     }
 
     pub fn len(&self) -> usize {
@@ -289,7 +291,7 @@ impl<'a, T> RegionSlice<'a, T> {
     }
 }
 
-impl<'a, T> std::ops::Deref for RegionSlice<'a, T> {
+impl<'a, T> core::ops::Deref for RegionSlice<'a, T> {
     type Target = [T];
 
     fn deref(&self) -> &[T] {
@@ -297,7 +299,7 @@ impl<'a, T> std::ops::Deref for RegionSlice<'a, T> {
     }
 }
 
-impl<'a, T> std::ops::DerefMut for RegionSlice<'a, T> {
+impl<'a, T> core::ops::DerefMut for RegionSlice<'a, T> {
     fn deref_mut(&mut self) -> &mut [T] {
         self.as_mut_slice()
     }

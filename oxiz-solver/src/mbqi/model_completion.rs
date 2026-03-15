@@ -20,15 +20,16 @@
 #![allow(missing_docs)]
 #![allow(dead_code)]
 
-use lasso::Spur;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::cmp::Ordering;
+use core::fmt;
 use num_bigint::BigInt;
 use num_rational::Rational64;
 use oxiz_core::ast::{TermId, TermKind, TermManager};
+use oxiz_core::interner::Spur;
 use oxiz_core::sort::SortId;
-use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
-use std::cmp::Ordering;
-use std::fmt;
 
 use super::QuantifiedFormula;
 
@@ -883,7 +884,7 @@ impl UninterpretedSortHandler {
         let uninterp_sorts = self.identify_uninterpreted_sorts(model, manager);
 
         for sort in uninterp_sorts {
-            if let std::collections::hash_map::Entry::Vacant(e) = model.universes.entry(sort) {
+            if let crate::prelude::hash_map::Entry::Vacant(e) = model.universes.entry(sort) {
                 // Create a finite universe for this sort
                 let universe = self.create_finite_universe(sort, manager)?;
                 e.insert(universe);
@@ -976,7 +977,7 @@ impl fmt::Display for CompletionError {
     }
 }
 
-impl std::error::Error for CompletionError {}
+impl core::error::Error for CompletionError {}
 
 /// Statistics for model completion
 #[derive(Debug, Clone, Default)]
@@ -1009,7 +1010,7 @@ pub struct UninterpStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lasso::Key;
+    use oxiz_core::interner::Key;
 
     #[test]
     fn test_completed_model_creation() {

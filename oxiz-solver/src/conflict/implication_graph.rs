@@ -23,8 +23,9 @@
 //! - Zhang et al.: "Efficient Conflict Driven Learning in a Boolean Satisfiability Solver" (ICCAD 2001)
 //! - Z3's `sat/sat_cut_simplifier.cpp`
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_sat::Lit;
-use rustc_hash::{FxHashMap, FxHashSet};
 
 /// Variable type (absolute value of literal).
 pub type Var = u32;

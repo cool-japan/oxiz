@@ -3,6 +3,8 @@
 //! These invariants are checked during solver execution to ensure
 //! correctness and catch bugs early.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::*;
 
 /// Invariant: Trail consistency

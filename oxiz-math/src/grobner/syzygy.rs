@@ -9,11 +9,11 @@
 //! - Critical pair management
 
 use crate::polynomial::{Monomial, Polynomial, Var};
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::cmp::Ordering;
 use num_rational::BigRational;
 use num_traits::{One, Zero};
-use rustc_hash::FxHashMap;
-use std::cmp::Ordering;
-use std::collections::BinaryHeap;
 
 /// Syzygy computer for Gröbner basis algorithms.
 pub struct SyzygyComputer {
@@ -521,9 +521,23 @@ impl MonomialHelper for Monomial {
 
     fn powers(&self) -> &FxHashMap<Var, usize> {
         // Simplified: return empty map
-        use std::sync::OnceLock;
-        static EMPTY: OnceLock<FxHashMap<Var, usize>> = OnceLock::new();
-        EMPTY.get_or_init(FxHashMap::default)
+        #[cfg(feature = "std")]
+        {
+            use std::sync::OnceLock;
+            static EMPTY: OnceLock<FxHashMap<Var, usize>> = OnceLock::new();
+            EMPTY.get_or_init(FxHashMap::default)
+        }
+        #[cfg(not(feature = "std"))]
+        {
+            // Single-threaded no_std (zkVM): leak a Box for a &'static reference
+            static mut EMPTY_PTR: *const FxHashMap<Var, usize> = core::ptr::null();
+            unsafe {
+                if EMPTY_PTR.is_null() {
+                    EMPTY_PTR = Box::into_raw(Box::new(FxHashMap::default()));
+                }
+                &*EMPTY_PTR
+            }
+        }
     }
 
     fn total_degree(&self) -> usize {

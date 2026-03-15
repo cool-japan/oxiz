@@ -2,14 +2,16 @@
 
 use super::core::*;
 use crate::error::Result;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Sequential combinator - applies tactics in sequence
 pub struct ThenTactic {
     tactics: Vec<Box<dyn Tactic>>,
 }
 
-impl std::fmt::Debug for ThenTactic {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for ThenTactic {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("ThenTactic")
             .field("tactics_count", &self.tactics.len())
             .finish()
@@ -63,8 +65,8 @@ pub struct OrElseTactic {
     tactics: Vec<Box<dyn Tactic>>,
 }
 
-impl std::fmt::Debug for OrElseTactic {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for OrElseTactic {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("OrElseTactic")
             .field("tactics_count", &self.tactics.len())
             .finish()
@@ -99,8 +101,8 @@ pub struct RepeatTactic {
     max_iterations: usize,
 }
 
-impl std::fmt::Debug for RepeatTactic {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for RepeatTactic {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("RepeatTactic")
             .field("max_iterations", &self.max_iterations)
             .finish()
@@ -164,8 +166,8 @@ pub struct ParallelTactic {
     tactics: Vec<std::sync::Arc<dyn Tactic>>,
 }
 
-impl std::fmt::Debug for ParallelTactic {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for ParallelTactic {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("ParallelTactic")
             .field("tactics_count", &self.tactics.len())
             .finish()
@@ -292,8 +294,8 @@ pub struct TimeoutTactic {
     timeout_ms: u64,
 }
 
-impl std::fmt::Debug for TimeoutTactic {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for TimeoutTactic {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("TimeoutTactic")
             .field("tactic_name", &self.tactic.name())
             .field("timeout_ms", &self.timeout_ms)

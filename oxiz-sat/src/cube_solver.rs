@@ -1,11 +1,13 @@
+use crate::clause::Clause;
+use crate::cube::{Cube, CubeResult, CubeStats};
 /// Parallel cube solving using the Cube-and-Conquer technique.
 ///
 /// This module implements the "Conquer" phase of Cube-and-Conquer, distributing
 /// cubes to parallel workers and aggregating results.
-use crate::clause::Clause;
-use crate::cube::{Cube, CubeResult, CubeStats};
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 /// Configuration for parallel cube solving.

@@ -39,13 +39,13 @@ pub use crate::lp::farkas::{
     LinearConstraint as FarkasConstraint,
 };
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::simplex::{BoundType, SimplexResult, SimplexTableau};
+use core::cmp::Ordering;
 use num_bigint::BigInt;
 use num_rational::BigRational;
 use num_traits::{One, Zero};
-use rustc_hash::FxHashMap;
-use std::cmp::Ordering;
-use std::collections::BinaryHeap;
 
 /// Variable identifier
 pub type VarId = u32;
@@ -480,6 +480,7 @@ impl LPSolver {
 
     /// Solve the LP/MIP
     pub fn solve(&mut self) -> LPResult {
+        #[cfg(feature = "std")]
         let start = std::time::Instant::now();
 
         let result = if self.has_integers() {
@@ -488,7 +489,10 @@ impl LPSolver {
             self.solve_lp()
         };
 
-        self.stats.time_ms = start.elapsed().as_millis() as u64;
+        #[cfg(feature = "std")]
+        {
+            self.stats.time_ms = start.elapsed().as_millis() as u64;
+        }
         result
     }
 
@@ -560,6 +564,7 @@ impl LPSolver {
 
     /// Solve MIP using branch-and-bound
     fn solve_mip(&mut self) -> LPResult {
+        #[cfg(feature = "std")]
         let start = std::time::Instant::now();
         let mut node_count = 0;
 
@@ -599,6 +604,7 @@ impl LPSolver {
             if node_count >= self.config.max_nodes {
                 break;
             }
+            #[cfg(feature = "std")]
             if self.config.time_limit_ms > 0 {
                 let elapsed = start.elapsed().as_millis() as u64;
                 if elapsed >= self.config.time_limit_ms {

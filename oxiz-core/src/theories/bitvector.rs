@@ -5,8 +5,9 @@
 //! Reference: Z3's `src/smt/theory_bv.cpp` at `../z3/src/smt/`
 
 use crate::ast::{TermId, TermKind, TermManager};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::sort::{SortKind, SortManager};
-use rustc_hash::{FxHashMap, FxHashSet};
 
 /// BitVector theory axioms and rewrite rules
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -273,7 +274,7 @@ impl BitVectorTheory {
 
     /// Get pending axioms and clear the list
     pub fn take_pending_axioms(&mut self) -> Vec<BitVectorAxiom> {
-        std::mem::take(&mut self.pending_axioms)
+        core::mem::take(&mut self.pending_axioms)
     }
 
     /// Convert an axiom to a term (requires term manager)

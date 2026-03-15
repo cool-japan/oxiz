@@ -3,6 +3,8 @@
 use super::core::*;
 use crate::ast::{TermId, TermManager};
 use crate::error::Result;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Simplification tactic - simplifies boolean and arithmetic expressions
 pub struct SimplifyTactic<'a> {

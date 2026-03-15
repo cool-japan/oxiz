@@ -3,8 +3,9 @@
 //!
 //! Validates SAT proofs in parallel for faster verification.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
-use rustc_hash::FxHashMap;
 
 /// Configuration for parallel proof checking.
 #[derive(Debug, Clone)]
