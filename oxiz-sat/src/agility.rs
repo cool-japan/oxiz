@@ -9,6 +9,9 @@
 //! - "Refining Restarts Strategies for SAT and UNSAT" (Glucose)
 //! - "Improving Glucose for Incremental SAT Solving"
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 /// Statistics for agility tracking
 #[derive(Debug, Clone, Default)]
 pub struct AgilityStats {

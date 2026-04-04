@@ -9,34 +9,56 @@ description = "WebAssembly bindings for OxiZ SMT Solver"
 keywords = ["smt", "wasm", "webassembly"]
 categories = ["wasm"]
 
+[package.metadata.wasm-pack]
+namespace = "cooljapan"
+
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false
+
+[features]
+# full: all features enabled — default for development / server-side builds
+full = ["proof", "interpolation", "spacer", "ml_branching", "wasm_bench"]
+# minimal: size-optimized build — excludes proof/interpolation/spacer/ml/benchmarks
+# Expected size reduction: ~35–45% vs full (removes proof DAG, Spacer PDR engine,
+# Craig interpolation infrastructure, MBQI-ML heuristics, and wasm bench harness).
+# Core solver, all 19 theory solvers, and SMT-LIB2 parser are always included.
+minimal = []
+
+# Individual optional feature flags (used by `full` and selectable à-la-carte)
+proof         = []   # Proof generation and proof objects
+interpolation = []   # Craig interpolation
+spacer        = []   # Spacer PDR (property-directed reachability)
+ml_branching  = []   # Machine-learning guided branching heuristics
+wasm_bench    = []   # WASM-internal benchmark harness
+
+# Default: full feature set
+default = ["full"]
 
 [lib]
 crate-type = ["cdylib"]
 
 [dependencies]
-oxiz-core = { workspace = true }
-oxiz-solver = { workspace = true }
+oxiz-core = { workspace = true, features = ["std"] }
+oxiz-solver = { workspace = true, features = ["std"] }
 wasm-bindgen = { workspace = true }
 wasm-bindgen-futures = "0.4"
 js-sys = { workspace = true }
 console_error_panic_hook = "0.1"
 getrandom = { version = "0.3.4", features = ["wasm_js"] }
 web-sys = { version = "0.3", features = ["console", "Window", "Performance", "Response"] }
-flate2 = "1.1"
-brotli = "8.0"
+oxiarc-deflate = { workspace = true }
+oxiarc-brotli = { workspace = true }
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"
 criterion.workspace = true
+oxiarc-deflate = { workspace = true }
+oxiarc-brotli = { workspace = true }
 
 [[bench]]
 name = "performance"
 harness = false
 
-# Note: Profile settings should be configured in the workspace root Cargo.toml
-# For WASM binary size optimization, use:
-#   opt-level = "z"
-#   lto = true (disabled for oxiz-wasm due to rlib incompatibility)
-#   codegen-units = 1
+[[bench]]
+name = "bundle_size"
+harness = false

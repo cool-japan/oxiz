@@ -18,7 +18,8 @@
 
 use crate::clause::{Clause, ClauseDatabase, ClauseId};
 use crate::literal::{LBool, Lit};
-use std::collections::VecDeque;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Statistics for vivification
 #[derive(Debug, Default, Clone)]

@@ -16,10 +16,11 @@
 //! - Schrijver: "Theory of Linear and Integer Programming" (1986)
 //! - Z3's `math/lp/lp_farkas.cpp`
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_bigint::BigInt;
 use num_rational::BigRational;
 use num_traits::{One, Signed, Zero};
-use rustc_hash::FxHashMap;
 
 /// Variable identifier.
 pub type VarId = usize;

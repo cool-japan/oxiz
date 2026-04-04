@@ -5,7 +5,7 @@ React wrapper for OxiZ WASM SMT Solver.
 ## Installation
 
 ```bash
-npm install @oxiz/react oxiz-wasm
+npm install @oxiz/react @cooljapan/oxiz
 ```
 
 ## Usage

@@ -4,7 +4,7 @@
 // This example demonstrates basic usage of oxiz-wasm for SMT solving
 // in JavaScript/Node.js environments.
 
-import init, { WasmSolver } from 'oxiz-wasm';
+import init, { WasmSolver } from '@cooljapan/oxiz';
 
 async function main() {
     // Initialize WASM module (required before creating solver instances)

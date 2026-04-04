@@ -642,7 +642,7 @@ mod tests {
         let set = IntervalSet::from_interval(Interval::closed(rat(1), rat(5)));
         let sample = set.sample();
         assert!(sample.is_some());
-        let s = sample.unwrap();
+        let s = sample.expect("test operation should succeed");
         assert!(set.contains(&s));
     }
 

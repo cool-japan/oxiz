@@ -512,7 +512,8 @@ mod tests {
         let features = vec![vec![1.0], vec![2.0], vec![3.0], vec![4.0]];
         let targets = vec![1.0, 2.0, 3.0, 4.0];
 
-        tree.fit(&features, &targets).unwrap();
+        tree.fit(&features, &targets)
+            .expect("test operation should succeed");
 
         assert!(tree.root.is_some());
     }
@@ -524,7 +525,8 @@ mod tests {
         let features = vec![vec![1.0], vec![2.0], vec![3.0]];
         let targets = vec![10.0, 20.0, 30.0];
 
-        tree.fit(&features, &targets).unwrap();
+        tree.fit(&features, &targets)
+            .expect("test operation should succeed");
 
         let pred = tree.predict(&[1.5]);
         assert!(pred[0] >= 10.0 && pred[0] <= 20.0);
@@ -542,7 +544,8 @@ mod tests {
         ];
         let targets = vec![1.0, 2.0, 3.0, 4.0];
 
-        tree.fit(&features, &targets).unwrap();
+        tree.fit(&features, &targets)
+            .expect("test operation should succeed");
 
         let info = tree.info();
         assert!(info.num_nodes > 0);
@@ -556,12 +559,13 @@ mod tests {
         let features = vec![vec![1.0, 1.0], vec![2.0, 2.0]];
         let targets = vec![1.0, 2.0];
 
-        tree.fit(&features, &targets).unwrap();
+        tree.fit(&features, &targets)
+            .expect("test operation should succeed");
 
-        let saved = tree.save().unwrap();
+        let saved = tree.save().expect("test operation should succeed");
 
         let mut tree2 = DecisionTree::default_config(2);
-        tree2.load(&saved).unwrap();
+        tree2.load(&saved).expect("test operation should succeed");
 
         let pred1 = tree.predict(&[1.5, 1.5]);
         let pred2 = tree2.predict(&[1.5, 1.5]);

@@ -6,9 +6,10 @@
 //! - Prefix/suffix/contains constraints
 //! - Concatenation reasoning
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_bigint::BigInt;
 use num_traits::{One, Zero};
-use rustc_hash::FxHashMap;
 
 /// String constraint solver for QE.
 pub struct StringConstraintSolver {
@@ -396,7 +397,7 @@ mod tests {
                 Some(BigInt::from(5)),
                 Some(BigInt::from(10)),
             )
-            .unwrap();
+            .expect("test operation should succeed");
 
         let bound = solver.get_length_bound("x");
         assert_eq!(bound.min_length, BigInt::from(5));
@@ -409,7 +410,7 @@ mod tests {
 
         solver
             .add_length_constraint("x".to_string(), Some(BigInt::from(10)), None)
-            .unwrap();
+            .expect("test operation should succeed");
 
         let result = solver.add_length_constraint("x".to_string(), None, Some(BigInt::from(5)));
 
@@ -428,19 +429,19 @@ mod tests {
                 Some(BigInt::from(5)),
                 Some(BigInt::from(5)),
             )
-            .unwrap();
+            .expect("test operation should succeed");
         solver
             .add_length_constraint(
                 "y".to_string(),
                 Some(BigInt::from(5)),
                 Some(BigInt::from(5)),
             )
-            .unwrap();
+            .expect("test operation should succeed");
 
         // z = x · y
         solver
             .add_concat_constraint("z".to_string(), "x".to_string(), "y".to_string())
-            .unwrap();
+            .expect("test operation should succeed");
 
         let z_bound = solver.get_length_bound("z");
         assert_eq!(z_bound.min_length, BigInt::from(10));
@@ -480,7 +481,7 @@ mod tests {
                 Some(BigInt::from(3)),
                 Some(BigInt::from(3)),
             )
-            .unwrap();
+            .expect("test operation should succeed");
         solver.add_contains_constraint("haystack".to_string(), "needle".to_string());
 
         let haystack_bound = solver.get_length_bound("haystack");
@@ -497,13 +498,13 @@ mod tests {
                 Some(BigInt::from(5)),
                 Some(BigInt::from(10)),
             )
-            .unwrap();
+            .expect("test operation should succeed");
         assert!(solver.is_satisfiable());
 
         let mut solver2 = StringConstraintSolver::new();
         solver2
             .add_length_constraint("y".to_string(), Some(BigInt::from(10)), None)
-            .unwrap();
+            .expect("test operation should succeed");
         let _ = solver2.add_length_constraint("y".to_string(), None, Some(BigInt::from(5)));
         assert!(!solver2.is_satisfiable());
     }

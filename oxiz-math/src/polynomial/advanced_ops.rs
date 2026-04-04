@@ -2,10 +2,11 @@
 
 use super::helpers::*;
 use super::types::*;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_bigint::BigInt;
 use num_rational::BigRational;
 use num_traits::{One, Signed, Zero};
-use rustc_hash::FxHashMap;
 
 type Polynomial = super::Polynomial;
 
@@ -544,7 +545,10 @@ impl super::Polynomial {
             return vec![(p, 1)];
         }
 
-        let disc_sqrt = BigRational::new(num_sqrt.unwrap(), den_sqrt.unwrap());
+        let disc_sqrt = BigRational::new(
+            num_sqrt.expect("num_sqrt should be valid"),
+            den_sqrt.expect("operation should succeed"),
+        );
 
         // Roots: (-b ± sqrt(disc)) / (2a)
         let two_a = BigRational::from_integer(BigInt::from(2)) * &a;

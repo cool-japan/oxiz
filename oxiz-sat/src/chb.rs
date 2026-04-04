@@ -4,9 +4,9 @@
 //! based on how recently it participated in conflicts.
 
 use crate::literal::Var;
-use rustc_hash::FxHashMap;
-use std::cmp::Ordering;
-use std::collections::BinaryHeap;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::cmp::Ordering;
 
 /// Variable with its CHB score
 #[derive(Debug, Clone)]
@@ -91,6 +91,7 @@ impl CHB {
     }
 
     /// Bump the score of a variable (participated in conflict)
+    #[allow(dead_code)]
     pub fn bump(&mut self, var: Var) {
         let idx = var.index();
         if idx >= self.scores.len() {
@@ -101,6 +102,21 @@ impl CHB {
 
         // If variable is in heap, we need to rebuild it (lazy approach)
         // In practice, we'd want a more efficient updateable heap
+    }
+
+    /// Bump a batch of variables at once.
+    ///
+    /// More efficient than calling `bump()` individually because we only
+    /// rebuild the heap once after all score updates.
+    pub fn bump_batch(&mut self, vars: &[Var]) {
+        for &var in vars {
+            let idx = var.index();
+            if idx < self.scores.len() {
+                self.scores[idx] += self.step_size;
+            }
+        }
+        // Rebuild heap once after all bumps (lazy but correct)
+        self.rebuild_heap();
     }
 
     /// Decay step size after each conflict

@@ -3,8 +3,10 @@
 //!
 //! Provides cache-friendly simplex operations for linear programming.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::ops::{Add, Div, Mul, Sub};
 use num_traits::Float;
-use std::ops::{Add, Div, Mul, Sub};
 
 /// SIMD-friendly simplex tableau.
 #[derive(Debug, Clone)]
@@ -68,7 +70,7 @@ where
             return Ok(true); // Optimal solution found
         }
 
-        let entering = entering_col.unwrap();
+        let entering = entering_col.expect("entering_col should be valid");
 
         // Find leaving variable using minimum ratio test
         let leaving_row = self.find_leaving_variable(entering)?;
@@ -77,7 +79,7 @@ where
             return Err(SimplexError::Unbounded);
         }
 
-        let leaving = leaving_row.unwrap();
+        let leaving = leaving_row.expect("leaving_row should be valid");
 
         // Perform pivot operation
         self.perform_pivot(entering, leaving);
@@ -273,8 +275,8 @@ pub enum SimplexError {
     MaxIterationsReached,
 }
 
-impl std::fmt::Display for SimplexError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for SimplexError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Infeasible => write!(f, "linear program is infeasible"),
             Self::Unbounded => write!(f, "linear program is unbounded"),
@@ -283,7 +285,7 @@ impl std::fmt::Display for SimplexError {
     }
 }
 
-impl std::error::Error for SimplexError {}
+impl core::error::Error for SimplexError {}
 
 /// Dual simplex algorithm for handling infeasibility.
 pub fn simd_dual_simplex<T>(
@@ -316,7 +318,7 @@ where
             return Err(SimplexError::Infeasible);
         }
 
-        let leaving = leaving_row.unwrap();
+        let leaving = leaving_row.expect("leaving_row should be valid");
 
         // Find entering variable
         let entering_col = find_dual_entering_variable(&tableau, leaving)?;
@@ -325,7 +327,7 @@ where
             return Err(SimplexError::Infeasible);
         }
 
-        let entering = entering_col.unwrap();
+        let entering = entering_col.expect("entering_col should be valid");
 
         // Perform pivot
         tableau.perform_pivot(entering, leaving);

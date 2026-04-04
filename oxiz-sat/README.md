@@ -96,6 +96,17 @@ The solver is optimized for:
 - Minimal allocations during solving
 - Fast unit propagation via two-watched literals
 
+## Status (v0.2.0)
+
+| Metric | Value |
+|:-------|:------|
+| Version | 0.2.0 |
+| Status | Stable |
+| Source files | 81 |
+| Public API items | 1,185 |
+
+*Last updated: 2026-04-04*
+
 ## License
 
 Apache-2.0

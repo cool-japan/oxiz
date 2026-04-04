@@ -3,10 +3,11 @@
 //! Implements the theory of extensional arrays using a combination
 //! of read-over-write axioms and a delayed lemma approach.
 
-use crate::theory::{Theory, TheoryId, TheoryResult};
+#[allow(unused_imports)]
+use crate::prelude::*;
+use crate::theory::{EqualityNotification, Theory, TheoryCombination, TheoryId, TheoryResult};
 use oxiz_core::ast::TermId;
 use oxiz_core::error::Result;
-use rustc_hash::FxHashMap;
 
 /// Represents a select operation: select(array, index)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -91,6 +92,9 @@ pub struct ArraySolver {
     context_stack: Vec<ContextState>,
     /// Current conflicts (if any)
     current_conflict: Option<Vec<TermId>>,
+    /// Shared equalities derived by array axioms for Nelson-Oppen combination.
+    /// These arise from read-over-write and extensionality axioms.
+    shared_equalities: Vec<EqualityNotification>,
 }
 
 /// State for push/pop
@@ -127,6 +131,7 @@ impl ArraySolver {
             pending_lemmas: Vec::new(),
             context_stack: Vec::new(),
             current_conflict: None,
+            shared_equalities: Vec::new(),
         }
     }
 
@@ -284,7 +289,7 @@ impl ArraySolver {
 
     /// Process pending lemmas
     fn process_lemmas(&mut self) -> Result<TheoryResult> {
-        let lemmas = std::mem::take(&mut self.pending_lemmas);
+        let lemmas = core::mem::take(&mut self.pending_lemmas);
         let mut propagations: Vec<(TermId, Vec<TermId>)> = Vec::new();
         let mut pending_merges: Vec<(u32, u32)> = Vec::new();
 
@@ -366,6 +371,67 @@ impl ArraySolver {
             }
         }
         None
+    }
+
+    /// Get all select operations with their array, index, and result nodes.
+    /// Returns (result_term, array_term, index_term) for each select.
+    pub fn get_select_operations(&self) -> Vec<(TermId, TermId, TermId)> {
+        let mut result = Vec::new();
+        for (sel_node, sel_op) in &self.selects {
+            let sel_term = self.node_to_term.get(*sel_node as usize).and_then(|t| *t);
+            let arr_term = self
+                .node_to_term
+                .get(sel_op.array as usize)
+                .and_then(|t| *t);
+            let idx_term = self
+                .node_to_term
+                .get(sel_op.index as usize)
+                .and_then(|t| *t);
+            if let (Some(s), Some(a), Some(i)) = (sel_term, arr_term, idx_term) {
+                result.push((s, a, i));
+            }
+        }
+        result
+    }
+
+    /// Get all store operations with their array, index, value, and result nodes.
+    /// Returns (result_term, array_term, index_term, value_term) for each store.
+    pub fn get_store_operations(&self) -> Vec<(TermId, TermId, TermId, TermId)> {
+        let mut result = Vec::new();
+        for (store_node, store_op) in &self.stores {
+            let store_term = self.node_to_term.get(*store_node as usize).and_then(|t| *t);
+            let arr_term = self
+                .node_to_term
+                .get(store_op.array as usize)
+                .and_then(|t| *t);
+            let idx_term = self
+                .node_to_term
+                .get(store_op.index as usize)
+                .and_then(|t| *t);
+            let val_term = self
+                .node_to_term
+                .get(store_op.value as usize)
+                .and_then(|t| *t);
+            if let (Some(s), Some(a), Some(i), Some(v)) = (store_term, arr_term, idx_term, val_term)
+            {
+                result.push((s, a, i, v));
+            }
+        }
+        result
+    }
+
+    /// Get all interned terms (node -> term mapping).
+    /// Useful for model construction to identify which terms belong to the array theory.
+    pub fn get_interned_terms(&self) -> Vec<TermId> {
+        self.term_to_node.keys().copied().collect()
+    }
+
+    /// Check if two nodes are in the same equivalence class by their term IDs.
+    pub fn are_terms_equal(&self, a: TermId, b: TermId) -> bool {
+        match (self.term_to_node.get(&a), self.term_to_node.get(&b)) {
+            (Some(&na), Some(&nb)) => self.find(na) == self.find(nb),
+            _ => false,
+        }
     }
 }
 
@@ -465,6 +531,197 @@ impl Theory for ArraySolver {
         self.pending_lemmas.clear();
         self.context_stack.clear();
         self.current_conflict = None;
+        self.shared_equalities.clear();
+    }
+
+    fn get_model(&self) -> Vec<(TermId, TermId)> {
+        // Build a model from the array solver's union-find state.
+        // For each interned term, find its equivalence class representative
+        // and map it to the representative's term. This captures:
+        //   - select(store(a, i, v), i) = v  (read-over-write same)
+        //   - select(store(a, i, v), j) = select(a, j) when i != j
+        //   - Explicitly merged terms via equality assertions
+        //
+        // Group terms by their equivalence class root and map each to the
+        // representative term of that class (the first term found with a
+        // TermId at that root).
+
+        // First, find the representative term for each equivalence class root
+        let mut root_to_repr: FxHashMap<u32, TermId> = FxHashMap::default();
+        for (&term, &node) in &self.term_to_node {
+            let root = self.find(node);
+            root_to_repr.entry(root).or_insert(term);
+        }
+
+        // Now map each term to its class representative
+        let mut assignments = Vec::new();
+        for (&term, &node) in &self.term_to_node {
+            let root = self.find(node);
+            if let Some(&repr_term) = root_to_repr.get(&root) {
+                assignments.push((term, repr_term));
+            }
+        }
+
+        // Additionally, for each select operation that has a known value
+        // (its result is in the same equivalence class as some value node),
+        // include the select result -> value mapping.
+        for (sel_node, sel_op) in &self.selects {
+            let sel_root = self.find(*sel_node);
+            // Check if this select's result is equivalent to a store's value
+            for (store_result, store) in &self.stores {
+                if self.find(sel_op.array) == self.find(*store_result)
+                    && self.find(sel_op.index) == self.find(store.index)
+                {
+                    // select(store(a, i, v), i) = v
+                    let val_root = self.find(store.value);
+                    if sel_root == val_root
+                        && let (Some(Some(sel_term)), Some(Some(val_term))) = (
+                            self.node_to_term.get(*sel_node as usize),
+                            self.node_to_term.get(store.value as usize),
+                        )
+                        && !assignments.iter().any(|(t, _)| *t == *sel_term)
+                    {
+                        assignments.push((*sel_term, *val_term));
+                    }
+                }
+            }
+        }
+
+        assignments
+    }
+}
+
+impl TheoryCombination for ArraySolver {
+    fn notify_equality(&mut self, eq: EqualityNotification) -> bool {
+        // Check if either term has been interned in the array solver
+        let lhs_node = self.term_to_node.get(&eq.lhs).copied();
+        let rhs_node = self.term_to_node.get(&eq.rhs).copied();
+
+        match (lhs_node, rhs_node) {
+            (Some(lhs), Some(rhs)) => {
+                // Both terms are in the array solver -- merge their equivalence classes
+                let reason = eq.reason.unwrap_or(eq.lhs);
+                if self.merge(lhs, rhs, reason).is_err() {
+                    return false;
+                }
+
+                // Check if the merge caused a conflict with existing disequalities
+                if self.current_conflict.is_some() {
+                    return false;
+                }
+
+                // When indices become equal, propagate read-over-write consequences:
+                // If i = j and we have select(a, i) and select(a, j), then
+                // select(a, i) = select(a, j).
+                self.propagate_index_equalities(lhs, rhs);
+
+                true
+            }
+            (Some(_), None) | (None, Some(_)) => {
+                // One term is in the array solver, the other is foreign.
+                // Accept the notification -- it might become relevant later.
+                true
+            }
+            (None, None) => {
+                // Neither term is relevant to the array theory
+                false
+            }
+        }
+    }
+
+    fn get_shared_equalities(&self) -> Vec<EqualityNotification> {
+        self.shared_equalities.clone()
+    }
+
+    fn is_relevant(&self, term: TermId) -> bool {
+        self.term_to_node.contains_key(&term)
+    }
+}
+
+impl ArraySolver {
+    /// When two index nodes become equal, check if there are select operations
+    /// on the same array with those indices and propagate equalities.
+    ///
+    /// This implements the key array axiom for Nelson-Oppen:
+    /// If i = j then select(a, i) = select(a, j).
+    fn propagate_index_equalities(&mut self, node_a: u32, node_b: u32) {
+        // Collect select operations to compare (to avoid borrow conflicts)
+        let selects_snapshot: Vec<(u32, SelectOp)> = self.selects.clone();
+        let n = selects_snapshot.len();
+
+        self.shared_equalities.clear();
+
+        for i in 0..n {
+            let (sel_node_i, ref sel_i) = selects_snapshot[i];
+            for (sel_node_j, sel_j) in &selects_snapshot[(i + 1)..] {
+                let sel_node_j = *sel_node_j;
+
+                // Check if both selects are on the same array (same equivalence class)
+                if self.find(sel_i.array) != self.find(sel_j.array) {
+                    continue;
+                }
+
+                // Check if the indices are now in the same equivalence class
+                let idx_i_root = self.find(sel_i.index);
+                let idx_j_root = self.find(sel_j.index);
+
+                if idx_i_root == idx_j_root {
+                    // The indices are equal, so the select results must be equal
+                    let sel_i_root = self.find(sel_node_i);
+                    let sel_j_root = self.find(sel_node_j);
+
+                    if sel_i_root != sel_j_root {
+                        // Derive select(a, i) = select(a, j) and share it
+                        if let (Some(Some(term_i)), Some(Some(term_j))) = (
+                            self.node_to_term.get(sel_node_i as usize),
+                            self.node_to_term.get(sel_node_j as usize),
+                        ) {
+                            self.shared_equalities.push(EqualityNotification {
+                                lhs: *term_i,
+                                rhs: *term_j,
+                                reason: None,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // Also check store axioms: when i = j and we have store(a, i, v),
+        // then select(store(a, i, v), j) = v.
+        let merged_root_a = self.find(node_a);
+        let merged_root_b = self.find(node_b);
+        let stores_snapshot: Vec<(u32, StoreOp)> = self.stores.clone();
+
+        for (store_result, store) in &stores_snapshot {
+            let store_idx_root = self.find(store.index);
+
+            // Check if the store's index became equal to either merged node
+            if store_idx_root == merged_root_a || store_idx_root == merged_root_b {
+                // Find selects on the store result with the same index
+                for (sel_node, sel) in &selects_snapshot {
+                    if self.find(sel.array) == self.find(*store_result)
+                        && self.find(sel.index) == store_idx_root
+                    {
+                        let val_root = self.find(store.value);
+                        let sel_root = self.find(*sel_node);
+
+                        if val_root != sel_root
+                            && let (Some(Some(val_term)), Some(Some(sel_term))) = (
+                                self.node_to_term.get(store.value as usize),
+                                self.node_to_term.get(*sel_node as usize),
+                            )
+                        {
+                            self.shared_equalities.push(EqualityNotification {
+                                lhs: *val_term,
+                                rhs: *sel_term,
+                                reason: None,
+                            });
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -487,7 +744,7 @@ mod tests {
         // select(store(a, i, v), i) should equal v
         let select = solver.intern_select(TermId::new(11), a_store, i);
 
-        let result = solver.check().unwrap();
+        let result = solver.check().expect("test operation should succeed");
         // Result may be Sat or Propagate (propagating the equality)
         assert!(!matches!(result, TheoryResult::Unsat(_)));
 
@@ -517,7 +774,7 @@ mod tests {
         // select(store(a, i, v), j) - should equal select(a, j)
         let select_store_j = solver.intern_select(TermId::new(12), a_store, j);
 
-        let result = solver.check().unwrap();
+        let result = solver.check().expect("test operation should succeed");
         assert!(matches!(result, TheoryResult::Sat));
 
         // After read-over-write-diff lemma, selects should be equal
@@ -535,9 +792,11 @@ mod tests {
         solver.assert_diseq(a, b, TermId::new(100));
 
         // Then merge a = b
-        solver.merge(a, b, TermId::new(101)).unwrap();
+        solver
+            .merge(a, b, TermId::new(101))
+            .expect("test operation should succeed");
 
-        let result = solver.check().unwrap();
+        let result = solver.check().expect("test operation should succeed");
         assert!(matches!(result, TheoryResult::Unsat(_)));
     }
 
@@ -573,13 +832,17 @@ mod tests {
         solver.push();
 
         // Merge a and b
-        solver.merge(a, b, TermId::new(100)).unwrap();
+        solver
+            .merge(a, b, TermId::new(100))
+            .expect("test operation should succeed");
         assert!(solver.are_equal(a, b));
 
         solver.push();
 
         // Merge b and c
-        solver.merge(b, c, TermId::new(101)).unwrap();
+        solver
+            .merge(b, c, TermId::new(101))
+            .expect("test operation should succeed");
         assert!(solver.are_equal(a, c));
 
         // Pop should undo b=c but keep a=b

@@ -19,6 +19,8 @@
 
 use super::lifting::{Cell, CellType};
 use crate::ast::TermId;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_bigint::BigInt;
 use num_rational::BigRational;
 

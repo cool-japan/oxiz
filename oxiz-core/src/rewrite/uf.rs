@@ -20,8 +20,9 @@
 use super::{RewriteContext, RewriteResult, Rewriter};
 use crate::SortId;
 use crate::ast::{TermId, TermKind, TermManager};
-use lasso::Spur;
-use rustc_hash::{FxHashMap, FxHashSet};
+use crate::interner::Spur;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use smallvec::SmallVec;
 
 /// Configuration for UF rewriting
@@ -142,11 +143,9 @@ impl UfRewriter {
 
     /// Hash arguments for congruence checking
     fn hash_args(&self, args: &[TermId]) -> u64 {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-        let mut hasher = DefaultHasher::new();
-        args.hash(&mut hasher);
-        hasher.finish()
+        use core::hash::{BuildHasher, BuildHasherDefault};
+        use rustc_hash::FxHasher;
+        BuildHasherDefault::<FxHasher>::default().hash_one(args)
     }
 
     /// Create an Apply term with Spur-based function name

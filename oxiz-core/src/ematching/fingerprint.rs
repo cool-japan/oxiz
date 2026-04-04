@@ -15,9 +15,10 @@
 //! Based on Z3's fingerprint implementation in src/ast/ast_pp_util.cpp
 
 use crate::ast::{TermId, TermKind, TermManager};
-use rustc_hash::FxHashMap;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
+use crate::prelude::hash_map::DefaultHasher;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::hash::{Hash, Hasher};
 
 /// A fingerprint of a term
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -147,7 +148,7 @@ impl FingerprintCache {
         let mut hasher = DefaultHasher::new();
 
         // Hash the term kind discriminant
-        std::mem::discriminant(&term.kind).hash(&mut hasher);
+        core::mem::discriminant(&term.kind).hash(&mut hasher);
 
         // Hash based on term structure
         match &term.kind {

@@ -5,6 +5,8 @@
 //! and theory reasoning operations.
 
 use crate::error_context::ErrorContext;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Strategy for recovering from errors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -376,7 +378,7 @@ impl ErrorBatch {
 
     /// Take all errors, leaving batch empty.
     pub fn take_errors(&mut self) -> Vec<ErrorContext> {
-        std::mem::take(&mut self.errors)
+        core::mem::take(&mut self.errors)
     }
 }
 
@@ -428,7 +430,10 @@ mod tests {
         let input = "(assert (> x 0)";
         let recovered = recovery.recover_unbalanced_parens(input, input.len());
         assert!(recovered.is_some());
-        assert_eq!(recovered.unwrap(), "(assert (> x 0))");
+        assert_eq!(
+            recovered.expect("test operation should succeed"),
+            "(assert (> x 0))"
+        );
 
         // Extra closing paren - need to include the extra ')' in the before portion
         let input2 = "(assert (> x 0)))";

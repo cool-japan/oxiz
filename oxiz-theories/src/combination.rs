@@ -50,10 +50,11 @@
 
 use crate::arithmetic::ArithSolver;
 use crate::euf::EufSolver;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::theory::{Theory, TheoryId, TheoryResult};
 use oxiz_core::ast::TermId;
 use oxiz_core::error::Result;
-use rustc_hash::{FxHashMap, FxHashSet};
 
 /// A shared variable between theories
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1261,7 +1262,9 @@ mod tests {
     fn test_minimize_conflict_empty() {
         let mut combiner = TheoryCombiner::new();
 
-        let result = combiner.minimize_conflict(&[]).unwrap();
+        let result = combiner
+            .minimize_conflict(&[])
+            .expect("test operation should succeed");
         assert!(result.is_empty());
     }
 
@@ -1279,7 +1282,9 @@ mod tests {
         combiner.register_term(z, TheoryId::EUF);
 
         let assumptions = vec![x, y, z];
-        let result = combiner.minimize_by_theory(&assumptions).unwrap();
+        let result = combiner
+            .minimize_by_theory(&assumptions)
+            .expect("test operation should succeed");
 
         // Result should contain all assumptions (grouped by theory)
         assert_eq!(result.len(), 3);
@@ -1293,7 +1298,7 @@ mod tests {
         let mut combiner = TheoryCombiner::new();
 
         // Presolve returns stats
-        let stats = combiner.presolve().unwrap();
+        let stats = combiner.presolve().expect("test operation should succeed");
 
         // With no constraints, no simplifications are performed
         assert_eq!(stats.vars_eliminated, 0);

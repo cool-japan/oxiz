@@ -552,7 +552,9 @@ mod tests {
         );
 
         let mut analyzer = NonLinearAnalyzer::new();
-        analyzer.analyze(&system).unwrap();
+        analyzer
+            .analyze(&system)
+            .expect("test operation should succeed");
 
         let stats = analyzer.statistics();
         assert_eq!(stats.total_rules, 2);

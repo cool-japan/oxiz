@@ -4,6 +4,8 @@
 //! integration into the CDCL(T) framework.
 
 use crate::literal::Lit;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::{Sort, TermId};
 
 /// Result of a theory check operation.
@@ -115,7 +117,7 @@ pub trait Theory: Send + Sync {
 #[derive(Debug, Clone, Default)]
 pub struct TheoryModel {
     /// Variable assignments: term ID -> value term ID.
-    pub assignments: std::collections::HashMap<TermId, TermId>,
+    pub assignments: crate::prelude::HashMap<TermId, TermId>,
 }
 
 impl TheoryModel {

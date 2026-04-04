@@ -2,6 +2,16 @@
 
 WebAssembly bindings for the OxiZ SMT solver, enabling high-performance SMT solving directly in web browsers and Node.js.
 
+## Status (v0.2.0)
+
+| Metric | Value |
+|:-------|:------|
+| Version | 0.2.0 |
+| Status | Stable |
+| Release Date | 2026-04-04 |
+| Source files | 27 |
+| Public API items | 471 |
+
 ## Overview
 
 This crate provides comprehensive JavaScript/TypeScript bindings for running OxiZ in web browsers and Node.js environments. It features a complete API with async support, Web Worker compatibility, and structured error handling.

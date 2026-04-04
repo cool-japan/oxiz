@@ -528,7 +528,9 @@ mod tests {
 
         let config = DashboardConfig::new("Test");
         let generator = DashboardGenerator::new(config);
-        let html = generator.generate(&results).unwrap();
+        let html = generator
+            .generate(&results)
+            .expect("test operation should succeed");
 
         assert!(html.contains("<!DOCTYPE html>"));
         assert!(html.contains("Test"));
@@ -541,7 +543,9 @@ mod tests {
 
         let config = DashboardConfig::new("Dark Test").with_dark_theme();
         let generator = DashboardGenerator::new(config);
-        let html = generator.generate(&results).unwrap();
+        let html = generator
+            .generate(&results)
+            .expect("test operation should succeed");
 
         assert!(html.contains("#1a1a2e")); // Dark theme color
     }
@@ -552,7 +556,9 @@ mod tests {
 
         let config = DashboardConfig::new("Refresh Test").with_refresh(60);
         let generator = DashboardGenerator::new(config);
-        let html = generator.generate(&results).unwrap();
+        let html = generator
+            .generate(&results)
+            .expect("test operation should succeed");
 
         assert!(html.contains("http-equiv=\"refresh\""));
         assert!(html.contains("content=\"60\""));

@@ -82,6 +82,10 @@ pub mod traversal;
 // pub mod transform;
 // pub mod compression;
 
+// Proof logging and replay (binary format for offline verification)
+pub mod logging;
+pub mod replay;
+
 // Re-exports
 pub use alethe::{AletheProof, AletheProofProducer, AletheRule, AletheStep};
 pub use carcara::{CarcaraProof, to_carcara_format, validate_for_carcara};

@@ -451,7 +451,9 @@ mod tests {
         extractor.update_propagation(0);
         extractor.update_decision(0, true, 5);
 
-        let stats = extractor.get_stats(0).unwrap();
+        let stats = extractor
+            .get_stats(0)
+            .expect("test operation should succeed");
         assert_eq!(stats.conflict_count, 1);
         assert_eq!(stats.propagation_count, 1);
         assert_eq!(stats.decision_count, 1);

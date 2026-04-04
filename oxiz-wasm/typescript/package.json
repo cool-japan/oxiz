@@ -1,0 +1,19 @@
+{
+  "name": "@cool-japan/oxiz",
+  "version": "0.2.0",
+  "description": "Pure Rust SMT solver for the web",
+  "main": "oxiz.js",
+  "types": "oxiz.d.ts",
+  "license": "Apache-2.0",
+  "keywords": ["smt", "wasm", "webassembly", "solver", "sat"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cool-japan/oxiz"
+  },
+  "files": [
+    "oxiz.js",
+    "oxiz.d.ts",
+    "oxiz_bg.wasm"
+  ],
+  "sideEffects": false
+}

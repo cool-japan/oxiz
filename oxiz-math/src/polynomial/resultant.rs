@@ -21,6 +21,8 @@
 //! - Z3's `math/polynomial/polynomial.cpp`
 
 use crate::polynomial::{Polynomial, Var};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_rational::BigRational;
 use num_traits::{One, Signed};
 
@@ -189,7 +191,7 @@ impl ResultantComputer {
 
             if deg_a < deg_b {
                 // Swap a and b
-                std::mem::swap(&mut a, &mut b);
+                core::mem::swap(&mut a, &mut b);
 
                 // Adjust sign if degrees are both odd
                 if deg_a % 2 == 1 && deg_b % 2 == 1 {

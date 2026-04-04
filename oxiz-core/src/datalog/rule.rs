@@ -3,9 +3,11 @@
 //! Rules are Horn clauses of the form: head :- body1, body2, ..., bodyn
 //! This module provides AST types for rules, atoms, and terms.
 
-use lasso::Spur;
+use crate::interner::Spur;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::fmt;
 use std::collections::{HashMap, HashSet};
-use std::fmt;
 
 use super::relation::RelationId;
 use super::tuple::Value;
@@ -786,7 +788,7 @@ mod tests {
 
         let merged = b1.merge(&b2);
         assert!(merged.is_some());
-        let merged = merged.unwrap();
+        let merged = merged.expect("test operation should succeed");
         assert_eq!(merged.get(x), Some(&Value::Int64(1)));
         assert_eq!(merged.get(y), Some(&Value::Int64(2)));
     }
@@ -836,7 +838,7 @@ mod tests {
             .build();
 
         assert!(rule.is_some());
-        let rule = rule.unwrap();
+        let rule = rule.expect("test operation should succeed");
         assert!(!rule.is_fact());
     }
 }

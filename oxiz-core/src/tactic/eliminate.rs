@@ -3,6 +3,8 @@
 use super::core::*;
 use crate::ast::{TermId, TermKind, TermManager};
 use crate::error::Result;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Eliminate unconstrained variables tactic
 pub struct EliminateUnconstrainedTactic<'a> {
@@ -16,9 +18,9 @@ impl<'a> EliminateUnconstrainedTactic<'a> {
     }
 
     /// Count occurrences of each variable in the goal
-    fn count_variable_occurrences(&self, goal: &Goal) -> rustc_hash::FxHashMap<TermId, usize> {
+    fn count_variable_occurrences(&self, goal: &Goal) -> crate::prelude::FxHashMap<TermId, usize> {
         use crate::ast::traversal::collect_subterms;
-        use rustc_hash::FxHashMap;
+        use crate::prelude::FxHashMap;
 
         let mut counts: FxHashMap<TermId, usize> = FxHashMap::default();
 

@@ -416,7 +416,7 @@ mod tests {
     #[test]
     fn test_tensor_from_vec() {
         let data = vec![1.0, 2.0, 3.0, 4.0];
-        let t = Tensor::from_vec(data.clone(), &[2, 2]).unwrap();
+        let t = Tensor::from_vec(data.clone(), &[2, 2]).expect("test operation should succeed");
         assert_eq!(t.data, data);
         assert_eq!(t.shape(), &[2, 2]);
     }
@@ -466,7 +466,7 @@ mod tests {
     #[test]
     fn test_tensor_get_set() {
         let mut t = Tensor::zeros(&[3]);
-        t.set(1, 5.0).unwrap();
+        t.set(1, 5.0).expect("test operation should succeed");
         assert_eq!(t.get(1), Some(5.0));
     }
 
@@ -514,7 +514,7 @@ mod tests {
     fn test_tensor_add() {
         let t1 = Tensor::from_slice(&[1.0, 2.0, 3.0]);
         let t2 = Tensor::from_slice(&[4.0, 5.0, 6.0]);
-        let result = t1.add(&t2).unwrap();
+        let result = t1.add(&t2).expect("test operation should succeed");
         assert_eq!(result.data, vec![5.0, 7.0, 9.0]);
     }
 
@@ -522,7 +522,7 @@ mod tests {
     fn test_tensor_sub() {
         let t1 = Tensor::from_slice(&[4.0, 5.0, 6.0]);
         let t2 = Tensor::from_slice(&[1.0, 2.0, 3.0]);
-        let result = t1.sub(&t2).unwrap();
+        let result = t1.sub(&t2).expect("test operation should succeed");
         assert_eq!(result.data, vec![3.0, 3.0, 3.0]);
     }
 
@@ -530,7 +530,7 @@ mod tests {
     fn test_tensor_mul() {
         let t1 = Tensor::from_slice(&[1.0, 2.0, 3.0]);
         let t2 = Tensor::from_slice(&[2.0, 3.0, 4.0]);
-        let result = t1.mul(&t2).unwrap();
+        let result = t1.mul(&t2).expect("test operation should succeed");
         assert_eq!(result.data, vec![2.0, 6.0, 12.0]);
     }
 
@@ -545,17 +545,18 @@ mod tests {
     fn test_tensor_dot() {
         let t1 = Tensor::from_slice(&[1.0, 2.0, 3.0]);
         let t2 = Tensor::from_slice(&[4.0, 5.0, 6.0]);
-        let result = t1.dot(&t2).unwrap();
+        let result = t1.dot(&t2).expect("test operation should succeed");
         assert_eq!(result, 32.0); // 1*4 + 2*5 + 3*6 = 4 + 10 + 18 = 32
     }
 
     #[test]
     fn test_tensor_matmul_vec() {
         // Matrix: [[1, 2], [3, 4]]
-        let mat = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0], &[2, 2]).unwrap();
+        let mat = Tensor::from_vec(vec![1.0, 2.0, 3.0, 4.0], &[2, 2])
+            .expect("test operation should succeed");
         let vec = Tensor::from_slice(&[5.0, 6.0]);
 
-        let result = mat.matmul_vec(&vec).unwrap();
+        let result = mat.matmul_vec(&vec).expect("test operation should succeed");
         // [1*5 + 2*6, 3*5 + 4*6] = [17, 39]
         assert_eq!(result.data, vec![17.0, 39.0]);
     }

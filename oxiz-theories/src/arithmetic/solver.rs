@@ -1,12 +1,13 @@
 //! Arithmetic Theory Solver
 
 use super::simplex::{LinExpr, Simplex, VarId};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::theory::{EqualityNotification, Theory, TheoryCombination, TheoryId, TheoryResult};
 use num_rational::Rational64;
 use num_traits::{One, Signed};
 use oxiz_core::ast::TermId;
 use oxiz_core::error::Result;
-use rustc_hash::FxHashMap;
 
 /// Compute GCD of two i64 values
 fn gcd_i64(mut a: i64, mut b: i64) -> i64 {
@@ -79,6 +80,12 @@ impl ArithSolver {
         Self::new(true)
     }
 
+    /// Whether this solver operates in integer (LIA) mode
+    #[must_use]
+    pub fn is_integer(&self) -> bool {
+        self.is_integer
+    }
+
     /// Intern a term as a variable
     pub fn intern(&mut self, term: TermId) -> VarId {
         if let Some(&var) = self.term_to_var.get(&term) {
@@ -103,8 +110,12 @@ impl ArithSolver {
     ///
     /// Normalization performs:
     /// 1. Coefficient reduction: divide by GCD of all coefficients
-    /// 2. Sign normalization: ensure first coefficient is positive
-    /// 3. Sorting: order terms by variable ID for canonical form
+    /// 2. Sorting: order terms by variable ID for canonical form
+    /// 3. Sign normalization: ensure first coefficient (after sorting) is positive
+    ///
+    /// IMPORTANT: Step 3 is only safe for symmetric constraints (equalities).
+    /// For inequalities (Le/Ge), sign normalization flips the direction and must
+    /// NOT be applied.  Call `normalize_expr_no_sign` for those cases instead.
     fn normalize_expr(&self, expr: &mut LinExpr) {
         if expr.terms.is_empty() {
             return;
@@ -136,6 +147,38 @@ impl ArithSolver {
         expr.terms.sort_by_key(|(v, _)| *v);
     }
 
+    /// Normalize for inequalities: GCD reduction and sorting only.
+    ///
+    /// Sign normalization is deliberately omitted because negating an inequality
+    /// expression reverses its direction (e.g., fa - fb <= 0 becomes fb - fa <= 0,
+    /// which represents the opposite constraint fa >= fb).
+    fn normalize_ineq_expr(&self, expr: &mut LinExpr) {
+        if expr.terms.is_empty() {
+            return;
+        }
+
+        // For integer arithmetic, reduce by GCD only (preserves sign)
+        if self.is_integer {
+            let gcd = expr
+                .terms
+                .iter()
+                .map(|(_, c)| c.numer().abs())
+                .fold(0i64, |acc, n| if acc == 0 { n } else { gcd_i64(acc, n) });
+
+            if gcd > 1 {
+                let divisor = Rational64::from_integer(gcd);
+                expr.scale(Rational64::one() / divisor);
+            }
+        }
+
+        // Sort terms by variable ID — safe because sorting doesn't change the sign
+        // of the overall expression for inequalities (we don't negate afterwards).
+        // NOTE: Sorting alone is also problematic because it reorders terms but the
+        // sign is determined by all terms together.  We keep the sort for consistent
+        // canonical form but do NOT apply the sign-flip step.
+        expr.terms.sort_by_key(|(v, _)| *v);
+    }
+
     /// Assert: lhs <= rhs
     pub fn assert_le(&mut self, lhs: &[(TermId, Rational64)], rhs: Rational64, reason: TermId) {
         let mut expr = LinExpr::new();
@@ -146,8 +189,9 @@ impl ArithSolver {
         }
         expr.add_constant(-rhs);
 
-        // Normalize the expression
-        self.normalize_expr(&mut expr);
+        // Use inequality-safe normalization: GCD reduction + sort, but NO sign flip.
+        // sign normalization (negation) would reverse the inequality direction.
+        self.normalize_ineq_expr(&mut expr);
 
         let reason_id = self.add_reason(reason);
         self.simplex.add_le(expr, reason_id);
@@ -163,8 +207,8 @@ impl ArithSolver {
         }
         expr.add_constant(-rhs);
 
-        // Normalize the expression
-        self.normalize_expr(&mut expr);
+        // Use inequality-safe normalization: GCD reduction + sort, but NO sign flip.
+        self.normalize_ineq_expr(&mut expr);
 
         let reason_id = self.add_reason(reason);
         self.simplex.add_ge(expr, reason_id);
@@ -550,7 +594,7 @@ mod tests {
             reason,
         );
 
-        let result = solver.check().unwrap();
+        let result = solver.check().expect("test operation should succeed");
         assert!(matches!(result, TheoryResult::Sat));
     }
 
@@ -575,7 +619,7 @@ mod tests {
             reason,
         );
 
-        let result = solver.check().unwrap();
+        let result = solver.check().expect("test operation should succeed");
         assert!(matches!(result, TheoryResult::Unsat(_)));
     }
 
@@ -600,7 +644,7 @@ mod tests {
             reason,
         );
 
-        let result = solver.check().unwrap();
+        let result = solver.check().expect("test operation should succeed");
         assert!(matches!(result, TheoryResult::Sat));
     }
 
@@ -625,7 +669,7 @@ mod tests {
             reason,
         );
 
-        let result = solver.check().unwrap();
+        let result = solver.check().expect("test operation should succeed");
         assert!(matches!(result, TheoryResult::Unsat(_)));
     }
 
@@ -648,7 +692,7 @@ mod tests {
         );
 
         // The solver should handle this correctly
-        let result = solver.check().unwrap();
+        let result = solver.check().expect("test operation should succeed");
         assert!(matches!(result, TheoryResult::Sat));
     }
 
@@ -744,7 +788,7 @@ mod tests {
         );
 
         // Should be UNSAT: x >= 6 AND x <= 5 is impossible
-        let result = solver.check().unwrap();
+        let result = solver.check().expect("test operation should succeed");
         assert!(
             matches!(result, TheoryResult::Unsat(_)),
             "Expected UNSAT for x > 5 AND x < 6 in LIA, got {:?}",
@@ -775,7 +819,7 @@ mod tests {
         );
 
         // Should be SAT for reals: x = 5.5 is a valid solution
-        let result = solver.check().unwrap();
+        let result = solver.check().expect("test operation should succeed");
         assert!(
             matches!(result, TheoryResult::Sat),
             "Expected SAT for x > 5 AND x < 6 in LRA, got {:?}",
@@ -806,7 +850,7 @@ mod tests {
         );
 
         // Should be SAT: x = 5 is the only solution
-        let result = solver.check().unwrap();
+        let result = solver.check().expect("test operation should succeed");
         assert!(
             matches!(result, TheoryResult::Sat),
             "Expected SAT for x >= 5 AND x < 6 in LIA, got {:?}",

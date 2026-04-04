@@ -40,7 +40,8 @@
 //! - Z3's conflict analysis in `sat/sat_solver.cpp`
 
 use crate::literal::{Lit, Var};
-use rustc_hash::FxHashSet;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use smallvec::SmallVec;
 
 /// UIP strategy selection.
@@ -169,6 +170,7 @@ impl UipAnalyzer {
         conflict_clause: &[Lit],
         decision_level: u32,
     ) -> UipAnalysisResult {
+        #[cfg(feature = "std")]
         let start = std::time::Instant::now();
         self.stats.conflicts_analyzed += 1;
 
@@ -191,7 +193,10 @@ impl UipAnalyzer {
             self.minimize_clause(&mut result);
         }
 
-        self.stats.analysis_time_us += start.elapsed().as_micros() as u64;
+        #[cfg(feature = "std")]
+        {
+            self.stats.analysis_time_us += start.elapsed().as_micros() as u64;
+        }
         result
     }
 

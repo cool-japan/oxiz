@@ -1,5 +1,5 @@
 //! Context-Aware Simplification Tactic.
-#![allow(dead_code, clippy::diverging_sub_expression)] // Under development - not yet fully integrated
+#![allow(dead_code)] // Under development - not yet fully integrated
 //!
 //! Simplifies formulas using contextual information from the current
 //! proof state, enabling more aggressive simplifications.
@@ -15,9 +15,10 @@
 //! - "Simplification by Cooperating Decision Procedures" (Nelson & Oppen, 1979)
 //! - Z3's `tactic/core/ctx_simplify_tactic.cpp`
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::tactic::{Goal, Tactic, TacticResult};
 use crate::{Term, TermId};
-use rustc_hash::FxHashMap;
 
 /// Context entry (known fact).
 #[derive(Debug, Clone)]
@@ -134,11 +135,12 @@ impl CtxSimplifyTactic {
     }
 
     /// Simplify a term using the current context.
-    pub fn simplify_with_context(&mut self, _term: &Term) -> Term {
+    pub fn simplify_with_context(&mut self, term: &Term) -> Term {
         self.stats.terms_simplified += 1;
 
-        // Simplified: would traverse term and apply context-based simplifications
-        unimplemented!("placeholder term")
+        // Simplified: would traverse term and apply context-based simplifications.
+        // For now, return the term unchanged.
+        term.clone()
     }
 
     /// Propagate context through a conjunction.
@@ -153,16 +155,16 @@ impl CtxSimplifyTactic {
     }
 
     /// Apply conditional simplification.
-    #[allow(unreachable_code)] // Placeholder implementation
-    fn simplify_conditional(&mut self, _condition: &Term, _consequent: &Term) -> Term {
+    fn simplify_conditional(&mut self, _condition: &Term, consequent: &Term) -> Term {
         if !self.config.enable_conditional {
-            return unimplemented!("placeholder term");
+            return consequent.clone();
         }
 
         self.stats.conditional_simplifications += 1;
 
-        // Simplified: would simplify consequent assuming condition
-        unimplemented!("placeholder term")
+        // Simplified: would simplify consequent assuming condition.
+        // For now, return the consequent unchanged.
+        consequent.clone()
     }
 
     /// Get the current context.
@@ -231,7 +233,7 @@ mod tests {
         let var = TermId::new(0);
         ctx.add_bound(var, Some(0), Some(10));
 
-        let bounds = ctx.get_bounds(var).unwrap();
+        let bounds = ctx.get_bounds(var).expect("test operation should succeed");
         assert_eq!(bounds.0, Some(0));
         assert_eq!(bounds.1, Some(10));
     }

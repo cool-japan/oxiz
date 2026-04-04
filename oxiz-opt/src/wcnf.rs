@@ -226,7 +226,8 @@ p wcnf 3 4 10
 3 -2 -3 0
 "#;
 
-        let instance = WcnfInstance::parse(input.as_bytes()).unwrap();
+        let instance =
+            WcnfInstance::parse(input.as_bytes()).expect("test operation should succeed");
         assert_eq!(instance.num_vars, 3);
         assert_eq!(instance.num_clauses, 4);
         assert_eq!(instance.top_weight, Weight::from(10));
@@ -242,7 +243,8 @@ h 1 2 0
 3 -1 -2 0
 "#;
 
-        let instance = WcnfInstance::parse(input.as_bytes()).unwrap();
+        let instance =
+            WcnfInstance::parse(input.as_bytes()).expect("test operation should succeed");
         assert_eq!(instance.num_vars, 2);
         assert_eq!(instance.top_weight, Weight::Infinite);
         assert_eq!(instance.hard_clauses.len(), 1);
@@ -253,7 +255,8 @@ h 1 2 0
     fn test_parse_large_top_as_infinite() {
         let input = format!("p wcnf 2 2 {}\n{} 1 0\n5 -1 0\n", u64::MAX, u64::MAX);
 
-        let instance = WcnfInstance::parse(input.as_bytes()).unwrap();
+        let instance =
+            WcnfInstance::parse(input.as_bytes()).expect("test operation should succeed");
         assert_eq!(instance.top_weight, Weight::Infinite);
         assert_eq!(instance.hard_clauses.len(), 1);
         assert_eq!(instance.soft_clauses.len(), 1);
@@ -269,7 +272,8 @@ c Comment in the middle
 5 -1 0
 "#;
 
-        let instance = WcnfInstance::parse(input.as_bytes()).unwrap();
+        let instance =
+            WcnfInstance::parse(input.as_bytes()).expect("test operation should succeed");
         assert_eq!(instance.num_vars, 2);
         assert_eq!(instance.hard_clauses.len(), 1);
         assert_eq!(instance.soft_clauses.len(), 1);
@@ -282,7 +286,8 @@ c Comment in the middle
 5 1 0
 "#;
 
-        let instance = WcnfInstance::parse(input.as_bytes()).unwrap();
+        let instance =
+            WcnfInstance::parse(input.as_bytes()).expect("test operation should succeed");
         assert_eq!(instance.hard_clauses.len(), 1);
         assert_eq!(instance.hard_clauses[0].len(), 0); // Empty clause
         assert_eq!(instance.soft_clauses.len(), 1);
@@ -296,7 +301,8 @@ c Comment in the middle
 3 -2 -3 0
 "#;
 
-        let instance = WcnfInstance::parse(input.as_bytes()).unwrap();
+        let instance =
+            WcnfInstance::parse(input.as_bytes()).expect("test operation should succeed");
         let mut solver = MaxSatSolver::new();
         instance.load_into_solver(&mut solver);
 
@@ -313,7 +319,8 @@ c Comment in the middle
 5 -1 0
 "#;
 
-        let instance = WcnfInstance::parse(input.as_bytes()).unwrap();
+        let instance =
+            WcnfInstance::parse(input.as_bytes()).expect("test operation should succeed");
         let mut solver = instance.to_solver();
         let result = solver.solve();
         assert!(result.is_ok());

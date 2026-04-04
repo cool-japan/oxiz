@@ -671,7 +671,7 @@ mod tests {
     fn test_github_actions_generation() {
         let config = CiConfig::new(CiSystem::GitHubActions);
         let generator = CiConfigGenerator::new(config);
-        let yaml = generator.generate().unwrap();
+        let yaml = generator.generate().expect("test operation should succeed");
 
         assert!(yaml.contains("name: SMT Benchmark Tests"));
         assert!(yaml.contains("cargo build --release"));
@@ -682,7 +682,7 @@ mod tests {
     fn test_shell_script_generation() {
         let config = CiConfig::new(CiSystem::Shell);
         let generator = CiConfigGenerator::new(config);
-        let script = generator.generate().unwrap();
+        let script = generator.generate().expect("test operation should succeed");
 
         assert!(script.contains("#!/bin/bash"));
         assert!(script.contains("cargo build --release"));

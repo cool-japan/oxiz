@@ -44,11 +44,11 @@ SMT solvers are used in:
 ### For Node.js
 
 ```bash
-npm install oxiz-wasm
+npm install @cooljapan/oxiz
 ```
 
 ```javascript
-import init, { WasmSolver } from 'oxiz-wasm';
+import init, { WasmSolver } from '@cooljapan/oxiz';
 
 async function main() {
   await init();
@@ -64,7 +64,7 @@ main();
 Let's solve a simple problem: "Find a number x where x > 5"
 
 ```javascript
-import init, { WasmSolver } from 'oxiz-wasm';
+import init, { WasmSolver } from '@cooljapan/oxiz';
 
 async function firstExample() {
   // 1. Initialize the WASM module

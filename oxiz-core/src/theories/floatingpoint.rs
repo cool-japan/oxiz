@@ -5,8 +5,9 @@
 //! Reference: Z3's `src/smt/theory_fpa.cpp` at `../z3/src/smt/`
 
 use crate::ast::{RoundingMode, TermId, TermKind, TermManager};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::sort::{SortId, SortKind, SortManager};
-use rustc_hash::{FxHashMap, FxHashSet};
 
 /// FloatingPoint theory axioms and properties
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -246,7 +247,7 @@ impl FloatingPointTheory {
 
     /// Get pending axioms and clear the list
     pub fn take_pending_axioms(&mut self) -> Vec<FloatingPointAxiom> {
-        std::mem::take(&mut self.pending_axioms)
+        core::mem::take(&mut self.pending_axioms)
     }
 
     /// Convert an axiom to a term (requires term manager)

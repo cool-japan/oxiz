@@ -257,19 +257,19 @@ mod tests {
 
     #[test]
     fn test_parse_weight_integer() {
-        let w = parse_weight("42").unwrap();
+        let w = parse_weight("42").expect("test operation should succeed");
         assert_eq!(w, Weight::from(42));
     }
 
     #[test]
     fn test_parse_weight_negative() {
-        let w = parse_weight("-10").unwrap();
+        let w = parse_weight("-10").expect("test operation should succeed");
         assert_eq!(w, Weight::from(-10));
     }
 
     #[test]
     fn test_parse_weight_rational() {
-        let w = parse_weight("3/4").unwrap();
+        let w = parse_weight("3/4").expect("test operation should succeed");
         match w {
             Weight::Rational(r) => {
                 assert_eq!(*r.numer(), BigInt::from(3));
@@ -281,9 +281,18 @@ mod tests {
 
     #[test]
     fn test_parse_weight_infinite() {
-        assert_eq!(parse_weight("oo").unwrap(), Weight::Infinite);
-        assert_eq!(parse_weight("inf").unwrap(), Weight::Infinite);
-        assert_eq!(parse_weight("infinity").unwrap(), Weight::Infinite);
+        assert_eq!(
+            parse_weight("oo").expect("test operation should succeed"),
+            Weight::Infinite
+        );
+        assert_eq!(
+            parse_weight("inf").expect("test operation should succeed"),
+            Weight::Infinite
+        );
+        assert_eq!(
+            parse_weight("infinity").expect("test operation should succeed"),
+            Weight::Infinite
+        );
     }
 
     #[test]
@@ -361,13 +370,13 @@ mod tests {
             term: TermId::from(1),
             id: Some("obj1".to_string()),
         })
-        .unwrap();
+        .expect("test operation should succeed");
 
         proc.process(OptCommand::Maximize {
             term: TermId::from(2),
             id: Some("obj2".to_string()),
         })
-        .unwrap();
+        .expect("test operation should succeed");
 
         assert_eq!(proc.context().num_objectives(), 2);
         assert_eq!(proc.objective_ids.len(), 2);
@@ -381,14 +390,14 @@ mod tests {
             term: TermId::from(1),
             id: None,
         })
-        .unwrap();
+        .expect("test operation should succeed");
 
         proc.process(OptCommand::AssertSoft {
             term: TermId::from(2),
             weight: Weight::one(),
             group: None,
         })
-        .unwrap();
+        .expect("test operation should succeed");
 
         assert_eq!(proc.context().num_objectives(), 1);
         assert_eq!(proc.context().num_soft(), 1);

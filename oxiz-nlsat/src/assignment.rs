@@ -456,7 +456,11 @@ mod tests {
         let mut a = Assignment::with_capacity(5, 0);
 
         // Initial state is reals
-        assert!(a.feasible(0).unwrap().is_reals());
+        assert!(
+            a.feasible(0)
+                .expect("test operation should succeed")
+                .is_reals()
+        );
 
         // Restrict
         let constraint = IntervalSet::from_interval(oxiz_math::interval::Interval::closed(
@@ -464,10 +468,18 @@ mod tests {
             BigRational::from_integer(num_bigint::BigInt::from(10)),
         ));
         a.restrict_feasible(0, &constraint);
-        assert!(!a.feasible(0).unwrap().is_reals());
+        assert!(
+            !a.feasible(0)
+                .expect("test operation should succeed")
+                .is_reals()
+        );
 
         // Reset
         a.reset_feasible(0);
-        assert!(a.feasible(0).unwrap().is_reals());
+        assert!(
+            a.feasible(0)
+                .expect("test operation should succeed")
+                .is_reals()
+        );
     }
 }

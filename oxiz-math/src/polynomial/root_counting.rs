@@ -14,6 +14,8 @@
 //! - "Algorithms in Real Algebraic Geometry" (Basu, Pollack, Roy, 2006)
 //! - Z3's `math/polynomial/polynomial.cpp`
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_bigint::BigInt;
 use num_rational::BigRational;
 use num_traits::{Signed, Zero};

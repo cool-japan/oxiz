@@ -7,7 +7,8 @@ use crate::ast::traversal::{
     TermVisitor, VisitorAction, collect_subterms, compute_depth, traverse,
 };
 use crate::ast::{TermId, TermKind, TermManager};
-use rustc_hash::FxHashSet;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 use super::Goal;
 
@@ -150,18 +151,18 @@ impl IsLinearProbe {
                             }
                         }
                         // Division by non-constant is nonlinear
-                        TermKind::Div(_, divisor) => {
-                            if !manager.get(*divisor).map(|t| t.is_const()).unwrap_or(false) {
-                                self.is_linear = false;
-                                return VisitorAction::Stop;
-                            }
+                        TermKind::Div(_, divisor)
+                            if !manager.get(*divisor).is_some_and(|t| t.is_const()) =>
+                        {
+                            self.is_linear = false;
+                            return VisitorAction::Stop;
                         }
                         // Mod by non-constant is nonlinear
-                        TermKind::Mod(_, divisor) => {
-                            if !manager.get(*divisor).map(|t| t.is_const()).unwrap_or(false) {
-                                self.is_linear = false;
-                                return VisitorAction::Stop;
-                            }
+                        TermKind::Mod(_, divisor)
+                            if !manager.get(*divisor).is_some_and(|t| t.is_const()) =>
+                        {
+                            self.is_linear = false;
+                            return VisitorAction::Stop;
                         }
                         _ => {}
                     }

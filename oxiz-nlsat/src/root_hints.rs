@@ -343,7 +343,7 @@ mod tests {
 
         let looked_up = cache.lookup_hints(&poly, 0);
         assert!(looked_up.is_some());
-        assert_eq!(looked_up.unwrap().len(), 1);
+        assert_eq!(looked_up.expect("test operation should succeed").len(), 1);
     }
 
     #[test]
@@ -379,7 +379,9 @@ mod tests {
         let success = cache.refine_hint(&poly, 0, 0, rat(2), rat(8));
         assert!(success);
 
-        let refined = cache.lookup_hints(&poly, 0).unwrap();
+        let refined = cache
+            .lookup_hints(&poly, 0)
+            .expect("test operation should succeed");
         assert_eq!(refined[0].lower, rat(2));
         assert_eq!(refined[0].upper, rat(8));
         assert_eq!(refined[0].refinement_level, 2);

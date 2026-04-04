@@ -15,8 +15,9 @@
 //! - Bradley et al.: "What's Decidable About Arrays?" (VMCAI 2006)
 //! - Z3's `qe/qe_array_plugin.cpp`
 
-use rustc_hash::FxHashSet;
-
+/// Array term identifier.
+#[allow(unused_imports)]
+use crate::prelude::*;
 /// Array term identifier.
 pub type ArrayId = u32;
 

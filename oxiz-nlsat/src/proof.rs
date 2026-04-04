@@ -562,7 +562,7 @@ mod tests {
         assert_eq!(id, 1);
         assert_eq!(proof.steps().len(), 1);
 
-        let step = proof.get_step(id).unwrap();
+        let step = proof.get_step(id).expect("test operation should succeed");
         assert_eq!(step.conclusion.len(), 2);
         assert!(matches!(step.rule, ProofRule::Input));
     }
@@ -579,7 +579,9 @@ mod tests {
 
         let res_id = proof.add_resolution(id1, id2, pivot, conclusion.clone());
 
-        let step = proof.get_step(res_id).unwrap();
+        let step = proof
+            .get_step(res_id)
+            .expect("test operation should succeed");
         assert_eq!(step.premises.len(), 2);
         assert_eq!(step.conclusion, conclusion);
     }
@@ -627,7 +629,7 @@ mod tests {
 
         let id = proof.add_theory_lemma(explanation.clone(), vec![Literal::positive(0)]);
 
-        let step = proof.get_step(id).unwrap();
+        let step = proof.get_step(id).expect("test operation should succeed");
         if let ProofRule::TheoryLemma { explanation: exp } = &step.rule {
             assert_eq!(exp, &explanation);
         } else {
@@ -708,7 +710,7 @@ mod tests {
 
         let id = proof.add_cad_reasoning(operation, vec![], vec![Literal::positive(0)]);
 
-        let step = proof.get_step(id).unwrap();
+        let step = proof.get_step(id).expect("test operation should succeed");
         if let ProofRule::CadReasoning { operation: op } = &step.rule {
             assert!(matches!(op, CadOperation::Projection { .. }));
         } else {

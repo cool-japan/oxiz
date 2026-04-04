@@ -12,7 +12,8 @@
 //! - Resolution pattern detection for better learning
 
 use crate::literal::{Lit, Var};
-use std::collections::{HashMap, HashSet, VecDeque};
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Node in the resolution graph
 #[derive(Debug, Clone)]
@@ -235,7 +236,7 @@ impl ResolutionGraph {
             .map(|(&var, &count)| (var, count))
             .collect();
 
-        vars.sort_by(|a, b| b.1.cmp(&a.1));
+        vars.sort_by_key(|item| std::cmp::Reverse(item.1));
         vars.truncate(k);
         vars
     }
@@ -349,15 +350,13 @@ impl ResolutionGraph {
 
     /// Hash a clause for deduplication
     fn hash_clause(clause: &[Lit]) -> u64 {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
+        use core::hash::BuildHasher;
 
         let mut sorted = clause.to_vec();
         sorted.sort_unstable_by_key(|lit| lit.code());
 
-        let mut hasher = DefaultHasher::new();
-        sorted.hash(&mut hasher);
-        hasher.finish()
+        let build = core::hash::BuildHasherDefault::<rustc_hash::FxHasher>::default();
+        build.hash_one(&sorted)
     }
 
     /// Get statistics about the graph
@@ -479,7 +478,7 @@ impl ResolutionAnalyzer {
             .map(|(&var, &score)| (var, score))
             .collect();
 
-        vars.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        vars.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(core::cmp::Ordering::Equal));
         vars.truncate(k);
         vars
     }

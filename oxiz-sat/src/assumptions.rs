@@ -4,7 +4,8 @@
 //! including assumption levels, tracking, and efficient core extraction.
 
 use crate::literal::Lit;
-use std::collections::{HashMap, HashSet};
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 #[cfg(test)]
 use crate::literal::Var;

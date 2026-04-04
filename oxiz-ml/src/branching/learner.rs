@@ -303,25 +303,27 @@ mod tests {
 
     #[test]
     fn test_branching_learner_creation() {
-        let learner = BranchingLearner::default_config().unwrap();
+        let learner = BranchingLearner::default_config().expect("test operation should succeed");
         assert!(learner.stats().ml_stats.predictions == 0);
     }
 
     #[test]
     fn test_branching_learner_predict() {
-        let mut learner = BranchingLearner::default_config().unwrap();
+        let mut learner =
+            BranchingLearner::default_config().expect("test operation should succeed");
         let candidates = vec![0, 1, 2];
 
         let decision = learner.predict_branch(&candidates);
         assert!(decision.is_some());
 
-        let decision = decision.unwrap();
+        let decision = decision.expect("test operation should succeed");
         assert!(candidates.contains(&decision.variable));
     }
 
     #[test]
     fn test_branching_learner_learn() {
-        let mut learner = BranchingLearner::default_config().unwrap();
+        let mut learner =
+            BranchingLearner::default_config().expect("test operation should succeed");
 
         let feedback = BranchingFeedback {
             was_good: true,
@@ -336,7 +338,8 @@ mod tests {
 
     #[test]
     fn test_branching_learner_updates() {
-        let mut learner = BranchingLearner::default_config().unwrap();
+        let mut learner =
+            BranchingLearner::default_config().expect("test operation should succeed");
 
         learner.update_conflict(0, 3.0);
         learner.update_propagation(0);
@@ -347,12 +350,15 @@ mod tests {
 
     #[test]
     fn test_branching_learner_save_load() {
-        let learner = BranchingLearner::default_config().unwrap();
+        let learner = BranchingLearner::default_config().expect("test operation should succeed");
 
-        let saved = learner.save_model().unwrap();
+        let saved = learner.save_model().expect("test operation should succeed");
         assert!(!saved.is_empty());
 
-        let mut learner2 = BranchingLearner::default_config().unwrap();
-        learner2.load_model(&saved).unwrap();
+        let mut learner2 =
+            BranchingLearner::default_config().expect("test operation should succeed");
+        learner2
+            .load_model(&saved)
+            .expect("test operation should succeed");
     }
 }

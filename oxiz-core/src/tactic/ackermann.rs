@@ -3,6 +3,8 @@
 use super::core::*;
 use crate::ast::{TermId, TermManager};
 use crate::error::Result;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Ackermannization tactic - removes uninterpreted functions
 pub struct AckermannizeTactic<'a> {
@@ -28,8 +30,12 @@ impl<'a> AckermannizeTactic<'a> {
     fn collect_func_apps(
         &self,
         term_id: TermId,
-        apps: &mut Vec<(lasso::Spur, smallvec::SmallVec<[TermId; 4]>, TermId)>,
-        visited: &mut rustc_hash::FxHashSet<TermId>,
+        apps: &mut Vec<(
+            crate::interner::Spur,
+            smallvec::SmallVec<[TermId; 4]>,
+            TermId,
+        )>,
+        visited: &mut crate::prelude::FxHashSet<TermId>,
     ) {
         use crate::ast::TermKind;
 
@@ -115,10 +121,14 @@ impl<'a> AckermannizeTactic<'a> {
 
     /// Apply ackermannization to a goal
     pub fn apply_mut(&mut self, goal: &Goal) -> Result<TacticResult> {
-        use rustc_hash::{FxHashMap, FxHashSet};
+        use crate::prelude::{FxHashMap, FxHashSet};
 
         // Collect all function applications
-        let mut all_apps: Vec<(lasso::Spur, smallvec::SmallVec<[TermId; 4]>, TermId)> = Vec::new();
+        let mut all_apps: Vec<(
+            crate::interner::Spur,
+            smallvec::SmallVec<[TermId; 4]>,
+            TermId,
+        )> = Vec::new();
         let mut visited = FxHashSet::default();
 
         for &assertion in &goal.assertions {
@@ -131,7 +141,7 @@ impl<'a> AckermannizeTactic<'a> {
         }
 
         // Group applications by function symbol
-        let mut func_groups: FxHashMap<lasso::Spur, Vec<FuncApp>> = FxHashMap::default();
+        let mut func_groups: FxHashMap<crate::interner::Spur, Vec<FuncApp>> = FxHashMap::default();
         let mut term_to_var: FxHashMap<TermId, TermId> = FxHashMap::default();
 
         for (var_counter, (func, args, term_id)) in all_apps.into_iter().enumerate() {

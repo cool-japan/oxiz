@@ -259,7 +259,7 @@ impl SortMaxSolver {
             .enumerate()
             .take(num_soft_clauses.min(sorted_outputs.len()))
         {
-            solver.add_clause([output].into_iter());
+            solver.add_clause([output]);
 
             match solver.solve() {
                 SolverResult::Sat => {

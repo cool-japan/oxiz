@@ -20,9 +20,10 @@
 
 use super::{RewriteContext, RewriteResult, Rewriter};
 use crate::ast::{TermId, TermKind, TermManager};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_bigint::BigInt;
 use num_traits::{One, Signed, Zero};
-use rustc_hash::FxHashMap;
 
 /// Configuration for NLA rewriting
 #[derive(Debug, Clone)]

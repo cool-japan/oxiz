@@ -3,9 +3,10 @@
 //! Implements the dual simplex method for solving LPs, particularly useful
 //! for handling infeasibility and for sensitivity analysis.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_rational::BigRational;
 use num_traits::{Signed, Zero};
-use rustc_hash::FxHashMap;
 
 /// Dual simplex solver for linear programming.
 pub struct DualSimplexSolver {

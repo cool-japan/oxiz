@@ -338,7 +338,7 @@ mod tests {
         let explainer = ProofExplainer::new();
         let mut proof = Proof::new();
         let id = proof.add_axiom("p");
-        let node = proof.get_node(id).unwrap();
+        let node = proof.get_node(id).expect("test operation should succeed");
 
         let explained = explainer.explain_node(&proof, node);
         assert!(explained.explanation.contains("Assumed"));
@@ -351,7 +351,7 @@ mod tests {
         let a1 = proof.add_axiom("p");
         let a2 = proof.add_axiom("q");
         let i1 = proof.add_inference("and", vec![a1, a2], "p /\\ q");
-        let node = proof.get_node(i1).unwrap();
+        let node = proof.get_node(i1).expect("test operation should succeed");
 
         let explained = explainer.explain_node(&proof, node);
         assert!(explained.explanation.contains("conjunction"));
@@ -363,7 +363,7 @@ mod tests {
         let a1 = proof.add_axiom("p");
         let a2 = proof.add_axiom("q");
         let i1 = proof.add_inference("and", vec![a1, a2], "p /\\ q");
-        let node = proof.get_node(i1).unwrap();
+        let node = proof.get_node(i1).expect("test operation should succeed");
 
         let minimal = ProofExplainer::with_verbosity(Verbosity::Minimal);
         let concise = ProofExplainer::with_verbosity(Verbosity::Concise);
@@ -415,7 +415,7 @@ mod tests {
 
         let path = explainer.critical_path(&proof);
         assert!(path.len() >= 2);
-        assert_eq!(*path.last().unwrap(), i2);
+        assert_eq!(*path.last().expect("collection should not be empty"), i2);
     }
 
     #[test]

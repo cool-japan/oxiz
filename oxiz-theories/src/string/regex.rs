@@ -4,10 +4,10 @@
 //! membership testing during SMT solving.
 
 use super::unicode::UnicodeCategory;
-use rustc_hash::FxHashMap;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::hash::{Hash, Hasher};
 use smallvec::SmallVec;
-use std::hash::{Hash, Hasher};
-use std::sync::Arc;
 
 /// Regular expression operation kinds
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -401,8 +401,7 @@ impl DerivativeCache {
 
     /// Get or compute derivative
     pub fn derivative(&mut self, r: &Arc<Regex>, c: char) -> Arc<Regex> {
-        use std::collections::hash_map::DefaultHasher;
-        let mut hasher = DefaultHasher::new();
+        let mut hasher = rustc_hash::FxHasher::default();
         r.hash(&mut hasher);
         let key = (hasher.finish(), c);
 
@@ -455,8 +454,7 @@ impl RegexAutomaton {
     pub fn new(regex: Arc<Regex>) -> Self {
         let initial_accepting = regex.is_nullable();
 
-        use std::collections::hash_map::DefaultHasher;
-        let mut hasher = DefaultHasher::new();
+        let mut hasher = rustc_hash::FxHasher::default();
         regex.hash(&mut hasher);
         let hash = hasher.finish();
 
@@ -478,8 +476,7 @@ impl RegexAutomaton {
 
     /// Get or create state for a regex
     fn get_or_create_state(&mut self, regex: Arc<Regex>) -> u32 {
-        use std::collections::hash_map::DefaultHasher;
-        let mut hasher = DefaultHasher::new();
+        let mut hasher = rustc_hash::FxHasher::default();
         regex.hash(&mut hasher);
         let hash = hasher.finish();
 

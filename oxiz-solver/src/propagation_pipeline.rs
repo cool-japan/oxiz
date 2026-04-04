@@ -15,9 +15,9 @@
 //! - Z3's `smt/smt_context.cpp` propagation loop
 //! - MiniSAT's propagation queue
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_sat::{Lit, Var};
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::VecDeque;
 
 /// Priority level for propagations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -401,7 +401,7 @@ mod tests {
         });
 
         // Immediate priority should be dequeued first
-        let item = pipeline.dequeue().unwrap();
+        let item = pipeline.dequeue().expect("test operation should succeed");
         assert_eq!(item.lit, lit(2));
     }
 }

@@ -19,9 +19,10 @@
 //! - Z3's `tactic/bv/dt2bv_tactic.cpp`
 
 use crate::error::Result;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::tactic::core::{Goal, Tactic, TacticResult};
-use rustc_hash::FxHashMap;
-use std::fmt;
+use core::fmt;
 
 /// Datatype identifier.
 pub type DatatypeId = usize;
@@ -223,8 +224,12 @@ mod tests {
 
         assert_eq!(tactic.stats().constructors_encoded, 2);
 
-        let encoding0 = tactic.get_encoding(0).unwrap();
-        let encoding1 = tactic.get_encoding(1).unwrap();
+        let encoding0 = tactic
+            .get_encoding(0)
+            .expect("test operation should succeed");
+        let encoding1 = tactic
+            .get_encoding(1)
+            .expect("test operation should succeed");
 
         assert_eq!(encoding0.code, 0);
         assert_eq!(encoding1.code, 1);
@@ -237,7 +242,9 @@ mod tests {
 
         tactic.encode_constructor(0, 8); // 8 constructors
 
-        let encoding = tactic.get_encoding(0).unwrap();
+        let encoding = tactic
+            .get_encoding(0)
+            .expect("test operation should succeed");
         assert_eq!(encoding.width, 3); // log2(8) = 3
     }
 

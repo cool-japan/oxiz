@@ -8,10 +8,11 @@
 //!
 //! Reference: Z3's array cardinality reasoning and finite model finding
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::fmt;
 use oxiz_core::ast::TermId;
 use oxiz_core::error::{OxizError, Result};
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::fmt;
 
 /// Cardinality bound for a set/domain
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -611,7 +612,11 @@ mod tests {
 
         let retrieved = manager.get_constraint(100);
         assert!(retrieved.is_some());
-        assert!(retrieved.unwrap().is_finite());
+        assert!(
+            retrieved
+                .expect("test operation should succeed")
+                .is_finite()
+        );
     }
 
     #[test]
@@ -663,7 +668,9 @@ mod tests {
 
         manager.infer_bounds(100, &operations);
 
-        let constraint = manager.get_constraint(100).unwrap();
+        let constraint = manager
+            .get_constraint(100)
+            .expect("test operation should succeed");
         assert!(constraint.modified_locations.is_some());
     }
 

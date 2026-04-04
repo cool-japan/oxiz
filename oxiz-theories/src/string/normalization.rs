@@ -16,9 +16,10 @@
 //! (assert (= (str.norm nfc s1) s2))
 //! ```
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::ast::TermId;
 use oxiz_core::error::{OxizError, Result};
-use rustc_hash::FxHashMap;
 
 /// Unicode normalization form
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -532,7 +533,7 @@ impl UnicodeNormalizer {
                 }
 
                 // Sort combining characters by CCC in descending order
-                combining.sort_by(|a, b| b.1.cmp(&a.1));
+                combining.sort_by_key(|&(_, ccc)| std::cmp::Reverse(ccc));
 
                 // Append sorted combining characters
                 for (ch, _) in combining {
@@ -852,7 +853,7 @@ mod tests {
 
         solver.assign(source, "e\u{0301}".to_string());
 
-        let deductions = solver.check().unwrap();
+        let deductions = solver.check().expect("test operation should succeed");
         assert_eq!(deductions.len(), 1);
         assert_eq!(deductions[0].0, result);
         assert_eq!(deductions[0].1, "é");

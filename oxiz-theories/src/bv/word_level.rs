@@ -49,10 +49,10 @@
 #![allow(missing_docs)]
 
 use super::propagator::Interval;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::ast::TermId;
 use oxiz_core::error::Result;
-use rustc_hash::FxHashMap;
-use std::collections::VecDeque;
 
 /// Sign information for a bitvector
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -478,7 +478,7 @@ impl WordLevelReasoner {
 
         // Propagate constants
         if let Some(val) = self.constants.get(&a).copied() {
-            if let std::collections::hash_map::Entry::Vacant(e) = self.constants.entry(b) {
+            if let crate::prelude::hash_map::Entry::Vacant(e) = self.constants.entry(b) {
                 e.insert(val);
                 self.stats.constants_propagated += 1;
             }
@@ -744,8 +744,8 @@ impl WordLevelReasoner {
     pub fn propagate_udiv(&mut self, c: TermId, a: TermId, b: TermId, width: u32) -> Result<()> {
         // Constants
         if let (Some(va), Some(vb)) = (self.get_constant(a), self.get_constant(b)) {
-            if vb != 0 {
-                self.set_constant(c, va / vb, width);
+            if let Some(quotient) = va.checked_div(vb) {
+                self.set_constant(c, quotient, width);
             } else {
                 // Division by zero: SMT-LIB semantics = all 1s
                 let all_ones = if width == 64 {
@@ -1051,7 +1051,9 @@ mod tests {
         reasoner.set_constant(a, 5, 8);
         reasoner.set_constant(b, 3, 8);
 
-        reasoner.propagate_add(c, a, b, 8).unwrap();
+        reasoner
+            .propagate_add(c, a, b, 8)
+            .expect("test operation should succeed");
 
         assert_eq!(reasoner.get_constant(c), Some(8));
     }
@@ -1066,7 +1068,9 @@ mod tests {
 
         reasoner.set_constant(b, 0, 8);
 
-        reasoner.propagate_mul(c, a, b, 8).unwrap();
+        reasoner
+            .propagate_mul(c, a, b, 8)
+            .expect("test operation should succeed");
 
         assert_eq!(reasoner.get_constant(c), Some(0));
     }
@@ -1150,7 +1154,9 @@ mod tests {
         let a = TermId::new(1);
         let c = TermId::new(2);
 
-        reasoner.propagate_xor(c, a, a, 8).unwrap();
+        reasoner
+            .propagate_xor(c, a, a, 8)
+            .expect("test operation should succeed");
 
         assert_eq!(reasoner.get_constant(c), Some(0));
     }
@@ -1165,7 +1171,9 @@ mod tests {
 
         reasoner.set_constant(b, 1, 8);
 
-        reasoner.propagate_lshr(c, a, b, 8).unwrap();
+        reasoner
+            .propagate_lshr(c, a, b, 8)
+            .expect("test operation should succeed");
 
         assert_eq!(reasoner.get_sign(c), SignInfo::NonNegative);
     }

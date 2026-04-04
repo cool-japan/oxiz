@@ -34,7 +34,7 @@
 //! # Example (Worker Thread)
 //!
 //! ```javascript
-//! import { WorkerHandler } from 'oxiz-wasm/worker';
+//! import { WorkerHandler } from '@cooljapan/oxiz/worker';
 //!
 //! const handler = new WorkerHandler();
 //! handler.start();

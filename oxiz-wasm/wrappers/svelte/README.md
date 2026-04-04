@@ -5,7 +5,7 @@ Svelte wrapper for OxiZ WASM SMT Solver.
 ## Installation
 
 ```bash
-npm install @oxiz/svelte oxiz-wasm
+npm install @oxiz/svelte @cooljapan/oxiz
 ```
 
 ## Usage

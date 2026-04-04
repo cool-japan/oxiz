@@ -18,11 +18,12 @@
 
 use crate::ast::{TermId, TermKind, TermManager};
 use crate::error::{OxizError, Result};
+use crate::interner::Spur;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::sort::SortId;
-use lasso::Spur;
-use rustc_hash::FxHashSet;
+use core::fmt;
 use smallvec::SmallVec;
-use std::fmt;
 
 /// A trigger for quantifier instantiation
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -524,7 +525,7 @@ impl TriggerGenerator {
         }
 
         // Sort by coverage (descending)
-        candidate_vars.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
+        candidate_vars.sort_by_key(|item| std::cmp::Reverse(item.1.len()));
 
         // Greedy selection
         let mut current_set = SmallVec::new();
@@ -786,7 +787,7 @@ impl fmt::Display for Trigger {
 mod tests {
     use super::*;
     use crate::ast::TermManager;
-    use lasso::Key;
+    use crate::interner::Key;
 
     fn setup() -> TermManager {
         TermManager::new()
@@ -820,7 +821,10 @@ mod tests {
     fn test_assess_quality() {
         let generator = TriggerGenerator::new_default();
         let all_vars: FxHashSet<Spur> =
-            [Spur::try_from_usize(0).unwrap()].iter().copied().collect();
+            [Spur::try_from_usize(0).expect("test operation should succeed")]
+                .iter()
+                .copied()
+                .collect();
 
         // Excellent: single pattern, low cost, covers all
         let q1 = generator.assess_quality(1, 30, &all_vars, 1);
@@ -855,7 +859,9 @@ mod tests {
 
         let forall = manager.mk_forall_with_patterns(var_strs, p_fx, patterns);
 
-        let triggers = generator.generate_triggers(forall, &manager).unwrap();
+        let triggers = generator
+            .generate_triggers(forall, &manager)
+            .expect("test operation should succeed");
 
         assert!(!triggers.is_empty());
         assert_eq!(triggers[0].patterns.len(), 1);
@@ -881,7 +887,9 @@ mod tests {
         let x_name = manager.intern_str("x");
         let vars = vec![(x_name, int_sort)];
 
-        let candidates = generator.collect_candidates(body, &vars, &manager).unwrap();
+        let candidates = generator
+            .collect_candidates(body, &vars, &manager)
+            .expect("test operation should succeed");
 
         // Should find P(f(x)), Q(g(x)), f(x), g(x) as candidates
         assert!(!candidates.is_empty());
@@ -898,11 +906,15 @@ mod tests {
 
         // Variable should have moderate cost
         let x = manager.mk_var("x", int_sort);
-        let cost_x = generator.estimate_cost(x, &manager).unwrap();
+        let cost_x = generator
+            .estimate_cost(x, &manager)
+            .expect("test operation should succeed");
 
         // Function application should have higher cost
         let f_x = manager.mk_apply("f", [x], int_sort);
-        let cost_fx = generator.estimate_cost(f_x, &manager).unwrap();
+        let cost_fx = generator
+            .estimate_cost(f_x, &manager)
+            .expect("test operation should succeed");
 
         assert!(cost_fx > cost_x);
     }
@@ -916,17 +928,23 @@ mod tests {
         let x = manager.mk_var("x", int_sort);
 
         // x: depth 1
-        let depth1 = generator.compute_depth(x, &manager).unwrap();
+        let depth1 = generator
+            .compute_depth(x, &manager)
+            .expect("test operation should succeed");
         assert_eq!(depth1, 1);
 
         // f(x): depth 2
         let f_x = manager.mk_apply("f", [x], int_sort);
-        let depth2 = generator.compute_depth(f_x, &manager).unwrap();
+        let depth2 = generator
+            .compute_depth(f_x, &manager)
+            .expect("test operation should succeed");
         assert_eq!(depth2, 2);
 
         // g(f(x)): depth 3
         let g_fx = manager.mk_apply("g", [f_x], int_sort);
-        let depth3 = generator.compute_depth(g_fx, &manager).unwrap();
+        let depth3 = generator
+            .compute_depth(g_fx, &manager)
+            .expect("test operation should succeed");
         assert_eq!(depth3, 3);
     }
 }

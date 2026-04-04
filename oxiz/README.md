@@ -6,13 +6,15 @@ Next-Generation SMT Solver in Pure Rust
 [![Documentation](https://docs.rs/oxiz/badge.svg)](https://docs.rs/oxiz)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/cool-japan/oxiz/blob/main/LICENSE)
 
+> **Version**: 0.2.0 | **Status**: Meta-crate | **Tests**: 1
+
 ## About
 
 **OxiZ** is a high-performance SMT (Satisfiability Modulo Theories) solver written entirely in Pure Rust,
 designed to achieve feature parity with [Z3](https://github.com/Z3Prover/z3) while leveraging Rust's safety,
 performance, and concurrency features.
 
-**🎉 Major Milestone**: OxiZ v0.1.3 has achieved **100% correctness parity with Z3** across all 88 benchmark tests spanning 8 core SMT-LIB logics, validating it as a production-ready solver.
+**🎉 Major Milestone**: OxiZ has achieved **100% correctness parity with Z3** across all benchmark tests spanning core SMT-LIB logics, validating it as a production-ready solver.
 
 ## Features
 
@@ -31,21 +33,21 @@ Add OxiZ to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-oxiz = "0.1.3"  # Default includes solver
+oxiz = "0.2.0"  # Default includes solver
 ```
 
 With specific features:
 
 ```toml
 [dependencies]
-oxiz = { version = "0.1.3", features = ["nlsat", "optimization"] }
+oxiz = { version = "0.2.0", features = ["nlsat", "optimization"] }
 ```
 
 All features:
 
 ```toml
 [dependencies]
-oxiz = { version = "0.1.3", features = ["full"] }
+oxiz = { version = "0.2.0", features = ["full"] }
 ```
 
 ### Basic Usage

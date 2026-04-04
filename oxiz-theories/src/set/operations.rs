@@ -12,7 +12,8 @@
 #![allow(dead_code)]
 
 use super::{SetConflict, SetVarId};
-use rustc_hash::{FxHashMap, FxHashSet};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use smallvec::SmallVec;
 
 /// Binary set operation kind
@@ -510,7 +511,7 @@ impl SetComplement {
 }
 
 /// Set operation result
-pub type SetOpResult<T> = std::result::Result<T, SetConflict>;
+pub type SetOpResult<T> = core::result::Result<T, SetConflict>;
 
 /// Set operation statistics
 #[derive(Debug, Clone, Default)]

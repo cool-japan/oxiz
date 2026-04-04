@@ -258,7 +258,7 @@ mod tests {
         let output = "(a0 a2 a5)";
         let core = extract_core_from_output(output);
         assert!(core.is_some());
-        let core = core.unwrap();
+        let core = core.expect("test operation should succeed");
         assert_eq!(core.assertions, vec![0, 2, 5]);
     }
 
@@ -274,7 +274,7 @@ mod tests {
         let result = generate_proof_dot(proof, &mut output);
         assert!(result.is_ok());
 
-        let dot_str = String::from_utf8(output).unwrap();
+        let dot_str = String::from_utf8(output).expect("test operation should succeed");
         assert!(dot_str.contains("digraph proof"));
         assert!(dot_str.contains("rankdir=TB"));
         assert!(dot_str.contains("shape=box"));

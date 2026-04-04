@@ -1,5 +1,8 @@
 //! Propagation subsystem.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 pub mod backtrack_manager;
 pub mod pipeline;
 pub mod priority_queue;

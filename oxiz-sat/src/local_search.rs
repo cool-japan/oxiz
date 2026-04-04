@@ -10,8 +10,9 @@
 
 use crate::clause::{ClauseDatabase, ClauseId};
 use crate::literal::{Lit, Var};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use smallvec::SmallVec;
-use std::collections::HashMap;
 
 /// Configuration for local search
 #[derive(Debug, Clone)]
@@ -343,7 +344,7 @@ impl LocalSearch {
                 let var = lit.var();
                 let break_cnt = self.break_count[var.index()];
                 // Probability is inversely proportional to (break_count + 1)^cb
-                let prob = 1.0 / ((break_cnt as f64 + 1.0).powf(self.config.cb_exponent));
+                let prob = 1.0 / libm::pow(break_cnt as f64 + 1.0, self.config.cb_exponent);
                 probs.push(prob);
                 total += prob;
             }

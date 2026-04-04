@@ -779,7 +779,7 @@ mod tests {
         let step = proof.refl("x");
         assert_eq!(step.0, 0);
 
-        let s = proof.get_step(step).unwrap();
+        let s = proof.get_step(step).expect("test operation should succeed");
         assert_eq!(s.conclusion.0, "(= x x)");
         assert_eq!(s.rule, TheoryRule::Refl);
         assert!(s.premises.is_empty());
@@ -798,7 +798,7 @@ mod tests {
         // Step 3: a = c (by transitivity)
         let s3 = proof.trans(s1, s2, "a", "c");
 
-        let step = proof.get_step(s3).unwrap();
+        let step = proof.get_step(s3).expect("test operation should succeed");
         assert_eq!(step.conclusion.0, "(= a c)");
         assert_eq!(step.rule, TheoryRule::Trans);
         assert_eq!(step.premises.len(), 2);
@@ -820,7 +820,7 @@ mod tests {
             &[ProofTerm("1".into()), ProofTerm("1".into())],
         );
 
-        let step = proof.get_step(s3).unwrap();
+        let step = proof.get_step(s3).expect("test operation should succeed");
         assert_eq!(step.conclusion.0, "false");
         assert_eq!(step.rule, TheoryRule::LaGeneric);
     }
@@ -831,7 +831,7 @@ mod tests {
 
         let step = proof.read_write_same("a", "i", "v");
 
-        let s = proof.get_step(step).unwrap();
+        let s = proof.get_step(step).expect("test operation should succeed");
         assert!(s.conclusion.0.contains("select"));
         assert!(s.conclusion.0.contains("store"));
         assert_eq!(s.rule, TheoryRule::ArrReadWrite1);
@@ -856,7 +856,10 @@ mod tests {
         recorder.record_bound("(<= x 5)");
         let conflict = recorder.record_farkas_conflict(&[0, 1]);
 
-        let step = recorder.proof().get_step(conflict).unwrap();
+        let step = recorder
+            .proof()
+            .get_step(conflict)
+            .expect("test operation should succeed");
         assert_eq!(step.conclusion.0, "false");
     }
 
@@ -891,7 +894,9 @@ mod tests {
         // ∀x. P(x) ⊢ P(5)
         let inst_step = proof.forall_elim(forall_step, "x", "5", "(P 5)");
 
-        let step = proof.get_step(inst_step).unwrap();
+        let step = proof
+            .get_step(inst_step)
+            .expect("test operation should succeed");
         assert_eq!(step.rule, TheoryRule::ForallElim);
         assert_eq!(step.premises.len(), 1);
         assert_eq!(step.args.len(), 2);
@@ -907,7 +912,9 @@ mod tests {
         // P(5) ⊢ ∃x. P(x)
         let exists_step = proof.exists_intro(concrete, "5", "(exists x (P x))");
 
-        let step = proof.get_step(exists_step).unwrap();
+        let step = proof
+            .get_step(exists_step)
+            .expect("test operation should succeed");
         assert_eq!(step.rule, TheoryRule::ExistsIntro);
         assert_eq!(step.args.len(), 1);
     }
@@ -922,7 +929,9 @@ mod tests {
         // ∃x. P(x) ⊢ P(sk_1)
         let skolem_step = proof.skolemize(exists_step, "sk_1", "(P sk_1)");
 
-        let step = proof.get_step(skolem_step).unwrap();
+        let step = proof
+            .get_step(skolem_step)
+            .expect("test operation should succeed");
         assert_eq!(step.rule, TheoryRule::Skolemize);
         assert!(step.conclusion.0.contains("sk_1"));
     }
@@ -945,7 +954,9 @@ mod tests {
             "(=> (P a) (Q a))",
         );
 
-        let step = proof.get_step(inst_step).unwrap();
+        let step = proof
+            .get_step(inst_step)
+            .expect("test operation should succeed");
         assert_eq!(step.rule, TheoryRule::QuantInst);
         assert!(!step.args.is_empty());
     }

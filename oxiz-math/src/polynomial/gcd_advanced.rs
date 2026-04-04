@@ -12,6 +12,8 @@
 //! - Z3's `math/polynomial/polynomial_gcd.cpp`
 
 use super::{Polynomial, Term};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_bigint::BigInt;
 use num_rational::BigRational;
 use num_traits::{One, Signed, Zero};

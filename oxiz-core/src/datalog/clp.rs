@@ -3,8 +3,10 @@
 //! Extends Datalog with constraint solving capabilities for numeric
 //! and symbolic constraints.
 
+use crate::prelude::HashMap;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_rational::BigRational;
-use std::collections::HashMap;
 
 use super::rule::Variable;
 use super::tuple::Value;

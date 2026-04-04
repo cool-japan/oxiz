@@ -1543,7 +1543,7 @@ mod tests {
         let result = decomposer.decompose(&[poly]);
         assert!(result.is_ok());
 
-        let cells = result.unwrap();
+        let cells = result.expect("test operation should succeed");
         assert!(!cells.is_empty());
     }
 

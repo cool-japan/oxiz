@@ -16,10 +16,11 @@
 
 use crate::ast::{TermId, TermKind, TermManager};
 use crate::error::{OxizError, Result};
-use lasso::Spur;
-use rustc_hash::FxHashMap;
+use crate::interner::Spur;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::fmt;
 use smallvec::SmallVec;
-use std::fmt;
 
 /// A substitution mapping variables to terms
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -642,8 +643,8 @@ impl SubstitutionCache {
 
     /// Hash a substitution for caching
     fn hash_substitution(&self, subst: &Substitution) -> u64 {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
+        use crate::prelude::hash_map::DefaultHasher;
+        use core::hash::{Hash, Hasher};
 
         let mut hasher = DefaultHasher::new();
 
@@ -724,7 +725,9 @@ mod tests {
         let x_name = manager.intern_str("x");
         subst.insert(x_name, five);
 
-        let result = subst.apply(x, &mut manager).unwrap();
+        let result = subst
+            .apply(x, &mut manager)
+            .expect("test operation should succeed");
         assert_eq!(result, five);
     }
 
@@ -741,7 +744,9 @@ mod tests {
         subst.insert(x_name, five);
 
         // y is not bound, should remain unchanged
-        let result = subst.apply(y, &mut manager).unwrap();
+        let result = subst
+            .apply(y, &mut manager)
+            .expect("test operation should succeed");
         assert_eq!(result, y);
     }
 
@@ -760,7 +765,9 @@ mod tests {
         subst.insert(x_name, five);
 
         // sum is (x + y), after substitution should be (5 + y)
-        let result = subst.apply(sum, &mut manager).unwrap();
+        let result = subst
+            .apply(sum, &mut manager)
+            .expect("test operation should succeed");
 
         // Verify result is not the same term
         assert_ne!(result, sum);
@@ -816,12 +823,16 @@ mod tests {
         let subst = SubstitutionBuilder::new().bind(x_name, five).build();
 
         // First application - cache miss
-        let result1 = cache.apply(x, &subst, &mut manager).unwrap();
+        let result1 = cache
+            .apply(x, &subst, &mut manager)
+            .expect("test operation should succeed");
         assert_eq!(cache.stats.cache_misses, 1);
         assert_eq!(cache.stats.cache_hits, 0);
 
         // Second application - cache hit
-        let result2 = cache.apply(x, &subst, &mut manager).unwrap();
+        let result2 = cache
+            .apply(x, &subst, &mut manager)
+            .expect("test operation should succeed");
         assert_eq!(cache.stats.cache_hits, 1);
         assert_eq!(result1, result2);
     }
@@ -842,7 +853,9 @@ mod tests {
         subst.insert(x_name, five);
 
         // Apply substitution: (x + f(y)) becomes (5 + f(y))
-        let result = subst.apply(sum, &mut manager).unwrap();
+        let result = subst
+            .apply(sum, &mut manager)
+            .expect("test operation should succeed");
 
         // f(y) should be shared (not re-created)
         if let Some(result_term) = manager.get(result)
@@ -875,7 +888,9 @@ mod tests {
         let subst = Substitution::new();
 
         let five = manager.mk_int(5);
-        let result = subst.apply(five, &mut manager).unwrap();
+        let result = subst
+            .apply(five, &mut manager)
+            .expect("test operation should succeed");
 
         // Ground term should remain unchanged
         assert_eq!(result, five);
@@ -894,9 +909,15 @@ mod tests {
         let subst = SubstitutionBuilder::new().bind(x_name, five).build();
 
         // 1 miss, 2 hits
-        cache.apply(x, &subst, &mut manager).unwrap();
-        cache.apply(x, &subst, &mut manager).unwrap();
-        cache.apply(x, &subst, &mut manager).unwrap();
+        cache
+            .apply(x, &subst, &mut manager)
+            .expect("test operation should succeed");
+        cache
+            .apply(x, &subst, &mut manager)
+            .expect("test operation should succeed");
+        cache
+            .apply(x, &subst, &mut manager)
+            .expect("test operation should succeed");
 
         let hit_rate = cache.hit_rate();
         assert!((hit_rate - 2.0 / 3.0).abs() < 0.01);

@@ -542,8 +542,20 @@ mod tests {
         let err = system.declare_predicate("Err", []);
 
         assert_eq!(system.num_predicates(), 2);
-        assert_eq!(system.get_predicate(inv).unwrap().name, "Inv");
-        assert_eq!(system.get_predicate(err).unwrap().arity(), 0);
+        assert_eq!(
+            system
+                .get_predicate(inv)
+                .expect("test operation should succeed")
+                .name,
+            "Inv"
+        );
+        assert_eq!(
+            system
+                .get_predicate(err)
+                .expect("test operation should succeed")
+                .arity(),
+            0
+        );
     }
 
     #[test]
@@ -655,10 +667,19 @@ mod tests {
         let order = system.topological_order();
         assert!(order.is_some());
 
-        let order = order.unwrap();
-        let p1_pos = order.iter().position(|&id| id == p1).unwrap();
-        let p2_pos = order.iter().position(|&id| id == p2).unwrap();
-        let p3_pos = order.iter().position(|&id| id == p3).unwrap();
+        let order = order.expect("test operation should succeed");
+        let p1_pos = order
+            .iter()
+            .position(|&id| id == p1)
+            .expect("element should be found");
+        let p2_pos = order
+            .iter()
+            .position(|&id| id == p2)
+            .expect("element should be found");
+        let p3_pos = order
+            .iter()
+            .position(|&id| id == p3)
+            .expect("element should be found");
 
         // P1 should come before P2, P2 before P3
         assert!(p1_pos < p2_pos);

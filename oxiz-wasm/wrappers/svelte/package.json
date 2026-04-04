@@ -28,7 +28,7 @@
     "svelte": "^3.0.0 || ^4.0.0"
   },
   "dependencies": {
-    "oxiz-wasm": "^0.1.3"
+    "@cooljapan/oxiz": "^0.2.0"
   },
   "devDependencies": {
     "@sveltejs/package": "^2.0.0",

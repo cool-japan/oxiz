@@ -377,29 +377,22 @@ fn bench_compression(c: &mut Criterion) {
     let sample_data = vec![0u8; 1_000_000]; // 1MB of data
 
     group.bench_function("gzip_compress", |b| {
-        use flate2::Compression;
-        use flate2::write::GzEncoder;
-        use std::io::Write;
+        use oxiarc_deflate::gzip_compress;
 
         b.iter(|| {
-            let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
-            encoder.write_all(black_box(&sample_data)).unwrap();
-            let compressed = encoder.finish().unwrap();
+            let compressed =
+                gzip_compress(black_box(&sample_data), 6).expect("gzip compression failed");
             black_box(compressed)
         });
     });
 
     group.bench_function("brotli_compress", |b| {
-        use brotli::CompressorWriter;
-        use std::io::Write;
+        use oxiarc_brotli::compress;
 
         b.iter(|| {
-            let mut output = Vec::new();
-            let mut encoder = CompressorWriter::new(&mut output, 4096, 6, 22);
-            encoder.write_all(black_box(&sample_data)).unwrap();
-            encoder.flush().unwrap();
-            drop(encoder);
-            black_box(output)
+            let compressed =
+                compress(black_box(&sample_data), 6).expect("brotli compression failed");
+            black_box(compressed)
         });
     });
 
@@ -409,8 +402,6 @@ fn bench_compression(c: &mut Criterion) {
 /// Target validation tests
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_minimal_size_target() {
         let size = measure_bundle_size(&BundleConfig::minimal());

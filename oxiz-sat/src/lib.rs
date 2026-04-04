@@ -58,9 +58,17 @@
 //! assert_eq!(result, SolverResult::Sat); // b must be true
 //! ```
 
+#![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(not(feature = "std"), allow(unused_variables))]
 #![deny(unsafe_code)]
 #![warn(missing_docs)]
 
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+
+mod prelude;
+
+// === Always-available modules (no_std compatible) ===
 mod activity;
 mod agility;
 mod allsat;
@@ -68,7 +76,6 @@ mod assumptions;
 mod asymmetric_branching;
 mod autotuning;
 mod backbone;
-mod benchmark;
 mod big;
 mod cardinality;
 mod cce;
@@ -76,23 +83,21 @@ mod chb;
 mod chrono;
 mod chronological_backtrack;
 mod clause;
-mod clause_exchange;
 mod clause_maintenance;
+pub mod clause_pool;
 mod clause_size_manager;
 mod community;
 mod community_partition;
 mod config_presets;
 mod cube;
-mod cube_solver;
-mod dimacs;
 mod distillation;
+#[cfg(feature = "std")]
 mod drat_inprocessing;
 mod dynamic_lbd;
 mod dynamic_subsumption;
 mod els;
 mod extended_resolution;
 mod gate;
-mod gpu;
 mod hyper_binary;
 mod literal;
 mod local_search;
@@ -103,12 +108,8 @@ mod memory;
 mod memory_opt;
 mod ml_branching;
 mod occurrence;
-pub mod parallel;
-mod portfolio;
 pub mod preprocessing;
 mod preprocessing_core;
-mod profiling;
-mod proof;
 mod recursive_minimization;
 mod reluctant;
 mod rephasing;
@@ -116,7 +117,6 @@ mod resolution_graph;
 mod smoothed_lbd;
 mod solver;
 mod stabilization;
-mod stats_dashboard;
 mod subsumption;
 mod symmetry;
 mod target_phase;
@@ -131,6 +131,29 @@ mod vsids;
 mod watched;
 mod xor;
 
+// === std-only modules ===
+#[cfg(feature = "std")]
+mod benchmark;
+#[cfg(feature = "std")]
+mod clause_exchange;
+#[cfg(feature = "std")]
+mod cube_solver;
+#[cfg(feature = "std")]
+mod dimacs;
+#[cfg(feature = "std")]
+mod gpu;
+#[cfg(feature = "std")]
+pub mod parallel;
+#[cfg(feature = "std")]
+mod portfolio;
+#[cfg(feature = "std")]
+mod profiling;
+#[cfg(feature = "std")]
+mod proof;
+#[cfg(feature = "std")]
+mod stats_dashboard;
+
+// === Always-available exports ===
 pub use activity::{ActivityStats, ClauseActivityManager, VariableActivityManager};
 pub use agility::{AgilityStats, AgilityTracker};
 pub use allsat::{AllSatEnumerator, EnumerationConfig, EnumerationResult, EnumerationStats, Model};
@@ -144,7 +167,6 @@ pub use autotuning::{
     PerformanceMetrics as TuningPerformanceMetrics, TuningStrategy,
 };
 pub use backbone::{BackboneAlgorithm, BackboneDetector, BackboneFilter, BackboneStats};
-pub use benchmark::{BenchmarkHarness, BenchmarkResult};
 pub use big::{BigStats, BinaryImplicationGraph};
 pub use cardinality::CardinalityEncoder;
 pub use cce::{CceStats, CoveredClauseElimination};
@@ -152,7 +174,6 @@ pub use chronological_backtrack::{
     BacktrackDecision, ChronoBacktrackConfig, ChronoBacktrackEngine, ChronoBacktrackStats,
 };
 pub use clause::{Clause, ClauseDatabase, ClauseDatabaseStats, ClauseId, ClauseTier};
-pub use clause_exchange::{ClauseExchangeBuffer, ExchangeConfig, ExchangeStats, SharedClause};
 pub use clause_maintenance::{ClauseMaintenance, MaintenanceStats};
 pub use clause_size_manager::{ClauseSizeManager, SizeAdjustmentStrategy, SizeManagerStats};
 pub use community::{
@@ -161,11 +182,8 @@ pub use community::{
 pub use community_partition::{CommunityPartition, PartitionStats};
 pub use config_presets::ConfigPreset;
 pub use cube::{Cube, CubeConfig, CubeGenerator, CubeResult, CubeSplittingStrategy, CubeStats};
-pub use cube_solver::{
-    CubeAndConquer, CubeSolveResult, CubeSolverConfig, CubeSolverStats, ParallelCubeSolver,
-};
-pub use dimacs::{DimacsError, DimacsParser, DimacsWriter};
 pub use distillation::{Distillation, DistillationStats};
+#[cfg(feature = "std")]
 pub use drat_inprocessing::{DratInprocessingConfig, DratInprocessingStats, DratInprocessor};
 pub use dynamic_lbd::{DynamicLbdManager, DynamicLbdStats};
 pub use dynamic_subsumption::{
@@ -175,11 +193,6 @@ pub use dynamic_subsumption::{
 pub use els::{ElsStats, EquivalentLiteralSubstitution};
 pub use extended_resolution::{ClauseSubstitution, ExtendedResolution, Extension, ExtensionType};
 pub use gate::{GateDetector, GateStats, GateType};
-pub use gpu::{
-    BatchPropagationResult, ClauseManagementResult, ConflictAnalysisResult,
-    CpuReferenceAccelerator, GpuBackend, GpuBenchmark, GpuBenchmarkResult, GpuBenefitAnalysis,
-    GpuConfig, GpuError, GpuRecommendation, GpuSolverAccelerator, GpuStats,
-};
 pub use hyper_binary::{HbrResult, HyperBinaryResolver, HyperBinaryStats};
 pub use literal::{LBool, Lit, Var};
 pub use local_search::{LocalSearch, LocalSearchConfig, LocalSearchResult, LocalSearchStats};
@@ -189,15 +202,7 @@ pub use memory::{ClauseArena, ClauseRef, MemoryStats};
 pub use memory_opt::{MemoryAction, MemoryOptStats, MemoryOptimizer, SizeClass};
 pub use ml_branching::{MLBranching, MLBranchingConfig, MLBranchingStats};
 pub use occurrence::{OccurrenceList, OccurrenceStats};
-pub use parallel::{
-    ParallelClauseSimplifier, ParallelProofChecker, PortfolioConfig as ParallelPortfolioConfig,
-    PortfolioResult as ParallelPortfolioResult, PortfolioSolver as ParallelPortfolioSolver,
-    ProofCheckConfig, ProofCheckResult, SimplificationConfig, SimplificationResult, SolverVariant,
-};
-pub use portfolio::{PortfolioConfig, PortfolioResult, PortfolioSolver, PortfolioStats};
 pub use preprocessing_core::Preprocessor;
-pub use profiling::{AutoTimer, PerformanceMetrics, Profiler, ScopedTimer};
-pub use proof::{DratProof, LratProof, ProofTrimmer};
 pub use recursive_minimization::{RecursiveMinStats, RecursiveMinimizer};
 pub use reluctant::{ReluctantDoubling, ReluctantStats};
 pub use rephasing::{RephasingManager, RephasingStats, RephasingStrategy};
@@ -212,7 +217,6 @@ pub use solver::{
 pub use stabilization::{
     SearchMode, StabilizationConfig, StabilizationManager, StabilizationStats,
 };
-pub use stats_dashboard::{StatsAggregator, StatsDashboard};
 pub use subsumption::{SubsumptionChecker, SubsumptionStats};
 pub use symmetry::{
     AutomorphismDetector, MatrixSymmetry, Permutation, SymmetryBreaker, SymmetryBreakingMethod,
@@ -230,3 +234,35 @@ pub use xor::{
     GF2Matrix, GF2Row, PropagateResult, XorAddResult, XorClause, XorClauseId, XorConstraint,
     XorDetector, XorManager, XorPropagator, XorPropagatorStats, XorStrengthening, XorSubsumption,
 };
+
+// === std-only exports ===
+#[cfg(feature = "std")]
+pub use benchmark::{BenchmarkHarness, BenchmarkResult};
+#[cfg(feature = "std")]
+pub use clause_exchange::{ClauseExchangeBuffer, ExchangeConfig, ExchangeStats, SharedClause};
+#[cfg(feature = "std")]
+pub use cube_solver::{
+    CubeAndConquer, CubeSolveResult, CubeSolverConfig, CubeSolverStats, ParallelCubeSolver,
+};
+#[cfg(feature = "std")]
+pub use dimacs::{DimacsError, DimacsParser, DimacsWriter};
+#[cfg(feature = "std")]
+pub use gpu::{
+    BatchPropagationResult, ClauseManagementResult, ConflictAnalysisResult,
+    CpuReferenceAccelerator, GpuBackend, GpuBenchmark, GpuBenchmarkResult, GpuBenefitAnalysis,
+    GpuConfig, GpuError, GpuRecommendation, GpuSolverAccelerator, GpuStats,
+};
+#[cfg(feature = "std")]
+pub use parallel::{
+    ParallelClauseSimplifier, ParallelProofChecker, PortfolioConfig as ParallelPortfolioConfig,
+    PortfolioResult as ParallelPortfolioResult, PortfolioSolver as ParallelPortfolioSolver,
+    ProofCheckConfig, ProofCheckResult, SimplificationConfig, SimplificationResult, SolverVariant,
+};
+#[cfg(feature = "std")]
+pub use portfolio::{PortfolioConfig, PortfolioResult, PortfolioSolver, PortfolioStats};
+#[cfg(feature = "std")]
+pub use profiling::{AutoTimer, PerformanceMetrics, Profiler, ScopedTimer};
+#[cfg(feature = "std")]
+pub use proof::{DratProof, LratProof, ProofTrimmer};
+#[cfg(feature = "std")]
+pub use stats_dashboard::{StatsAggregator, StatsDashboard};

@@ -17,8 +17,9 @@
 //! - Barrett et al.: "A Decision Procedure for Datatypes"
 //! - Z3's `qe/qe_datatype_plugin.cpp`
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::{Sort, Term};
-use rustc_hash::FxHashMap;
 
 /// Variable identifier.
 pub type VarId = usize;

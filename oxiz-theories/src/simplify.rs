@@ -10,8 +10,9 @@
 //! - Redundancy elimination
 //! - Boolean simplification
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::ast::TermId;
-use rustc_hash::{FxHashMap, FxHashSet};
 
 /// Result of simplification
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -7,9 +7,10 @@
 //! - Proof obligation management
 //! - Dependency tracking between goals
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::ast::{TermId, TermKind, TermManager};
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::VecDeque;
+use crate::prelude::VecDeque;
 
 /// Goal refinement tactic.
 pub struct GoalRefinementTactic {
@@ -667,8 +668,8 @@ mod tests {
         deps.add_child(0, 1);
         deps.add_child(0, 2);
 
-        assert_eq!(deps.children(0).unwrap().len(), 2);
-        assert_eq!(deps.parents(1).unwrap().len(), 1);
+        assert_eq!(deps.children(0).expect("test operation should succeed").len(), 2);
+        assert_eq!(deps.parents(1).expect("test operation should succeed").len(), 1);
     }
 
     #[test]

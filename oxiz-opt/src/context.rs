@@ -682,9 +682,9 @@ mod tests {
 
         let group = ctx.get_group("group1");
         assert!(group.is_some());
-        assert_eq!(group.unwrap().len(), 2);
-        assert!(group.unwrap().contains(&id1));
-        assert!(group.unwrap().contains(&id2));
+        assert_eq!(group.expect("test operation should succeed").len(), 2);
+        assert!(group.expect("test operation should succeed").contains(&id1));
+        assert!(group.expect("test operation should succeed").contains(&id2));
     }
 
     #[test]

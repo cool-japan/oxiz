@@ -264,11 +264,15 @@ mod tests {
         assert!(tracker.is_active(p2));
         assert!(tracker.is_active(p3));
 
-        let premise = tracker.get_premise(p1).unwrap();
+        let premise = tracker
+            .get_premise(p1)
+            .expect("test operation should succeed");
         assert_eq!(premise.term, "(> x 5)");
         assert!(!premise.is_assumption);
 
-        let assumption = tracker.get_premise(p3).unwrap();
+        let assumption = tracker
+            .get_premise(p3)
+            .expect("test operation should succeed");
         assert!(assumption.is_assumption);
     }
 
@@ -347,7 +351,9 @@ mod tests {
 
         let d1 = dep.add_derived(vec![p1, p2]);
 
-        let deps = dep.get_dependencies(d1).unwrap();
+        let deps = dep
+            .get_dependencies(d1)
+            .expect("test operation should succeed");
         assert_eq!(deps.len(), 2);
         assert!(deps.contains(&p1));
         assert!(deps.contains(&p2));

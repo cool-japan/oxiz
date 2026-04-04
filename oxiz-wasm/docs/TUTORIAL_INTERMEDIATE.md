@@ -28,7 +28,7 @@ Incremental solving lets you explore different scenarios without recreating the 
 Use `push()` and `pop()` to create and remove assertion contexts:
 
 ```javascript
-import init, { WasmSolver } from 'oxiz-wasm';
+import init, { WasmSolver } from '@cooljapan/oxiz';
 
 async function incrementalExample() {
   await init();
@@ -410,7 +410,7 @@ For long-running operations, use a Web Worker:
 
 ### worker.js
 ```javascript
-import init, { WasmSolver } from 'oxiz-wasm';
+import init, { WasmSolver } from '@cooljapan/oxiz';
 
 let solver = null;
 

@@ -158,7 +158,7 @@ mod tests {
                     vec![i as f64, (i + 1) as f64],
                     vec![(i * 2) as f64],
                 )
-                .unwrap();
+                .expect("test operation should succeed");
         }
 
         // Buffer should trigger update after 5 examples
@@ -172,7 +172,7 @@ mod tests {
 
         learner
             .add_example(&mut model, vec![1.0, 2.0], vec![3.0])
-            .unwrap();
+            .expect("test operation should succeed");
         learner.reset();
 
         assert_eq!(learner.buffer_size(), 0);

@@ -7,7 +7,8 @@
 //! - Array extensionality reasoning
 
 use crate::ast::{TermId, TermKind, TermManager};
-use rustc_hash::FxHashMap;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Select-store elimination tactic.
 pub struct SelectStoreElimTactic {

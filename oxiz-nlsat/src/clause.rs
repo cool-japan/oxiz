@@ -539,11 +539,11 @@ mod tests {
         assert_eq!(db.num_learned(), 1);
 
         // Get clause
-        let c1 = db.get(id1).unwrap();
+        let c1 = db.get(id1).expect("key should exist in map");
         assert!(!c1.is_learned());
         assert_eq!(c1.len(), 2);
 
-        let c2 = db.get(id2).unwrap();
+        let c2 = db.get(id2).expect("key should exist in map");
         assert!(c2.is_learned());
     }
 
@@ -678,7 +678,7 @@ mod tests {
             let clause = db.get(id);
             prop_assert!(clause.is_some());
 
-            let clause = clause.unwrap();
+            let clause = clause.expect("test operation should succeed");
             prop_assert_eq!(clause.len(), 1);
             prop_assert!(clause.contains(lit));
         }

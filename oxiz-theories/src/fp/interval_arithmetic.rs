@@ -29,6 +29,8 @@
 
 use crate::fp::ieee754_full::Ieee754Engine;
 use crate::fp::{FpFormat, FpRoundingMode, FpValue};
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// A floating-point interval [lower, upper]
 ///
@@ -862,7 +864,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // TODO: Fix IEEE754 multiplication - exponent calculation is incorrect
     fn test_interval_multiplication() {
         let mut engine = IntervalEngine::new();
 

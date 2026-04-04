@@ -10,8 +10,8 @@
 //! Reference: "Equality Saturation: A New Approach to Optimization" and Z3's E-matching
 
 use crate::ast::{TermId, TermKind, TermManager};
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::VecDeque;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// E-class ID representing an equivalence class of terms
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -767,7 +767,10 @@ mod tests {
         // Extract should return const1 (cost 1) rather than const2 (cost 2)
         let best = egraph.extract_best(id1, cost_fn);
         assert!(best.is_some());
-        assert_eq!(best.unwrap().kind, ENodeKind::IntConst(1));
+        assert_eq!(
+            best.expect("test operation should succeed").kind,
+            ENodeKind::IntConst(1)
+        );
     }
 
     #[test]
@@ -804,7 +807,7 @@ mod tests {
         // Extract should prefer var_x (no children) over add_x_0 (two children)
         let best = egraph.extract_best(x_id, cost_fn);
         assert!(best.is_some());
-        let best_node = best.unwrap();
+        let best_node = best.expect("test operation should succeed");
         assert_eq!(best_node.kind, ENodeKind::Var("x".to_string()));
         assert_eq!(best_node.children.len(), 0);
     }

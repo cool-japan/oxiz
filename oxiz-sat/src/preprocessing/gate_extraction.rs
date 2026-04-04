@@ -3,8 +3,9 @@
 //! Identifies logical gates (AND, OR, XOR, ITE) in CNF formulas to enable
 //! more efficient solving through structural reasoning.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::{Clause, Lit, Var};
-use std::collections::{HashMap, HashSet};
 
 /// Types of logical gates that can be extracted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

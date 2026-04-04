@@ -9,7 +9,10 @@
 //! - Query compilation and optimization
 
 // Allow dead code as this is a library module with public APIs for future use
+
 #![allow(dead_code)]
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 mod clp;
 mod compiler;

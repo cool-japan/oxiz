@@ -9,6 +9,8 @@
 //! 🤖 Generated with [SplitRS](https://github.com/cool-japan/splitrs)
 
 use super::types::AdvancedCharSolver;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 impl Default for AdvancedCharSolver {
     fn default() -> Self {

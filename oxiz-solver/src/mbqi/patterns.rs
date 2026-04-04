@@ -3,9 +3,10 @@
 //! This module implements sophisticated pattern matching and trigger generation
 //! algorithms for E-matching style quantifier instantiation.
 
-use lasso::Spur;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::ast::{TermId, TermKind, TermManager};
-use rustc_hash::{FxHashMap, FxHashSet};
+use oxiz_core::interner::Spur;
 
 use super::QuantifiedFormula;
 
@@ -201,7 +202,7 @@ impl PatternGenerator {
         patterns.retain(|p| p.quality >= self.min_quality);
 
         // Sort by quality (best first)
-        patterns.sort_by(|a, b| b.quality.cmp(&a.quality));
+        patterns.sort_by_key(|p| std::cmp::Reverse(p.quality));
 
         // Limit number of patterns
         patterns.truncate(self.max_patterns);

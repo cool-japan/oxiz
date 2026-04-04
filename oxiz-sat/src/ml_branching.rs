@@ -13,7 +13,8 @@
 //! - Pure Rust implementation (no external ML libraries)
 
 use crate::literal::{Lit, Var};
-use std::collections::HashMap;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Statistics for ML-based branching
 #[derive(Debug, Default, Clone)]
@@ -208,7 +209,7 @@ impl MLBranching {
 
         if self.config.normalize_features {
             // Sigmoid normalization to [0, 1]
-            1.0 / (1.0 + (-score).exp())
+            1.0 / (1.0 + libm::exp(-score))
         } else {
             score
         }
@@ -225,7 +226,7 @@ impl MLBranching {
     /// Convert score to confidence level
     fn score_to_confidence(&self, score: f64) -> f64 {
         // Map score to confidence using sigmoid
-        let normalized = 1.0 / (1.0 + (-5.0 * (score - 0.5)).exp());
+        let normalized: f64 = 1.0 / (1.0 + libm::exp(-5.0 * (score - 0.5)));
         normalized.clamp(0.0, 1.0)
     }
 
@@ -363,8 +364,8 @@ impl MLBranching {
 
     /// Compute similarity between two clauses (Jaccard similarity)
     fn clause_similarity(&self, clause1: &[Lit], clause2: &[Lit]) -> f64 {
-        let set1: std::collections::HashSet<_> = clause1.iter().map(|l| l.var()).collect();
-        let set2: std::collections::HashSet<_> = clause2.iter().map(|l| l.var()).collect();
+        let set1: crate::prelude::HashSet<_> = clause1.iter().map(|l| l.var()).collect();
+        let set2: crate::prelude::HashSet<_> = clause2.iter().map(|l| l.var()).collect();
 
         let intersection = set1.intersection(&set2).count();
         let union = set1.union(&set2).count();

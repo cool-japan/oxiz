@@ -22,7 +22,8 @@
 //! let result = solver.check();
 //! ```
 
-use std::collections::{HashMap, HashSet};
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// A literal identifier (variable with polarity)
 pub type LitId = i32;

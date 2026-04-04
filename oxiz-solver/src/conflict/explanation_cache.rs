@@ -13,9 +13,9 @@
 //!
 //! - Z3's `smt/smt_theory.cpp` explanation caching
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_sat::Lit;
-use rustc_hash::FxHashMap;
-use std::collections::VecDeque;
 
 /// Cache key (theory conflict identifier).
 pub type CacheKey = u64;
@@ -218,7 +218,7 @@ mod tests {
         cache.insert(key, literals.clone(), None);
         assert_eq!(cache.len(), 1);
 
-        let retrieved = cache.get(key).unwrap();
+        let retrieved = cache.get(key).expect("key should exist in map");
         assert_eq!(retrieved.literals.len(), 2);
         assert_eq!(cache.stats().hits, 1);
     }
@@ -285,7 +285,7 @@ mod tests {
 
         cache.insert(key, vec![], proof.clone());
 
-        let retrieved = cache.get(key).unwrap();
+        let retrieved = cache.get(key).expect("key should exist in map");
         assert_eq!(retrieved.proof, proof);
     }
 

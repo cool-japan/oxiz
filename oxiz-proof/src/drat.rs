@@ -241,7 +241,9 @@ mod tests {
         proof.delete_clause(vec![3]);
 
         let mut buf = Vec::new();
-        proof.write(&mut buf).unwrap();
+        proof
+            .write(&mut buf)
+            .expect("test operation should succeed");
 
         // Check binary format starts with 'a' and 'd'
         assert_eq!(buf[0], b'a');
@@ -265,19 +267,27 @@ mod tests {
         let mut buf = Vec::new();
 
         // Test encoding of small positive literal
-        proof.write_lit_binary(&mut buf, 1).unwrap();
+        proof
+            .write_lit_binary(&mut buf, 1)
+            .expect("test operation should succeed");
         assert_eq!(buf, vec![2]); // 1 << 1 = 2
 
         buf.clear();
-        proof.write_lit_binary(&mut buf, -1).unwrap();
+        proof
+            .write_lit_binary(&mut buf, -1)
+            .expect("test operation should succeed");
         assert_eq!(buf, vec![3]); // (1 << 1) | 1 = 3
 
         buf.clear();
-        proof.write_lit_binary(&mut buf, 0).unwrap();
+        proof
+            .write_lit_binary(&mut buf, 0)
+            .expect("test operation should succeed");
         assert_eq!(buf, vec![0]); // Terminator
 
         buf.clear();
-        proof.write_lit_binary(&mut buf, 64).unwrap();
+        proof
+            .write_lit_binary(&mut buf, 64)
+            .expect("test operation should succeed");
         // 64 << 1 = 128, needs 2 bytes: 0x80 | 0, 0x01
         assert_eq!(buf, vec![0x80, 0x01]);
     }

@@ -8,8 +8,9 @@
 //! - Learned clause database management
 //! - Clause subsumption and strengthening
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::ast::{TermId, TermManager};
-use rustc_hash::{FxHashMap, FxHashSet};
 
 /// Clause learning engine for CDCL.
 pub struct ClauseLearner {
@@ -579,7 +580,7 @@ impl LearnedDatabase {
         sorted_indices.sort_by(|&a, &b| {
             self.activity[b]
                 .partial_cmp(&self.activity[a])
-                .unwrap_or(std::cmp::Ordering::Equal)
+                .unwrap_or(core::cmp::Ordering::Equal)
         });
 
         // Keep top 50%

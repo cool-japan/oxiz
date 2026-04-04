@@ -4,6 +4,8 @@
 //! according to user-defined or built-in rewrite rules.
 
 use super::{TermId, TermKind, TermManager};
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// A rewrite rule that transforms a term
 pub trait RewriteRule: Send + Sync {
@@ -62,7 +64,7 @@ impl RewriteRuleSet {
     /// Apply rules once (bottom-up) to all subterms
     pub fn apply_bottom_up(&self, term_id: TermId, manager: &mut TermManager) -> TermId {
         use super::traversal::collect_subterms;
-        use rustc_hash::FxHashMap;
+        use crate::prelude::FxHashMap;
 
         // Collect all subterms in post-order
         let subterms = collect_subterms(term_id, manager);

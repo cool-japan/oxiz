@@ -16,8 +16,10 @@
 //! - "Solving String Constraints with Regex-Dependent Functions" (Lin & Barceló, 2016)
 //! - Z3's `qe/qe_arith.cpp` (adapted for strings)
 
-use crate::Term;
-use rustc_hash::{FxHashMap, FxHashSet};
+#[allow(unused_imports)]
+use crate::prelude::*;
+use crate::sort::SortId;
+use crate::{Term, TermId, TermKind};
 
 /// Variable identifier.
 pub type VarId = usize;
@@ -214,7 +216,11 @@ impl StringQePlugin {
 
     /// Create a "true" term (placeholder).
     fn create_true(&self) -> Term {
-        unimplemented!("placeholder term")
+        Term {
+            id: TermId(0),
+            kind: TermKind::True,
+            sort: SortId(0),
+        }
     }
 
     /// Get statistics.

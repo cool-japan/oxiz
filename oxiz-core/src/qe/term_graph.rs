@@ -4,6 +4,8 @@
 //! Based on Garcia-Contreras et al. (CAV'23) term graph analysis.
 
 use crate::ast::{TermId, TermKind, TermManager};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Configuration for term graph analysis
@@ -293,7 +295,7 @@ impl TermGraph {
             .iter()
             .map(|(&id, node)| (node.depth, id))
             .collect();
-        terms_by_depth.sort_by(|a, b| b.0.cmp(&a.0)); // Descending
+        terms_by_depth.sort_by_key(|item| std::cmp::Reverse(item.0)); // Descending
 
         for (_, term_id) in terms_by_depth {
             let children: Vec<_> = self
@@ -340,7 +342,7 @@ impl TermGraph {
         }
 
         let mut vars: Vec<_> = var_scores.into_iter().collect();
-        vars.sort_by(|a, b| b.1.cmp(&a.1)); // Descending by score
+        vars.sort_by_key(|item| std::cmp::Reverse(item.1)); // Descending by score
         vars.into_iter().map(|(v, _)| v).collect()
     }
 
@@ -460,10 +462,10 @@ mod tests {
 
     #[test]
     fn test_classify_term() {
-        use lasso::Key;
+        use crate::interner::Key;
         assert_eq!(
             TermGraph::classify_term(&TermKind::Var(
-                lasso::Spur::try_from_usize(0).expect("valid")
+                crate::interner::Spur::try_from_usize(0).expect("valid")
             )),
             TermNodeKind::Variable
         );

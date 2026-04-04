@@ -14,10 +14,11 @@
 #![allow(missing_docs)]
 #![allow(dead_code)]
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::fmt;
 use oxiz_core::ast::{TermId, TermManager};
 use oxiz_core::sort::SortId;
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::fmt;
 
 use super::QuantifiedFormula;
 use super::model_completion::CompletedModel;
@@ -599,7 +600,7 @@ impl fmt::Display for FinderError {
     }
 }
 
-impl std::error::Error for FinderError {}
+impl core::error::Error for FinderError {}
 
 /// Statistics for finite model finding
 #[derive(Debug, Clone, Default)]

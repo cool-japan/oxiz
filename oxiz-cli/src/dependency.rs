@@ -222,7 +222,7 @@ impl DependencyGraph {
             .map(|(symbol, assertions)| (symbol.clone(), assertions.len()))
             .collect();
 
-        hubs.sort_by(|a, b| b.1.cmp(&a.1));
+        hubs.sort_by_key(|item| core::cmp::Reverse(item.1));
         hubs
     }
 

@@ -667,7 +667,7 @@ mod tests {
         });
 
         // Should dequeue higher priority first
-        let work = state.dequeue_work().unwrap();
+        let work = state.dequeue_work().expect("test operation should succeed");
         assert_eq!(work.pob_id, PobId(1));
         assert_eq!(work.priority, 20);
     }

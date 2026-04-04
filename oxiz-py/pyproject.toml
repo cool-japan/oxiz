@@ -6,7 +6,7 @@ build-backend = "maturin"
 name = "oxiz"
 description = "Python bindings for OxiZ SMT Solver"
 readme = "README.md"
-license = { text = "MIT OR Apache-2.0" }
+license = { text = "Apache-2.0" }
 requires-python = ">=3.8"
 classifiers = [
     "Programming Language :: Rust",
@@ -23,7 +23,6 @@ classifiers = [
     "Intended Audience :: Developers",
     "Topic :: Scientific/Engineering",
     "Topic :: Scientific/Engineering :: Mathematics",
-    "License :: OSI Approved :: MIT License",
     "License :: OSI Approved :: Apache Software License",
 ]
 keywords = ["smt", "solver", "sat", "verification", "logic", "theorem-prover"]

@@ -13,6 +13,8 @@
 
 use super::{RewriteContext, RewriteResult, Rewriter};
 use crate::ast::{RoundingMode, TermId, TermKind, TermManager};
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Floating-point rewriter
 #[derive(Debug, Clone)]

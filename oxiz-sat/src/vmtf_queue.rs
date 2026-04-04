@@ -12,7 +12,8 @@
 //! - "Between SAT and UNSAT: The Fundamental Difference in CDCL SAT" (Biere)
 
 use crate::literal::Var;
-use std::collections::VecDeque;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Statistics for VMTF bump queue
 #[derive(Debug, Clone, Default)]

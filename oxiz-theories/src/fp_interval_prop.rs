@@ -31,8 +31,9 @@
 //! - Z3's `fpa/fpa2bv_converter.cpp` and interval reasoning
 //! - Brain et al.: "An Automatable Formal Semantics for IEEE-754 Floating-Point Arithmetic" (2015)
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::ast::TermId;
-use rustc_hash::FxHashMap;
 
 /// IEEE 754 rounding mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -255,6 +256,7 @@ impl FpIntervalPropagator {
 
     /// Propagate intervals through addition: z = x + y.
     pub fn propagate_add(&mut self, x: TermId, y: TermId, z: TermId) {
+        #[cfg(feature = "std")]
         let start = std::time::Instant::now();
 
         let interval_x = self.get_interval(x);
@@ -264,11 +266,15 @@ impl FpIntervalPropagator {
         self.refine_interval(z, interval_z);
 
         self.stats.propagations += 1;
-        self.stats.interval_time_us += start.elapsed().as_micros() as u64;
+        #[cfg(feature = "std")]
+        {
+            self.stats.interval_time_us += start.elapsed().as_micros() as u64;
+        }
     }
 
     /// Propagate intervals through multiplication: z = x * y.
     pub fn propagate_mul(&mut self, x: TermId, y: TermId, z: TermId) {
+        #[cfg(feature = "std")]
         let start = std::time::Instant::now();
 
         let interval_x = self.get_interval(x);
@@ -278,7 +284,10 @@ impl FpIntervalPropagator {
         self.refine_interval(z, interval_z);
 
         self.stats.propagations += 1;
-        self.stats.interval_time_us += start.elapsed().as_micros() as u64;
+        #[cfg(feature = "std")]
+        {
+            self.stats.interval_time_us += start.elapsed().as_micros() as u64;
+        }
     }
 
     /// Check if any interval is empty (conflict).
@@ -470,7 +479,7 @@ mod tests {
     fn test_fp_propagator_clear() {
         let mut prop = FpIntervalPropagator::new();
 
-        prop.set_interval(TermId::new(1), FpInterval::point(std::f64::consts::PI));
+        prop.set_interval(TermId::new(1), FpInterval::point(core::f64::consts::PI));
         assert!(!prop.intervals.is_empty());
 
         prop.clear();

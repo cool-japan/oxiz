@@ -2,10 +2,12 @@
 
 use super::helpers::*;
 use super::types::*;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use crate::simd::polynomial_simd::{poly_add_coeffs, poly_dot_product, poly_mul_scalar};
 use num_bigint::BigInt;
 use num_rational::BigRational;
 use num_traits::{One, Signed, Zero};
-use rustc_hash::FxHashMap;
 
 type Polynomial = super::Polynomial;
 
@@ -121,7 +123,7 @@ impl super::Polynomial {
             return vec![];
         }
 
-        let max_var = *vars.iter().max().unwrap();
+        let max_var = *vars.iter().max().expect("operation should succeed");
         let mut grad = Vec::new();
 
         // Compute partial derivative for each variable from 0 to max_var
@@ -168,7 +170,7 @@ impl super::Polynomial {
             return vec![];
         }
 
-        let max_var = *vars.iter().max().unwrap();
+        let max_var = *vars.iter().max().expect("operation should succeed");
         let n = (max_var + 1) as usize;
 
         let mut hessian = vec![vec![Polynomial::zero(); n]; n];
@@ -336,11 +338,11 @@ impl super::Polynomial {
         let antideriv = self.integrate(var);
 
         // Evaluate at upper and lower bounds
-        let mut upper_assignment = rustc_hash::FxHashMap::default();
+        let mut upper_assignment = crate::prelude::FxHashMap::default();
         upper_assignment.insert(var, upper.clone());
         let upper_val = antideriv.eval(&upper_assignment);
 
-        let mut lower_assignment = rustc_hash::FxHashMap::default();
+        let mut lower_assignment = crate::prelude::FxHashMap::default();
         lower_assignment.insert(var, lower.clone());
         let lower_val = antideriv.eval(&lower_assignment);
 
@@ -427,7 +429,7 @@ impl super::Polynomial {
         let mut sum = BigRational::zero();
 
         // First and last terms: f(a)/2 + f(b)/2
-        let mut assignment = rustc_hash::FxHashMap::default();
+        let mut assignment = crate::prelude::FxHashMap::default();
         assignment.insert(var, lower.clone());
         sum += &self.eval(&assignment) / BigRational::from_integer(BigInt::from(2));
 
@@ -491,7 +493,7 @@ impl super::Polynomial {
         let h = (upper - lower) / BigRational::from_integer(BigInt::from(n));
 
         let mut sum = BigRational::zero();
-        let mut assignment = rustc_hash::FxHashMap::default();
+        let mut assignment = crate::prelude::FxHashMap::default();
 
         // First and last terms: f(a) + f(b)
         assignment.insert(var, lower.clone());
@@ -687,7 +689,7 @@ impl super::Polynomial {
 
         // Ensure deg(a) >= deg(b)
         if a.degree(var) < b.degree(var) {
-            std::mem::swap(&mut a, &mut b);
+            core::mem::swap(&mut a, &mut b);
         }
 
         // Limit iterations for safety
@@ -828,7 +830,7 @@ impl super::Polynomial {
 
         // Ensure deg(a) >= deg(b)
         if a.degree(var) < b.degree(var) {
-            std::mem::swap(&mut a, &mut b);
+            core::mem::swap(&mut a, &mut b);
         }
 
         prs.push(a.clone());
@@ -923,7 +925,7 @@ impl super::Polynomial {
             iter_count += 1;
             let delta = a.degree(var) as i32 - b.degree(var) as i32;
             if delta < 0 {
-                std::mem::swap(&mut a, &mut b);
+                core::mem::swap(&mut a, &mut b);
                 if (a.degree(var) & 1 == 1) && (b.degree(var) & 1 == 1) {
                     sign = -sign;
                 }
@@ -1056,7 +1058,12 @@ impl super::Polynomial {
         let max_iterations = self.degree(var) as usize + 5;
         let mut iterations = 0;
 
-        while !seq.last().unwrap().is_zero() && iterations < max_iterations {
+        while !seq
+            .last()
+            .expect("collection should not be empty")
+            .is_zero()
+            && iterations < max_iterations
+        {
             iterations += 1;
             let n = seq.len();
             let rem = seq[n - 2].pseudo_remainder(&seq[n - 1], var);
@@ -1288,5 +1295,112 @@ impl super::Polynomial {
 
         // Return the result even if not fully converged
         Some(x)
+    }
+
+    // ── Dense i64 coefficient fast paths (SIMD-accelerated) ─────────────────
+
+    /// Extract the dense integer coefficient vector for a univariate polynomial.
+    ///
+    /// Returns `Some(coeffs)` where `coeffs[k]` is the coefficient of `var^k`,
+    /// if and only if every coefficient is an integer that fits in `i64`.
+    /// Returns `None` for multivariate, non-integer, or out-of-range coefficients.
+    pub fn as_dense_i64(&self, var: Var) -> Option<Vec<i64>> {
+        if self.is_zero() {
+            return Some(vec![0i64]);
+        }
+        // Allow univariate-in-var polynomials
+        if !self.is_univariate() && self.max_var() != var {
+            return None;
+        }
+
+        let deg = self.degree(var) as usize;
+        let mut coeffs = vec![0i64; deg + 1];
+
+        for term in &self.terms {
+            let d = term.monomial.degree(var) as usize;
+            if !term.coeff.is_integer() {
+                return None;
+            }
+            let numer = term.coeff.numer();
+            match i64::try_from(numer.clone()) {
+                Ok(v) => coeffs[d] = v,
+                Err(_) => return None,
+            }
+        }
+
+        Some(coeffs)
+    }
+
+    /// Add two univariate polynomials using the SIMD-accelerated i64 fast path.
+    ///
+    /// Falls back to the generic [`Polynomial::add`] when coefficients do not fit
+    /// in `i64` or the polynomials are not univariate in the same variable.
+    pub fn add_fast_i64(&self, other: &Polynomial, var: Var) -> Polynomial {
+        let a_opt = self.as_dense_i64(var);
+        let b_opt = other.as_dense_i64(var);
+
+        match (a_opt, b_opt) {
+            (Some(a), Some(b)) => {
+                // poly_add_coeffs pads the shorter slice to max(a.len(), b.len())
+                let out = poly_add_coeffs(&a, &b);
+                Polynomial::from_dense_i64(&out, var, self.order)
+            }
+            _ => Polynomial::add(self, other),
+        }
+    }
+
+    /// Scale a univariate polynomial by an integer scalar using the SIMD fast path.
+    ///
+    /// Falls back to generic scalar-multiply when coefficients do not fit in `i64`.
+    pub fn scale_fast_i64(&self, scalar: i64, var: Var) -> Polynomial {
+        match self.as_dense_i64(var) {
+            Some(coeffs) => {
+                let scaled = poly_mul_scalar(&coeffs, scalar);
+                Polynomial::from_dense_i64(&scaled, var, self.order)
+            }
+            None => {
+                let s = BigRational::from_integer(BigInt::from(scalar));
+                let scaled_terms: Vec<Term> = self
+                    .terms
+                    .iter()
+                    .map(|t| Term::new(&t.coeff * &s, t.monomial.clone()))
+                    .collect();
+                Polynomial::from_terms(scaled_terms, self.order)
+            }
+        }
+    }
+
+    /// Compute the i64 dot product between two same-degree dense coefficient arrays.
+    ///
+    /// Returns `Some(value)` when both polynomials are expressible as dense univariate
+    /// `i64` coefficient arrays of equal length, `None` otherwise.
+    pub fn dot_product_i64(&self, other: &Polynomial, var: Var) -> Option<i64> {
+        let a = self.as_dense_i64(var)?;
+        let b = other.as_dense_i64(var)?;
+        if a.len() != b.len() {
+            return None;
+        }
+        poly_dot_product(&a, &b).ok()
+    }
+
+    /// Reconstruct a [`Polynomial`] from a dense `i64` coefficient array.
+    ///
+    /// `coeffs[k]` is the coefficient of `var^k`.  Zero coefficients are omitted.
+    fn from_dense_i64(coeffs: &[i64], var: Var, order: super::types::MonomialOrder) -> Polynomial {
+        let terms: Vec<Term> = coeffs
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| **c != 0)
+            .map(|(k, c)| {
+                let coeff = BigRational::from_integer(BigInt::from(*c));
+                let mon = if k == 0 {
+                    Monomial::unit()
+                } else {
+                    Monomial::from_var_power(var, k as u32)
+                };
+                Term::new(coeff, mon)
+            })
+            .collect();
+        Polynomial::from_terms(terms, order)
     }
 }

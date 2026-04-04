@@ -75,7 +75,7 @@ export type LogicName =
  *
  * @example
  * ```typescript
- * import init, { WasmSolver } from 'oxiz-wasm';
+ * import init, { WasmSolver } from '@cooljapan/oxiz';
  *
  * await init();
  * const solver = new WasmSolver();
@@ -743,7 +743,7 @@ export class WasmSolver {
  *
  * @example
  * ```typescript
- * import { version } from 'oxiz-wasm';
+ * import { version } from '@cooljapan/oxiz';
  * console.log(`OxiZ WASM version: ${version()}`);
  * ```
  */
@@ -760,7 +760,7 @@ export function version(): string;
  *
  * @example
  * ```typescript
- * import init from 'oxiz-wasm';
+ * import init from '@cooljapan/oxiz';
  * await init();
  * ```
  */

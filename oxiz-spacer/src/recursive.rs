@@ -393,7 +393,7 @@ mod tests {
         // Check that predicate is non-recursive
         let info = analyzer.get_info(inv);
         assert!(info.is_some());
-        let info = info.unwrap();
+        let info = info.expect("test operation should succeed");
         assert_eq!(info.kind, RecursionKind::NonRecursive);
     }
 

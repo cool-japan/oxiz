@@ -8,8 +8,9 @@
 #![allow(clippy::only_used_in_recursion)] // recursive simplification intentional
 #![allow(clippy::for_kv_map)] // iterating map keys with values pattern
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::ast::{TermId, TermKind, TermManager};
-use rustc_hash::FxHashMap;
 
 /// Simplification statistics
 #[derive(Debug, Clone, Default)]
@@ -467,7 +468,8 @@ impl Simplifier {
 
         // Track constructor constraints for each variable
         // If a variable is constrained to multiple different constructors, it's UNSAT
-        let mut var_constructors: FxHashMap<TermId, lasso::Spur> = FxHashMap::default();
+        let mut var_constructors: FxHashMap<TermId, oxiz_core::interner::Spur> =
+            FxHashMap::default();
 
         for &assertion in assertions {
             let simp = self.simplify(assertion, manager);
@@ -513,7 +515,7 @@ impl Simplifier {
         lhs: TermId,
         rhs: TermId,
         manager: &TermManager,
-    ) -> (Option<TermId>, Option<lasso::Spur>) {
+    ) -> (Option<TermId>, Option<oxiz_core::interner::Spur>) {
         let lhs_term = manager.get(lhs);
         let rhs_term = manager.get(rhs);
 
@@ -752,13 +754,19 @@ mod tests {
         let t = manager.mk_true();
         let not_t = manager.mk_not(t);
         let result = simplifier.simplify(not_t, &mut manager);
-        assert!(matches!(manager.get(result).unwrap().kind, TermKind::False));
+        assert!(matches!(
+            manager.get(result).expect("key should exist in map").kind,
+            TermKind::False
+        ));
 
         // not(false) => true
         let f = manager.mk_false();
         let not_f = manager.mk_not(f);
         let result = simplifier.simplify(not_f, &mut manager);
-        assert!(matches!(manager.get(result).unwrap().kind, TermKind::True));
+        assert!(matches!(
+            manager.get(result).expect("key should exist in map").kind,
+            TermKind::True
+        ));
     }
 
     #[test]
@@ -778,7 +786,10 @@ mod tests {
         // and(x, false) => false
         let and_x_false = manager.mk_and([x, f]);
         let result = simplifier.simplify(and_x_false, &mut manager);
-        assert!(matches!(manager.get(result).unwrap().kind, TermKind::False));
+        assert!(matches!(
+            manager.get(result).expect("key should exist in map").kind,
+            TermKind::False
+        ));
     }
 
     #[test]
@@ -798,7 +809,10 @@ mod tests {
         // or(x, true) => true
         let or_x_true = manager.mk_or([x, t]);
         let result = simplifier.simplify(or_x_true, &mut manager);
-        assert!(matches!(manager.get(result).unwrap().kind, TermKind::True));
+        assert!(matches!(
+            manager.get(result).expect("key should exist in map").kind,
+            TermKind::True
+        ));
     }
 
     #[test]
@@ -813,7 +827,10 @@ mod tests {
         // false => x  =  true
         let imp = manager.mk_implies(f, x);
         let result = simplifier.simplify(imp, &mut manager);
-        assert!(matches!(manager.get(result).unwrap().kind, TermKind::True));
+        assert!(matches!(
+            manager.get(result).expect("key should exist in map").kind,
+            TermKind::True
+        ));
 
         // true => x  =  x
         let imp = manager.mk_implies(t, x);
@@ -859,12 +876,18 @@ mod tests {
         // x = x  =>  true
         let eq = manager.mk_eq(x, x);
         let result = simplifier.simplify(eq, &mut manager);
-        assert!(matches!(manager.get(result).unwrap().kind, TermKind::True));
+        assert!(matches!(
+            manager.get(result).expect("key should exist in map").kind,
+            TermKind::True
+        ));
 
         // true = false  =>  false
         let eq = manager.mk_eq(t, f);
         let result = simplifier.simplify(eq, &mut manager);
-        assert!(matches!(manager.get(result).unwrap().kind, TermKind::False));
+        assert!(matches!(
+            manager.get(result).expect("key should exist in map").kind,
+            TermKind::False
+        ));
     }
 
     #[test]
@@ -902,12 +925,18 @@ mod tests {
         // Perform a simplification to populate the cache
         let eq = manager.mk_eq(x, x);
         let result1 = simplifier.simplify(eq, &mut manager);
-        assert!(matches!(manager.get(result1).unwrap().kind, TermKind::True));
+        assert!(matches!(
+            manager.get(result1).expect("key should exist in map").kind,
+            TermKind::True
+        ));
 
         // Create another term that would be cached
         let eq2 = manager.mk_eq(y, y);
         let result2 = simplifier.simplify(eq2, &mut manager);
-        assert!(matches!(manager.get(result2).unwrap().kind, TermKind::True));
+        assert!(matches!(
+            manager.get(result2).expect("key should exist in map").kind,
+            TermKind::True
+        ));
 
         // Reset the simplifier
         simplifier.reset();

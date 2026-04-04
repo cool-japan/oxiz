@@ -9,9 +9,10 @@
 
 #![allow(missing_docs)]
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::fmt;
 use oxiz_core::ast::TermId;
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::fmt;
 
 /// Bradley-Manna-Sipma array property fragment
 ///

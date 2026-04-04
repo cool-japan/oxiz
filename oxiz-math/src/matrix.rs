@@ -4,9 +4,11 @@
 //! for linear programming solvers, including Gaussian elimination, LU decomposition,
 //! and linear system solving.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::fmt;
 use num_rational::Rational64;
 use num_traits::Signed;
-use std::fmt;
 
 /// A dense matrix stored in row-major order.
 #[derive(Debug, Clone, PartialEq)]
@@ -1096,7 +1098,7 @@ mod tests {
             Rational64::from(-11),
             Rational64::from(-3),
         ];
-        let x = a.solve(&b).unwrap();
+        let x = a.solve(&b).expect("test operation should succeed");
         assert_eq!(x[0], Rational64::from(2));
         assert_eq!(x[1], Rational64::from(3));
         assert_eq!(x[2], Rational64::from(-1));
@@ -1108,7 +1110,7 @@ mod tests {
             vec![Rational64::from(4), Rational64::from(3)],
             vec![Rational64::from(6), Rational64::from(3)],
         ]);
-        let (l, u, _p) = m.lu_decomposition().unwrap();
+        let (l, u, _p) = m.lu_decomposition().expect("test operation should succeed");
 
         // L should be lower triangular with ones on diagonal
         assert_eq!(l.get(0, 0), Rational64::from(1));
@@ -1125,7 +1127,7 @@ mod tests {
             vec![Rational64::from(1), Rational64::from(2)],
             vec![Rational64::from(3), Rational64::from(4)],
         ]);
-        let det = m.determinant().unwrap();
+        let det = m.determinant().expect("test operation should succeed");
         assert_eq!(det, Rational64::from(-2)); // 1*4 - 2*3 = -2
     }
 
@@ -1148,7 +1150,7 @@ mod tests {
                 Rational64::from(7),
             ],
         ]);
-        let det = m.determinant().unwrap();
+        let det = m.determinant().expect("test operation should succeed");
         assert_eq!(det, Rational64::from(-306));
     }
 
@@ -1276,7 +1278,7 @@ mod tests {
             vec![Rational64::from(0), Rational64::from(1)],
         ]);
 
-        let (q, r) = m.qr_decomposition().unwrap();
+        let (q, r) = m.qr_decomposition().expect("test operation should succeed");
 
         // Verify QR = A by multiplying Q and R
         let reconstructed = q.mul(&r);
@@ -1304,7 +1306,7 @@ mod tests {
             vec![Rational64::from(0), Rational64::from(1)],
         ]);
 
-        let (q, r) = m.qr_decomposition().unwrap();
+        let (q, r) = m.qr_decomposition().expect("test operation should succeed");
 
         // Verify dimensions
         assert_eq!(q.nrows(), 3);
@@ -1340,7 +1342,9 @@ mod tests {
             vec![Rational64::from(2), Rational64::from(2)],
         ]);
 
-        let l = m.cholesky_decomposition().unwrap();
+        let l = m
+            .cholesky_decomposition()
+            .expect("test operation should succeed");
 
         // Verify L * L^T = A
         let lt = l.transpose();
@@ -1360,7 +1364,9 @@ mod tests {
     fn test_cholesky_decomposition_identity() {
         // Identity matrix should have Cholesky decomposition = identity
         let m = Matrix::identity(3);
-        let l = m.cholesky_decomposition().unwrap();
+        let l = m
+            .cholesky_decomposition()
+            .expect("test operation should succeed");
 
         for i in 0..3 {
             for j in 0..3 {
@@ -1394,7 +1400,9 @@ mod tests {
             ],
         ]);
 
-        let l = m.cholesky_decomposition().unwrap();
+        let l = m
+            .cholesky_decomposition()
+            .expect("test operation should succeed");
 
         // Verify L * L^T = A
         let lt = l.transpose();
@@ -1503,7 +1511,7 @@ mod tests {
             vec![Rational64::from(3), Rational64::from(4)],
         ]);
 
-        let a_inv = a.inverse().unwrap();
+        let a_inv = a.inverse().expect("test operation should succeed");
 
         // Verify A * A^-1 = I
         let product = a.mul(&a_inv);
@@ -1518,7 +1526,7 @@ mod tests {
     fn test_matrix_inverse_identity() {
         // Identity matrix inverse should be itself
         let i = Matrix::identity(3);
-        let i_inv = i.inverse().unwrap();
+        let i_inv = i.inverse().expect("test operation should succeed");
         assert!(i_inv.is_identity());
     }
 
@@ -1543,7 +1551,7 @@ mod tests {
             ],
         ]);
 
-        let a_inv = a.inverse().unwrap();
+        let a_inv = a.inverse().expect("test operation should succeed");
 
         // Verify A * A^-1 = I
         let product = a.mul(&a_inv);

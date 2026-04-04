@@ -26,12 +26,13 @@
 
 use crate::ast::{TermId, TermKind, TermManager};
 use crate::error::Result;
+use crate::interner::Spur;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::sort::SortId;
 use crate::tactic::{Goal, Tactic, TacticResult};
-use lasso::Spur;
 use num_bigint::BigInt;
 use num_traits::{Signed, Zero};
-use rustc_hash::FxHashMap;
 
 /// Comparison operator for bounds extraction
 #[derive(Debug, Clone, Copy)]
@@ -476,11 +477,9 @@ impl<'a> Nla2BvTactic<'a> {
         };
 
         match &t.kind {
-            TermKind::Var(name) => {
-                // Check if it's an integer variable (by context - appears in arithmetic)
-                if !vars.contains(name) {
-                    vars.push(*name);
-                }
+            TermKind::Var(name) if !vars.contains(name) => {
+                // Integer variable (by context - appears in arithmetic)
+                vars.push(*name);
             }
             TermKind::Add(args)
             | TermKind::Mul(args)

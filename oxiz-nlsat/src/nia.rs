@@ -551,7 +551,9 @@ mod tests {
         assert_eq!(result, SolverResult::Sat);
 
         if let Some(model) = solver.nlsat().get_model() {
-            let x_val = model.arith_value(var_x).unwrap();
+            let x_val = model
+                .arith_value(var_x)
+                .expect("test operation should succeed");
             assert_eq!(x_val, &rat(1));
         }
     }

@@ -10,6 +10,8 @@
 
 use crate::clause::ClauseId;
 use crate::literal::Var;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Statistics for activity management
 #[derive(Debug, Clone, Default)]

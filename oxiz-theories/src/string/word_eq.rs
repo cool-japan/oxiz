@@ -7,9 +7,9 @@
 //! - Loop detection to prevent infinite exploration
 
 use super::solver::{StringAtom, StringExpr, WordEquation};
-use rustc_hash::{FxHashMap, FxHashSet};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use smallvec::SmallVec;
-use std::collections::VecDeque;
 
 /// Result of word equation solving
 #[derive(Debug, Clone)]

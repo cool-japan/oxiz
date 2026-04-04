@@ -5,7 +5,9 @@
 //! but tailored for SMT solver operations.
 
 use crate::error::OxizError;
-use std::fmt;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::fmt;
 
 /// Error context providing additional information about where/why an error occurred.
 #[derive(Debug, Clone)]
@@ -87,8 +89,8 @@ impl fmt::Display for ErrorContext {
     }
 }
 
-impl std::error::Error for ErrorContext {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+impl core::error::Error for ErrorContext {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         Some(&self.error)
     }
 }

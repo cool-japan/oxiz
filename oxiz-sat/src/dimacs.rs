@@ -8,8 +8,10 @@
 //! - Positive literal i represents variable i, negative -i represents NOT i
 
 use crate::literal::{Lit, Var};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::solver::{Solver, SolverResult};
-use std::fmt;
+use core::fmt;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
@@ -38,7 +40,7 @@ impl fmt::Display for DimacsError {
     }
 }
 
-impl std::error::Error for DimacsError {}
+impl core::error::Error for DimacsError {}
 
 impl From<io::Error> for DimacsError {
     fn from(e: io::Error) -> Self {
@@ -88,7 +90,7 @@ impl DimacsParser {
         solver: &mut Solver,
     ) -> Result<(), DimacsError> {
         let mut current_clause = Vec::new();
-        let mut clauses_read = 0;
+        let mut _clauses_read = 0;
 
         for line in reader.lines() {
             let line = line?;
@@ -122,7 +124,7 @@ impl DimacsParser {
                     if !current_clause.is_empty() {
                         solver.add_clause(current_clause.iter().copied());
                         current_clause.clear();
-                        clauses_read += 1;
+                        _clauses_read += 1;
                     }
                 } else {
                     // Add literal to current clause
@@ -135,14 +137,15 @@ impl DimacsParser {
         // Handle case where last clause doesn't end with 0
         if !current_clause.is_empty() {
             solver.add_clause(current_clause.iter().copied());
-            clauses_read += 1;
+            _clauses_read += 1;
         }
 
         // Verify we read the expected number of clauses
-        if self.num_clauses > 0 && clauses_read != self.num_clauses {
+        #[cfg(feature = "analyze-debug")]
+        if self.num_clauses > 0 && _clauses_read != self.num_clauses {
             eprintln!(
                 "Warning: Expected {} clauses but read {}",
-                self.num_clauses, clauses_read
+                self.num_clauses, _clauses_read
             );
         }
 
@@ -325,7 +328,9 @@ mod tests {
         let mut parser = DimacsParser::new();
         let mut solver = Solver::new();
 
-        parser.parse_reader(cnf.as_bytes(), &mut solver).unwrap();
+        parser
+            .parse_reader(cnf.as_bytes(), &mut solver)
+            .expect("test operation should succeed");
 
         assert_eq!(parser.num_vars(), 3);
         assert_eq!(parser.num_clauses(), 2);
@@ -342,7 +347,9 @@ mod tests {
         let mut parser = DimacsParser::new();
         let mut solver = Solver::new();
 
-        parser.parse_reader(cnf.as_bytes(), &mut solver).unwrap();
+        parser
+            .parse_reader(cnf.as_bytes(), &mut solver)
+            .expect("test operation should succeed");
 
         assert_eq!(parser.num_vars(), 2);
         assert_eq!(parser.num_clauses(), 1);
@@ -360,9 +367,10 @@ mod tests {
             ],
         ];
 
-        DimacsWriter::write_cnf_to(&mut buffer, 3, &clauses).unwrap();
+        DimacsWriter::write_cnf_to(&mut buffer, 3, &clauses)
+            .expect("test operation should succeed");
 
-        let output = String::from_utf8(buffer).unwrap();
+        let output = String::from_utf8(buffer).expect("test operation should succeed");
         assert!(output.contains("p cnf 3 2"));
         assert!(output.contains("1 -3 0"));
         assert!(output.contains("2 3 -1 0"));
@@ -379,12 +387,15 @@ mod tests {
 
         // Write to buffer
         let mut buffer = Vec::new();
-        DimacsWriter::write_cnf_to(&mut buffer, 3, &original_clauses).unwrap();
+        DimacsWriter::write_cnf_to(&mut buffer, 3, &original_clauses)
+            .expect("test operation should succeed");
 
         // Parse back
         let mut parser = DimacsParser::new();
         let mut solver = Solver::new();
-        parser.parse_reader(buffer.as_slice(), &mut solver).unwrap();
+        parser
+            .parse_reader(buffer.as_slice(), &mut solver)
+            .expect("test operation should succeed");
 
         assert_eq!(parser.num_vars(), 3);
         assert_eq!(parser.num_clauses(), 3);

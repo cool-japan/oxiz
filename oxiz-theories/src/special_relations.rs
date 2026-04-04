@@ -16,10 +16,11 @@
 //! - **LeftTree**: R(y,x) ∧ R(z,x) → R(y,z) ∨ R(z,y)
 //! - **RightTree**: R(x,y) ∧ R(x,z) → R(y,z) ∨ R(z,y)
 
-use lasso::Spur;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::SortId;
 use oxiz_core::ast::TermId;
-use std::collections::{HashMap, HashSet};
+use oxiz_core::interner::Spur;
 
 /// Properties that a relation can have
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -443,7 +444,7 @@ impl Default for SpecialRelationSolver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lasso::Key;
+    use oxiz_core::interner::Key;
 
     #[test]
     fn test_relation_properties() {

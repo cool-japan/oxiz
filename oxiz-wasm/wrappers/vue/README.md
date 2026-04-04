@@ -5,7 +5,7 @@ Vue 3 wrapper for OxiZ WASM SMT Solver.
 ## Installation
 
 ```bash
-npm install @oxiz/vue oxiz-wasm
+npm install @oxiz/vue @cooljapan/oxiz
 ```
 
 ## Usage

@@ -2,6 +2,8 @@
 
 use crate::clause::ClauseId;
 use crate::literal::Lit;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use smallvec::SmallVec;
 
 /// A watcher entry

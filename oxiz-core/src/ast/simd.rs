@@ -5,6 +5,8 @@
 //! thousands or millions of terms.
 
 use crate::ast::term::TermId;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use wide::i32x4;
 
 /// SIMD-accelerated comparison of TermId arrays

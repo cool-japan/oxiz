@@ -35,9 +35,10 @@
 // ```
 
 use crate::literal::{LBool, Lit, Var};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::solver::{Solver, SolverResult};
 use smallvec::SmallVec;
-use std::collections::HashSet;
 
 /// A model (satisfying assignment) represented as a vector of literals
 pub type Model = Vec<Lit>;

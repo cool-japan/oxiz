@@ -5,7 +5,8 @@
 #![allow(dead_code)]
 
 use super::{SetConflict, SetVar, SetVarId};
-use rustc_hash::{FxHashMap, FxHashSet};
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Set element (for enumeration)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -313,7 +314,7 @@ impl FiniteSetEnumerator {
         } else {
             self.universe
                 .difference(&var.must_members)
-                .filter(|e| !var.must_not_members.contains(e))
+                .filter(|e| !var.must_not_members.contains(*e))
                 .copied()
                 .collect()
         }
@@ -608,7 +609,9 @@ mod tests {
         var.add_must_member(1);
         var.add_must_member(2);
 
-        let result = enumerator.enumerate(&var).unwrap();
+        let result = enumerator
+            .enumerate(&var)
+            .expect("test operation should succeed");
         assert!(result.contains(1));
         assert!(result.contains(2));
     }
@@ -630,7 +633,9 @@ mod tests {
         may.insert(4);
         var.may_members = Some(may);
 
-        let result = enumerator.enumerate(&var).unwrap();
+        let result = enumerator
+            .enumerate(&var)
+            .expect("test operation should succeed");
         assert_eq!(result.cardinality(), Some(3));
         assert!(result.contains(1));
     }
@@ -650,7 +655,9 @@ mod tests {
         var.tighten_lower_card(0);
         var.tighten_upper_card(2);
 
-        let results = enumerator.enumerate_all(&var).unwrap();
+        let results = enumerator
+            .enumerate_all(&var)
+            .expect("test operation should succeed");
         // Should generate: {}, {1}, {2}, {1,2}
         assert!(results.len() <= 4);
     }
@@ -687,7 +694,7 @@ mod tests {
         let model = generator.generate_model(&vars);
         assert!(model.is_ok());
 
-        let model_map = model.unwrap();
+        let model_map = model.expect("test operation should succeed");
         assert_eq!(model_map.len(), 2);
     }
 

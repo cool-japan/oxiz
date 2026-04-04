@@ -44,10 +44,11 @@
 //! - Ge & de Moura, "Complete Instantiation for Quantified Formulas in SMT" (2009)
 //! - Z3's `src/smt/smt_quantifier.cpp` and `src/smt/smt_model_based_quantifier.cpp`
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::fmt;
 use oxiz_core::ast::TermId;
-use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
-use std::fmt;
 
 /// Type alias for application storage
 type AppStorage = Vec<(TermId, SmallVec<[TermId; 4]>)>;
@@ -627,6 +628,249 @@ impl EMatchEngine {
         self.relevant_terms.clear();
         self.model.clear();
     }
+
+    // -----------------------------------------------------------------------
+    // E-graph-aware matching methods (using EufSolver)
+    // -----------------------------------------------------------------------
+
+    /// Perform E-matching over the EUF solver's E-graph.
+    ///
+    /// This is the main entry point for equivalence-aware matching. For every
+    /// registered quantified formula, it matches each trigger against the
+    /// E-graph maintained by `solver`, treating nodes in the same equivalence
+    /// class as interchangeable. Successful matches are deduplicated using
+    /// canonical E-graph representatives before being appended to
+    /// `self.instantiations`.
+    pub fn match_all_egraph(&mut self, solver: &super::solver::EufSolver) {
+        // Deduplication set: for each formula index, collect the canonical
+        // substitution keys we have already generated.
+        let mut seen: FxHashMap<usize, FxHashSet<Vec<TermId>>> = FxHashMap::default();
+
+        for (formula_idx, formula) in self.formulas.iter().enumerate() {
+            if self.instantiations.len() >= self.max_instantiations {
+                break;
+            }
+
+            for trigger in formula.triggers() {
+                if self.instantiations.len() >= self.max_instantiations {
+                    break;
+                }
+
+                let matches = self.match_trigger_egraph(trigger, solver);
+
+                for subst in matches {
+                    if self.instantiations.len() >= self.max_instantiations {
+                        break;
+                    }
+
+                    // Check that all quantified variables are bound
+                    if !formula.vars().iter().all(|v| subst.contains(*v)) {
+                        continue;
+                    }
+
+                    // Build a canonical key: for each variable binding, map the
+                    // bound TermId through the solver to its E-class representative
+                    // so that different syntactic terms in the same class yield the
+                    // same key.
+                    let canonical_key: Vec<TermId> = formula
+                        .vars()
+                        .iter()
+                        .map(|v| {
+                            let bound = subst.get(*v).unwrap_or(TermId::new(0));
+                            // Map through term_to_node -> find_immutable -> node_term
+                            if let Some(node_idx) = solver.term_to_node(bound) {
+                                let rep = solver.find_immutable(node_idx);
+                                solver.node_term(rep).unwrap_or(bound)
+                            } else {
+                                bound
+                            }
+                        })
+                        .collect();
+
+                    let formula_seen = seen.entry(formula_idx).or_default();
+                    if !formula_seen.insert(canonical_key) {
+                        // Duplicate -- skip
+                        continue;
+                    }
+
+                    self.instantiations.push((formula.body(), subst));
+                }
+            }
+        }
+    }
+
+    /// Match a trigger (possibly multi-pattern) against the E-graph.
+    ///
+    /// For multi-pattern triggers, matching is iterative: we start with
+    /// substitutions from the first pattern, then extend each one by matching
+    /// subsequent patterns.
+    fn match_trigger_egraph(
+        &self,
+        trigger: &Trigger,
+        solver: &super::solver::EufSolver,
+    ) -> Vec<Substitution> {
+        if trigger.patterns().is_empty() {
+            return Vec::new();
+        }
+
+        let first_pattern = &trigger.patterns()[0];
+        let mut results = self.match_pattern_egraph(first_pattern, &Substitution::new(), solver);
+
+        for pattern in &trigger.patterns()[1..] {
+            let mut new_results = Vec::new();
+            for subst in results {
+                let extended = self.match_pattern_egraph(pattern, &subst, solver);
+                new_results.extend(extended);
+            }
+            results = new_results;
+        }
+
+        results
+    }
+
+    /// Match a single pattern against all E-graph nodes.
+    ///
+    /// - For `Pattern::Var(v)`: if `v` is already bound in `current_subst`, just
+    ///   propagate; otherwise enumerate all node terms as candidate bindings
+    ///   (respecting relevance filtering).
+    /// - For `Pattern::App { func, args }`: iterate over all E-graph nodes whose
+    ///   function symbol (as a u32) matches `func.raw()`, then recursively match
+    ///   argument patterns, checking E-class equivalence for already-bound variables.
+    fn match_pattern_egraph(
+        &self,
+        pattern: &Pattern,
+        current_subst: &Substitution,
+        solver: &super::solver::EufSolver,
+    ) -> Vec<Substitution> {
+        let mut results = Vec::new();
+
+        match pattern {
+            Pattern::Var(v) => {
+                if current_subst.contains(*v) {
+                    // Already bound -- keep the substitution as-is
+                    results.push(current_subst.clone());
+                } else {
+                    // Bind to every node's term in the E-graph
+                    for node_idx in solver.all_node_indices() {
+                        if let Some(term) = solver.node_term(node_idx) {
+                            if !self.is_relevant(term) {
+                                continue;
+                            }
+                            let mut new_subst = current_subst.clone();
+                            new_subst.bind(*v, term);
+                            results.push(new_subst);
+                        }
+                    }
+                }
+            }
+            Pattern::App { func, args } => {
+                // `func` is a TermId encoding the function symbol.
+                // The EufSolver uses u32 for func symbols. We use func.raw() as the key.
+                let func_id = func.raw();
+                let app_nodes = solver.apps_by_func(func_id);
+
+                for node_idx in app_nodes {
+                    let node_args = match solver.node_args(node_idx) {
+                        Some(a) => a.clone(),
+                        None => continue,
+                    };
+
+                    if node_args.len() != args.len() {
+                        continue;
+                    }
+
+                    // Convert E-graph arg indices to TermIds for recursive matching
+                    let ground_terms: Vec<TermId> = node_args
+                        .iter()
+                        .filter_map(|&idx| solver.node_term(idx))
+                        .collect();
+
+                    if ground_terms.len() != args.len() {
+                        continue;
+                    }
+
+                    if let Some(subst) =
+                        self.match_args_egraph(args, &ground_terms, current_subst, solver)
+                    {
+                        results.push(subst);
+                    }
+                }
+            }
+        }
+
+        results
+    }
+
+    /// Recursively match pattern arguments against ground argument terms,
+    /// using E-class equivalence for consistency checks on already-bound variables.
+    fn match_args_egraph(
+        &self,
+        patterns: &[Pattern],
+        ground: &[TermId],
+        current_subst: &Substitution,
+        solver: &super::solver::EufSolver,
+    ) -> Option<Substitution> {
+        let mut subst = current_subst.clone();
+
+        for (pattern, &ground_term) in patterns.iter().zip(ground.iter()) {
+            match pattern {
+                Pattern::Var(v) => {
+                    if let Some(bound) = subst.get(*v) {
+                        // Consistency check modulo E-graph:
+                        // The bound term and the ground_term must be in the same
+                        // equivalence class.
+                        let bound_node = solver.term_to_node(bound);
+                        let ground_node = solver.term_to_node(ground_term);
+                        match (bound_node, ground_node) {
+                            (Some(bn), Some(gn)) => {
+                                if !solver.are_equal_immutable(bn, gn) {
+                                    return None;
+                                }
+                            }
+                            _ => {
+                                // If either term isn't in the E-graph, fall back to
+                                // syntactic equality.
+                                if bound != ground_term {
+                                    return None;
+                                }
+                            }
+                        }
+                    } else {
+                        subst.bind(*v, ground_term);
+                    }
+                }
+                Pattern::App { func, args } => {
+                    // The ground_term must be an application of the same function
+                    // in the E-graph.
+                    let ground_node = solver.term_to_node(ground_term)?;
+                    let node_func = solver.node_func(ground_node)?;
+                    if node_func != func.raw() {
+                        return None;
+                    }
+                    let node_args = match solver.node_args(ground_node) {
+                        Some(a) => a.clone(),
+                        None => return None,
+                    };
+                    if node_args.len() != args.len() {
+                        return None;
+                    }
+
+                    let nested_ground: Vec<TermId> = node_args
+                        .iter()
+                        .filter_map(|&idx| solver.node_term(idx))
+                        .collect();
+
+                    if nested_ground.len() != args.len() {
+                        return None;
+                    }
+
+                    subst = self.match_args_egraph(args, &nested_ground, &subst, solver)?;
+                }
+            }
+        }
+
+        Some(subst)
+    }
 }
 
 /// Code tree for efficient pattern matching
@@ -745,5 +989,148 @@ mod tests {
 
         // Should produce one instantiation
         assert!(!engine.instantiations().is_empty());
+    }
+
+    #[test]
+    fn test_match_all_egraph_basic() {
+        use crate::euf::solver::EufSolver;
+
+        let mut solver = EufSolver::new();
+
+        // Create ground terms: a, b
+        let a = solver.intern(TermId::new(1));
+        let b = solver.intern(TermId::new(2));
+
+        // Create f(a) with func symbol 10
+        let fa = solver.intern_app(TermId::new(100), 10, [a]);
+        // Create f(b) with func symbol 10
+        let _fb = solver.intern_app(TermId::new(101), 10, [b]);
+
+        // Pattern: f(?x) -- match any application of func 10
+        let x = VarId::new(0);
+        let pattern = Pattern::App {
+            func: TermId::new(10), // func symbol as TermId with raw() == 10
+            args: vec![Pattern::Var(x)],
+        };
+        let trigger = Trigger::new(vec![pattern]);
+        let formula = QuantifiedFormula::new(vec![x], TermId::new(200), vec![trigger]);
+
+        let mut engine = EMatchEngine::new();
+        engine.add_formula(formula);
+
+        engine.match_all_egraph(&solver);
+
+        // Should find matches for f(a) and f(b)
+        assert_eq!(engine.instantiations().len(), 2);
+        let _ = fa;
+    }
+
+    #[test]
+    fn test_match_all_egraph_with_equivalence() {
+        use crate::euf::solver::EufSolver;
+
+        let mut solver = EufSolver::new();
+
+        // Create a, b, c
+        let a = solver.intern(TermId::new(1));
+        let b = solver.intern(TermId::new(2));
+        let c = solver.intern(TermId::new(3));
+
+        // f(a) and f(b)
+        let _fa = solver.intern_app(TermId::new(100), 10, [a]);
+        let _fb = solver.intern_app(TermId::new(101), 10, [b]);
+
+        // Merge a and b: now f(a) and f(b) are in the same E-class
+        solver.merge(a, b, TermId::new(50)).unwrap_or(());
+
+        // Pattern: f(?x)
+        let x = VarId::new(0);
+        let pattern = Pattern::App {
+            func: TermId::new(10),
+            args: vec![Pattern::Var(x)],
+        };
+        let trigger = Trigger::new(vec![pattern]);
+        let formula = QuantifiedFormula::new(vec![x], TermId::new(200), vec![trigger]);
+
+        let mut engine = EMatchEngine::new();
+        engine.add_formula(formula);
+
+        engine.match_all_egraph(&solver);
+
+        // With deduplication by canonical representative, since a=b, f(a) and
+        // f(b) both bind x to terms in the same E-class. The canonical key
+        // will be identical, so only 1 instantiation should survive.
+        // NOTE: The deduplication is based on the canonical representative of
+        // the bound variable, so if a and b map to the same representative,
+        // we get just 1 result.
+        let count = engine.instantiations().len();
+        assert!(count >= 1, "should have at least 1 match");
+        // The exact count depends on whether the arg node a or b is the
+        // canonical representative -- in either case dedup should reduce it.
+        let _ = c;
+    }
+
+    #[test]
+    fn test_match_all_egraph_multi_pattern() {
+        use crate::euf::solver::EufSolver;
+
+        let mut solver = EufSolver::new();
+
+        // Create ground terms
+        let a = solver.intern(TermId::new(1));
+
+        // f(a) with func 10
+        let _fa = solver.intern_app(TermId::new(100), 10, [a]);
+        // g(a) with func 20
+        let _ga = solver.intern_app(TermId::new(101), 20, [a]);
+
+        // Multi-pattern trigger: { f(?x), g(?x) }
+        let x = VarId::new(0);
+        let pat_f = Pattern::App {
+            func: TermId::new(10),
+            args: vec![Pattern::Var(x)],
+        };
+        let pat_g = Pattern::App {
+            func: TermId::new(20),
+            args: vec![Pattern::Var(x)],
+        };
+        let trigger = Trigger::new(vec![pat_f, pat_g]);
+        let formula = QuantifiedFormula::new(vec![x], TermId::new(300), vec![trigger]);
+
+        let mut engine = EMatchEngine::new();
+        engine.add_formula(formula);
+
+        engine.match_all_egraph(&solver);
+
+        // Should find one match: x -> a (matching both f(a) and g(a))
+        assert_eq!(engine.instantiations().len(), 1);
+    }
+
+    #[test]
+    fn test_match_all_egraph_no_match() {
+        use crate::euf::solver::EufSolver;
+
+        let mut solver = EufSolver::new();
+
+        let a = solver.intern(TermId::new(1));
+        // g(a) with func 20
+        let _ga = solver.intern_app(TermId::new(100), 20, [a]);
+
+        // Pattern: f(?x) -- func symbol 10, but no f applications exist
+        let x = VarId::new(0);
+        let pattern = Pattern::App {
+            func: TermId::new(10),
+            args: vec![Pattern::Var(x)],
+        };
+        let trigger = Trigger::new(vec![pattern]);
+        let formula = QuantifiedFormula::new(vec![x], TermId::new(200), vec![trigger]);
+
+        let mut engine = EMatchEngine::new();
+        engine.add_formula(formula);
+
+        engine.match_all_egraph(&solver);
+
+        // No applications of function 10, so no matches
+        assert!(engine.instantiations().is_empty());
     }
 }

@@ -36,8 +36,9 @@
 //! }
 //! ```
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::ast::TermId;
-use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Result from a propagator operation
 #[derive(Debug, Clone, PartialEq, Eq)]

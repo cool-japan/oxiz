@@ -3,11 +3,12 @@
 //! Normalizes arithmetic bounds into canonical form and propagates
 //! derived inequalities.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::ast::{TermId, TermKind, TermManager};
 use num_bigint::BigInt;
 use num_rational::BigRational;
 use num_traits::{One, Zero};
-use rustc_hash::FxHashMap;
 
 /// Bounds normalization tactic.
 pub struct NormalizeBoundsTactic {
@@ -329,6 +330,6 @@ mod tests {
         tactic.update_lower_bound("x".to_string(), bound1);
 
         assert!(tactic.bounds.contains_key("x"));
-        assert!(tactic.bounds.get("x").unwrap().lower.is_some());
+        assert!(tactic.bounds.get("x").expect("key should exist in map").lower.is_some());
     }
 }

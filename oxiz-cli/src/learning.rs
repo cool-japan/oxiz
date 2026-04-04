@@ -441,8 +441,14 @@ mod tests {
         let fp3 = LearnedConstraintCache::compute_fingerprint(script3);
 
         // Similar structure should have same prefix
-        let prefix1 = fp1.split('_').next().unwrap();
-        let prefix2 = fp2.split('_').next().unwrap();
+        let prefix1 = fp1
+            .split('_')
+            .next()
+            .expect("iterator should have next element");
+        let prefix2 = fp2
+            .split('_')
+            .next()
+            .expect("iterator should have next element");
 
         assert_eq!(
             prefix1, prefix2,
@@ -478,7 +484,7 @@ mod tests {
         cache.put(fingerprint, clauses.clone());
 
         // Should be cached now
-        let entry = cache.get(fingerprint).unwrap();
+        let entry = cache.get(fingerprint).expect("key should exist in map");
         assert_eq!(entry.clauses.len(), 2);
         assert_eq!(entry.clauses[0].literals, vec![1, -2]);
 
@@ -532,13 +538,13 @@ mod tests {
                 "persistent_fp",
                 vec![LearnedClause::new(vec![1, 2, 3], 0.9)],
             );
-            cache.save_to_disk().unwrap();
+            cache.save_to_disk().expect("test operation should succeed");
         }
 
         // Load cache in a new instance
         {
             let mut cache = LearnedConstraintCache::new(Some(cache_path.clone()));
-            let entry = cache.get("persistent_fp").unwrap();
+            let entry = cache.get("persistent_fp").expect("key should exist in map");
             assert_eq!(entry.clauses[0].literals, vec![1, 2, 3]);
         }
 

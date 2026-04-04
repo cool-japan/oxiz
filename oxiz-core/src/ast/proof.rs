@@ -4,7 +4,8 @@
 //! Proofs can be represented as resolution trees or natural deduction proofs.
 
 use crate::ast::TermId;
-use rustc_hash::FxHashMap;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Unique identifier for a proof node
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -182,14 +183,14 @@ impl Proof {
         }
 
         // Check for cycles using DFS
-        let mut visited = rustc_hash::FxHashSet::default();
-        let mut rec_stack = rustc_hash::FxHashSet::default();
+        let mut visited = crate::prelude::FxHashSet::default();
+        let mut rec_stack = crate::prelude::FxHashSet::default();
 
         fn has_cycle(
             node_id: ProofId,
             nodes: &FxHashMap<ProofId, ProofNode>,
-            visited: &mut rustc_hash::FxHashSet<ProofId>,
-            rec_stack: &mut rustc_hash::FxHashSet<ProofId>,
+            visited: &mut crate::prelude::FxHashSet<ProofId>,
+            rec_stack: &mut crate::prelude::FxHashSet<ProofId>,
         ) -> bool {
             if rec_stack.contains(&node_id) {
                 return true;
@@ -283,7 +284,7 @@ impl Proof {
     /// Returns the number of nodes removed
     pub fn prune_unreachable(&mut self) -> usize {
         // Find all reachable nodes via DFS from root
-        let mut reachable = rustc_hash::FxHashSet::default();
+        let mut reachable = crate::prelude::FxHashSet::default();
         let mut stack = vec![self.root];
 
         while let Some(node_id) = stack.pop() {
@@ -368,7 +369,7 @@ impl Proof {
     #[must_use]
     pub fn minimize(&self) -> Proof {
         // Start from root and trace back to find all used nodes
-        let mut used = rustc_hash::FxHashSet::default();
+        let mut used = crate::prelude::FxHashSet::default();
         let mut stack = vec![self.root];
 
         while let Some(node_id) = stack.pop() {
@@ -875,7 +876,9 @@ mod tests {
         assert_eq!(proof.size(), 2);
 
         // node3 should now directly reference node0
-        let node3_simplified = proof.get_node(ProofId(3)).unwrap();
+        let node3_simplified = proof
+            .get_node(ProofId(3))
+            .expect("test operation should succeed");
         assert_eq!(node3_simplified.premises, vec![ProofId(0)]);
     }
 

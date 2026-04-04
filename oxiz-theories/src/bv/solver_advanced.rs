@@ -3,10 +3,10 @@
 //! Implements sophisticated bit-vector solving using bit-blasting,
 //! word-level reasoning, and optimized propagation.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::bv::{BvConstraint, BvError, BvSolution, BvValue};
 use num_bigint::BigUint;
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::VecDeque;
 
 /// Advanced bit-vector solver.
 pub struct AdvancedBvSolver {
@@ -527,7 +527,7 @@ mod tests {
         let lhs = BvValue::Constant(BigUint::from(5u32));
         let rhs = BvValue::Constant(BigUint::from(3u32));
 
-        let result = solver.bv_add(&lhs, &rhs, 32).unwrap();
+        let result = solver.bv_add(&lhs, &rhs, 32).expect("test operation should succeed");
 
         if let BvValue::Constant(c) = result {
             assert_eq!(c, BigUint::from(8u32));
@@ -544,7 +544,7 @@ mod tests {
         let lhs = BvValue::Constant(BigUint::from(4u32));
         let rhs = BvValue::Constant(BigUint::from(7u32));
 
-        let result = solver.bv_mul(&lhs, &rhs, 32).unwrap();
+        let result = solver.bv_mul(&lhs, &rhs, 32).expect("test operation should succeed");
 
         if let BvValue::Constant(c) = result {
             assert_eq!(c, BigUint::from(28u32));
@@ -563,7 +563,7 @@ mod tests {
 
         let result = solver
             .evaluate_comparison(&lhs, &rhs, ComparisonOp::Gt, true)
-            .unwrap();
+            .expect("test operation should succeed");
 
         assert!(result);
     }

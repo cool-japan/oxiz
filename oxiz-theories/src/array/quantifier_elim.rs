@@ -12,10 +12,11 @@
 #![allow(missing_docs)]
 #![allow(dead_code)]
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::fmt;
 use oxiz_core::ast::TermId;
 use oxiz_core::error::{OxizError, Result};
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::fmt;
 
 /// Quantifier type in array context
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -802,7 +803,9 @@ mod tests {
 
         let var = QuantifiedVar::new(10, "x".to_string(), 1, QuantifierType::Exists);
         let deps = ctx.find_dependencies(10);
-        let skolem = ctx.skolemize(&var, deps).unwrap();
+        let skolem = ctx
+            .skolemize(&var, deps)
+            .expect("test operation should succeed");
 
         assert_eq!(skolem.original_var, 10);
         assert!(!skolem.dependencies.is_empty());
@@ -894,11 +897,15 @@ mod tests {
         let mut simplifier = ArrayFormulaSimplifier::new();
         let formula = TermId::new(1000);
 
-        let simplified = simplifier.simplify(formula).unwrap();
+        let simplified = simplifier
+            .simplify(formula)
+            .expect("test operation should succeed");
         assert_eq!(simplified, formula);
 
         // Test cache
-        let simplified2 = simplifier.simplify(formula).unwrap();
+        let simplified2 = simplifier
+            .simplify(formula)
+            .expect("test operation should succeed");
         assert_eq!(simplified, simplified2);
     }
 

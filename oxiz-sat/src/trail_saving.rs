@@ -9,6 +9,8 @@
 //! - "Improving CDCL SAT Solvers through Trail Saving"
 
 use crate::literal::{Lit, Var};
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// A saved trail representing a sequence of decisions
 #[derive(Debug, Clone)]
@@ -169,7 +171,7 @@ impl TrailSavingManager {
         self.saved_trails.sort_by(|a, b| {
             b.quality
                 .partial_cmp(&a.quality)
-                .unwrap_or(std::cmp::Ordering::Equal)
+                .unwrap_or(core::cmp::Ordering::Equal)
         });
 
         // Keep only top trails

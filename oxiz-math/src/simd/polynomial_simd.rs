@@ -4,8 +4,10 @@
 //! Provides vectorized polynomial arithmetic for improved performance
 //! on dense polynomials.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::ops::{Add, Mul, Sub};
 use num_traits::{One, Zero};
-use std::ops::{Add, Mul, Sub};
 
 /// Add two polynomials using SIMD-friendly patterns.
 pub fn simd_poly_add<T>(a_coeffs: &[T], b_coeffs: &[T]) -> Vec<T>
@@ -61,7 +63,10 @@ where
     }
 
     // Horner's method: p(x) = a0 + x(a1 + x(a2 + x(...)))
-    let mut result = coeffs.last().unwrap().clone();
+    let mut result = coeffs
+        .last()
+        .expect("collection should not be empty")
+        .clone();
 
     for coeff in coeffs.iter().rev().skip(1) {
         result = coeff.clone() + result * x.clone();
@@ -160,6 +165,75 @@ where
     {
         simd_poly_eval_multi(&self.coeffs, points)
     }
+}
+
+// ====================================================================== //
+// Functions re-exported by simd/mod.rs                                    //
+// ====================================================================== //
+
+/// Element-wise coefficient addition of two i64 slices, returning a new `Vec<i64>`.
+///
+/// Pads the shorter slice with zeros.
+pub fn poly_add_coeffs(a: &[i64], b: &[i64]) -> Vec<i64> {
+    let len = a.len().max(b.len());
+    let mut result = Vec::with_capacity(len);
+    for i in 0..len {
+        let av = *a.get(i).unwrap_or(&0);
+        let bv = *b.get(i).unwrap_or(&0);
+        result.push(av + bv);
+    }
+    result
+}
+
+/// Element-wise coefficient subtraction of two i64 slices, returning a new `Vec<i64>`.
+///
+/// Pads the shorter slice with zeros.
+pub fn poly_sub_coeffs(a: &[i64], b: &[i64]) -> Vec<i64> {
+    let len = a.len().max(b.len());
+    let mut result = Vec::with_capacity(len);
+    for i in 0..len {
+        let av = *a.get(i).unwrap_or(&0);
+        let bv = *b.get(i).unwrap_or(&0);
+        result.push(av - bv);
+    }
+    result
+}
+
+/// Multiply every coefficient by `scalar`, returning a new `Vec<i64>`.
+pub fn poly_mul_scalar(coeffs: &[i64], scalar: i64) -> Vec<i64> {
+    coeffs.iter().map(|&c| c * scalar).collect()
+}
+
+/// Dot-product of two equal-length i64 slices.
+///
+/// Returns `Ok(value)` when the result fits in `i64`, or `Err(i128_value)` on
+/// overflow.  Panics if `a.len() != b.len()`.
+pub fn poly_dot_product(a: &[i64], b: &[i64]) -> Result<i64, i128> {
+    assert_eq!(
+        a.len(),
+        b.len(),
+        "poly_dot_product: slices must have equal length"
+    );
+    let sum: i128 = a
+        .iter()
+        .zip(b.iter())
+        .map(|(&x, &y)| (x as i128) * (y as i128))
+        .sum();
+    i64::try_from(sum).map_err(|_| sum)
+}
+
+/// Evaluate a polynomial with i64 coefficients at an i64 point using Horner's method.
+///
+/// Coefficients are stored in ascending order of degree (constant term first).
+pub fn poly_eval_horner_i64(coeffs: &[i64], x: i64) -> i64 {
+    if coeffs.is_empty() {
+        return 0;
+    }
+    let mut result = *coeffs.last().expect("non-empty slice has a last element");
+    for &c in coeffs.iter().rev().skip(1) {
+        result = c + result * x;
+    }
+    result
 }
 
 /// Polynomial GCD using SIMD-friendly operations.

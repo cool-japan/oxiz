@@ -410,7 +410,7 @@ impl ModuleRegistry {
             .map(|ids| {
                 let mut versions: Vec<_> =
                     ids.iter().filter_map(|id| self.modules.get(id)).collect();
-                versions.sort_by(|a, b| a.version.cmp(&b.version));
+                versions.sort_by_key(|v| v.version);
                 versions
             })
             .unwrap_or_default()
@@ -556,7 +556,7 @@ mod tests {
 
     #[test]
     fn test_version_parsing() {
-        let v = Version::parse("1.2.3").unwrap();
+        let v = Version::parse("1.2.3").expect("test operation should succeed");
         assert_eq!(v.major, 1);
         assert_eq!(v.minor, 2);
         assert_eq!(v.patch, 3);
@@ -623,7 +623,9 @@ mod tests {
             .with_capability("linear")
             .with_capability("integer");
 
-        registry.register_module(info).unwrap();
+        registry
+            .register_module(info)
+            .expect("test operation should succeed");
 
         assert!(registry.has_capability("linear"));
         assert!(registry.has_capability("integer"));
@@ -636,13 +638,19 @@ mod tests {
         let info = ModuleInfo::new("test", Version::new(1, 0, 0));
         let id = info.id.clone();
 
-        registry.register_module(info).unwrap();
+        registry
+            .register_module(info)
+            .expect("test operation should succeed");
         assert!(!registry.is_active(&id));
 
-        registry.activate_module(&id).unwrap();
+        registry
+            .activate_module(&id)
+            .expect("test operation should succeed");
         assert!(registry.is_active(&id));
 
-        registry.deactivate_module(&id).unwrap();
+        registry
+            .deactivate_module(&id)
+            .expect("test operation should succeed");
         assert!(!registry.is_active(&id));
     }
 
@@ -652,8 +660,12 @@ mod tests {
         let info = ModuleInfo::new("test", Version::new(1, 0, 0));
         let id = info.id.clone();
 
-        registry.register_module(info).unwrap();
-        registry.activate_module(&id).unwrap();
+        registry
+            .register_module(info)
+            .expect("test operation should succeed");
+        registry
+            .activate_module(&id)
+            .expect("test operation should succeed");
 
         assert!(registry.unregister_module(&id).is_err());
     }
@@ -665,13 +677,19 @@ mod tests {
         let v1 = ModuleInfo::new("test", Version::new(1, 0, 0));
         let v2 = ModuleInfo::new("test", Version::new(2, 0, 0));
 
-        registry.register_module(v1).unwrap();
-        registry.register_module(v2).unwrap();
+        registry
+            .register_module(v1)
+            .expect("test operation should succeed");
+        registry
+            .register_module(v2)
+            .expect("test operation should succeed");
 
         let versions = registry.get_all_versions("test");
         assert_eq!(versions.len(), 2);
 
-        let latest = registry.get_latest_module("test").unwrap();
+        let latest = registry
+            .get_latest_module("test")
+            .expect("test operation should succeed");
         assert_eq!(latest.version, Version::new(2, 0, 0));
     }
 
@@ -682,8 +700,12 @@ mod tests {
         let info1 = ModuleInfo::new("arith", Version::new(1, 0, 0)).with_size(1024);
         let info2 = ModuleInfo::new("logic", Version::new(1, 0, 0)).with_size(2048);
 
-        registry.register_module(info1).unwrap();
-        registry.register_module(info2).unwrap();
+        registry
+            .register_module(info1)
+            .expect("test operation should succeed");
+        registry
+            .register_module(info2)
+            .expect("test operation should succeed");
 
         let stats = registry.stats();
         assert_eq!(stats.total_modules, 2);

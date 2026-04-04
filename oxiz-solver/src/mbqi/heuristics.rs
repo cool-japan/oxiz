@@ -6,11 +6,11 @@
 //! - Instantiation ordering
 //! - Resource allocation
 
-use lasso::Spur;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::cmp::Ordering;
 use oxiz_core::ast::{TermId, TermKind, TermManager};
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::cmp::Ordering;
-use std::collections::BinaryHeap;
+use oxiz_core::interner::Spur;
 
 use super::QuantifiedFormula;
 use super::model_completion::CompletedModel;

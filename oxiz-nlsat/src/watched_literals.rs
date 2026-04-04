@@ -374,7 +374,7 @@ mod tests {
 
         let watches = watched.get_watches(lit);
         assert!(watches.is_some());
-        assert_eq!(watches.unwrap().len(), 1);
+        assert_eq!(watches.expect("test operation should succeed").len(), 1);
     }
 
     #[test]
@@ -411,7 +411,9 @@ mod tests {
         watched.watch_clause(clause_id, &literals);
         watched.update_watch(clause_id, old_lit, new_lit, blocker);
 
-        let (w0, w1) = watched.get_clause_watches(clause_id).unwrap();
+        let (w0, w1) = watched
+            .get_clause_watches(clause_id)
+            .expect("test operation should succeed");
         assert!(w0 == new_lit || w1 == new_lit);
     }
 }

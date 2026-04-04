@@ -21,8 +21,10 @@
 mod simplified {
     use num_bigint::BigInt;
     use num_rational::BigRational;
-use std::cmp::Ordering;
-use std::fmt;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::cmp::Ordering;
+use core::fmt;
 
 /// Algebraic number error types.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,7 +50,7 @@ impl fmt::Display for AlgebraicNumberError {
     }
 }
 
-impl std::error::Error for AlgebraicNumberError {}
+impl core::error::Error for AlgebraicNumberError {}
 
 /// Algebraic number represented as a root of a polynomial.
 #[derive(Debug, Clone)]
@@ -300,11 +302,11 @@ mod tests {
         let a = AlgebraicNumber::from_rational(BigRational::from(BigInt::from(3)));
         let b = AlgebraicNumber::from_rational(BigRational::from(BigInt::from(5)));
 
-        let sum = a.add(&b).unwrap();
+        let sum = a.add(&b).expect("test operation should succeed");
         assert!(sum.is_rational());
         assert_eq!(sum.to_rational(), Some(BigRational::from(BigInt::from(8))));
 
-        let prod = a.mul(&b).unwrap();
+        let prod = a.mul(&b).expect("test operation should succeed");
         assert!(prod.is_rational());
         assert_eq!(prod.to_rational(), Some(BigRational::from(BigInt::from(15))));
     }
@@ -352,7 +354,7 @@ mod tests {
             BigRational::from(BigInt::from(1)),
             BigRational::from(BigInt::from(2)),
         )
-        .unwrap();
+        .expect("test operation should succeed");
 
         let initial_width = alg.interval_width();
         alg.refine();

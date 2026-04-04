@@ -362,11 +362,11 @@ mod tests {
         let mut iter = ProofChunkIterator::new(&proof, 1);
         let chunk1 = iter.next();
         assert!(chunk1.is_some());
-        assert_eq!(chunk1.unwrap().len(), 1);
+        assert_eq!(chunk1.expect("test operation should succeed").len(), 1);
 
         let chunk2 = iter.next();
         assert!(chunk2.is_some());
-        assert_eq!(chunk2.unwrap().len(), 1);
+        assert_eq!(chunk2.expect("test operation should succeed").len(), 1);
 
         let chunk3 = iter.next();
         assert!(chunk3.is_none());
@@ -414,7 +414,7 @@ mod tests {
         let result = streamer.write_streaming(&proof, &mut output);
 
         assert!(result.is_ok());
-        let output_str = String::from_utf8(output).unwrap();
+        let output_str = String::from_utf8(output).expect("test operation should succeed");
         assert!(output_str.contains("axiom"));
         assert!(output_str.contains("x = x"));
     }

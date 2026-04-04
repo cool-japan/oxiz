@@ -5,9 +5,10 @@
 
 use crate::ast::{TermId, TermKind, TermManager};
 use crate::error::{OxizError, Result};
+use crate::interner::Spur;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::sort::SortId;
-use lasso::Spur;
-use rustc_hash::FxHashMap;
 
 /// Configuration for term indexing
 #[derive(Debug, Clone)]
@@ -389,7 +390,9 @@ mod tests {
         let mut index = TermIndex::new_default();
 
         let x = manager.mk_var("x", manager.sorts.int_sort);
-        index.add_term(x, &manager).unwrap();
+        index
+            .add_term(x, &manager)
+            .expect("test operation should succeed");
 
         assert_eq!(index.stats.total_terms, 1);
     }
@@ -401,7 +404,9 @@ mod tests {
 
         let int_sort = manager.sorts.int_sort;
         let x = manager.mk_var("x", int_sort);
-        index.add_term(x, &manager).unwrap();
+        index
+            .add_term(x, &manager)
+            .expect("test operation should succeed");
 
         let results = index.lookup_by_sort(int_sort);
         assert_eq!(results.len(), 1);
@@ -416,7 +421,9 @@ mod tests {
         let x = manager.mk_var("x", int_sort);
         let f_x = manager.mk_apply("f", [x], int_sort);
 
-        inv_index.add_term(f_x, &manager).unwrap();
+        inv_index
+            .add_term(f_x, &manager)
+            .expect("test operation should succeed");
 
         let f_name = manager.intern_str("f");
         let pattern = TermPattern {

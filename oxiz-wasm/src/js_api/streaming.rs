@@ -529,7 +529,7 @@ mod tests {
         controller.enqueue(DataChunk::new(vec![1, 2], 0));
         controller.enqueue(DataChunk::new(vec![3, 4], 1));
 
-        let chunk = controller.dequeue().unwrap();
+        let chunk = controller.dequeue().expect("test operation should succeed");
         assert_eq!(chunk.sequence(), 0);
         assert_eq!(controller.buffer_length(), 1);
     }

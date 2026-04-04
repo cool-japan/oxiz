@@ -4,6 +4,9 @@
 //! Essential for CAD (Cylindrical Algebraic Decomposition) and
 //! non-linear real arithmetic.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 pub mod number;
 pub mod isolate;
 pub mod field_extension;

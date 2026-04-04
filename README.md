@@ -12,12 +12,12 @@ OxiZ is a high-performance Satisfiability Modulo Theories (SMT) solver written e
 
 **Pure Rust is a fundamental requirement** - no C/C++ dependencies, no FFI bindings, just clean, safe Rust code.
 
-### Implementation Status (v0.1.3)
+### Implementation Status (v0.2.0)
 
 OxiZ is under active development with core theories at production quality:
 
-- **Pure Rust Implementation**: 284,414 lines of production Rust code
-- **Unit Tests**: 5,814 tests passing (100% pass rate)
+- **Pure Rust Implementation**: 312,495 lines of production Rust code
+- **Unit Tests**: 6,155 tests passing (100% pass rate)
 - **Z3 Parity**: 100.0% accuracy across 88 benchmarks (8/8 logics at 100%) ✅
 - **Production Ready**: All core theory solvers validated against Z3
 
@@ -128,16 +128,16 @@ Starting from 64.8% (57/88), we systematically fixed:
 
 This milestone validates OxiZ as a production-ready SMT solver implementation in Pure Rust.
 
-## Project Statistics (v0.1.3)
+## Project Statistics (v0.2.0)
 
 | Metric | Value |
 |--------|-------|
-| Rust Lines of Code | 284,414 |
-| Total Lines (with docs) | 387,869 |
-| Total Tests | 5,814 passing |
+| Rust Lines of Code | 312,495 |
+| Total Lines (with docs) | 393,292 |
+| Total Tests | 6,155 passing |
 | Z3 Parity | **100.0% (88/88)** ✅ |
 | Perfect Logics | **8/8 tested (QF_LIA, QF_LRA, QF_NIA, QF_S, QF_BV, QF_FP, QF_DT, QF_A)** |
-| Crates | 15 |
+| Crates | 16 |
 
 ### Codebase Breakdown by Module
 
@@ -171,7 +171,9 @@ oxiz/
 ├── oxiz-py/        # Python bindings (PyO3/maturin)
 ├── oxiz-wasm/      # WebAssembly bindings
 ├── oxiz-smtcomp/   # SMT-COMP benchmarking utilities
-└── oxiz-cli/       # Command-line interface
+├── oxiz-cli/       # Command-line interface
+├── oxiz-ml/        # ML-guided heuristics (neural networks)
+└── oxiz-vscode/    # VS Code extension (TypeScript, SMT-LIB2 language support)
 ```
 
 ## Requirements
@@ -192,21 +194,21 @@ For optimal performance, we recommend:
 ```toml
 # Add to your Cargo.toml
 [dependencies]
-oxiz = "0.1.3"  # Default includes solver
+oxiz = "0.2.0"  # Default includes solver
 ```
 
 Or with specific features:
 
 ```toml
 [dependencies]
-oxiz = { version = "0.1.3", features = ["nlsat", "optimization"] }
+oxiz = { version = "0.2.0", features = ["nlsat", "optimization"] }
 ```
 
 For all features:
 
 ```toml
 [dependencies]
-oxiz = { version = "0.1.3", features = ["full"] }
+oxiz = { version = "0.2.0", features = ["full"] }
 ```
 
 ### Building from Source
@@ -379,7 +381,7 @@ OxiZ goes beyond Z3 with Rust-native features:
    - Code splitting for lazy theory loading
    - Browser-optimized memory management
 
-3. **ML-Guided Heuristics** (Planned)
+3. **ML-Guided Heuristics** (Alpha)
    - Learning branching strategies
    - Adaptive restart policies
    - Clause usefulness prediction
@@ -441,6 +443,21 @@ wasm-pack build --target web
 
 Contributions are welcome! Please see our contributing guidelines.
 
+## Sponsorship
+
+OxiZ is developed and maintained by **COOLJAPAN OU (Team Kitasan)**.
+
+If you find OxiZ useful, please consider sponsoring the project to support continued development of the Pure Rust ecosystem.
+
+[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-red?logo=github)](https://github.com/sponsors/cool-japan)
+
+**[https://github.com/sponsors/cool-japan](https://github.com/sponsors/cool-japan)**
+
+Your sponsorship helps us:
+- Maintain and improve the COOLJAPAN ecosystem
+- Keep the entire ecosystem (OxiBLAS, OxiFFT, SciRS2, etc.) 100% Pure Rust
+- Provide long-term support and security updates
+
 ## License
 
 Apache-2.0
@@ -469,7 +486,7 @@ Performance comparison on SMT-LIB benchmarks (preliminary):
 - Fix API compatibility issues
 - Complete enhanced MaxSAT solvers
 
-### Phase 2: High-Impact Features 🔄 In Progress (37.8%)
+### Phase 2: High-Impact Features ✅ Complete
 - SMT Integration Layer Enhancement (+40K lines)
 - Math Libraries Expansion (+35K lines)
 - Quantifier Elimination Expansion (+25K lines)

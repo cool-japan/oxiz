@@ -14,11 +14,11 @@
 
 use super::cutting_planes::{CuttingPlaneConfig, CuttingPlaneGenerator};
 use super::dual_simplex::{DualSimplexResult, DualSimplexSolver as DualSimplex};
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::cmp::Ordering;
 use num_rational::BigRational;
 use num_traits::{Signed, Zero};
-use rustc_hash::FxHashMap;
-use std::cmp::Ordering;
-use std::collections::BinaryHeap;
 
 /// Variable identifier.
 pub type VarId = usize;
@@ -174,7 +174,7 @@ impl BranchCutSolver {
     /// Create a new branch-and-cut solver.
     pub fn new(config: BranchCutConfig, var_types: Vec<VarType>) -> Self {
         // Collect integer variable IDs
-        let integer_vars: rustc_hash::FxHashSet<VarId> = var_types
+        let integer_vars: crate::prelude::FxHashSet<VarId> = var_types
             .iter()
             .enumerate()
             .filter_map(|(i, &vt)| {

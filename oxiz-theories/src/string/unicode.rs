@@ -3,6 +3,9 @@
 //! Provides Unicode General Category support for regex character classes
 //! like \p{L} (Letters), \p{N} (Numbers), etc.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 /// Unicode General Category
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UnicodeCategory {

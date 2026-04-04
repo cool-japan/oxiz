@@ -62,7 +62,7 @@ const solver = new ctx.Solver();
 
 **OxiZ:**
 ```javascript
-const { WasmSolver } = require('oxiz-wasm');
+const { WasmSolver } = require('@cooljapan/oxiz');
 const solver = new WasmSolver();
 ```
 
@@ -206,7 +206,7 @@ async function checkSat() {
 
 **OxiZ:**
 ```javascript
-const { WasmSolver } = require('oxiz-wasm');
+const { WasmSolver } = require('@cooljapan/oxiz');
 
 function checkSat() {
   const solver = new WasmSolver();
@@ -377,7 +377,7 @@ For complex problems, Z3 may be faster due to:
 
 ### Common Issues
 
-#### Issue: "Cannot find module 'oxiz-wasm'"
+#### Issue: "Cannot find module '@cooljapan/oxiz'"
 
 **Solution:**
 ```bash
@@ -427,7 +427,7 @@ OxiZ is under active development. If you need these features:
 
 ## Migration Checklist
 
-- [ ] Install oxiz-wasm package
+- [ ] Install @cooljapan/oxiz package
 - [ ] Update imports to use `WasmSolver`
 - [ ] Convert variable declarations to `declareConst()`
 - [ ] Convert assertions to SMT-LIB2 string format
@@ -475,7 +475,7 @@ solve();
 ### After (OxiZ)
 
 ```javascript
-const { WasmSolver } = require('oxiz-wasm');
+const { WasmSolver } = require('@cooljapan/oxiz');
 
 function solve() {
   const solver = new WasmSolver();

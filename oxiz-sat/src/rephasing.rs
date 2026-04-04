@@ -8,6 +8,9 @@
 //! - "CaDiCaL, Kissat, Paracooba, Plingeling and Treengeling at SAT Race 2019"
 //! - "Everything You Always Wanted to Know About Blocked Sets (But Were Afraid to Ask)"
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 /// Rephasing strategy
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RephasingStrategy {

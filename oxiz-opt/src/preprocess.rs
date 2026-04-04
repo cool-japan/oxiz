@@ -790,7 +790,10 @@ mod tests {
         // Find the merged clause
         let merged = result.iter().find(|c| c.lits.len() == 2);
         assert!(merged.is_some());
-        assert_eq!(merged.unwrap().weight, Weight::from(5));
+        assert_eq!(
+            merged.expect("test operation should succeed").weight,
+            Weight::from(5)
+        );
     }
 
     #[test]
@@ -1026,7 +1029,7 @@ mod tests {
         let resolvent = prep.resolve(&pos_clause, &neg_clause, Var(0));
 
         assert!(resolvent.is_some());
-        let resolvent = resolvent.unwrap();
+        let resolvent = resolvent.expect("test operation should succeed");
         assert_eq!(resolvent.lits.len(), 2);
         assert!(resolvent.lits.contains(&lit(1, false)));
         assert!(resolvent.lits.contains(&lit(2, false)));

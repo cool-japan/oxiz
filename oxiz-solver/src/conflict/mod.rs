@@ -4,6 +4,9 @@
 //! solving, including conflict minimization, explanation generation, and
 //! relevancy tracking.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 pub mod clause_learning;
 pub mod explanation_cache;
 pub mod explanation_generator;

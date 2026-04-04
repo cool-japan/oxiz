@@ -1,6 +1,6 @@
 # oxiz-proof TODO
 
-Last Updated: 2026-01-05
+Last Updated: 2026-03-28
 
 Reference: Z3's `ast/proofs/` directory at `../z3/src/ast/proofs/`
 
@@ -399,12 +399,13 @@ Proofs can be independently verified by external checkers (Carcara, Coq, Lean).
 - [x] 19 comprehensive tests for simplification module
 - [x] Zero clippy warnings
 
-### Updated Summary (Current Enhancement Session)
-- **Tests**: 502 total (495 unit tests + 7 doc tests, up from 483, +19 new tests or +4.1%)
-  - 19 new tests in simplify.rs module
-- **Source files**: 44 modules (up from 43, +1 new module)
-  - simplify.rs (570 lines, 19 tests) - Proof simplification and logical rewriting
-- **Lines of code**: ~20,600 total (up from ~20,000, +600 lines or +3.0%)
+### Updated Summary (v0.2.0 Stable)
+- **Version**: 0.2.0 (Stable)
+- **Tests**: 553 passing
+- **Source files**: 52 files
+- **Lines of code**: 23,241
+- **Public API items**: 804
+- **Zero todo!/unimplemented! calls**: ✓
 - **Zero compiler warnings**: ✓
 - **Zero clippy warnings**: ✓
 - **Public API**: Enhanced with ProofSimplifier, SimplificationConfig, SimplificationStats, simplify_proof

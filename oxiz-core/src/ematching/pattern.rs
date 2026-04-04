@@ -19,11 +19,12 @@
 
 use crate::ast::{TermId, TermKind, TermManager};
 use crate::error::{OxizError, Result};
+use crate::interner::Spur;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::sort::SortId;
-use lasso::Spur;
-use rustc_hash::{FxHashMap, FxHashSet};
+use core::fmt;
 use smallvec::SmallVec;
-use std::fmt;
 
 /// A pattern for E-matching
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -751,7 +752,9 @@ mod tests {
         let x_name = manager.intern_str("x");
         let bound_vars = vec![(x_name, int_sort)];
 
-        let pattern = compiler.compile(f_x, &bound_vars, &manager).unwrap();
+        let pattern = compiler
+            .compile(f_x, &bound_vars, &manager)
+            .expect("test operation should succeed");
 
         assert_eq!(pattern.root, f_x);
         assert_eq!(pattern.variables.len(), 1);
@@ -771,7 +774,9 @@ mod tests {
         let f_five = manager.mk_apply("f", [five], int_sort);
 
         let bound_vars = vec![];
-        let pattern = compiler.compile(f_five, &bound_vars, &manager).unwrap();
+        let pattern = compiler
+            .compile(f_five, &bound_vars, &manager)
+            .expect("test operation should succeed");
 
         assert_eq!(pattern.root, f_five);
         assert_eq!(pattern.variables.len(), 0);
@@ -793,7 +798,9 @@ mod tests {
         let x_name = manager.intern_str("x");
         let bound_vars = vec![(x_name, int_sort)];
 
-        let pattern = compiler.compile(f_g_x, &bound_vars, &manager).unwrap();
+        let pattern = compiler
+            .compile(f_g_x, &bound_vars, &manager)
+            .expect("test operation should succeed");
 
         assert_eq!(pattern.root, f_g_x);
         assert_eq!(pattern.variables.len(), 1);
@@ -816,7 +823,9 @@ mod tests {
         let y_name = manager.intern_str("y");
         let bound_vars = vec![(x_name, int_sort), (y_name, int_sort)];
 
-        let pattern = compiler.compile(f_xy, &bound_vars, &manager).unwrap();
+        let pattern = compiler
+            .compile(f_xy, &bound_vars, &manager)
+            .expect("test operation should succeed");
 
         assert_eq!(pattern.root, f_xy);
         assert_eq!(pattern.variables.len(), 2);
@@ -832,11 +841,15 @@ mod tests {
 
         // Ground term should have lower cost
         let five = manager.mk_int(5);
-        let ground_cost = compiler.compute_cost(five, &manager).unwrap();
+        let ground_cost = compiler
+            .compute_cost(five, &manager)
+            .expect("test operation should succeed");
 
         // Variable should have higher cost
         let x = manager.mk_var("x", int_sort);
-        let var_cost = compiler.compute_cost(x, &manager).unwrap();
+        let var_cost = compiler
+            .compute_cost(x, &manager)
+            .expect("test operation should succeed");
 
         assert!(var_cost > ground_cost);
     }
@@ -850,17 +863,23 @@ mod tests {
         let x = manager.mk_var("x", int_sort);
 
         // Depth 1: x
-        let depth1 = compiler.compute_depth(x, &manager).unwrap();
+        let depth1 = compiler
+            .compute_depth(x, &manager)
+            .expect("test operation should succeed");
         assert_eq!(depth1, 1);
 
         // Depth 2: f(x)
         let f_x = manager.mk_apply("f", [x], int_sort);
-        let depth2 = compiler.compute_depth(f_x, &manager).unwrap();
+        let depth2 = compiler
+            .compute_depth(f_x, &manager)
+            .expect("test operation should succeed");
         assert_eq!(depth2, 2);
 
         // Depth 3: g(f(x))
         let g_f_x = manager.mk_apply("g", [f_x], int_sort);
-        let depth3 = compiler.compute_depth(g_f_x, &manager).unwrap();
+        let depth3 = compiler
+            .compute_depth(g_f_x, &manager)
+            .expect("test operation should succeed");
         assert_eq!(depth3, 3);
     }
 
@@ -876,14 +895,18 @@ mod tests {
         let x_name = manager.intern_str("x");
         let bound_vars = vec![(x_name, int_sort)];
 
-        let pattern = compiler.compile(f_x, &bound_vars, &manager).unwrap();
-        let dag = compiler.build_dag(&pattern, &manager).unwrap();
+        let pattern = compiler
+            .compile(f_x, &bound_vars, &manager)
+            .expect("test operation should succeed");
+        let dag = compiler
+            .build_dag(&pattern, &manager)
+            .expect("test operation should succeed");
 
         // Should have nodes for x and f(x)
         assert!(dag.len() >= 2);
 
         // Find the root node (f(x))
-        let root_node = dag.last().unwrap();
+        let root_node = dag.last().expect("collection should not be empty");
         assert_eq!(root_node.term, f_x);
         assert!(!root_node.children.is_empty());
     }
@@ -920,8 +943,12 @@ mod tests {
         let bound_vars = vec![(x_name, int_sort)];
 
         // Compile twice
-        let pattern1 = compiler.compile(f_x, &bound_vars, &manager).unwrap();
-        let pattern2 = compiler.compile(f_x, &bound_vars, &manager).unwrap();
+        let pattern1 = compiler
+            .compile(f_x, &bound_vars, &manager)
+            .expect("test operation should succeed");
+        let pattern2 = compiler
+            .compile(f_x, &bound_vars, &manager)
+            .expect("test operation should succeed");
 
         // Should get the same pattern from cache
         assert_eq!(pattern1, pattern2);
@@ -942,11 +969,15 @@ mod tests {
         let x_name = manager.intern_str("x");
         let bound_vars = vec![(x_name, int_sort)];
 
-        compiler.compile(f_x, &bound_vars, &manager).unwrap();
+        compiler
+            .compile(f_x, &bound_vars, &manager)
+            .expect("test operation should succeed");
 
         let five = manager.mk_int(5);
         let f_five = manager.mk_apply("f", [five], int_sort);
-        compiler.compile(f_five, &[], &manager).unwrap();
+        compiler
+            .compile(f_five, &[], &manager)
+            .expect("test operation should succeed");
 
         let stats = compiler.stats();
         assert_eq!(stats.patterns_compiled, 2);

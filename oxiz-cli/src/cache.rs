@@ -331,7 +331,7 @@ mod tests {
         cache.put(input, result, 100);
 
         // Should be cached now
-        let cached = cache.get(input).unwrap();
+        let cached = cache.get(input).expect("key should exist in map");
         assert_eq!(cached.result, result);
         assert_eq!(cached.time_ms, 100);
 

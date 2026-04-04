@@ -89,6 +89,16 @@ solver.assert_eq(bv_term_a, bv_term_b, reason);
 let result = solver.check()?;
 ```
 
+## Status (v0.2.0)
+
+| Metric | Value |
+|:-------|:------|
+| Version | 0.2.0 |
+| Status | Stable |
+| Release Date | 2026-04-04 |
+| Rust LoC | 72,028 (123 files) |
+| Public API items | 2,609 |
+
 ## Dependencies
 
 - `num-rational` - Exact rational arithmetic

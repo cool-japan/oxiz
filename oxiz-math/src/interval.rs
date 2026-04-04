@@ -7,12 +7,14 @@
 //!
 //! Reference: Z3's `math/interval/` directory.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::cmp::Ordering;
+use core::fmt;
+use core::ops::{Add, Div, Mul, Neg, Sub};
 use num_bigint::BigInt;
 use num_rational::BigRational;
 use num_traits::{One, Signed, Zero};
-use std::cmp::Ordering;
-use std::fmt;
-use std::ops::{Add, Div, Mul, Neg, Sub};
 
 /// An endpoint of an interval, which can be finite or infinite.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -149,7 +151,7 @@ impl Bound {
 
 impl PartialOrd for Bound {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(std::cmp::Ord::cmp(self, other))
+        Some(core::cmp::Ord::cmp(self, other))
     }
 }
 

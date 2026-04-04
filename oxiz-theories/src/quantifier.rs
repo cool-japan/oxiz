@@ -19,12 +19,13 @@
 //! 3. Generates instantiation lemmas
 //! 4. Returns to the main solver for further solving
 
-use lasso::Spur;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::ast::{TermId, TermKind, TermManager};
 use oxiz_core::error::Result;
+use oxiz_core::interner::Spur;
 use oxiz_core::sort::SortId;
 use oxiz_core::tactic::{GroundTermCollector, PatternMatcher};
-use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
 
 use crate::theory::{EqualityNotification, Theory, TheoryCombination, TheoryId, TheoryResult};
@@ -316,7 +317,7 @@ impl QuantifierSolver {
 
     /// Get pending lemmas
     pub fn get_pending_lemmas(&mut self) -> Vec<InstantiationLemma> {
-        std::mem::take(&mut self.pending_lemmas)
+        core::mem::take(&mut self.pending_lemmas)
     }
 
     /// Check if there are any quantifiers
@@ -477,7 +478,7 @@ mod tests {
         solver.push();
         solver.pop();
 
-        let result = solver.check().unwrap();
+        let result = solver.check().expect("test operation should succeed");
         assert!(matches!(result, TheoryResult::Sat));
     }
 }

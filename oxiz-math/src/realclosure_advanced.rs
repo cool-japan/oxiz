@@ -15,6 +15,8 @@
 //! - Basu et al.: "Algorithms in Real Algebraic Geometry" (2006)
 //! - Z3's `math/realclosure/`
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_bigint::BigInt;
 use num_rational::BigRational;
 use num_traits::{One, Zero};
@@ -161,17 +163,17 @@ impl RealClosureAdvanced {
     }
 
     /// Compare two algebraic numbers.
-    pub fn compare(&mut self, a: &AlgebraicNumber, b: &AlgebraicNumber) -> std::cmp::Ordering {
+    pub fn compare(&mut self, a: &AlgebraicNumber, b: &AlgebraicNumber) -> core::cmp::Ordering {
         self.stats.comparisons += 1;
 
         // Simplified: compare isolating intervals
         if a.upper < b.lower {
-            std::cmp::Ordering::Less
+            core::cmp::Ordering::Less
         } else if a.lower > b.upper {
-            std::cmp::Ordering::Greater
+            core::cmp::Ordering::Greater
         } else {
             // Intervals overlap, need refinement or Thom encoding
-            std::cmp::Ordering::Equal
+            core::cmp::Ordering::Equal
         }
     }
 
@@ -262,7 +264,7 @@ mod tests {
         let a = AlgebraicNumber::from_rational(BigRational::from(BigInt::from(3)));
         let b = AlgebraicNumber::from_rational(BigRational::from(BigInt::from(5)));
 
-        assert_eq!(engine.compare(&a, &b), std::cmp::Ordering::Less);
+        assert_eq!(engine.compare(&a, &b), core::cmp::Ordering::Less);
         assert_eq!(engine.stats().comparisons, 1);
     }
 

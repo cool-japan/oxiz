@@ -1,6 +1,6 @@
 # oxiz-spacer TODO
 
-Last Updated: 2026-01-06
+Last Updated: 2026-03-28
 
 Reference: Z3's `muz/spacer/` directory at `../z3/src/muz/spacer/`
 
@@ -20,7 +20,7 @@ OxiZ includes a FULL Spacer implementation:
 - Property Directed Reachability (PDR/IC3)
 - Constrained Horn Clause (CHC) solving
 - Bounded Model Checking (BMC) integration
-- Loop invariant synthesis (in progress)
+- Loop invariant synthesis
 
 This enables **software verification** use cases that competitors cannot support.
 
@@ -33,7 +33,7 @@ This enables **software verification** use cases that competitors cannot support
 ## Provides (enables other crates)
 - Standalone CHC solver
 - Software verification infrastructure
-- Loop invariant inference (in progress)
+- Loop invariant inference
 
 ## Critical Priority
 
@@ -133,8 +133,8 @@ This enables **software verification** use cases that competitors cannot support
 - [x] Parallel frame solving (ParallelFrameSolver with worker threads, work queue, parallel propagation)
 - [x] Recursive CHC analysis (RecursiveAnalyzer, recursion kind detection, dependency analysis, SCC)
 - [x] Existential rule preprocessing (ExistentialHandler::preprocess_rule with full Skolemization)
-- [x] Comprehensive test suite (90+ tests across all modules)
-- [x] Integration tests for end-to-end CHC solving (15+ integration tests)
+- [x] Comprehensive test suite (135 tests passing, 6 skipped, across all modules)
+- [x] Integration tests for end-to-end CHC solving
 - [x] Code quality: NO warnings policy enforced (0 clippy warnings)
 - [x] Performance optimizations: Strategic inline annotations on hot-path functions (20+ critical methods in chc, frames, pob modules)
 - [x] Complete Array Theory Support (theory.rs): Full array sort and operation detection, theory-aware projection for Select/Store

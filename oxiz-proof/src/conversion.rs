@@ -569,7 +569,9 @@ mod tests {
     fn test_drat_to_alethe_empty() {
         let converter = FormatConverter::new();
         let drat = DratProof::new();
-        let alethe = converter.drat_to_alethe(&drat).unwrap();
+        let alethe = converter
+            .drat_to_alethe(&drat)
+            .expect("test operation should succeed");
 
         assert!(alethe.is_empty());
     }
@@ -580,7 +582,9 @@ mod tests {
         let mut drat = DratProof::new();
         drat.add_clause(vec![1, 2, -3]);
 
-        let alethe = converter.drat_to_alethe(&drat).unwrap();
+        let alethe = converter
+            .drat_to_alethe(&drat)
+            .expect("test operation should succeed");
 
         assert_eq!(alethe.len(), 1);
         let output = alethe.to_string();
@@ -598,7 +602,9 @@ mod tests {
         drat.add_clause(vec![-2, 4]);
         drat.add_clause(vec![2, -3]);
 
-        let alethe = converter.drat_to_alethe(&drat).unwrap();
+        let alethe = converter
+            .drat_to_alethe(&drat)
+            .expect("test operation should succeed");
 
         assert_eq!(alethe.len(), 4);
         // First clauses should be Input
@@ -616,7 +622,9 @@ mod tests {
             drat.add_clause(vec![i, -i]);
         }
 
-        let alethe = converter.drat_to_alethe(&drat).unwrap();
+        let alethe = converter
+            .drat_to_alethe(&drat)
+            .expect("test operation should succeed");
 
         assert_eq!(alethe.len(), 6);
         let output = alethe.to_string();
@@ -633,7 +641,9 @@ mod tests {
         drat.add_clause(vec![3, 4]);
 
         // Should succeed in non-strict mode, skipping deletion
-        let alethe = converter.drat_to_alethe(&drat).unwrap();
+        let alethe = converter
+            .drat_to_alethe(&drat)
+            .expect("test operation should succeed");
 
         // Only the additions should be present
         assert_eq!(alethe.len(), 2);
@@ -665,7 +675,9 @@ mod tests {
         drat.add_clause(vec![-1]);
         drat.add_clause(vec![]); // Empty clause (contradiction)
 
-        let alethe = converter.drat_to_alethe(&drat).unwrap();
+        let alethe = converter
+            .drat_to_alethe(&drat)
+            .expect("test operation should succeed");
 
         assert_eq!(alethe.len(), 3);
         let output = alethe.to_string();
@@ -679,7 +691,9 @@ mod tests {
     fn test_alethe_to_lfsc_empty() {
         let converter = FormatConverter::new();
         let alethe = AletheProof::new();
-        let lfsc = converter.alethe_to_lfsc(&alethe).unwrap();
+        let lfsc = converter
+            .alethe_to_lfsc(&alethe)
+            .expect("test operation should succeed");
 
         // Should have the boolean signature
         assert!(!lfsc.is_empty());
@@ -694,7 +708,9 @@ mod tests {
         let mut alethe = AletheProof::new();
         alethe.assume("(= x 5)");
 
-        let lfsc = converter.alethe_to_lfsc(&alethe).unwrap();
+        let lfsc = converter
+            .alethe_to_lfsc(&alethe)
+            .expect("test operation should succeed");
 
         let output = lfsc.to_string();
         assert!(output.contains("t1"));
@@ -709,7 +725,9 @@ mod tests {
         let a2 = alethe.assume("(not p)");
         alethe.resolution(vec!["q".to_string()], vec![a1, a2]);
 
-        let lfsc = converter.alethe_to_lfsc(&alethe).unwrap();
+        let lfsc = converter
+            .alethe_to_lfsc(&alethe)
+            .expect("test operation should succeed");
 
         let output = lfsc.to_string();
         assert!(output.contains("resolution"));
@@ -726,7 +744,9 @@ mod tests {
         alethe.step_simple(vec!["(= x x)".to_string()], AletheRule::EqRefl);
         alethe.step_simple(vec!["(= y x)".to_string()], AletheRule::EqSymm);
 
-        let lfsc = converter.alethe_to_lfsc(&alethe).unwrap();
+        let lfsc = converter
+            .alethe_to_lfsc(&alethe)
+            .expect("test operation should succeed");
 
         let output = lfsc.to_string();
         assert!(output.contains("eq_refl"));
@@ -740,7 +760,9 @@ mod tests {
 
         alethe.anchor(vec![("x".to_string(), "Int".to_string())]);
 
-        let lfsc = converter.alethe_to_lfsc(&alethe).unwrap();
+        let lfsc = converter
+            .alethe_to_lfsc(&alethe)
+            .expect("test operation should succeed");
 
         let output = lfsc.to_string();
         assert!(output.contains("anchor1"));
@@ -758,7 +780,9 @@ mod tests {
             "(+ x 1)",
         );
 
-        let lfsc = converter.alethe_to_lfsc(&alethe).unwrap();
+        let lfsc = converter
+            .alethe_to_lfsc(&alethe)
+            .expect("test operation should succeed");
 
         let output = lfsc.to_string();
         assert!(output.contains("(define f"));
@@ -770,7 +794,9 @@ mod tests {
         let mut alethe = AletheProof::new();
         alethe.assume("(= x 5)");
 
-        let lfsc = converter.alethe_to_lfsc(&alethe).unwrap();
+        let lfsc = converter
+            .alethe_to_lfsc(&alethe)
+            .expect("test operation should succeed");
 
         let output = lfsc.to_string();
         assert!(output.contains("t1_formula"));
@@ -782,7 +808,9 @@ mod tests {
         let mut alethe = AletheProof::new();
         alethe.assume("(= x 5)");
 
-        let lfsc = converter.alethe_to_lfsc(&alethe).unwrap();
+        let lfsc = converter
+            .alethe_to_lfsc(&alethe)
+            .expect("test operation should succeed");
 
         let output = lfsc.to_string();
         assert!(!output.contains("t1_formula"));
@@ -909,19 +937,22 @@ mod tests {
 
     #[test]
     fn test_tokenize_sexpr_simple() {
-        let tokens = FormatConverter::tokenize_sexpr("+ x y").unwrap();
+        let tokens =
+            FormatConverter::tokenize_sexpr("+ x y").expect("test operation should succeed");
         assert_eq!(tokens, vec!["+", "x", "y"]);
     }
 
     #[test]
     fn test_tokenize_sexpr_nested() {
-        let tokens = FormatConverter::tokenize_sexpr("+ (- x y) z").unwrap();
+        let tokens =
+            FormatConverter::tokenize_sexpr("+ (- x y) z").expect("test operation should succeed");
         assert_eq!(tokens, vec!["+", "(- x y)", "z"]);
     }
 
     #[test]
     fn test_tokenize_sexpr_deeply_nested() {
-        let tokens = FormatConverter::tokenize_sexpr("f (g (h x)) y").unwrap();
+        let tokens = FormatConverter::tokenize_sexpr("f (g (h x)) y")
+            .expect("test operation should succeed");
         assert_eq!(tokens, vec!["f", "(g (h x))", "y"]);
     }
 
@@ -1018,7 +1049,7 @@ mod tests {
                 add_count += 1;
             }
 
-            let alethe = converter.drat_to_alethe(&drat).unwrap();
+            let alethe = converter.drat_to_alethe(&drat).expect("test operation should succeed");
 
             // Alethe should have the same number of steps as DRAT additions
             prop_assert_eq!(alethe.len(), add_count);
@@ -1051,7 +1082,7 @@ mod tests {
                 alethe.assume(format!("p{}", i));
             }
 
-            let lfsc = converter.alethe_to_lfsc(&alethe).unwrap();
+            let lfsc = converter.alethe_to_lfsc(&alethe).expect("test operation should succeed");
 
             // LFSC should never be empty because of the boolean signature
             prop_assert!(!lfsc.is_empty());
@@ -1131,7 +1162,7 @@ mod tests {
             // Add empty clause (contradiction)
             drat.add_clause(vec![]);
 
-            let alethe = converter.drat_to_alethe(&drat).unwrap();
+            let alethe = converter.drat_to_alethe(&drat).expect("test operation should succeed");
 
             // Should successfully convert
             prop_assert!(!alethe.is_empty());
@@ -1160,7 +1191,7 @@ mod tests {
                 );
             }
 
-            let lfsc = converter.alethe_to_lfsc(&alethe).unwrap();
+            let lfsc = converter.alethe_to_lfsc(&alethe).expect("test operation should succeed");
 
             // Should succeed
             prop_assert!(!lfsc.is_empty());

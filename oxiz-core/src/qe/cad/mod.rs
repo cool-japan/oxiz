@@ -14,6 +14,9 @@
 //! - Collins: "Quantifier Elimination for Real Closed Fields by CAD" (1975)
 //! - Z3's `qe/qe_arith_plugin.cpp`
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 pub mod base;
 pub mod cell_decomposition;
 pub mod lifting;

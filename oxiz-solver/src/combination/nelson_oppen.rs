@@ -1,5 +1,4 @@
 //! Nelson-Oppen Theory Combination.
-#![allow(clippy::if_same_then_else)] // Algorithm branches
 //!
 //! Implements the Nelson-Oppen method for combining decision procedures
 //! of disjoint theories with shared equality propagation.
@@ -22,7 +21,10 @@
 //! - Nelson & Oppen: "Simplification by Cooperating Decision Procedures" (TOPLAS 1979)
 //! - Z3's `smt/theory_combination.cpp`
 
-use rustc_hash::{FxHashMap, FxHashSet};
+#![allow(clippy::if_same_then_else)] // Algorithm branches
+
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Term identifier.
 pub type TermId = u32;

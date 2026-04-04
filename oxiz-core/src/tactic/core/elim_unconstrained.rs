@@ -15,9 +15,10 @@
 //! - "Simplifying Formulas in Satisfiability Modulo Theories" (Bruttomesso et al., 2008)
 //! - Z3's `tactic/core/elim_unconstrained_tactic.cpp`
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::tactic::{Goal, Tactic, TacticResult};
 use crate::{Term, TermId};
-use rustc_hash::{FxHashMap, FxHashSet};
 
 /// Variable identifier.
 pub type VarId = usize;

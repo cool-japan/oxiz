@@ -11,6 +11,8 @@
 
 use crate::clause::Clause;
 use crate::literal::Lit;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use smallvec::SmallVec;
 use std::sync::{Arc, Mutex};
 
@@ -195,7 +197,7 @@ impl ClauseExchangeBuffer {
                     .min_by(|(_, a), (_, b)| {
                         a.activity
                             .partial_cmp(&b.activity)
-                            .unwrap_or(std::cmp::Ordering::Equal)
+                            .unwrap_or(core::cmp::Ordering::Equal)
                     })
                     .map(|(idx, _)| idx)
                 {
@@ -245,7 +247,7 @@ impl ClauseExchangeBuffer {
             buffer.sort_by(|a, b| {
                 b.activity
                     .partial_cmp(&a.activity)
-                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .unwrap_or(core::cmp::Ordering::Equal)
             });
             buffer.truncate(self.config.max_buffer_size / 2);
             self.stats.buffer_size = buffer.len();

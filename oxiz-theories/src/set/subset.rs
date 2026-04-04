@@ -3,9 +3,9 @@
 //! Handles subset constraints (S1 ⊆ S2) and transitive closure
 
 use super::{SetConflict, SetLiteral, SetProofStep, SetVar, SetVarId};
-use rustc_hash::{FxHashMap, FxHashSet};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use smallvec::SmallVec;
-use std::collections::VecDeque;
 
 /// Subset constraint
 #[derive(Debug, Clone)]
@@ -655,7 +655,9 @@ mod tests {
         graph.add_edge(s2, s3);
         graph.compute_closure();
 
-        let closure = graph.get_closure(s1).unwrap();
+        let closure = graph
+            .get_closure(s1)
+            .expect("test operation should succeed");
         assert!(closure.contains(&s1));
         assert!(closure.contains(&s2));
         assert!(closure.contains(&s3));
@@ -696,7 +698,7 @@ mod tests {
         let s2 = SetVarId(1);
 
         prop.add_constraint(SubsetConstraint::new(s1, s2, true, 0))
-            .unwrap();
+            .expect("test operation should succeed");
 
         let result = prop.add_constraint(SubsetConstraint::new(s1, s2, false, 0));
         assert!(result.is_err());
@@ -709,7 +711,7 @@ mod tests {
         let s2 = SetVarId(1);
 
         prop.add_constraint(SubsetConstraint::new(s1, s2, true, 0))
-            .unwrap();
+            .expect("test operation should succeed");
 
         let mut vars = vec![
             SetVar::new(s1, "S1".to_string(), SetSort::IntSet, 0),
@@ -719,7 +721,8 @@ mod tests {
         // Add element 42 to S1
         vars[0].add_must_member(42);
 
-        prop.propagate_membership(s1, s2, &mut vars).unwrap();
+        prop.propagate_membership(s1, s2, &mut vars)
+            .expect("test operation should succeed");
 
         // Element 42 should now be in S2
         assert!(vars[1].must_members.contains(&42));
@@ -734,11 +737,11 @@ mod tests {
 
         // Create a cycle: S1 ⊆ S2 ⊆ S3 ⊆ S1
         prop.add_constraint(SubsetConstraint::new(s1, s2, true, 0))
-            .unwrap();
+            .expect("test operation should succeed");
         prop.add_constraint(SubsetConstraint::new(s2, s3, true, 0))
-            .unwrap();
+            .expect("test operation should succeed");
         prop.add_constraint(SubsetConstraint::new(s3, s1, true, 0))
-            .unwrap();
+            .expect("test operation should succeed");
 
         let mut vars = vec![
             SetVar::new(s1, "S1".to_string(), SetSort::IntSet, 0),
@@ -749,7 +752,8 @@ mod tests {
         vars[0].add_must_member(42);
 
         let scc = vec![s1, s2, s3];
-        prop.propagate_equivalence(&scc, &mut vars).unwrap();
+        prop.propagate_equivalence(&scc, &mut vars)
+            .expect("test operation should succeed");
 
         // All sets should have element 42
         assert!(vars[0].must_members.contains(&42));
@@ -813,7 +817,9 @@ mod tests {
         graph.add_edge(s1, s2);
         graph.add_edge(s1, s3);
 
-        let supersets = graph.get_supersets(s1).unwrap();
+        let supersets = graph
+            .get_supersets(s1)
+            .expect("test operation should succeed");
         assert_eq!(supersets.len(), 2);
         assert!(supersets.contains(&s2));
         assert!(supersets.contains(&s3));
@@ -829,7 +835,9 @@ mod tests {
         graph.add_edge(s1, s3);
         graph.add_edge(s2, s3);
 
-        let subsets = graph.get_subsets(s3).unwrap();
+        let subsets = graph
+            .get_subsets(s3)
+            .expect("test operation should succeed");
         assert_eq!(subsets.len(), 2);
         assert!(subsets.contains(&s1));
         assert!(subsets.contains(&s2));

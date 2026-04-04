@@ -7,11 +7,11 @@
 //! - Automaton operations (union, concatenation, Kleene star)
 //! - Language membership testing
 
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::VecDeque;
 
 /// Finite automaton for string constraints.
 #[derive(Debug, Clone)]
+#[allow(unused_imports)]
+use crate::prelude::*;
 pub struct Automaton {
     /// States
     pub states: FxHashSet<StateId>,

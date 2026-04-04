@@ -1,6 +1,6 @@
 # oxiz-opt TODO
 
-Last Updated: 2026-01-06
+Last Updated: 2026-03-28
 
 Reference: Z3's `opt/` directory at `../z3/src/opt/`
 
@@ -222,8 +222,8 @@ All major features implemented. Only one optional enhancement remains (blocked b
 
 ## Performance & Quality Metrics
 
-- **Test Coverage**: 256 passing tests (0 failures, 3 ignored)
-  - Unit tests: 249+
+- **Test Coverage**: 279 passing tests (0 failures, 3 skipped)
+  - Unit tests: 272+
   - Property-based tests: 7+ (Weight operations)
 - **Clippy Status**: Clean (0 warnings) - all targets including examples and benchmarks
 - **Build Status**: Clean (0 warnings)

@@ -661,7 +661,9 @@ mod tests {
 
         let config = HtmlReportConfig::new("Test Report");
         let generator = HtmlReportGenerator::new(config);
-        let html = generator.generate(&results).unwrap();
+        let html = generator
+            .generate(&results)
+            .expect("test operation should succeed");
 
         assert!(html.contains("<!DOCTYPE html>"));
         assert!(html.contains("Test Report"));
@@ -686,7 +688,8 @@ mod tests {
             ],
         );
 
-        let html = generate_comparison_report(&solver_results, "Solver Comparison").unwrap();
+        let html = generate_comparison_report(&solver_results, "Solver Comparison")
+            .expect("test operation should succeed");
         assert!(html.contains("Solver A"));
         assert!(html.contains("Solver B"));
     }

@@ -7,10 +7,10 @@
 //! - Character class membership
 //! - ASCII/Unicode character classification
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::ast::TermId;
 use oxiz_core::error::{OxizError, Result};
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::VecDeque;
 
 /// Represents a character at a specific position in a string
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

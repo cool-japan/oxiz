@@ -18,7 +18,8 @@
 //! - Z3's `qe/qe_arith_plugin.cpp`
 
 use crate::Term;
-use rustc_hash::FxHashSet;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Variable identifier.
 pub type VarId = usize;

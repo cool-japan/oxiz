@@ -81,7 +81,7 @@ export function useSolver(options: SolverOptions = {}): UseSolverResult {
       error.set(null);
 
       // Dynamic import to avoid SSR issues
-      const { default: init, WasmSolver } = await import('oxiz-wasm');
+      const { default: init, WasmSolver } = await import('@cooljapan/oxiz');
 
       // Initialize WASM module
       await init();

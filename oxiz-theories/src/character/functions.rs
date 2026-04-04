@@ -3,6 +3,10 @@
 //! 🤖 Generated with [SplitRS](https://github.com/cool-japan/splitrs)
 
 /// Character value (Unicode code point)
+#[allow(unused_imports)]
+use crate::prelude::*;
+
+/// Unicode code point value.
 pub type CodePoint = u32;
 #[cfg(test)]
 mod tests {
@@ -48,7 +52,11 @@ mod tests {
         let result = solver.check();
         assert_eq!(result, CharResult::Sat);
         if let Some(CharValue::Known(cp)) = solver.get_value(v) {
-            assert!(char::from_u32(*cp).unwrap().is_ascii_digit());
+            assert!(
+                char::from_u32(*cp)
+                    .expect("test operation should succeed")
+                    .is_ascii_digit()
+            );
         }
     }
     #[test]

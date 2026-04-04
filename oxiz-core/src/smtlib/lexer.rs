@@ -1,5 +1,8 @@
 //! SMT-LIB2 Lexer
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 /// Token kind
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {

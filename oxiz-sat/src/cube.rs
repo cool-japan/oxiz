@@ -1,3 +1,4 @@
+use crate::literal::Lit;
 /// Cube-and-Conquer: Advanced parallel SAT solving via search space partitioning.
 ///
 /// This module implements the Cube-and-Conquer technique, which partitions the search
@@ -8,8 +9,8 @@
 /// 2. **Conquer Phase**: Solve each cube in parallel using CDCL
 ///
 /// This approach is particularly effective for hard combinatorial problems.
-use crate::literal::Lit;
-use std::collections::HashSet;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// A cube represents a partial assignment (conjunction of literals).
 ///
@@ -160,7 +161,7 @@ impl CubeGenerator {
             self.split_recursive(initial, variable_scores);
         }
 
-        std::mem::take(&mut self.cubes)
+        core::mem::take(&mut self.cubes)
     }
 
     /// Recursively splits a cube into smaller cubes.

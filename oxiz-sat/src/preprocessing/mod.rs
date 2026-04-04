@@ -5,6 +5,9 @@
 //! - Gate extraction and recognition
 //! - Bounded variable addition
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 pub mod advanced;
 pub mod gate_extraction;
 pub mod variable_elimination;

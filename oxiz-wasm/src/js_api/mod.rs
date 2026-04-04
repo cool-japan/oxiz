@@ -13,7 +13,7 @@
 //! # Example
 //!
 //! ```javascript
-//! import init, { AsyncSolver } from 'oxiz-wasm';
+//! import init, { AsyncSolver } from '@cooljapan/oxiz';
 //!
 //! await init();
 //! const solver = new AsyncSolver();
@@ -28,9 +28,18 @@
 //! }
 //! ```
 
+pub mod assertions;
+pub mod config;
+pub mod declarations;
+pub mod diagnostics;
 pub mod memory_management;
+pub mod model;
+pub mod optimize;
 pub mod promise_wrapper;
+pub mod solver_core;
 pub mod streaming;
+pub mod term_builders;
+pub mod typescript;
 pub mod worker_support;
 
 pub use memory_management::*;

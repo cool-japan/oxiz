@@ -5,6 +5,8 @@
 
 use crate::TermId;
 use crate::literal::Lit;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Result of a propagation operation.
 #[derive(Debug, Clone)]
@@ -235,7 +237,7 @@ impl PropagatorManager {
     /// Returns the combined propagation result.
     pub fn propagate_all(&mut self) -> PropagationResult {
         // Sort queue by priority (highest first)
-        self.queue.sort_by(|a, b| b.0.cmp(&a.0));
+        self.queue.sort_by_key(|item| std::cmp::Reverse(item.0));
 
         let mut result = PropagationResult::empty();
 

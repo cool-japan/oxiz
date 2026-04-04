@@ -127,7 +127,7 @@ impl TemplateIdentifier {
 
         // Sort templates by occurrences
         self.templates
-            .sort_by(|a, b| b.occurrences.cmp(&a.occurrences));
+            .sort_by_key(|t| std::cmp::Reverse(t.occurrences));
     }
 
     /// Get all identified templates.

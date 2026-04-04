@@ -9,11 +9,12 @@
 #![allow(missing_docs)]
 #![allow(dead_code)]
 
-use lasso::Spur;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_bigint::BigInt;
 use oxiz_core::ast::{TermId, TermKind, TermManager};
+use oxiz_core::interner::Spur;
 use oxiz_core::sort::SortId;
-use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
 
 use super::counterexample::CounterExampleGenerator;
@@ -302,10 +303,10 @@ impl QuantifierInstantiator {
         let mut instantiations = Vec::new();
 
         // Generate counterexamples
-        let counterexamples = self.cex_generator.generate(quantifier, model, manager);
+        let cex_result = self.cex_generator.generate(quantifier, model, manager);
 
         // Convert counterexamples to instantiations
-        for cex in counterexamples {
+        for cex in cex_result.counterexamples {
             // Apply substitution to get ground instance
             let ground_body = self.apply_substitution(quantifier.body, &cex.assignment, manager);
 
@@ -444,6 +445,21 @@ impl QuantifierInstantiator {
                     .collect();
                 manager.mk_apply(&func_name, new_args, t.sort)
             }
+            TermKind::Select(array, index) => {
+                let new_array = self.apply_substitution_cached(*array, subst, manager, cache);
+                let new_index = self.apply_substitution_cached(*index, subst, manager, cache);
+                manager.mk_select(new_array, new_index)
+            }
+            TermKind::Store(array, index, value) => {
+                let new_array = self.apply_substitution_cached(*array, subst, manager, cache);
+                let new_index = self.apply_substitution_cached(*index, subst, manager, cache);
+                let new_value = self.apply_substitution_cached(*value, subst, manager, cache);
+                manager.mk_store(new_array, new_index, new_value)
+            }
+            // Constants and other terms (Implies, Gt, Ge, Sub, Div, Mod,
+            // Neg, Ite) are not traversed here. The MBQIIntegration layer
+            // re-applies substitution for instantiation engine results using
+            // its own complete implementation.
             _ => term,
         };
 
@@ -692,9 +708,9 @@ impl InstantiationEngine {
             instantiations.extend(pattern_based);
         }
 
-        // Strategy 3: Enumerative instantiation (as fallback, limited)
+        // Strategy 3: Enumerative instantiation (as fallback)
         if instantiations.is_empty() {
-            let enumerative = self.enumerative.enumerate(quantifier, model, manager, 3);
+            let enumerative = self.enumerative.enumerate(quantifier, model, manager, 10);
             instantiations.extend(enumerative);
         }
 
@@ -857,10 +873,13 @@ impl EnumerativeInstantiator {
                 domain.extend_from_slice(universe);
             }
 
-            // Add default values
+            // Add default integer candidates from -2 to 5
             if sort == manager.sorts.int_sort {
-                for i in 0..max_per_var.min(3) {
-                    domain.push(manager.mk_int(BigInt::from(i as i32)));
+                for i in -2i64..=5 {
+                    let val = manager.mk_int(BigInt::from(i));
+                    if !domain.contains(&val) {
+                        domain.push(val);
+                    }
                 }
             } else if sort == manager.sorts.bool_sort {
                 domain.push(manager.mk_true());
@@ -938,7 +957,7 @@ pub struct EngineStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lasso::Key;
+    use oxiz_core::interner::Key;
 
     #[test]
     fn test_instantiation_context_creation() {

@@ -9,8 +9,9 @@
 
 pub mod inference;
 
-use rustc_hash::FxHashMap;
-use std::sync::atomic::{AtomicU32, Ordering};
+#[allow(unused_imports)]
+use crate::prelude::*;
+use portable_atomic::{AtomicU32, Ordering};
 
 /// Unique identifier for a sort
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -60,21 +61,21 @@ pub enum SortKind {
         range: SortId,
     },
     /// Uninterpreted sort with a name
-    Uninterpreted(lasso::Spur),
+    Uninterpreted(crate::interner::Spur),
     /// Sort parameter (used in parametric sort definitions)
     /// The Spur is the parameter name
-    Parameter(lasso::Spur),
+    Parameter(crate::interner::Spur),
     /// Parametric sort application: name applied to argument sorts
     /// Example: (List Int) where List is the name and \[Int\] are the args
     Parametric {
         /// Name of the parametric sort
-        name: lasso::Spur,
+        name: crate::interner::Spur,
         /// Sort arguments
         args: smallvec::SmallVec<[SortId; 2]>,
     },
     /// Datatype sort
     /// Reference to a datatype definition by name
-    Datatype(lasso::Spur),
+    Datatype(crate::interner::Spur),
 }
 
 /// A sort in the SMT-LIB2 sense
@@ -148,9 +149,9 @@ impl Sort {
 #[derive(Debug, Clone)]
 pub struct DataTypeConstructor {
     /// Name of the constructor
-    pub name: lasso::Spur,
+    pub name: crate::interner::Spur,
     /// Selector names and their sorts (field name, field sort)
-    pub selectors: smallvec::SmallVec<[(lasso::Spur, SortId); 4]>,
+    pub selectors: smallvec::SmallVec<[(crate::interner::Spur, SortId); 4]>,
 }
 
 /// Parametric sort declaration
@@ -160,7 +161,7 @@ pub struct DataTypeConstructor {
 #[derive(Debug, Clone)]
 pub struct ParametricSortDecl {
     /// Name of the parametric sort
-    pub name: lasso::Spur,
+    pub name: crate::interner::Spur,
     /// Number of parameters this sort takes
     pub arity: usize,
 }
@@ -172,9 +173,9 @@ pub struct ParametricSortDecl {
 #[derive(Debug, Clone)]
 pub struct ParametricSortDef {
     /// Name of the parametric sort
-    pub name: lasso::Spur,
+    pub name: crate::interner::Spur,
     /// Parameter names
-    pub params: smallvec::SmallVec<[lasso::Spur; 2]>,
+    pub params: smallvec::SmallVec<[crate::interner::Spur; 2]>,
     /// The body sort expression (may reference parameters)
     pub body: SortId,
 }
@@ -186,7 +187,7 @@ pub struct ParametricSortDef {
 #[derive(Debug, Clone)]
 pub struct DataTypeDef {
     /// Name of the datatype
-    pub name: lasso::Spur,
+    pub name: crate::interner::Spur,
     /// The sort ID for this datatype (self-reference for recursive types)
     pub sort_id: SortId,
     /// Constructors for this datatype
@@ -213,15 +214,15 @@ pub struct SortManager {
     float64_sort_cached: Option<SortId>,
     float128_sort_cached: Option<SortId>,
     /// Sort aliases: maps alias names to their underlying sorts
-    aliases: FxHashMap<lasso::Spur, SortId>,
+    aliases: FxHashMap<crate::interner::Spur, SortId>,
     /// String interner for alias names
-    interner: lasso::Rodeo,
+    interner: crate::interner::Rodeo,
     /// Declared parametric sorts (name -> arity)
-    parametric_decls: FxHashMap<lasso::Spur, ParametricSortDecl>,
+    parametric_decls: FxHashMap<crate::interner::Spur, ParametricSortDecl>,
     /// Defined parametric sorts (name -> definition)
-    parametric_defs: FxHashMap<lasso::Spur, ParametricSortDef>,
+    parametric_defs: FxHashMap<crate::interner::Spur, ParametricSortDef>,
     /// Datatype definitions (name -> definition)
-    datatypes: FxHashMap<lasso::Spur, DataTypeDef>,
+    datatypes: FxHashMap<crate::interner::Spur, DataTypeDef>,
 }
 
 impl Default for SortManager {
@@ -247,7 +248,7 @@ impl SortManager {
             float64_sort_cached: None,
             float128_sort_cached: None,
             aliases: FxHashMap::default(),
-            interner: lasso::Rodeo::default(),
+            interner: crate::interner::Rodeo::default(),
             parametric_decls: FxHashMap::default(),
             parametric_defs: FxHashMap::default(),
             datatypes: FxHashMap::default(),
@@ -467,7 +468,7 @@ impl SortManager {
     /// ```
     pub fn define_parametric_sort(&mut self, name: &str, params: &[&str], body: SortId) {
         let key = self.interner.get_or_intern(name);
-        let param_spurs: smallvec::SmallVec<[lasso::Spur; 2]> = params
+        let param_spurs: smallvec::SmallVec<[crate::interner::Spur; 2]> = params
             .iter()
             .map(|p| self.interner.get_or_intern(*p))
             .collect();
@@ -763,13 +764,13 @@ impl SortManager {
     /// Intern a string into the interner
     ///
     /// This is used for creating Spur values for datatype constructors and selectors.
-    pub fn intern_str(&mut self, s: &str) -> lasso::Spur {
+    pub fn intern_str(&mut self, s: &str) -> crate::interner::Spur {
         self.interner.get_or_intern(s)
     }
 
     /// Resolve a Spur back to a string
     #[must_use]
-    pub fn resolve_spur(&self, spur: lasso::Spur) -> &str {
+    pub fn resolve_spur(&self, spur: crate::interner::Spur) -> &str {
         self.interner.resolve(&spur)
     }
 }
@@ -781,9 +782,24 @@ mod tests {
     #[test]
     fn test_sort_manager_common_sorts() {
         let manager = SortManager::new();
-        assert!(manager.get(manager.bool_sort).unwrap().is_bool());
-        assert!(manager.get(manager.int_sort).unwrap().is_int());
-        assert!(manager.get(manager.real_sort).unwrap().is_real());
+        assert!(
+            manager
+                .get(manager.bool_sort)
+                .expect("key should exist in map")
+                .is_bool()
+        );
+        assert!(
+            manager
+                .get(manager.int_sort)
+                .expect("key should exist in map")
+                .is_int()
+        );
+        assert!(
+            manager
+                .get(manager.real_sort)
+                .expect("key should exist in map")
+                .is_real()
+        );
     }
 
     #[test]
@@ -796,7 +812,7 @@ mod tests {
         assert_eq!(bv32, bv32_dup);
         assert_ne!(bv32, bv64);
 
-        let sort = manager.get(bv32).unwrap();
+        let sort = manager.get(bv32).expect("key should exist in map");
         assert!(sort.is_bitvec());
         assert_eq!(sort.bitvec_width(), Some(32));
     }
@@ -919,12 +935,14 @@ mod tests {
         // Instantiate (List Int)
         let list_int = manager
             .instantiate_parametric_sort("List", &[manager.int_sort])
-            .unwrap();
+            .expect("test operation should succeed");
 
         assert!(manager.is_parametric(list_int));
         assert_eq!(manager.sort_name(list_int), Some("List".to_string()));
 
-        let args = manager.parametric_args(list_int).unwrap();
+        let args = manager
+            .parametric_args(list_int)
+            .expect("test operation should succeed");
         assert_eq!(args.len(), 1);
         assert_eq!(args[0], manager.int_sort);
     }
@@ -970,10 +988,10 @@ mod tests {
         // Instantiate (MyList Bool)
         let mylist_bool = manager
             .instantiate_parametric_sort("MyList", &[manager.bool_sort])
-            .unwrap();
+            .expect("test operation should succeed");
 
         // Should expand to (Array Int Bool)
-        let sort = manager.get(mylist_bool).unwrap();
+        let sort = manager.get(mylist_bool).expect("key should exist in map");
         if let SortKind::Array { domain, range } = &sort.kind {
             assert_eq!(*domain, manager.int_sort);
             assert_eq!(*range, manager.bool_sort);
@@ -992,15 +1010,17 @@ mod tests {
         // Create (Pair Int Bool)
         let pair_int_bool = manager
             .instantiate_parametric_sort("Pair", &[manager.int_sort, manager.bool_sort])
-            .unwrap();
+            .expect("test operation should succeed");
 
         // Create (Pair (Pair Int Bool) Real)
         let nested = manager
             .instantiate_parametric_sort("Pair", &[pair_int_bool, manager.real_sort])
-            .unwrap();
+            .expect("test operation should succeed");
 
         assert!(manager.is_parametric(nested));
-        let args = manager.parametric_args(nested).unwrap();
+        let args = manager
+            .parametric_args(nested)
+            .expect("test operation should succeed");
         assert_eq!(args.len(), 2);
         assert_eq!(args[0], pair_int_bool);
         assert_eq!(args[1], manager.real_sort);
@@ -1031,8 +1051,12 @@ mod tests {
         let array_tu = manager.array(t, u);
 
         // Substitute T -> Int, U -> Bool
-        let t_id = manager.intern(SortKind::Parameter(manager.interner.get("T").unwrap()));
-        let u_id = manager.intern(SortKind::Parameter(manager.interner.get("U").unwrap()));
+        let t_id = manager.intern(SortKind::Parameter(
+            manager.interner.get("T").expect("key should exist in map"),
+        ));
+        let u_id = manager.intern(SortKind::Parameter(
+            manager.interner.get("U").expect("key should exist in map"),
+        ));
 
         let mut subst = FxHashMap::default();
         subst.insert(t_id, manager.int_sort);
@@ -1041,7 +1065,7 @@ mod tests {
         let result = manager.substitute_sort(array_tu, &subst);
 
         // Should be (Array Int Bool)
-        let sort = manager.get(result).unwrap();
+        let sort = manager.get(result).expect("key should exist in map");
         if let SortKind::Array { domain, range } = &sort.kind {
             assert_eq!(*domain, manager.int_sort);
             assert_eq!(*range, manager.bool_sort);
@@ -1059,10 +1083,10 @@ mod tests {
         // Create two (List Int) instances
         let list_int_1 = manager
             .instantiate_parametric_sort("List", &[manager.int_sort])
-            .unwrap();
+            .expect("test operation should succeed");
         let list_int_2 = manager
             .instantiate_parametric_sort("List", &[manager.int_sort])
-            .unwrap();
+            .expect("test operation should succeed");
 
         // Should be the same due to interning
         assert_eq!(list_int_1, list_int_2);
@@ -1070,7 +1094,7 @@ mod tests {
         // (List Bool) should be different
         let list_bool = manager
             .instantiate_parametric_sort("List", &[manager.bool_sort])
-            .unwrap();
+            .expect("test operation should succeed");
         assert_ne!(list_int_1, list_bool);
     }
 
@@ -1100,7 +1124,9 @@ mod tests {
         assert!(manager.is_datatype_declared("Color"));
         assert!(!manager.is_datatype_declared("Unknown"));
 
-        let color_def = manager.get_datatype("Color").unwrap();
+        let color_def = manager
+            .get_datatype("Color")
+            .expect("test operation should succeed");
         assert_eq!(manager.resolve_spur(color_def.name), "Color");
         assert_eq!(color_def.constructors.len(), 3);
     }
@@ -1135,7 +1161,9 @@ mod tests {
         assert!(manager.is_datatype(list_sort));
         assert_eq!(manager.datatype_name(list_sort), Some("List"));
 
-        let list_def = manager.get_datatype("List").unwrap();
+        let list_def = manager
+            .get_datatype("List")
+            .expect("test operation should succeed");
         assert_eq!(list_def.constructors.len(), 2);
         assert_eq!(manager.resolve_spur(list_def.constructors[0].name), "cons");
         assert_eq!(manager.resolve_spur(list_def.constructors[1].name), "nil");
@@ -1176,7 +1204,9 @@ mod tests {
 
         assert!(manager.is_datatype_declared("Tree"));
 
-        let tree_def = manager.get_datatype("Tree").unwrap();
+        let tree_def = manager
+            .get_datatype("Tree")
+            .expect("test operation should succeed");
         assert_eq!(tree_def.constructors.len(), 2);
 
         // Verify the node constructor has two Tree-typed selectors

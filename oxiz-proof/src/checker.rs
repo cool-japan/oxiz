@@ -405,33 +405,27 @@ impl ProofChecker {
     ) -> Result<(), CheckError> {
         match rule {
             // Rules with no premises
-            TheoryRule::Refl => {
-                if premise_count != 0 {
-                    return Err(CheckError::WrongPremiseCount {
-                        expected: 0,
-                        got: premise_count,
-                    });
-                }
+            TheoryRule::Refl if premise_count != 0 => {
+                return Err(CheckError::WrongPremiseCount {
+                    expected: 0,
+                    got: premise_count,
+                });
             }
 
             // Rules with exactly one premise
-            TheoryRule::Symm => {
-                if premise_count != 1 {
-                    return Err(CheckError::WrongPremiseCount {
-                        expected: 1,
-                        got: premise_count,
-                    });
-                }
+            TheoryRule::Symm if premise_count != 1 => {
+                return Err(CheckError::WrongPremiseCount {
+                    expected: 1,
+                    got: premise_count,
+                });
             }
 
             // Rules with exactly two premises
-            TheoryRule::Trans => {
-                if premise_count != 2 {
-                    return Err(CheckError::WrongPremiseCount {
-                        expected: 2,
-                        got: premise_count,
-                    });
-                }
+            TheoryRule::Trans if premise_count != 2 => {
+                return Err(CheckError::WrongPremiseCount {
+                    expected: 2,
+                    got: premise_count,
+                });
             }
 
             // Rules with at least one premise (congruence needs arg equalities)
@@ -440,43 +434,35 @@ impl ProofChecker {
             }
 
             // Farkas lemma needs at least 2 premises
-            TheoryRule::LaGeneric => {
-                if premise_count < 2 {
-                    return Err(CheckError::WrongPremiseCount {
-                        expected: 2,
-                        got: premise_count,
-                    });
-                }
+            TheoryRule::LaGeneric if premise_count < 2 => {
+                return Err(CheckError::WrongPremiseCount {
+                    expected: 2,
+                    got: premise_count,
+                });
             }
 
             // Array read-write-same is an axiom
-            TheoryRule::ArrReadWrite1 => {
-                if premise_count != 0 {
-                    return Err(CheckError::WrongPremiseCount {
-                        expected: 0,
-                        got: premise_count,
-                    });
-                }
+            TheoryRule::ArrReadWrite1 if premise_count != 0 => {
+                return Err(CheckError::WrongPremiseCount {
+                    expected: 0,
+                    got: premise_count,
+                });
             }
 
             // Array read-write-different needs proof of i ≠ j
-            TheoryRule::ArrReadWrite2 => {
-                if premise_count != 1 {
-                    return Err(CheckError::WrongPremiseCount {
-                        expected: 1,
-                        got: premise_count,
-                    });
-                }
+            TheoryRule::ArrReadWrite2 if premise_count != 1 => {
+                return Err(CheckError::WrongPremiseCount {
+                    expected: 1,
+                    got: premise_count,
+                });
             }
 
             // LaMult needs coefficient argument
-            TheoryRule::LaMult => {
-                if arg_count < 1 {
-                    return Err(CheckError::WrongArgumentCount {
-                        expected: 1,
-                        got: arg_count,
-                    });
-                }
+            TheoryRule::LaMult if arg_count < 1 => {
+                return Err(CheckError::WrongArgumentCount {
+                    expected: 1,
+                    got: arg_count,
+                });
             }
 
             // Other rules - flexible checking
@@ -577,33 +563,27 @@ impl ProofChecker {
     fn check_alethe_rule(&self, rule: &AletheRule, premise_count: usize) -> Result<(), CheckError> {
         match rule {
             // Resolution needs at least 2 premises
-            AletheRule::Resolution => {
-                if premise_count < 2 {
-                    return Err(CheckError::WrongPremiseCount {
-                        expected: 2,
-                        got: premise_count,
-                    });
-                }
+            AletheRule::Resolution if premise_count < 2 => {
+                return Err(CheckError::WrongPremiseCount {
+                    expected: 2,
+                    got: premise_count,
+                });
             }
 
             // Reflexivity is an axiom
-            AletheRule::Refl => {
-                if premise_count != 0 {
-                    return Err(CheckError::WrongPremiseCount {
-                        expected: 0,
-                        got: premise_count,
-                    });
-                }
+            AletheRule::Refl if premise_count != 0 => {
+                return Err(CheckError::WrongPremiseCount {
+                    expected: 0,
+                    got: premise_count,
+                });
             }
 
             // Transitivity needs at least 2 premises
-            AletheRule::Trans => {
-                if premise_count < 2 {
-                    return Err(CheckError::WrongPremiseCount {
-                        expected: 2,
-                        got: premise_count,
-                    });
-                }
+            AletheRule::Trans if premise_count < 2 => {
+                return Err(CheckError::WrongPremiseCount {
+                    expected: 2,
+                    got: premise_count,
+                });
             }
 
             // Other rules - flexible checking

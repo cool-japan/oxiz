@@ -41,6 +41,9 @@
 
 // Chronological backtracking implementation
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 /// Configuration for chronological backtracking.
 #[derive(Debug, Clone)]
 pub struct ChronoBacktrackConfig {

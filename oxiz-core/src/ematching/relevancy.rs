@@ -6,7 +6,8 @@
 
 use crate::ast::{TermId, TermKind, TermManager};
 use crate::error::Result;
-use rustc_hash::{FxHashMap, FxHashSet};
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Relevancy score for a term
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]

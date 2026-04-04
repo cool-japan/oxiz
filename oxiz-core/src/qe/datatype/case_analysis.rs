@@ -16,7 +16,8 @@
 //! - Z3's `qe/qe_datatypes.cpp`
 
 use crate::Term;
-use rustc_hash::FxHashMap;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Variable identifier.
 pub type VarId = usize;
@@ -156,10 +157,11 @@ impl CaseAnalyzer {
     }
 
     /// Generate a case for a specific constructor.
-    fn generate_case(&self, _ctor: &Constructor, _formula: &Term) -> Term {
+    fn generate_case(&self, _ctor: &Constructor, formula: &Term) -> Term {
         // Simplified: would create fresh variables for constructor arguments
-        // and substitute into formula
-        unimplemented!("placeholder term")
+        // and substitute into formula.
+        // For now, return the original formula unchanged.
+        formula.clone()
     }
 
     /// Check if a case is trivially false.
@@ -226,7 +228,9 @@ mod tests {
 
         analyzer.register_datatype("List".to_string(), constructors);
 
-        let ctors = analyzer.get_constructors("List").unwrap();
+        let ctors = analyzer
+            .get_constructors("List")
+            .expect("test operation should succeed");
         assert_eq!(ctors.len(), 2);
     }
 

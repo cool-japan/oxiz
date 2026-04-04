@@ -3,11 +3,21 @@
 # macOS-specific linker flags to allow undefined Python symbols in oxiz-py crate
 # (Python provides these symbols at runtime when loading the extension)
 # This is safe for other crates as they don't reference undefined Python symbols
+#
+# target-cpu=native enables CPU-specific optimizations (NEON on Apple Silicon,
+# AVX2 on x86_64) for better auto-vectorization of hot loops.
 [target.aarch64-apple-darwin]
-rustflags = ["-C", "link-args=-undefined dynamic_lookup"]
+rustflags = ["-C", "link-args=-undefined dynamic_lookup", "-C", "target-cpu=native"]
 
 [target.x86_64-apple-darwin]
-rustflags = ["-C", "link-args=-undefined dynamic_lookup"]
+rustflags = ["-C", "link-args=-undefined dynamic_lookup", "-C", "target-cpu=native"]
+
+# Generic x86_64 and aarch64 targets (non-macOS)
+[target.'cfg(all(target_arch = "x86_64", not(target_os = "macos")))']
+rustflags = ["-C", "target-cpu=native"]
+
+[target.'cfg(all(target_arch = "aarch64", not(target_os = "macos")))']
+rustflags = ["-C", "target-cpu=native"]
 
 # PyO3 configuration for Python 3.14+ compatibility
 [env]

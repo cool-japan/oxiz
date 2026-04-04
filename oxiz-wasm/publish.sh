@@ -50,7 +50,7 @@ CARGO_VERSION=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
 print_info "Current version: $CARGO_VERSION"
 
 # Check if this version is already published
-if npm view oxiz-wasm@$CARGO_VERSION version &> /dev/null; then
+if npm view @cooljapan/oxiz@$CARGO_VERSION version &> /dev/null; then
     print_error "Version $CARGO_VERSION is already published!"
     print_warn "Update the version in Cargo.toml first"
     exit 1
@@ -108,13 +108,20 @@ for dir in pkg-web pkg-nodejs pkg-bundler; do
     fi
 done
 
+# Patch package name for @cooljapan/oxiz scope (wasm-pack generates "oxiz-wasm")
+for dir in pkg-web pkg-nodejs pkg-bundler; do
+    if [ -f "$dir/package.json" ]; then
+        sed -i '' 's/"name": "oxiz-wasm"/"name": "@cooljapan\/oxiz"/' "$dir/package.json"
+    fi
+done
+
 # Dry run
 print_step "Running npm publish dry-run..."
 npm publish --dry-run
 
 # Confirm publication
 echo ""
-print_warn "About to publish oxiz-wasm@$CARGO_VERSION to NPM"
+print_warn "About to publish @cooljapan/oxiz@$CARGO_VERSION to NPM"
 read -p "Continue with publication? (y/N) " -n 1 -r
 echo
 if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -130,11 +137,11 @@ npm publish
 print_step "Creating git tag..."
 git tag -a "v$CARGO_VERSION" -m "Release version $CARGO_VERSION"
 
-print_info "Successfully published oxiz-wasm@$CARGO_VERSION"
+print_info "Successfully published @cooljapan/oxiz@$CARGO_VERSION"
 print_info "Don't forget to push the tag: git push origin v$CARGO_VERSION"
 
 # Show CDN URLs
 echo ""
 print_info "Package will be available on CDNs within a few minutes:"
-echo "  unpkg: https://unpkg.com/oxiz-wasm@$CARGO_VERSION/"
-echo "  jsdelivr: https://cdn.jsdelivr.net/npm/oxiz-wasm@$CARGO_VERSION/"
+echo "  unpkg: https://unpkg.com/@cooljapan/oxiz@$CARGO_VERSION/"
+echo "  jsdelivr: https://cdn.jsdelivr.net/npm/@cooljapan/oxiz@$CARGO_VERSION/"

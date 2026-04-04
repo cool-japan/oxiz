@@ -651,7 +651,7 @@ mod tests {
         queue.close(id, lemma);
         assert!(queue.is_empty());
 
-        let pob = queue.get(id).unwrap();
+        let pob = queue.get(id).expect("key should exist in map");
         assert!(pob.is_closed());
         assert_eq!(pob.blocking_lemma(), Some(lemma));
     }

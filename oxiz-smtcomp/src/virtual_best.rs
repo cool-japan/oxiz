@@ -445,7 +445,7 @@ mod tests {
         let a = vbs_results
             .iter()
             .find(|r| r.path.ends_with("a.smt2"))
-            .unwrap();
+            .expect("test operation should succeed");
         assert_eq!(a.best_solver, "Solver A");
         assert_eq!(a.time, Duration::from_millis(100));
 
@@ -453,7 +453,7 @@ mod tests {
         let b = vbs_results
             .iter()
             .find(|r| r.path.ends_with("b.smt2"))
-            .unwrap();
+            .expect("test operation should succeed");
         assert_eq!(b.best_solver, "Solver B");
         assert!(b.is_solved());
 

@@ -7,10 +7,12 @@
 //! Reference: Z3's algebraic number implementation.
 
 use crate::polynomial::{Polynomial, Var};
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::cmp::Ordering;
 use num_bigint::BigInt;
 use num_rational::BigRational;
 use num_traits::{Signed, Zero};
-use std::cmp::Ordering;
 
 /// An algebraic number represented by a polynomial and an isolating interval.
 ///
@@ -843,7 +845,7 @@ mod tests {
     fn test_algebraic_inverse() {
         // Inverse of 4 is 1/4
         let a = AlgebraicNumber::from_rational(rat(4));
-        let inv_a = a.inverse().unwrap();
+        let inv_a = a.inverse().expect("test operation should succeed");
         assert_eq!(
             inv_a.approximate(),
             BigRational::new(BigInt::from(1), BigInt::from(4))
@@ -851,7 +853,7 @@ mod tests {
 
         // Inverse of -2 is -1/2
         let b = AlgebraicNumber::from_rational(rat(-2));
-        let inv_b = b.inverse().unwrap();
+        let inv_b = b.inverse().expect("test operation should succeed");
         assert_eq!(
             inv_b.approximate(),
             BigRational::new(BigInt::from(-1), BigInt::from(2))
@@ -866,12 +868,16 @@ mod tests {
     fn test_algebraic_div_rational() {
         // 10 / 2 = 5
         let a = AlgebraicNumber::from_rational(rat(10));
-        let b = a.div_rational(&rat(2)).unwrap();
+        let b = a
+            .div_rational(&rat(2))
+            .expect("test operation should succeed");
         assert_eq!(b.approximate(), rat(5));
 
         // 6 / 4 = 3/2
         let c = AlgebraicNumber::from_rational(rat(6));
-        let d = c.div_rational(&rat(4)).unwrap();
+        let d = c
+            .div_rational(&rat(4))
+            .expect("test operation should succeed");
         assert_eq!(
             d.approximate(),
             BigRational::new(BigInt::from(3), BigInt::from(2))
@@ -886,17 +892,17 @@ mod tests {
     fn test_algebraic_pow() {
         // 2^3 = 8
         let a = AlgebraicNumber::from_rational(rat(2));
-        let b = a.pow(3).unwrap();
+        let b = a.pow(3).expect("test operation should succeed");
         assert_eq!(b.approximate(), rat(8));
 
         // 3^0 = 1
         let c = AlgebraicNumber::from_rational(rat(3));
-        let d = c.pow(0).unwrap();
+        let d = c.pow(0).expect("test operation should succeed");
         assert_eq!(d.approximate(), rat(1));
 
         // 2^(-1) = 1/2
         let e = AlgebraicNumber::from_rational(rat(2));
-        let f = e.pow(-1).unwrap();
+        let f = e.pow(-1).expect("test operation should succeed");
         assert_eq!(
             f.approximate(),
             BigRational::new(BigInt::from(1), BigInt::from(2))
@@ -976,8 +982,8 @@ mod tests {
         // Test √2 + √2 using algebraic operations
         // Note: Full irrational-to-irrational operations require resultant-based
         // computation which is complex. For now, test the basic functionality.
-        let mut sqrt2_a = AlgebraicNumber::sqrt(&rat(2)).unwrap();
-        let mut sqrt2_b = AlgebraicNumber::sqrt(&rat(2)).unwrap();
+        let mut sqrt2_a = AlgebraicNumber::sqrt(&rat(2)).expect("test operation should succeed");
+        let mut sqrt2_b = AlgebraicNumber::sqrt(&rat(2)).expect("test operation should succeed");
 
         // add_algebraic returns a result (currently an approximation for irrational+irrational)
         let sum = sqrt2_a.add_algebraic(&mut sqrt2_b);
@@ -992,8 +998,8 @@ mod tests {
         // Test √2 * √3 using algebraic operations
         // Note: Full irrational-to-irrational operations require resultant-based
         // computation which is complex. For now, test the basic functionality.
-        let mut sqrt2 = AlgebraicNumber::sqrt(&rat(2)).unwrap();
-        let mut sqrt3 = AlgebraicNumber::sqrt(&rat(3)).unwrap();
+        let mut sqrt2 = AlgebraicNumber::sqrt(&rat(2)).expect("test operation should succeed");
+        let mut sqrt3 = AlgebraicNumber::sqrt(&rat(3)).expect("test operation should succeed");
 
         // mul_algebraic returns a result (currently an approximation for irrational*irrational)
         let product = sqrt2.mul_algebraic(&mut sqrt3);
@@ -1006,7 +1012,7 @@ mod tests {
     #[test]
     fn test_algebraic_add_mixed() {
         // Test 1 + √2 using add_rational (exact operation)
-        let sqrt2 = AlgebraicNumber::sqrt(&rat(2)).unwrap();
+        let sqrt2 = AlgebraicNumber::sqrt(&rat(2)).expect("test operation should succeed");
 
         // Use add_rational directly for exact computation
         let sum = sqrt2.add_rational(&rat(1));
@@ -1022,7 +1028,7 @@ mod tests {
     #[test]
     fn test_algebraic_mul_by_rational() {
         // Test 2 * √3 using mul_rational (exact operation)
-        let sqrt3 = AlgebraicNumber::sqrt(&rat(3)).unwrap();
+        let sqrt3 = AlgebraicNumber::sqrt(&rat(3)).expect("test operation should succeed");
 
         // Verify sqrt3 is not negative (it may have lower bound = 0)
         assert!(!sqrt3.is_negative(), "√3 should not be negative");

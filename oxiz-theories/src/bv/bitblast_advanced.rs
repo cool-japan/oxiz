@@ -41,12 +41,12 @@
 //! - "Boolean Satisfiability in Electronic Design Automation" (Kuehlmann et al.)
 
 use super::aig::{AigCircuit, AigEdge, AigNode, NodeId};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::ast::TermId;
 use oxiz_core::error::Result;
 use oxiz_sat::{Lit, Solver as SatSolver, Var};
-use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
-use std::collections::VecDeque;
 
 /// Configuration for bit-blasting strategy
 #[derive(Debug, Clone)]
@@ -813,7 +813,7 @@ impl AdvancedBitBlaster {
                 cuts.sort_by(|a, b| {
                     a.cost
                         .partial_cmp(&b.cost)
-                        .unwrap_or(std::cmp::Ordering::Equal)
+                        .unwrap_or(core::cmp::Ordering::Equal)
                 });
                 cuts.truncate(MAX_CUTS_PER_NODE);
             }
@@ -845,19 +845,24 @@ impl AdvancedBitBlaster {
 
     /// Convert AIG to CNF using Tseitin encoding
     pub fn to_cnf_tseitin(&mut self, sat: &mut SatSolver) -> Result<()> {
+        #[cfg(feature = "std")]
         let start = std::time::Instant::now();
 
         // Use AIG's built-in CNF conversion
         self.node_to_var = self.aig.to_cnf(sat);
 
         self.stats.vars_created = self.node_to_var.len();
-        self.stats.cnf_encoding_time_us = start.elapsed().as_micros() as u64;
+        #[cfg(feature = "std")]
+        {
+            self.stats.cnf_encoding_time_us = start.elapsed().as_micros() as u64;
+        }
 
         Ok(())
     }
 
     /// Convert AIG to CNF using Plaisted-Greenbaum encoding
     pub fn to_cnf_plaisted_greenbaum(&mut self, sat: &mut SatSolver) -> Result<()> {
+        #[cfg(feature = "std")]
         let start = std::time::Instant::now();
 
         // PG encoding only generates clauses for one polarity
@@ -876,7 +881,10 @@ impl AdvancedBitBlaster {
             }
         }
 
-        self.stats.cnf_encoding_time_us = start.elapsed().as_micros() as u64;
+        #[cfg(feature = "std")]
+        {
+            self.stats.cnf_encoding_time_us = start.elapsed().as_micros() as u64;
+        }
 
         Ok(())
     }

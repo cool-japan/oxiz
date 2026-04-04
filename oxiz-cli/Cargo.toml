@@ -12,14 +12,15 @@ categories = ["command-line-utilities"]
 [[bin]]
 name = "oxiz"
 path = "src/main.rs"
+doc = false
 
 [dependencies]
-oxiz-core = { workspace = true }
-oxiz-solver = { workspace = true }
+oxiz-core = { workspace = true, features = ["std"] }
+oxiz-solver = { workspace = true, features = ["std"] }
 oxiz-proof = { workspace = true }
 clap = { workspace = true }
 clap_complete = { workspace = true }
-tracing = { workspace = true }
+tracing = { workspace = true, features = ["std"] }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 rustyline = { workspace = true }
 serde = { workspace = true }
@@ -40,4 +41,4 @@ chrono = "0.4"
 axum = { workspace = true }
 tower = { workspace = true }
 tower-http = { workspace = true }
-rustc-hash = { workspace = true }
+rustc-hash = { workspace = true, features = ["std"] }

@@ -3,8 +3,9 @@
 //! Implements shortest path computation with negative cycle detection.
 
 use super::graph::{ConstraintGraph, DiffEdge, DiffVar};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_rational::Rational64;
-use std::collections::{HashMap, VecDeque};
 
 /// A negative cycle detected in the constraint graph
 #[derive(Debug, Clone)]

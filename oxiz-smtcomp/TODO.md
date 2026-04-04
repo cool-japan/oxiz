@@ -66,9 +66,21 @@
 | regression.rs | Regression detection | Complete |
 | dashboard.rs | Web dashboard | Complete |
 
+## Current Status (v0.2.0)
+
+| Metric | Value |
+|--------|-------|
+| Version | 0.2.0 |
+| Status | Alpha |
+| Tests | 104 passing |
+| Rust LoC | 9,744 (20 files) |
+| Public API items | 370 |
+| `todo!`/`unimplemented!` | 0 |
+
+*Last updated: 2026-03-28*
+
 ## Dependencies
 - `rayon` for parallel execution
-- `rand` for sampling
 - `serde` for serialization
 - `thiserror` for error handling
 - `tracing` for logging

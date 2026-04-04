@@ -1,4 +1,7 @@
-//\! Pretty printing configuration
+//! Pretty printing configuration
+
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Configuration for pretty printing
 #[allow(dead_code)]

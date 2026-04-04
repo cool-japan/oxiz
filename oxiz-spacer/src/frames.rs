@@ -769,13 +769,13 @@ mod tests {
         queue.push(2, LemmaId::new(2), PredId::new(0));
 
         // Should pop in order of level (lowest first)
-        let (level, _, _) = queue.pop().unwrap();
+        let (level, _, _) = queue.pop().expect("collection should not be empty");
         assert_eq!(level, 1);
 
-        let (level, _, _) = queue.pop().unwrap();
+        let (level, _, _) = queue.pop().expect("collection should not be empty");
         assert_eq!(level, 2);
 
-        let (level, _, _) = queue.pop().unwrap();
+        let (level, _, _) = queue.pop().expect("collection should not be empty");
         assert_eq!(level, 3);
 
         assert!(queue.is_empty());

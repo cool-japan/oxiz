@@ -8,10 +8,11 @@
 //! - Heuristic GCD for sparse polynomials
 //! - Content and primitive part computation
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_bigint::BigInt;
 use num_rational::BigRational;
 use num_traits::{One, Zero};
-use rustc_hash::FxHashMap;
 
 /// Monomial representation (variable -> exponent)
 pub type Monomial = FxHashMap<usize, usize>;
@@ -525,7 +526,7 @@ mod tests {
             num_vars: 1,
         };
 
-        let result = computer.gcd(&f, &g).unwrap();
+        let result = computer.gcd(&f, &g).expect("test operation should succeed");
         assert_eq!(result.terms.len(), 1);
     }
 
@@ -573,7 +574,9 @@ mod tests {
             -BigRational::one(), // constant
         ];
 
-        let result = computer.univariate_gcd(&f, &g).unwrap();
+        let result = computer
+            .univariate_gcd(&f, &g)
+            .expect("test operation should succeed");
         assert!(!result.is_empty());
     }
 
@@ -589,7 +592,8 @@ mod tests {
             -BigRational::one(),
         ];
 
-        let result = MultivariateGcdComputer::poly_rem(&dividend, &divisor).unwrap();
+        let result = MultivariateGcdComputer::poly_rem(&dividend, &divisor)
+            .expect("test operation should succeed");
         // Should get zero remainder (x^2 - 1 = (x+1)(x-1))
         assert!(MultivariateGcdComputer::is_zero_poly(&result));
     }
@@ -610,7 +614,9 @@ mod tests {
     fn test_mod_inverse() {
         let computer = MultivariateGcdComputer::new(GcdConfig::default());
 
-        let inv = computer.mod_inverse(3, 7).unwrap();
+        let inv = computer
+            .mod_inverse(3, 7)
+            .expect("test operation should succeed");
         assert_eq!((3 * inv) % 7, 1);
     }
 
@@ -631,7 +637,9 @@ mod tests {
         let den = BigInt::from(3);
         let prime = 11;
 
-        let result = computer.rational_mod(&num, &den, prime).unwrap();
+        let result = computer
+            .rational_mod(&num, &den, prime)
+            .expect("test operation should succeed");
         // 7/3 mod 11 = 7 * 4 mod 11 = 28 mod 11 = 6
         assert_eq!(result, 6);
     }

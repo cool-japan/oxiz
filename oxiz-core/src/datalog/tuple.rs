@@ -3,10 +3,12 @@
 //! Tuples are the fundamental data unit in Datalog relations.
 //! They support efficient storage, comparison, and hashing.
 
-use lasso::Spur;
+use crate::interner::Spur;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::cmp::Ordering;
+use core::hash::{Hash, Hasher};
 use num_rational::BigRational;
-use std::cmp::Ordering;
-use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use super::schema::{ColumnId, DataType, Schema};
@@ -173,7 +175,7 @@ impl Ord for Value {
 
 impl Hash for Value {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        std::mem::discriminant(self).hash(state);
+        core::mem::discriminant(self).hash(state);
         match self {
             Value::Null => {}
             Value::Bool(b) => b.hash(state),
@@ -446,7 +448,7 @@ impl TupleBuilder {
 
 /// Iterator over tuple values
 pub struct TupleIter<'a> {
-    values: std::slice::Iter<'a, Value>,
+    values: core::slice::Iter<'a, Value>,
 }
 
 impl<'a> Iterator for TupleIter<'a> {
@@ -554,7 +556,7 @@ mod tests {
 
     #[test]
     fn test_tuple_hash() {
-        use std::collections::HashSet;
+        use crate::prelude::HashSet;
 
         let t1 = TupleBuilder::new().push_i64(1).push_i64(2).build();
         let t2 = TupleBuilder::new().push_i64(1).push_i64(2).build();

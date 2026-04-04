@@ -4,7 +4,7 @@
 // This example demonstrates incremental solving using push/pop operations
 // to efficiently explore multiple scenarios without recreating the solver.
 
-import init, { WasmSolver } from 'oxiz-wasm';
+import init, { WasmSolver } from '@cooljapan/oxiz';
 
 async function main() {
     await init();

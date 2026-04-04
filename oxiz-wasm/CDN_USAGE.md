@@ -15,7 +15,7 @@ This guide shows you how to use OxiZ WASM directly from CDNs without installing 
 <body>
     <script type="module">
         // Load from unpkg
-        import init, { WasmSolver } from 'https://unpkg.com/oxiz-wasm@latest/pkg/oxiz_wasm.js';
+        import init, { WasmSolver } from 'https://unpkg.com/@cooljapan/oxiz@latest/pkg/oxiz_wasm.js';
 
         async function main() {
             await init();
@@ -43,7 +43,7 @@ This guide shows you how to use OxiZ WASM directly from CDNs without installing 
 ```html
 <script type="module">
     // Load from jsDelivr
-    import init, { WasmSolver } from 'https://cdn.jsdelivr.net/npm/oxiz-wasm@latest/pkg/oxiz_wasm.js';
+    import init, { WasmSolver } from 'https://cdn.jsdelivr.net/npm/@cooljapan/oxiz@latest/pkg/oxiz_wasm.js';
 
     async function main() {
         await init();
@@ -63,20 +63,20 @@ It's recommended to pin to a specific version in production:
 
 ```javascript
 // unpkg
-import init from 'https://unpkg.com/oxiz-wasm@0.1.3/pkg/oxiz_wasm.js';
+import init from 'https://unpkg.com/@cooljapan/oxiz@0.2.0/pkg/oxiz_wasm.js';
 
 // jsDelivr
-import init from 'https://cdn.jsdelivr.net/npm/oxiz-wasm@0.1.3/pkg/oxiz_wasm.js';
+import init from 'https://cdn.jsdelivr.net/npm/@cooljapan/oxiz@0.2.0/pkg/oxiz_wasm.js';
 ```
 
 ### Version Ranges
 
 ```javascript
-// Latest 0.1.x
-import init from 'https://unpkg.com/oxiz-wasm@^0.1.3/pkg/oxiz_wasm.js';
+// Latest 0.2.x
+import init from 'https://unpkg.com/@cooljapan/oxiz@^0.2.0/pkg/oxiz_wasm.js';
 
 // Latest 0.x.x
-import init from 'https://unpkg.com/oxiz-wasm@0/pkg/oxiz_wasm.js';
+import init from 'https://unpkg.com/@cooljapan/oxiz@0/pkg/oxiz_wasm.js';
 ```
 
 ## CDN Features
@@ -87,7 +87,7 @@ import init from 'https://unpkg.com/oxiz-wasm@0/pkg/oxiz_wasm.js';
 - **Latest version**: Use `@latest` or omit version
 - **Automatic redirects**: Resolves semver ranges
 - **File browsing**: Visit package root to browse files
-- **Example**: https://unpkg.com/oxiz-wasm@latest/
+- **Example**: https://unpkg.com/@cooljapan/oxiz@latest/
 
 ### jsDelivr
 
@@ -95,7 +95,7 @@ import init from 'https://unpkg.com/oxiz-wasm@0/pkg/oxiz_wasm.js';
 - **Minified files**: Add `.min` before extension
 - **Combine files**: Supports combining multiple files
 - **Stats**: Provides download statistics
-- **Example**: https://cdn.jsdelivr.net/npm/oxiz-wasm@latest/
+- **Example**: https://cdn.jsdelivr.net/npm/@cooljapan/oxiz@latest/
 
 ## Loading Strategies
 
@@ -103,7 +103,7 @@ import init from 'https://unpkg.com/oxiz-wasm@0/pkg/oxiz_wasm.js';
 
 ```html
 <script type="module">
-    import init, { WasmSolver, version } from 'https://unpkg.com/oxiz-wasm/pkg/oxiz_wasm.js';
+    import init, { WasmSolver, version } from 'https://unpkg.com/@cooljapan/oxiz/pkg/oxiz_wasm.js';
 
     async function run() {
         await init();
@@ -121,7 +121,7 @@ import init from 'https://unpkg.com/oxiz-wasm@0/pkg/oxiz_wasm.js';
 ```html
 <script>
     async function loadSolver() {
-        const module = await import('https://unpkg.com/oxiz-wasm/pkg/oxiz_wasm.js');
+        const module = await import('https://unpkg.com/@cooljapan/oxiz/pkg/oxiz_wasm.js');
         await module.default(); // init()
 
         const solver = new module.WasmSolver();
@@ -140,13 +140,13 @@ import init from 'https://unpkg.com/oxiz-wasm@0/pkg/oxiz_wasm.js';
 <script type="importmap">
 {
     "imports": {
-        "oxiz-wasm": "https://unpkg.com/oxiz-wasm/pkg/oxiz_wasm.js"
+        "@cooljapan/oxiz": "https://unpkg.com/@cooljapan/oxiz/pkg/oxiz_wasm.js"
     }
 }
 </script>
 
 <script type="module">
-    import init, { WasmSolver } from 'oxiz-wasm';
+    import init, { WasmSolver } from '@cooljapan/oxiz';
 
     await init();
     const solver = new WasmSolver();
@@ -169,7 +169,7 @@ import init from 'https://unpkg.com/oxiz-wasm@0/pkg/oxiz_wasm.js';
     <pre id="output"></pre>
 
     <script type="module">
-        import init, { WasmSolver } from 'https://unpkg.com/oxiz-wasm/pkg/oxiz_wasm.js';
+        import init, { WasmSolver } from 'https://unpkg.com/@cooljapan/oxiz/pkg/oxiz_wasm.js';
 
         const output = document.getElementById('output');
 
@@ -238,7 +238,7 @@ import init from 'https://unpkg.com/oxiz-wasm@0/pkg/oxiz_wasm.js';
 
 **worker.js:**
 ```javascript
-import init, { WasmSolver } from 'https://unpkg.com/oxiz-wasm/pkg/oxiz_wasm.js';
+import init, { WasmSolver } from 'https://unpkg.com/@cooljapan/oxiz/pkg/oxiz_wasm.js';
 
 let solver = null;
 
@@ -266,7 +266,7 @@ CDN usage with TypeScript requires some configuration:
 
 ```typescript
 // types.d.ts
-declare module 'https://unpkg.com/oxiz-wasm/pkg/oxiz_wasm.js' {
+declare module 'https://unpkg.com/@cooljapan/oxiz/pkg/oxiz_wasm.js' {
     export default function init(): Promise<void>;
     export class WasmSolver {
         constructor();
@@ -279,7 +279,7 @@ declare module 'https://unpkg.com/oxiz-wasm/pkg/oxiz_wasm.js' {
 ```
 
 ```typescript
-import init, { WasmSolver } from 'https://unpkg.com/oxiz-wasm/pkg/oxiz_wasm.js';
+import init, { WasmSolver } from 'https://unpkg.com/@cooljapan/oxiz/pkg/oxiz_wasm.js';
 
 async function main() {
     await init();
@@ -303,8 +303,8 @@ CDNs automatically cache files. Set appropriate headers for your use case:
 Preload the WASM module for faster startup:
 
 ```html
-<link rel="modulepreload" href="https://unpkg.com/oxiz-wasm/pkg/oxiz_wasm.js">
-<link rel="preload" href="https://unpkg.com/oxiz-wasm/pkg/oxiz_wasm_bg.wasm" as="fetch" crossorigin>
+<link rel="modulepreload" href="https://unpkg.com/@cooljapan/oxiz/pkg/oxiz_wasm.js">
+<link rel="preload" href="https://unpkg.com/@cooljapan/oxiz/pkg/oxiz_wasm_bg.wasm" as="fetch" crossorigin>
 ```
 
 ### Bundle Size
@@ -324,8 +324,8 @@ CDNs set proper CORS headers for cross-origin requests. No special configuration
 ```javascript
 async function loadOxiZ() {
     const cdns = [
-        'https://unpkg.com/oxiz-wasm/pkg/oxiz_wasm.js',
-        'https://cdn.jsdelivr.net/npm/oxiz-wasm/pkg/oxiz_wasm.js'
+        'https://unpkg.com/@cooljapan/oxiz/pkg/oxiz_wasm.js',
+        'https://cdn.jsdelivr.net/npm/@cooljapan/oxiz/pkg/oxiz_wasm.js'
     ];
 
     for (const cdn of cdns) {
@@ -355,13 +355,13 @@ For production, use SRI hashes to ensure integrity:
 <script type="module"
     integrity="sha384-HASH_HERE"
     crossorigin="anonymous"
-    src="https://unpkg.com/oxiz-wasm@0.1.3/pkg/oxiz_wasm.js">
+    src="https://unpkg.com/@cooljapan/oxiz@0.2.0/pkg/oxiz_wasm.js">
 </script>
 ```
 
 Generate SRI hash:
 ```bash
-curl https://unpkg.com/oxiz-wasm@0.1.3/pkg/oxiz_wasm.js | \
+curl https://unpkg.com/@cooljapan/oxiz@0.2.0/pkg/oxiz_wasm.js | \
     openssl dgst -sha384 -binary | \
     openssl base64 -A
 ```
@@ -373,10 +373,10 @@ curl https://unpkg.com/oxiz-wasm@0.1.3/pkg/oxiz_wasm.js | \
 Ensure you're using the correct path:
 ```javascript
 // ✅ Correct
-import init from 'https://unpkg.com/oxiz-wasm/pkg/oxiz_wasm.js';
+import init from 'https://unpkg.com/@cooljapan/oxiz/pkg/oxiz_wasm.js';
 
 // ❌ Wrong (missing /pkg/)
-import init from 'https://unpkg.com/oxiz-wasm/oxiz_wasm.js';
+import init from 'https://unpkg.com/@cooljapan/oxiz/oxiz_wasm.js';
 ```
 
 ### WASM Loading Failed
@@ -390,7 +390,7 @@ Check browser console for specific errors:
 
 Check if the version exists:
 ```bash
-curl -I https://unpkg.com/oxiz-wasm@VERSION/
+curl -I https://unpkg.com/@cooljapan/oxiz@VERSION/
 ```
 
 ## Browser Compatibility
@@ -402,7 +402,7 @@ OxiZ WASM requires:
 
 ## Additional Resources
 
-- **NPM Package**: https://www.npmjs.com/package/oxiz-wasm
+- **NPM Package**: https://www.npmjs.com/package/@cooljapan/oxiz
 - **GitHub Repository**: https://github.com/cool-japan/oxiz
 - **Documentation**: https://docs.rs/oxiz
 - **Examples**: https://github.com/cool-japan/oxiz/tree/main/oxiz-wasm/examples

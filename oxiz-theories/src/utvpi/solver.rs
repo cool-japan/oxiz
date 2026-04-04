@@ -4,9 +4,10 @@
 //! Bellman-Ford algorithm on the doubled graph.
 
 use super::graph::{DoubledGraph, DoubledNode, Sign, UtConstraint, UtEdge};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_rational::Rational64;
 use oxiz_core::ast::TermId;
-use std::collections::{HashMap, HashSet, VecDeque};
 
 /// Configuration for UTVPI solver
 #[derive(Debug, Clone)]

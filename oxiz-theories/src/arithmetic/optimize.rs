@@ -3,6 +3,8 @@
 //! Implements maximize and minimize operations for LRA using the Simplex tableau.
 
 use super::simplex::{LinExpr, Simplex, VarId};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_rational::Rational64;
 use num_traits::{One, Zero};
 use oxiz_core::error::Result;

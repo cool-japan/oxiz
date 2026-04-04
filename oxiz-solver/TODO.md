@@ -1,21 +1,30 @@
 # oxiz-solver TODO
 
-Last Updated: 2026-02-05
+Last Updated: 2026-03-28
 
 Reference: Z3's `smt/` directory at `../z3/src/smt/`
 
-## 🎉 Major Achievement: 100% Z3 Parity (v0.1.3)
+## Current Status (v0.2.0)
+
+- **Version**: 0.2.0
+- **Status**: Stable
+- **Tests**: 505 passing (1 skipped)
+- **Rust LoC**: 39,327 (70 files)
+- **Public API items**: 1,231
+- **Zero** `todo!`/`unimplemented!` calls
+
+### Milestone: 100% Z3 Parity (achieved v0.1.3)
 
 **Date Achieved**: February 5, 2026
 
 The oxiz-solver crate contributed to achieving **100% Z3 parity** across all 88 benchmark tests.
 
 ### Key Solver Infrastructure Fixes (v0.1.3)
-- ✅ **FP to_fp parsing**: Added support for `TermKind::Apply` with `to_fp` function names
-- ✅ **Transitive equality**: Implemented BFS-based equality chain following (handles multi-hop equalities)
-- ✅ **Cross-variable DT constraints**: Added propagation for datatype variable equalities with testers
-- ✅ **BV arithmetic flag**: Added `has_bv_arith_ops` to conditionally run BV checks only when needed
-- ✅ **Array theory**: Fixed read-over-write axioms, extensionality reasoning, store propagation
+- FP to_fp parsing: Added support for `TermKind::Apply` with `to_fp` function names
+- Transitive equality: Implemented BFS-based equality chain following (handles multi-hop equalities)
+- Cross-variable DT constraints: Added propagation for datatype variable equalities with testers
+- BV arithmetic flag: Added `has_bv_arith_ops` to conditionally run BV checks only when needed
+- Array theory: Fixed read-over-write axioms, extensionality reasoning, store propagation
 
 ## Progress: 100% Complete
 

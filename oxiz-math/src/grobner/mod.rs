@@ -4,6 +4,9 @@
 //! including Buchberger's algorithm with product/chain criteria, F4 algorithm,
 //! and syzygy computation.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 pub mod buchberger;
 pub mod buchberger_enhanced;
 pub mod f4;

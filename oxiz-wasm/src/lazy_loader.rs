@@ -385,7 +385,7 @@ impl LazyLoader {
                 (name, priority)
             })
             .collect();
-        sorted_names.sort_by(|a, b| b.1.cmp(&a.1));
+        sorted_names.sort_by_key(|item| core::cmp::Reverse(item.1));
 
         // Load in priority order
         for (name, _) in sorted_names {

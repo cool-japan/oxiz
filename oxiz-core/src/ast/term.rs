@@ -1,7 +1,9 @@
 //! Term representation
 
+use crate::interner::Spur;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::sort::SortId;
-use lasso::Spur;
 use num_bigint::BigInt;
 use num_rational::Rational64;
 use smallvec::SmallVec;

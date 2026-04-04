@@ -397,9 +397,9 @@ mod tests {
 
         let mut output = Vec::new();
         viz.visualize(&proof, VisualizationFormat::Dot, &mut output)
-            .unwrap();
+            .expect("test operation should succeed");
 
-        let dot = String::from_utf8(output).unwrap();
+        let dot = String::from_utf8(output).expect("test operation should succeed");
         assert!(dot.contains("digraph Proof"));
         assert!(dot.contains("axiom"));
         assert!(dot.contains("test"));
@@ -415,9 +415,9 @@ mod tests {
         let viz = ProofVisualizer::new();
         let mut output = Vec::new();
         viz.visualize(&proof, VisualizationFormat::AsciiTree, &mut output)
-            .unwrap();
+            .expect("test operation should succeed");
 
-        let tree = String::from_utf8(output).unwrap();
+        let tree = String::from_utf8(output).expect("test operation should succeed");
         assert!(tree.contains("and"));
         assert!(tree.contains("axiom"));
     }
@@ -430,9 +430,9 @@ mod tests {
 
         let mut output = Vec::new();
         viz.visualize(&proof, VisualizationFormat::IndentedText, &mut output)
-            .unwrap();
+            .expect("test operation should succeed");
 
-        let text = String::from_utf8(output).unwrap();
+        let text = String::from_utf8(output).expect("test operation should succeed");
         assert!(text.contains("axiom"));
         assert!(text.contains("test"));
     }
@@ -445,9 +445,9 @@ mod tests {
 
         let mut output = Vec::new();
         viz.visualize(&proof, VisualizationFormat::Json, &mut output)
-            .unwrap();
+            .expect("test operation should succeed");
 
-        let json = String::from_utf8(output).unwrap();
+        let json = String::from_utf8(output).expect("test operation should succeed");
         assert!(json.contains("\"type\": \"proof\""));
         assert!(json.contains("\"type\": \"axiom\""));
         assert!(json.contains("test"));
@@ -473,9 +473,9 @@ mod tests {
         let viz = ProofVisualizer::new().with_max_depth(1);
         let mut output = Vec::new();
         viz.visualize(&proof, VisualizationFormat::IndentedText, &mut output)
-            .unwrap();
+            .expect("test operation should succeed");
 
-        let text = String::from_utf8(output).unwrap();
+        let text = String::from_utf8(output).expect("test operation should succeed");
         // Should only show root and its immediate children
         assert!(text.contains("and"));
     }

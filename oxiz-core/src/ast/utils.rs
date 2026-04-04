@@ -1,18 +1,18 @@
 //! Utility functions for term manipulation and analysis
 
 use super::{TermId, TermKind, TermManager};
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::VecDeque;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Compute a hash value for a term structure (not just the ID)
 ///
 /// This is useful for structural equality checks and caching
 #[must_use]
 pub fn structural_hash(term_id: TermId, manager: &TermManager) -> u64 {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::Hasher;
+    use core::hash::{BuildHasher, BuildHasherDefault, Hasher};
+    use rustc_hash::FxHasher;
 
-    let mut hasher = DefaultHasher::new();
+    let mut hasher = BuildHasherDefault::<FxHasher>::default().build_hasher();
     structural_hash_impl(term_id, manager, &mut hasher, &mut FxHashSet::default());
     hasher.finish()
 }
@@ -20,10 +20,10 @@ pub fn structural_hash(term_id: TermId, manager: &TermManager) -> u64 {
 fn structural_hash_impl(
     term_id: TermId,
     manager: &TermManager,
-    hasher: &mut std::collections::hash_map::DefaultHasher,
+    hasher: &mut rustc_hash::FxHasher,
     visited: &mut FxHashSet<TermId>,
 ) {
-    use std::hash::Hash;
+    use core::hash::Hash;
 
     if visited.contains(&term_id) {
         // For DAG sharing, just hash the ID
@@ -34,7 +34,7 @@ fn structural_hash_impl(
 
     if let Some(term) = manager.get(term_id) {
         // Hash the kind discriminant and relevant data
-        std::mem::discriminant(&term.kind).hash(hasher);
+        core::mem::discriminant(&term.kind).hash(hasher);
 
         match &term.kind {
             TermKind::True | TermKind::False => {}

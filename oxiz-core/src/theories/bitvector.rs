@@ -5,8 +5,9 @@
 //! Reference: Z3's `src/smt/theory_bv.cpp` at `../z3/src/smt/`
 
 use crate::ast::{TermId, TermKind, TermManager};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::sort::{SortKind, SortManager};
-use rustc_hash::{FxHashMap, FxHashSet};
 
 /// BitVector theory axioms and rewrite rules
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -190,11 +191,11 @@ impl BitVectorTheory {
         manager: &TermManager,
     ) {
         match kind {
-            TermKind::BvAdd(lhs, rhs) => {
-                // Check for addition with zero
-                if self.is_bv_zero(*rhs, manager, width) || self.is_bv_zero(*lhs, manager, width) {
-                    self.add_axiom(BitVectorAxiom::AddIdentity { term, width });
-                }
+            TermKind::BvAdd(lhs, rhs)
+                if self.is_bv_zero(*rhs, manager, width)
+                    || self.is_bv_zero(*lhs, manager, width) =>
+            {
+                self.add_axiom(BitVectorAxiom::AddIdentity { term, width });
             }
             TermKind::BvMul(lhs, rhs) => {
                 // Check for multiplication by zero or one
@@ -273,7 +274,7 @@ impl BitVectorTheory {
 
     /// Get pending axioms and clear the list
     pub fn take_pending_axioms(&mut self) -> Vec<BitVectorAxiom> {
-        std::mem::take(&mut self.pending_axioms)
+        core::mem::take(&mut self.pending_axioms)
     }
 
     /// Convert an axiom to a term (requires term manager)

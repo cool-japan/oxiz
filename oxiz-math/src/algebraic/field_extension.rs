@@ -3,9 +3,10 @@
 //! Provides representation and operations on algebraic field extensions
 //! needed for advanced polynomial solving and symbolic computation.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_rational::BigRational;
 use num_traits::{One, Zero};
-use std::collections::HashMap;
 
 /// Represents an element in an algebraic field extension Q(α).
 ///

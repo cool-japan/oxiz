@@ -2,9 +2,10 @@
 
 use super::delta::DeltaRational;
 use crate::config::{PivotingRule, SimplexConfig};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_rational::Rational64;
 use num_traits::{One, Signed, Zero};
-use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 
 /// Variable index
@@ -259,7 +260,12 @@ impl Simplex {
 
     /// Add a new variable
     pub fn new_var(&mut self) -> VarId {
-        let id = self.num_vars as VarId;
+        // Use `assignment.len()` as the ID so that regular variables and slack
+        // variables never collide.  The old scheme (id = num_vars) produced IDs
+        // that overlapped with previously-allocated slack IDs
+        // (id_slack = num_vars + num_slack) whenever new_var() was called after
+        // slacks had already been allocated.
+        let id = self.assignment.len() as VarId;
         self.num_vars += 1;
         self.assignment.push(DeltaRational::zero());
         self.lower.push(None);
@@ -271,7 +277,9 @@ impl Simplex {
 
     /// Add a slack variable for a constraint
     fn new_slack(&mut self) -> VarId {
-        let id = (self.num_vars + self.num_slack) as VarId;
+        // Use `assignment.len()` as the ID for the same reason as `new_var`:
+        // unified allocation prevents collisions between regular and slack IDs.
+        let id = self.assignment.len() as VarId;
         self.num_slack += 1;
         self.assignment.push(DeltaRational::zero());
         self.lower.push(None);
@@ -401,6 +409,12 @@ impl Simplex {
             }
         }
         self.tableau.insert(slack, slack_expr);
+
+        // Mark slack as basic (it has a tableau row defining it in terms of non-basic vars)
+        if slack as usize >= self.basic.len() {
+            self.basic.resize(slack as usize + 1, false);
+        }
+        self.basic[slack as usize] = true;
 
         // Set slack >= 0
         self.set_lower(slack, Rational64::zero(), reason);
@@ -1523,10 +1537,10 @@ mod tests {
         simplex.set_upper(x, Rational64::from_integer(15), 1);
 
         // The accessor methods work
-        let lo = simplex.get_lower(x).unwrap();
+        let lo = simplex.get_lower(x).expect("test operation should succeed");
         assert_eq!(lo.value.real, Rational64::from_integer(5));
 
-        let hi = simplex.get_upper(x).unwrap();
+        let hi = simplex.get_upper(x).expect("test operation should succeed");
         assert_eq!(hi.value.real, Rational64::from_integer(15));
 
         assert!(simplex.check().is_ok());
@@ -1617,7 +1631,7 @@ mod tests {
         simplex.set_upper(x, Rational64::from_integer(60), 3);
 
         assert!(simplex.check().is_ok());
-        let lo = simplex.get_lower(x).unwrap();
+        let lo = simplex.get_lower(x).expect("test operation should succeed");
         assert_eq!(lo.value.real, Rational64::from_integer(50));
 
         // Push to level 2
@@ -1632,9 +1646,9 @@ mod tests {
         simplex.pop();
 
         // After pop, bounds should be back to x >= 50, x <= 60
-        let lo = simplex.get_lower(x).unwrap();
+        let lo = simplex.get_lower(x).expect("test operation should succeed");
         assert_eq!(lo.value.real, Rational64::from_integer(50));
-        let hi = simplex.get_upper(x).unwrap();
+        let hi = simplex.get_upper(x).expect("test operation should succeed");
         assert_eq!(hi.value.real, Rational64::from_integer(60));
 
         assert!(simplex.check().is_ok());
@@ -1643,9 +1657,9 @@ mod tests {
         simplex.pop();
 
         // After pop, bounds should be back to x >= 0, x <= 100
-        let lo = simplex.get_lower(x).unwrap();
+        let lo = simplex.get_lower(x).expect("test operation should succeed");
         assert_eq!(lo.value.real, Rational64::zero());
-        let hi = simplex.get_upper(x).unwrap();
+        let hi = simplex.get_upper(x).expect("test operation should succeed");
         assert_eq!(hi.value.real, Rational64::from_integer(100));
 
         assert!(simplex.check().is_ok());

@@ -1,5 +1,8 @@
 //! Auto-generated module structure
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 pub mod advancedcharsolver_traits;
 pub mod charconfig_traits;
 pub mod chardomain_traits;

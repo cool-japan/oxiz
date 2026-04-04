@@ -23,6 +23,8 @@
 
 use crate::clause::ClauseDatabase;
 use crate::literal::{LBool, Lit, Var};
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Look-ahead branching heuristic type
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -198,7 +200,7 @@ impl LookaheadBranching {
                 }
 
                 // Weight by 2^(-size)
-                let weight = 2.0_f64.powi(-(unassigned.len() as i32));
+                let weight = libm::pow(2.0_f64, -(unassigned.len() as f64));
 
                 for lit in unassigned {
                     if lit.is_pos() {
@@ -307,7 +309,9 @@ impl LookaheadBranching {
                 }
 
                 let weight = match self.heuristic {
-                    LookaheadHeuristic::JeroslowWang => 2.0_f64.powi(-(unassigned.len() as i32)),
+                    LookaheadHeuristic::JeroslowWang => {
+                        libm::pow(2.0_f64, -(unassigned.len() as f64))
+                    }
                     _ => 1.0,
                 };
 

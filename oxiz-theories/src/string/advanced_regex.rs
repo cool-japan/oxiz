@@ -15,8 +15,9 @@
 #![allow(missing_docs)]
 
 use super::unicode::UnicodeCategory;
-use rustc_hash::FxHashMap;
-use std::fmt;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::fmt;
 
 /// Advanced regex pattern
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -24,6 +24,9 @@
 //! - Cotton, S. & Maler, O. (2006). Fast and Flexible Difference Constraint Propagation
 //! - Nieuwenhuis, R. & Oliveras, A. (2005). DPLL(T) with Exhaustive Theory Propagation
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 mod bellman_ford;
 mod dense;
 mod graph;

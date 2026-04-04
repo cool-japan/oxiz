@@ -6,6 +6,9 @@
 //! - GCD-based infeasibility detection
 //! - Integer bound propagation
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 mod branching;
 mod constraints;
 mod constructors;
@@ -159,7 +162,7 @@ mod tests {
         // Presolve should succeed (no infeasibility detected)
         let result = solver.presolve();
         assert!(result.is_ok());
-        assert!(result.unwrap());
+        assert!(result.expect("test operation should succeed"));
     }
 
     #[test]
@@ -173,7 +176,7 @@ mod tests {
         let cut = solver.generate_disjunctive_cut(var, value);
         assert!(cut.is_some());
 
-        let cut = cut.unwrap();
+        let cut = cut.expect("test operation should succeed");
         assert!(!cut.terms.is_empty());
 
         // Should not generate cut for integer value
@@ -201,18 +204,30 @@ mod tests {
         // Fix tight bounds should fix x to 2, but not y
         let result = solver.fix_tight_bounds();
         assert!(result.is_ok());
-        let fixed_count = result.unwrap();
+        let fixed_count = result.expect("test operation should succeed");
         assert_eq!(fixed_count, 1); // Only x should be fixed
 
         // Check that x is now fixed to 2
-        let x_lower = solver.simplex.get_lower(x).unwrap();
-        let x_upper = solver.simplex.get_upper(x).unwrap();
+        let x_lower = solver
+            .simplex
+            .get_lower(x)
+            .expect("test operation should succeed");
+        let x_upper = solver
+            .simplex
+            .get_upper(x)
+            .expect("test operation should succeed");
         assert_eq!(x_lower.value.real, Rational64::from_integer(2));
         assert_eq!(x_upper.value.real, Rational64::from_integer(2));
 
         // y should still have loose bounds
-        let y_lower = solver.simplex.get_lower(y).unwrap();
-        let y_upper = solver.simplex.get_upper(y).unwrap();
+        let y_lower = solver
+            .simplex
+            .get_lower(y)
+            .expect("test operation should succeed");
+        let y_upper = solver
+            .simplex
+            .get_upper(y)
+            .expect("test operation should succeed");
         assert_eq!(y_lower.value.real, Rational64::zero());
         assert_eq!(y_upper.value.real, Rational64::from_integer(10));
     }
@@ -279,7 +294,7 @@ mod tests {
         assert!(result.is_ok());
 
         // Probing should have tightened bounds (or detected partial infeasibility)
-        let tightened = result.unwrap();
+        let tightened = result.expect("test operation should succeed");
         // We expect probing to complete successfully (tightened count is valid)
         // Note: may be 0 if LP already propagated bounds
         let _ = tightened;

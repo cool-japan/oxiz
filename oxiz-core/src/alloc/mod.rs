@@ -3,6 +3,9 @@
 //! Provides specialized allocators for AST nodes, clauses, and solver state
 //! to improve cache locality and reduce allocation overhead.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 pub mod arena;
 pub mod pool;
 pub mod region;

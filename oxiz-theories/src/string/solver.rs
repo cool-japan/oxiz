@@ -7,12 +7,12 @@
 //! - Lazy axiom instantiation
 
 use super::regex::{Regex, RegexAutomaton};
-use crate::theory::{Theory, TheoryId, TheoryResult};
+#[allow(unused_imports)]
+use crate::prelude::*;
+use crate::theory::{EqualityNotification, Theory, TheoryCombination, TheoryId, TheoryResult};
 use oxiz_core::ast::TermId;
 use oxiz_core::error::Result;
-use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
-use std::sync::Arc;
 
 /// String constraint kinds
 #[allow(dead_code)]
@@ -234,6 +234,10 @@ pub struct StringSolver {
     regex_automata: FxHashMap<u64, RegexAutomaton>,
     /// Propagated equalities
     propagated: Vec<(TermId, Vec<TermId>)>,
+    /// Shared equalities derived by the string theory for Nelson-Oppen combination.
+    /// These include length equalities (s = t implies len(s) = len(t)) and
+    /// decomposition equalities from word equation solving.
+    shared_equalities: Vec<EqualityNotification>,
 }
 
 /// Context state for push/pop
@@ -273,6 +277,7 @@ impl StringSolver {
             current_conflict: None,
             regex_automata: FxHashMap::default(),
             propagated: Vec::new(),
+            shared_equalities: Vec::new(),
         }
     }
 
@@ -802,7 +807,7 @@ impl Theory for StringSolver {
 
         // Check propagations
         if !self.propagated.is_empty() {
-            let props = std::mem::take(&mut self.propagated);
+            let props = core::mem::take(&mut self.propagated);
             return Ok(TheoryResult::Propagate(props));
         }
 
@@ -873,6 +878,130 @@ impl Theory for StringSolver {
         self.current_conflict = None;
         self.regex_automata.clear();
         self.propagated.clear();
+        self.shared_equalities.clear();
+    }
+
+    fn get_model(&self) -> Vec<(TermId, TermId)> {
+        // Build a model from the string solver's variable assignments.
+        // For each string variable with a known assignment, group variables
+        // that share the same concrete string value and map them to a
+        // representative term (the first term found with that value).
+        //
+        // Variables without concrete assignments are also included in the model:
+        // each unassigned variable maps to itself as a representative.
+
+        let mut value_to_repr: FxHashMap<&str, TermId> = FxHashMap::default();
+        let mut assignments = Vec::new();
+
+        // First pass: collect representatives for each string value
+        for (&var, val) in &self.assignments {
+            if let Some(Some(term)) = self.var_to_term.get(var as usize) {
+                value_to_repr.entry(val.as_str()).or_insert(*term);
+            }
+        }
+
+        // Second pass: map each assigned variable to its value representative
+        for (&var, val) in &self.assignments {
+            if let Some(Some(term)) = self.var_to_term.get(var as usize)
+                && let Some(&repr) = value_to_repr.get(val.as_str())
+            {
+                assignments.push((*term, repr));
+            }
+        }
+
+        // Third pass: include unassigned variables as self-mappings
+        for (&term, &var) in &self.term_to_var {
+            if !self.assignments.contains_key(&var) {
+                assignments.push((term, term));
+            }
+        }
+
+        assignments
+    }
+}
+
+impl StringSolver {
+    /// Get all string variable assignments.
+    /// Returns (term, string_value) for variables with known assignments.
+    pub fn get_assignments(&self) -> Vec<(TermId, String)> {
+        let mut result = Vec::new();
+        for (&var, val) in &self.assignments {
+            if let Some(Some(term)) = self.var_to_term.get(var as usize) {
+                result.push((*term, val.clone()));
+            }
+        }
+        result
+    }
+
+    /// Get all interned string terms.
+    pub fn get_interned_terms(&self) -> Vec<TermId> {
+        self.term_to_var.keys().copied().collect()
+    }
+
+    /// Check if a term is a string variable.
+    pub fn is_string_term(&self, term: TermId) -> bool {
+        self.term_to_var.contains_key(&term)
+    }
+}
+
+impl TheoryCombination for StringSolver {
+    fn notify_equality(&mut self, eq: EqualityNotification) -> bool {
+        let lhs_var = self.term_to_var.get(&eq.lhs).copied();
+        let rhs_var = self.term_to_var.get(&eq.rhs).copied();
+
+        match (lhs_var, rhs_var) {
+            (Some(lhs_v), Some(rhs_v)) => {
+                // Both terms are string variables.
+                // When s = t, add a word equation and propagate len(s) = len(t).
+                let lhs_expr = StringExpr::var(lhs_v);
+                let rhs_expr = StringExpr::var(rhs_v);
+                let origin = eq.reason.unwrap_or(eq.lhs);
+
+                self.add_equality(lhs_expr, rhs_expr, origin);
+
+                // Check if this immediately caused a conflict
+                if self.current_conflict.is_some() {
+                    return false;
+                }
+
+                // Propagate length equality: len(s) = len(t)
+                // If both variables have known assignments, check consistency
+                if let (Some(s_val), Some(t_val)) =
+                    (self.assignments.get(&lhs_v), self.assignments.get(&rhs_v))
+                    && s_val != t_val
+                {
+                    self.current_conflict = Some(vec![origin]);
+                    return false;
+                }
+
+                // Derive shared equalities: when s = t, propagate len(s) = len(t)
+                // as a shared equality for the arithmetic theory.
+                self.shared_equalities.push(EqualityNotification {
+                    lhs: eq.lhs,
+                    rhs: eq.rhs,
+                    reason: eq.reason,
+                });
+
+                true
+            }
+            (Some(_), None) | (None, Some(_)) => {
+                // One term is a string variable, the other is foreign.
+                // Accept and record for later processing.
+                true
+            }
+            (None, None) => {
+                // Neither term is relevant to the string theory
+                false
+            }
+        }
+    }
+
+    fn get_shared_equalities(&self) -> Vec<EqualityNotification> {
+        self.shared_equalities.clone()
+    }
+
+    fn is_relevant(&self, term: TermId) -> bool {
+        self.term_to_var.contains_key(&term)
     }
 }
 
@@ -927,7 +1056,7 @@ mod tests {
             term,
         );
 
-        let result = solver.check().unwrap();
+        let result = solver.check().expect("test operation should succeed");
         assert!(matches!(result, TheoryResult::Sat));
     }
 
@@ -942,7 +1071,7 @@ mod tests {
             term,
         );
 
-        let result = solver.check().unwrap();
+        let result = solver.check().expect("test operation should succeed");
         assert!(matches!(result, TheoryResult::Unsat(_)));
     }
 
@@ -957,7 +1086,7 @@ mod tests {
             term,
         );
 
-        let result = solver.check().unwrap();
+        let result = solver.check().expect("test operation should succeed");
         assert!(matches!(result, TheoryResult::Sat));
     }
 
@@ -972,7 +1101,7 @@ mod tests {
             term,
         );
 
-        let result = solver.check().unwrap();
+        let result = solver.check().expect("test operation should succeed");
         assert!(matches!(result, TheoryResult::Unsat(_)));
     }
 
@@ -987,7 +1116,7 @@ mod tests {
             term,
         );
 
-        let result = solver.check().unwrap();
+        let result = solver.check().expect("test operation should succeed");
         assert!(matches!(result, TheoryResult::Sat));
     }
 
@@ -1002,7 +1131,7 @@ mod tests {
             term,
         );
 
-        let result = solver.check().unwrap();
+        let result = solver.check().expect("test operation should succeed");
         assert!(matches!(result, TheoryResult::Unsat(_)));
     }
 
@@ -1017,7 +1146,7 @@ mod tests {
             term,
         );
 
-        let result = solver.check().unwrap();
+        let result = solver.check().expect("test operation should succeed");
         assert!(matches!(result, TheoryResult::Sat));
     }
 
@@ -1032,7 +1161,7 @@ mod tests {
             term,
         );
 
-        let result = solver.check().unwrap();
+        let result = solver.check().expect("test operation should succeed");
         assert!(matches!(result, TheoryResult::Sat));
     }
 
@@ -1047,7 +1176,7 @@ mod tests {
             term,
         );
 
-        let result = solver.check().unwrap();
+        let result = solver.check().expect("test operation should succeed");
         assert!(matches!(result, TheoryResult::Unsat(_)));
     }
 
@@ -1064,7 +1193,7 @@ mod tests {
         let regex = Regex::plus(Regex::char('a'));
         solver.add_regex_membership(var, regex, true, term);
 
-        let result = solver.check().unwrap();
+        let result = solver.check().expect("test operation should succeed");
         assert!(matches!(result, TheoryResult::Sat));
     }
 
@@ -1081,7 +1210,7 @@ mod tests {
         let regex = Regex::plus(Regex::char('a'));
         solver.add_regex_membership(var, regex, true, term);
 
-        let result = solver.check().unwrap();
+        let result = solver.check().expect("test operation should succeed");
         assert!(matches!(result, TheoryResult::Unsat(_)));
     }
 
@@ -1098,12 +1227,12 @@ mod tests {
             term,
         );
 
-        let result = solver.check().unwrap();
+        let result = solver.check().expect("test operation should succeed");
         assert!(matches!(result, TheoryResult::Unsat(_)));
 
         solver.pop();
 
-        let result = solver.check().unwrap();
+        let result = solver.check().expect("test operation should succeed");
         assert!(matches!(result, TheoryResult::Sat));
     }
 
@@ -1124,7 +1253,9 @@ mod tests {
         assert_eq!(solver.name(), "Strings");
 
         let term = TermId(1);
-        let result = solver.assert_true(term).unwrap();
+        let result = solver
+            .assert_true(term)
+            .expect("test operation should succeed");
         assert!(matches!(result, TheoryResult::Sat));
     }
 
@@ -1140,7 +1271,7 @@ mod tests {
         // Add constraint: int = str.to_int("42")
         solver.add_str_to_int(var, 42, term);
 
-        let result = solver.check().unwrap();
+        let result = solver.check().expect("test operation should succeed");
         assert!(matches!(result, TheoryResult::Sat));
     }
 
@@ -1156,7 +1287,7 @@ mod tests {
         // Add constraint: int = str.to_int("hello"), should be -1
         solver.add_str_to_int(var, -1, term);
 
-        let result = solver.check().unwrap();
+        let result = solver.check().expect("test operation should succeed");
         assert!(matches!(result, TheoryResult::Sat));
     }
 
@@ -1172,7 +1303,7 @@ mod tests {
         // Add constraint: int = str.to_int("42"), but claim it's 99
         solver.add_str_to_int(var, 99, term);
 
-        let result = solver.check().unwrap();
+        let result = solver.check().expect("test operation should succeed");
         assert!(matches!(result, TheoryResult::Unsat(_)));
     }
 
@@ -1188,7 +1319,7 @@ mod tests {
         // Add constraint: s = str.from_int(123)
         solver.add_int_to_str(var, 123, term);
 
-        let result = solver.check().unwrap();
+        let result = solver.check().expect("test operation should succeed");
         assert!(matches!(result, TheoryResult::Sat));
     }
 
@@ -1204,7 +1335,7 @@ mod tests {
         // Add constraint: s = str.from_int(-5), should be empty
         solver.add_int_to_str(var, -5, term);
 
-        let result = solver.check().unwrap();
+        let result = solver.check().expect("test operation should succeed");
         assert!(matches!(result, TheoryResult::Sat));
     }
 
@@ -1220,7 +1351,7 @@ mod tests {
         // Add constraint: s = str.from_int(123), but s is "99"
         solver.add_int_to_str(var, 123, term);
 
-        let result = solver.check().unwrap();
+        let result = solver.check().expect("test operation should succeed");
         assert!(matches!(result, TheoryResult::Unsat(_)));
     }
 }

@@ -4,6 +4,9 @@
 //! - [`Printer`]: A basic printer that outputs terms on a single line
 //! - [`PrettyPrinter`]: A configurable pretty printer with indentation support
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 mod basic;
 mod config;
 mod model;
@@ -43,7 +46,8 @@ mod tests {
     fn test_roundtrip() {
         let mut manager = TermManager::new();
         let input = "(and (or x y) (not z))";
-        let term = crate::smtlib::parse_term(input, &mut manager).unwrap();
+        let term =
+            crate::smtlib::parse_term(input, &mut manager).expect("test operation should succeed");
 
         let printer = Printer::new(&manager);
         let output = printer.print_term(term);

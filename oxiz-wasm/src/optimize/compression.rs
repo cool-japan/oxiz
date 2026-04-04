@@ -37,8 +37,6 @@
 
 #![forbid(unsafe_code)]
 
-use std::io::{Read, Write};
-
 /// Compression format
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompressionFormat {
@@ -309,15 +307,7 @@ impl Compressor {
 
     /// Compress using gzip
     fn compress_gzip(&self, data: &[u8], level: CompressionLevel) -> CompressionOpResult<Vec<u8>> {
-        use flate2::Compression;
-        use flate2::write::GzEncoder;
-
-        let mut encoder = GzEncoder::new(Vec::new(), Compression::new(level.gzip_level()));
-        encoder
-            .write_all(data)
-            .map_err(|e| CompressionError::CompressionFailed(e.to_string()))?;
-        encoder
-            .finish()
+        oxiarc_deflate::gzip_compress(data, level.gzip_level() as u8)
             .map_err(|e| CompressionError::CompressionFailed(e.to_string()))
     }
 
@@ -327,17 +317,8 @@ impl Compressor {
         data: &[u8],
         level: CompressionLevel,
     ) -> CompressionOpResult<Vec<u8>> {
-        let mut output = Vec::new();
-        let mut encoder =
-            brotli::CompressorWriter::new(&mut output, 4096, level.brotli_level(), 22);
-        encoder
-            .write_all(data)
-            .map_err(|e| CompressionError::CompressionFailed(e.to_string()))?;
-        encoder
-            .flush()
-            .map_err(|e| CompressionError::CompressionFailed(e.to_string()))?;
-        drop(encoder);
-        Ok(output)
+        oxiarc_brotli::compress(data, level.brotli_level())
+            .map_err(|e| CompressionError::CompressionFailed(e.to_string()))
     }
 
     /// Compress using zstd
@@ -374,24 +355,14 @@ impl Compressor {
 
     /// Decompress gzip
     fn decompress_gzip(&self, data: &[u8]) -> CompressionOpResult<Vec<u8>> {
-        use flate2::read::GzDecoder;
-
-        let mut decoder = GzDecoder::new(data);
-        let mut output = Vec::new();
-        decoder
-            .read_to_end(&mut output)
-            .map_err(|e| CompressionError::DecompressionFailed(e.to_string()))?;
-        Ok(output)
+        oxiarc_deflate::gzip_decompress(data)
+            .map_err(|e| CompressionError::DecompressionFailed(e.to_string()))
     }
 
     /// Decompress brotli
     fn decompress_brotli(&self, data: &[u8]) -> CompressionOpResult<Vec<u8>> {
-        let mut output = Vec::new();
-        let mut decoder = brotli::Decompressor::new(data, 4096);
-        decoder
-            .read_to_end(&mut output)
-            .map_err(|e| CompressionError::DecompressionFailed(e.to_string()))?;
-        Ok(output)
+        oxiarc_brotli::decompress(data)
+            .map_err(|e| CompressionError::DecompressionFailed(e.to_string()))
     }
 
     /// Decompress zstd
@@ -570,13 +541,13 @@ mod tests {
 
         let compressed = compressor
             .compress(&data, CompressionFormat::Gzip, CompressionLevel::Default)
-            .unwrap();
+            .expect("test operation should succeed");
 
         assert!(compressed.len() < data.len());
 
         let decompressed = compressor
             .decompress(&compressed, CompressionFormat::Gzip)
-            .unwrap();
+            .expect("test operation should succeed");
 
         assert_eq!(data.to_vec(), decompressed);
     }
@@ -588,13 +559,13 @@ mod tests {
 
         let compressed = compressor
             .compress(&data, CompressionFormat::Brotli, CompressionLevel::Default)
-            .unwrap();
+            .expect("test operation should succeed");
 
         assert!(compressed.len() < data.len());
 
         let decompressed = compressor
             .decompress(&compressed, CompressionFormat::Brotli)
-            .unwrap();
+            .expect("test operation should succeed");
 
         assert_eq!(data.to_vec(), decompressed);
     }

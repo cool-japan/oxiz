@@ -3,6 +3,8 @@
 //! Validates array theory inferences (select/store axioms).
 
 use super::{CheckResult, CheckerStats, Literal, TheoryChecker};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::ast::TermId;
 use std::time::Instant;
 

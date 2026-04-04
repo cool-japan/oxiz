@@ -20,11 +20,11 @@
 
 #![allow(missing_docs)]
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::cmp::{max, min};
 use oxiz_core::ast::TermId;
 use oxiz_core::error::{OxizError, Result};
-use rustc_hash::FxHashMap;
-use std::cmp::{max, min};
-use std::collections::VecDeque;
 
 /// Length variable representing str.len(string_var)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -870,15 +870,19 @@ mod tests {
         solver.add_length_var(s2, TermId(11));
         solver.add_length_var(result, TermId(12));
 
-        solver.add_exact_length(s1, 3).unwrap();
-        solver.add_exact_length(s2, 4).unwrap();
+        solver
+            .add_exact_length(s1, 3)
+            .expect("test operation should succeed");
+        solver
+            .add_exact_length(s2, 4)
+            .expect("test operation should succeed");
 
         solver.add_operation(StringOp::Concat {
             result,
             operands: vec![s1, s2],
         });
 
-        let deductions = solver.propagate().unwrap();
+        let deductions = solver.propagate().expect("test operation should succeed");
         assert!(!deductions.is_empty());
 
         let result_bound = solver.get_length_bound(result).expect("should exist");
@@ -896,15 +900,19 @@ mod tests {
         solver.add_length_var(s2, TermId(11));
         solver.add_length_var(result, TermId(12));
 
-        solver.add_exact_length(s1, 3).unwrap();
-        solver.add_exact_length(result, 7).unwrap();
+        solver
+            .add_exact_length(s1, 3)
+            .expect("test operation should succeed");
+        solver
+            .add_exact_length(result, 7)
+            .expect("test operation should succeed");
 
         solver.add_operation(StringOp::Concat {
             result,
             operands: vec![s1, s2],
         });
 
-        let _deductions = solver.propagate().unwrap();
+        let _deductions = solver.propagate().expect("test operation should succeed");
 
         let s2_bound = solver.get_length_bound(s2).expect("should exist");
         assert_eq!(s2_bound.exact_value(), Some(4));
@@ -921,7 +929,9 @@ mod tests {
         solver.add_length_var(source, TermId(10));
         solver.add_length_var(result, TermId(11));
 
-        solver.add_exact_length(source, 10).unwrap();
+        solver
+            .add_exact_length(source, 10)
+            .expect("test operation should succeed");
 
         solver.add_operation(StringOp::Substr {
             result,
@@ -934,7 +944,7 @@ mod tests {
 
         let result_bound = solver.get_length_bound(result).expect("should exist");
         assert!(result_bound.upper.is_some());
-        assert!(result_bound.upper.unwrap() <= 10);
+        assert!(result_bound.upper.expect("test operation should succeed") <= 10);
     }
 
     #[test]
@@ -968,7 +978,9 @@ mod tests {
         solver.add_length_var(source, TermId(10));
         solver.add_length_var(pattern, TermId(11));
 
-        solver.add_exact_length(pattern, 5).unwrap();
+        solver
+            .add_exact_length(pattern, 5)
+            .expect("test operation should succeed");
 
         solver.add_operation(StringOp::Contains { source, pattern });
 
@@ -987,8 +999,12 @@ mod tests {
         solver.add_length_var(source, TermId(10));
         solver.add_length_var(pattern, TermId(11));
 
-        solver.add_exact_length(source, 3).unwrap();
-        solver.add_exact_length(pattern, 5).unwrap();
+        solver
+            .add_exact_length(source, 3)
+            .expect("test operation should succeed");
+        solver
+            .add_exact_length(pattern, 5)
+            .expect("test operation should succeed");
 
         solver.add_operation(StringOp::Contains { source, pattern });
 
@@ -1005,7 +1021,9 @@ mod tests {
         solver.add_length_var(pattern, TermId(10));
         solver.add_length_var(source, TermId(11));
 
-        solver.add_exact_length(pattern, 4).unwrap();
+        solver
+            .add_exact_length(pattern, 4)
+            .expect("test operation should succeed");
 
         solver.add_operation(StringOp::Prefix { pattern, source });
 
@@ -1026,7 +1044,9 @@ mod tests {
         solver.add_length_var(s2, TermId(11));
         solver.add_length_var(result, TermId(12));
 
-        solver.add_exact_length(s1, 5).unwrap();
+        solver
+            .add_exact_length(s1, 5)
+            .expect("test operation should succeed");
 
         solver.add_operation(StringOp::Concat {
             result,
@@ -1062,16 +1082,22 @@ mod tests {
         solver.add_length_var(s3, TermId(12));
         solver.add_length_var(result, TermId(13));
 
-        solver.add_exact_length(s1, 2).unwrap();
-        solver.add_exact_length(s2, 3).unwrap();
-        solver.add_exact_length(s3, 4).unwrap();
+        solver
+            .add_exact_length(s1, 2)
+            .expect("test operation should succeed");
+        solver
+            .add_exact_length(s2, 3)
+            .expect("test operation should succeed");
+        solver
+            .add_exact_length(s3, 4)
+            .expect("test operation should succeed");
 
         solver.add_operation(StringOp::Concat {
             result,
             operands: vec![s1, s2, s3],
         });
 
-        let _ = solver.propagate().unwrap();
+        let _ = solver.propagate().expect("test operation should succeed");
 
         let result_bound = solver.get_length_bound(result).expect("should exist");
         assert_eq!(result_bound.exact_value(), Some(9));
@@ -1085,7 +1111,9 @@ mod tests {
 
         solver.add_length_var(s1, TermId(10));
         solver.add_length_var(s2, TermId(11));
-        solver.add_exact_length(s1, 5).unwrap();
+        solver
+            .add_exact_length(s1, 5)
+            .expect("test operation should succeed");
 
         let stats = solver.stats();
         assert_eq!(stats.num_length_vars, 2);

@@ -8,7 +8,8 @@
 #![allow(dead_code)]
 
 use super::{SetConflict, SetLiteral, SetProofStep, SetVar, SetVarId};
-use rustc_hash::FxHashMap;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use smallvec::SmallVec;
 
 /// Cardinality constraint kind
@@ -1008,7 +1009,7 @@ mod tests {
         let d1 = CardDomain::new(2, Some(8));
         let d2 = CardDomain::new(5, Some(10));
 
-        let result = d1.intersect(&d2).unwrap();
+        let result = d1.intersect(&d2).expect("test operation should succeed");
         assert_eq!(result.lower, 5);
         assert_eq!(result.upper, Some(8));
     }
@@ -1050,7 +1051,7 @@ mod tests {
         let var = SetVarId(0);
 
         prop.add_constraint(CardConstraint::new(var, CardConstraintKind::Ge, 10, 0))
-            .unwrap();
+            .expect("test operation should succeed");
 
         // This should conflict
         let result = prop.add_constraint(CardConstraint::new(var, CardConstraintKind::Le, 5, 0));
@@ -1072,7 +1073,8 @@ mod tests {
         prop.get_domain(rhs).tighten_lower(3);
         prop.get_domain(rhs).tighten_upper(4);
 
-        prop.propagate_union(lhs, rhs, result).unwrap();
+        prop.propagate_union(lhs, rhs, result)
+            .expect("test operation should succeed");
 
         let result_domain = prop.get_domain(result);
         assert_eq!(result_domain.lower, 3); // max(2, 3)
@@ -1094,7 +1096,8 @@ mod tests {
         prop.get_domain(rhs).tighten_lower(3);
         prop.get_domain(rhs).tighten_upper(4);
 
-        prop.propagate_intersection(lhs, rhs, result).unwrap();
+        prop.propagate_intersection(lhs, rhs, result)
+            .expect("test operation should succeed");
 
         let result_domain = prop.get_domain(result);
         assert_eq!(result_domain.upper, Some(4)); // min(5, 4)

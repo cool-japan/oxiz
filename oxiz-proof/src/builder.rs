@@ -207,7 +207,9 @@ mod tests {
     #[test]
     fn test_proof_builder_basic() {
         let mut builder = ProofBuilder::new("p");
-        let root = builder.get_named("root").unwrap();
+        let root = builder
+            .get_named("root")
+            .expect("test operation should succeed");
         let p2 = builder.axiom("q", Some("q_axiom".to_string()));
         let p3 = builder.inference("and", vec![root, p2], "(and p q)", None);
 
@@ -223,8 +225,12 @@ mod tests {
         builder.axiom("q", Some("q".to_string()));
         builder.axiom("r", Some("r".to_string()));
 
-        let q_id = builder.get_named("q").unwrap();
-        let r_id = builder.get_named("r").unwrap();
+        let q_id = builder
+            .get_named("q")
+            .expect("test operation should succeed");
+        let r_id = builder
+            .get_named("r")
+            .expect("test operation should succeed");
 
         assert!(builder.proof.get_node(q_id).is_some());
         assert!(builder.proof.get_node(r_id).is_some());

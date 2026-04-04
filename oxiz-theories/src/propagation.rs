@@ -9,10 +9,10 @@
 //! - Deduplication of redundant propagations
 //! - Statistics tracking for tuning
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::theory::TheoryId;
 use oxiz_core::ast::TermId;
-use rustc_hash::FxHashSet;
-use std::collections::VecDeque;
 
 /// Priority level for theory propagations
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -318,9 +318,27 @@ mod tests {
         queue.enqueue(Propagation::critical(TermId::new(3), None, TheoryId::EUF));
 
         // Should dequeue in priority order (critical first)
-        assert_eq!(queue.dequeue().unwrap().literal, TermId::new(3));
-        assert_eq!(queue.dequeue().unwrap().literal, TermId::new(2));
-        assert_eq!(queue.dequeue().unwrap().literal, TermId::new(1));
+        assert_eq!(
+            queue
+                .dequeue()
+                .expect("test operation should succeed")
+                .literal,
+            TermId::new(3)
+        );
+        assert_eq!(
+            queue
+                .dequeue()
+                .expect("test operation should succeed")
+                .literal,
+            TermId::new(2)
+        );
+        assert_eq!(
+            queue
+                .dequeue()
+                .expect("test operation should succeed")
+                .literal,
+            TermId::new(1)
+        );
     }
 
     #[test]
@@ -366,11 +384,20 @@ mod tests {
         queue.enqueue(Propagation::normal(TermId::new(1), None, TheoryId::EUF));
 
         // Peek shouldn't remove the item
-        assert_eq!(queue.peek().unwrap().literal, TermId::new(1));
+        assert_eq!(
+            queue.peek().expect("test operation should succeed").literal,
+            TermId::new(1)
+        );
         assert_eq!(queue.len(), 1);
 
         // Dequeue should remove it
-        assert_eq!(queue.dequeue().unwrap().literal, TermId::new(1));
+        assert_eq!(
+            queue
+                .dequeue()
+                .expect("test operation should succeed")
+                .literal,
+            TermId::new(1)
+        );
         assert_eq!(queue.len(), 0);
     }
 
@@ -402,7 +429,13 @@ mod tests {
         assert_eq!(queue.len(), 3);
 
         // High priority should come first
-        assert_eq!(queue.dequeue().unwrap().literal, TermId::new(3));
+        assert_eq!(
+            queue
+                .dequeue()
+                .expect("test operation should succeed")
+                .literal,
+            TermId::new(3)
+        );
     }
 
     #[test]
@@ -431,7 +464,13 @@ mod tests {
 
         assert_eq!(euf_props.len(), 2);
         assert_eq!(queue.len(), 1);
-        assert_eq!(queue.dequeue().unwrap().theory, TheoryId::LRA);
+        assert_eq!(
+            queue
+                .dequeue()
+                .expect("test operation should succeed")
+                .theory,
+            TheoryId::LRA
+        );
     }
 
     #[test]

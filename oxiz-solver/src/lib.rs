@@ -88,18 +88,29 @@
 //! assert_eq!(solver.check(&mut tm), SolverResult::Sat);
 //! ```
 
+#![cfg_attr(not(feature = "std"), no_std)]
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
+
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+
+mod prelude;
 
 mod context;
 mod nelson_oppen;
 mod optimization;
+pub mod resource_limits;
 mod simplify;
+#[cfg(feature = "std")]
+pub mod skolemization;
 mod solver;
 
 pub use context::Context;
 pub use nelson_oppen::{NelsonOppenCombiner, NelsonOppenStats, TheoryId};
 pub use optimization::{Objective, ObjectiveKind, OptimizationResult, Optimizer, ParetoPoint};
+#[cfg(feature = "std")]
+pub use oxiz_proof::replay::VerificationResult;
 pub use solver::{Model, Proof, ProofStep, Solver, SolverConfig, SolverResult, TheoryMode};
 
 // Re-export types from oxiz-sat
@@ -119,3 +130,7 @@ pub mod shared_terms;
 
 // MBQI module (Model-Based Quantifier Instantiation)
 pub mod mbqi;
+
+// Z3 API compatibility layer (std-only)
+#[cfg(feature = "std")]
+pub mod z3_compat;

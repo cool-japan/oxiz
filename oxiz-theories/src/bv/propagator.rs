@@ -3,8 +3,9 @@
 //! Word-level propagators reason about bitvectors at a higher abstraction level,
 //! detecting conflicts and deriving bounds without bit-blasting.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::ast::TermId;
-use rustc_hash::FxHashMap;
 
 /// Propagation error indicating a conflict
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -360,14 +361,12 @@ impl Interval {
         let mut refined_b = b.clone();
 
         // Refine a if b.lower > 0
-        if b.lower > 0 {
-            let a_upper_from_c = c.upper / b.lower;
+        if let Some(a_upper_from_c) = c.upper.checked_div(b.lower) {
             refined_a.upper = refined_a.upper.min(a_upper_from_c);
         }
 
         // Refine b if a.lower > 0
-        if a.lower > 0 {
-            let b_upper_from_c = c.upper / a.lower;
+        if let Some(b_upper_from_c) = c.upper.checked_div(a.lower) {
             refined_b.upper = refined_b.upper.min(b_upper_from_c);
         }
 

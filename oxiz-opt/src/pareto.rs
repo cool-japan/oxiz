@@ -737,11 +737,11 @@ mod tests {
             2,
         ));
 
-        let ideal = front.ideal_point().unwrap();
+        let ideal = front.ideal_point().expect("test operation should succeed");
         assert_eq!(ideal.values[0], Weight::from(1)); // Best first objective
         assert_eq!(ideal.values[1], Weight::from(1)); // Best second objective
 
-        let nadir = front.nadir_point().unwrap();
+        let nadir = front.nadir_point().expect("test operation should succeed");
         assert_eq!(nadir.values[0], Weight::from(5)); // Worst first objective
         assert_eq!(nadir.values[1], Weight::from(5)); // Worst second objective
     }

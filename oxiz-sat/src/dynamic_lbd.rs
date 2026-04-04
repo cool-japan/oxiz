@@ -13,7 +13,8 @@
 
 use crate::clause::{ClauseDatabase, ClauseId, ClauseTier};
 use crate::literal::Lit;
-use std::collections::HashSet;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Statistics for dynamic LBD updates
 #[derive(Debug, Default, Clone)]

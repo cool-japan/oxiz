@@ -13,16 +13,16 @@ categories = ["development-tools::testing"]
 workspace = true
 
 [dependencies]
-oxiz-core = { workspace = true }
-oxiz-solver = { workspace = true }
+oxiz-core = { workspace = true, features = ["std"] }
+oxiz-solver = { workspace = true, features = ["std"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 walkdir = { workspace = true }
-thiserror = { workspace = true }
-tracing = { workspace = true }
+thiserror = { workspace = true, features = ["std"] }
+tracing = { workspace = true, features = ["std"] }
 rayon = { workspace = true }
 rand = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
-tempfile = "3.24"
+tempfile = "3.27"

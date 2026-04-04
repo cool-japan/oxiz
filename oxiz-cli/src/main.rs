@@ -424,6 +424,15 @@ struct Args {
     #[arg(long, value_name = "FILE")]
     proof_file: Option<PathBuf>,
 
+    /// Enable binary proof logging; writes a proof log to FILE after each solve
+    #[arg(long, value_name = "FILE")]
+    proof_log: Option<PathBuf>,
+
+    /// Load a binary proof log and verify it offline.
+    /// Exits printing "PROOF VALID" or "PROOF INVALID: `<reason>`"
+    #[arg(long, value_name = "FILE")]
+    verify_proof_log: Option<PathBuf>,
+
     /// Enable checkpointing for long-running tasks
     #[arg(long)]
     checkpoint: bool,
@@ -662,6 +671,25 @@ async fn main() {
         }
     }
 
+    // Handle --verify-proof-log before creating a solving context.
+    if let Some(ref log_path) = args.verify_proof_log {
+        match Context::verify_proof_log(log_path) {
+            Ok(result) => {
+                if result.is_valid() {
+                    println!("PROOF VALID");
+                } else {
+                    println!("PROOF INVALID: {}", result);
+                    std::process::exit(1);
+                }
+            }
+            Err(e) => {
+                eprintln!("Error verifying proof log: {}", e);
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
     // Create solver context
     let mut ctx = Context::new();
 
@@ -723,6 +751,10 @@ fn apply_preset(ctx: &mut Context, preset: &str) {
 
 /// Apply solver options from command-line arguments
 pub(crate) fn apply_solver_options(ctx: &mut Context, args: &Args) {
+    // Wire binary proof logging path if requested.
+    if let Some(ref log_path) = args.proof_log {
+        ctx.set_proof_log_path(Some(log_path.clone()));
+    }
     // Apply preset first if specified
     if let Some(ref preset) = args.preset {
         apply_preset(ctx, preset);

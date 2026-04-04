@@ -2,9 +2,10 @@
 //!
 //! Provides efficient lookup of tuples based on key columns.
 
-use rustc_hash::{FxHashMap, FxHashSet};
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::hash::{Hash, Hasher};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::hash::{Hash, Hasher};
 
 use super::schema::ColumnId;
 use super::tuple::{Tuple, Value};
@@ -82,16 +83,16 @@ impl Hash for IndexKey {
 }
 
 impl PartialOrd for IndexKey {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
 impl Ord for IndexKey {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         for (a, b) in self.values.iter().zip(other.values.iter()) {
             match a.cmp(b) {
-                std::cmp::Ordering::Equal => continue,
+                core::cmp::Ordering::Equal => continue,
                 other => return other,
             }
         }
@@ -116,7 +117,7 @@ impl TupleId {
 }
 
 /// Index trait for different index implementations
-pub trait Index: Send + Sync + std::fmt::Debug {
+pub trait Index: Send + Sync + core::fmt::Debug {
     /// Get index kind
     fn kind(&self) -> IndexKind;
 
@@ -212,7 +213,7 @@ impl Index for HashIndex {
         if let Some(set) = self.data.get(key) {
             Box::new(set.iter().copied())
         } else {
-            Box::new(std::iter::empty())
+            Box::new(core::iter::empty())
         }
     }
 
@@ -302,7 +303,7 @@ impl Index for BTreeIndex {
         if let Some(set) = self.data.get(key) {
             Box::new(set.iter().copied())
         } else {
-            Box::new(std::iter::empty())
+            Box::new(core::iter::empty())
         }
     }
 
@@ -429,7 +430,7 @@ impl Index for BitmapIndex {
         if let Some(bitmap) = self.bitmaps.get(key) {
             Box::new(Self::iter_bits(bitmap))
         } else {
-            Box::new(std::iter::empty())
+            Box::new(core::iter::empty())
         }
     }
 
@@ -525,7 +526,7 @@ impl Index for CoveringIndex {
         if let Some(entries) = self.data.get(key) {
             Box::new(entries.iter().map(|(id, _)| *id))
         } else {
-            Box::new(std::iter::empty())
+            Box::new(core::iter::empty())
         }
     }
 
@@ -713,12 +714,20 @@ mod tests {
 
         // Lookup by first column
         let key1 = IndexKey::new(vec![Value::Int64(1)]);
-        let results1: Vec<_> = multi.get(idx1).unwrap().lookup(&key1).collect();
+        let results1: Vec<_> = multi
+            .get(idx1)
+            .expect("key should exist in map")
+            .lookup(&key1)
+            .collect();
         assert_eq!(results1.len(), 1);
 
         // Lookup by second column
         let key2 = IndexKey::new(vec![Value::Int64(2)]);
-        let results2: Vec<_> = multi.get(idx2).unwrap().lookup(&key2).collect();
+        let results2: Vec<_> = multi
+            .get(idx2)
+            .expect("key should exist in map")
+            .lookup(&key2)
+            .collect();
         assert_eq!(results2.len(), 1);
     }
 

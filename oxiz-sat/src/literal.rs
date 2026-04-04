@@ -1,6 +1,8 @@
 //! Literals and Variables
 
-use std::ops::Not;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::ops::Not;
 
 /// A variable in the SAT formula
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]

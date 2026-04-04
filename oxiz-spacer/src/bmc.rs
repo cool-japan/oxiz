@@ -518,7 +518,7 @@ mod tests {
 
         // Should be safe (no counterexample found)
         assert!(result.is_ok());
-        match result.unwrap() {
+        match result.expect("test operation should succeed") {
             BmcResult::Safe(_) => (),
             BmcResult::Unsafe(_) => panic!("Expected safe result"),
         }

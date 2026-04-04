@@ -629,7 +629,13 @@ mod tests {
 
         solver.initialize(initial);
         assert!(solver.best_assignment().is_some());
-        assert_eq!(solver.best_assignment().unwrap().len(), 5);
+        assert_eq!(
+            solver
+                .best_assignment()
+                .expect("test operation should succeed")
+                .len(),
+            5
+        );
     }
 
     #[test]

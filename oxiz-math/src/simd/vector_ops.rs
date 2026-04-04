@@ -2,8 +2,10 @@
 //!
 //! Provides vectorized operations on numerical arrays.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::ops::{Add, Mul};
 use num_traits::Zero;
-use std::ops::{Add, Mul};
 
 /// Compute sum of array elements using SIMD when possible.
 pub fn simd_sum<T>(values: &[T]) -> T

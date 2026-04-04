@@ -4,8 +4,10 @@
 
 use super::{Model, Value};
 use crate::ast::{TermId, TermKind, TermManager};
+use crate::prelude::HashMap;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_rational::Rational64;
-use std::collections::HashMap;
 
 /// Result of evaluation
 #[derive(Debug, Clone)]

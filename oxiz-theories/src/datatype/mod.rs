@@ -23,6 +23,9 @@
 //!   (par (T) ((nil) (cons (head T) (tail (List T)))))))
 //! ```
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 pub mod constructor_theory;
 mod solver;
 

@@ -3,10 +3,10 @@
 //! Implements sophisticated bound propagation and tightening techniques
 //! for LRA theory to improve constraint solving efficiency.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_rational::BigRational;
 use num_traits::{One, Zero};
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::VecDeque;
 
 /// Variable identifier for LRA.
 pub type VarId = usize;
@@ -520,7 +520,7 @@ mod tests {
 
         let result = tightener.tighten_lower(0, rat(5), false, 0);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), true);
+        assert_eq!(result.expect("test operation should succeed"), true);
 
         let bound = tightener.get_bound(0);
         assert_eq!(bound.lower, Some(rat(5)));
@@ -530,7 +530,7 @@ mod tests {
     fn test_tighten_conflict() {
         let mut tightener = BoundTightener::new();
 
-        tightener.tighten_lower(0, rat(10), false, 0).unwrap();
+        tightener.tighten_lower(0, rat(10), false, 0).expect("test operation should succeed");
         let result = tightener.tighten_upper(0, rat(5), false, 1);
 
         assert!(result.is_err());
@@ -540,8 +540,8 @@ mod tests {
     fn test_fixed_variable() {
         let mut tightener = BoundTightener::new();
 
-        tightener.tighten_lower(0, rat(5), false, 0).unwrap();
-        tightener.tighten_upper(0, rat(5), false, 1).unwrap();
+        tightener.tighten_lower(0, rat(5), false, 0).expect("test operation should succeed");
+        tightener.tighten_upper(0, rat(5), false, 1).expect("test operation should succeed");
 
         let fixed = tightener.get_fixed_variables();
         assert_eq!(fixed.len(), 1);

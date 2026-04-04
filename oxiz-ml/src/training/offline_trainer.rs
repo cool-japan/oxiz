@@ -182,7 +182,7 @@ mod tests {
         let result = trainer.train(&mut model, &dataset);
         assert!(result.is_ok());
 
-        let result = result.unwrap();
+        let result = result.expect("test operation should succeed");
         assert!(result.stats.epochs > 0);
     }
 }

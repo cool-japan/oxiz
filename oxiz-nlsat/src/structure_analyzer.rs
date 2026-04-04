@@ -439,9 +439,24 @@ mod tests {
         analyzer.add_polynomial(Polynomial::add(&y, &z));
 
         let connectivity = analyzer.variable_connectivity();
-        assert!(connectivity.get(&0).unwrap().contains(&1));
-        assert!(connectivity.get(&1).unwrap().contains(&0));
-        assert!(connectivity.get(&1).unwrap().contains(&2));
+        assert!(
+            connectivity
+                .get(&0)
+                .expect("key should exist in map")
+                .contains(&1)
+        );
+        assert!(
+            connectivity
+                .get(&1)
+                .expect("key should exist in map")
+                .contains(&0)
+        );
+        assert!(
+            connectivity
+                .get(&1)
+                .expect("key should exist in map")
+                .contains(&2)
+        );
     }
 
     #[test]

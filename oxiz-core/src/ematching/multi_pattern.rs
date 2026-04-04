@@ -10,8 +10,9 @@ use crate::ematching::index::TermIndex;
 use crate::ematching::pattern::Pattern;
 use crate::ematching::substitution::Substitution;
 use crate::error::{OxizError, Result};
-use lasso::Spur;
-use rustc_hash::{FxHashMap, FxHashSet};
+use crate::interner::Spur;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use smallvec::SmallVec;
 
 /// Configuration for multi-pattern matching

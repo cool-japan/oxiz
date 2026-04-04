@@ -5,7 +5,7 @@
 // This example demonstrates TypeScript usage with proper typing
 // and error handling for production applications.
 
-import init, { WasmSolver } from 'oxiz-wasm';
+import init, { WasmSolver } from '@cooljapan/oxiz';
 
 // Type definitions (these would normally come from oxiz-wasm types)
 interface OxiZError {

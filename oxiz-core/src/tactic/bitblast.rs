@@ -3,6 +3,8 @@
 use super::core::*;
 use crate::ast::{TermId, TermManager};
 use crate::error::Result;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Bit-blasting tactic - converts BV operations to propositional logic
 pub struct BitBlastTactic<'a> {

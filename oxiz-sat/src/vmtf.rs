@@ -11,6 +11,8 @@
 //! - No periodic rescaling needed
 
 use crate::literal::Var;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Node in the VMTF doubly-linked list
 #[derive(Debug, Clone, Copy)]
@@ -376,7 +378,7 @@ mod tests {
         let mut vmtf = VMTF::new(5);
 
         // Bump the head variable
-        let head_var = vmtf.head.unwrap();
+        let head_var = vmtf.head.expect("test operation should succeed");
         let timestamp_before = vmtf.activity(head_var);
 
         vmtf.bump(head_var);

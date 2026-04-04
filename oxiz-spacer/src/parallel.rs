@@ -411,7 +411,7 @@ mod tests {
         assert_eq!(queue.size(), 1);
         assert!(!queue.is_empty());
 
-        let dequeued = queue.dequeue().unwrap();
+        let dequeued = queue.dequeue().expect("test operation should succeed");
         assert!(dequeued.is_some());
         assert!(queue.is_empty());
     }
@@ -459,7 +459,7 @@ mod tests {
         let results = propagator.propagate_lemmas(&frames, &pobs, lemmas);
 
         assert!(results.is_ok());
-        let results = results.unwrap();
+        let results = results.expect("test operation should succeed");
         assert_eq!(results.len(), 2);
     }
 }

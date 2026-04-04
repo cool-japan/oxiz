@@ -83,6 +83,8 @@ pub use trigger::{
 
 use crate::ast::{TermId, TermManager};
 use crate::error::Result;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Main E-matching facade providing a unified interface
 #[derive(Debug)]

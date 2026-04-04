@@ -559,9 +559,11 @@ mod tests {
 
         let mut writer = StarExecWriter::new("OxiZ", "default");
         let mut output = Vec::new();
-        writer.write_csv(&results, &mut output).unwrap();
+        writer
+            .write_csv(&results, &mut output)
+            .expect("test operation should succeed");
 
-        let csv = String::from_utf8(output).unwrap();
+        let csv = String::from_utf8(output).expect("test operation should succeed");
         assert!(csv.contains("pair id"));
         assert!(csv.contains("sat"));
         assert!(csv.contains("unsat"));
@@ -570,7 +572,8 @@ mod tests {
     #[test]
     fn test_starexec_output_parse() {
         let content = "sat\nstarexec-result=sat\nstarexec-time=1.234\nstarexec-memory=1024\n";
-        let output = StarExecReader::parse_solver_output_content(content).unwrap();
+        let output = StarExecReader::parse_solver_output_content(content)
+            .expect("test operation should succeed");
 
         assert_eq!(output.status, Some("sat".to_string()));
         assert_eq!(output.result, Some("sat".to_string()));

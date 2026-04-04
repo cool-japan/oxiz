@@ -2,6 +2,8 @@
 //!
 //! Ensures correctness of the SAT solver implementation
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::*;
 
 /// Check clause database integrity
@@ -214,7 +216,7 @@ pub fn check_learned_clause_quality(solver: &CDCLSolver) -> Result<(), String> {
         }
 
         // Compute actual LBD and check it matches
-        let mut levels = std::collections::HashSet::new();
+        let mut levels = crate::prelude::HashSet::new();
         for &lit in clause.iter() {
             let level = solver.get_level(lit.var())?;
             levels.insert(level);

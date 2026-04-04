@@ -10,10 +10,11 @@
 
 #![allow(dead_code)]
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::fmt;
 use oxiz_core::ast::TermId;
 use oxiz_core::error::{OxizError, Result};
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::fmt;
 
 /// Interpolation problem for arrays
 #[derive(Debug, Clone)]
@@ -609,7 +610,7 @@ mod tests {
         let result = engine.compute_sequence(&formulas);
         assert!(result.is_ok());
 
-        let interpolants = result.unwrap();
+        let interpolants = result.expect("test operation should succeed");
         assert_eq!(interpolants.len(), formulas.len() - 1);
     }
 
@@ -651,10 +652,14 @@ mod tests {
             InterpolationProblem::new(TermId::new(1), TermId::new(2)).with_shared_vars(vec![5]);
 
         // First computation
-        let result1 = engine.compute_interpolant(&problem).unwrap();
+        let result1 = engine
+            .compute_interpolant(&problem)
+            .expect("test operation should succeed");
 
         // Second computation should use cache
-        let result2 = engine.compute_interpolant(&problem).unwrap();
+        let result2 = engine
+            .compute_interpolant(&problem)
+            .expect("test operation should succeed");
 
         assert_eq!(result1.formula, result2.formula);
 
@@ -669,7 +674,9 @@ mod tests {
         let problem =
             InterpolationProblem::new(TermId::new(1), TermId::new(2)).with_shared_vars(vec![5]);
 
-        engine.compute_interpolant(&problem).unwrap();
+        engine
+            .compute_interpolant(&problem)
+            .expect("test operation should succeed");
         assert_eq!(engine.interpolant_cache.len(), 1);
 
         engine.clear_cache();
@@ -683,7 +690,9 @@ mod tests {
         let property = TermId::new(100);
         let program = vec![TermId::new(1), TermId::new(2)];
 
-        let result = verifier.verify(property, &program).unwrap();
+        let result = verifier
+            .verify(property, &program)
+            .expect("test operation should succeed");
         assert_eq!(result, VerificationResult::Verified);
 
         assert_eq!(verifier.trace().len(), 1);
@@ -774,13 +783,27 @@ mod tests {
         problem.edges.insert(1, vec![2, 3]);
         problem.edges.insert(2, vec![4, 5]);
 
-        let order = engine.post_order_traversal(&problem).unwrap();
+        let order = engine
+            .post_order_traversal(&problem)
+            .expect("test operation should succeed");
 
         // Post-order should visit children before parent
-        let pos_4 = order.iter().position(|&x| x == 4).unwrap();
-        let pos_5 = order.iter().position(|&x| x == 5).unwrap();
-        let pos_2 = order.iter().position(|&x| x == 2).unwrap();
-        let pos_1 = order.iter().position(|&x| x == 1).unwrap();
+        let pos_4 = order
+            .iter()
+            .position(|&x| x == 4)
+            .expect("element should be found");
+        let pos_5 = order
+            .iter()
+            .position(|&x| x == 5)
+            .expect("element should be found");
+        let pos_2 = order
+            .iter()
+            .position(|&x| x == 2)
+            .expect("element should be found");
+        let pos_1 = order
+            .iter()
+            .position(|&x| x == 1)
+            .expect("element should be found");
 
         assert!(pos_4 < pos_2);
         assert!(pos_5 < pos_2);

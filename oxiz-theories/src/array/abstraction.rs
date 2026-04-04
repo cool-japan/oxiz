@@ -8,10 +8,11 @@
 //!
 //! Reference: Z3's array abstraction techniques and CEGAR implementations
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::fmt;
 use oxiz_core::ast::TermId;
 use oxiz_core::error::Result;
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::fmt;
 
 /// Abstract domain for array values
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -720,9 +721,13 @@ mod tests {
             value: AbstractDomain::Interval { min: 0, max: 10 },
         };
 
-        engine.abstract_operation(100, &op).unwrap();
+        engine
+            .abstract_operation(100, &op)
+            .expect("test operation should succeed");
 
-        let state = engine.get_state(100).unwrap();
+        let state = engine
+            .get_state(100)
+            .expect("test operation should succeed");
         assert_eq!(
             state.get(&AbstractIndex::Concrete(5)),
             AbstractDomain::Interval { min: 0, max: 10 }
@@ -744,7 +749,9 @@ mod tests {
         let mut engine = ArrayAbstractionEngine::new();
         let counterexample = vec![TermId::new(1), TermId::new(2)];
 
-        let new_preds = engine.refine(counterexample.clone()).unwrap();
+        let new_preds = engine
+            .refine(counterexample.clone())
+            .expect("test operation should succeed");
         assert_eq!(engine.refinement_history().len(), 1);
         assert!(new_preds.is_empty()); // Simplified implementation returns empty
     }

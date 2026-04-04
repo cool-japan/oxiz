@@ -14,10 +14,11 @@
 //! - "Algorithms in Real Algebraic Geometry" (Basu et al., 2006)
 //! - Z3's `math/polynomial/algebraic_numbers.cpp`
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::polynomial::Polynomial;
 use num_bigint::BigInt;
 use num_rational::BigRational;
-use rustc_hash::FxHashMap;
 
 /// Isolating interval for a root.
 #[derive(Debug, Clone)]
@@ -191,7 +192,7 @@ impl RootIsolator {
             self.compute_sturm_sequence();
         }
 
-        let seq = self.sturm_sequence.as_ref().unwrap();
+        let seq = self.sturm_sequence.as_ref().expect("operation should succeed");
 
         let sign_changes_lower = self.count_sign_changes(seq, lower);
         let sign_changes_upper = self.count_sign_changes(seq, upper);
@@ -237,7 +238,7 @@ impl RootIsolator {
             return (BigRational::from(BigInt::from(0)), BigRational::from(BigInt::from(0)));
         }
 
-        let leading = coeffs.last().unwrap().clone().abs();
+        let leading = coeffs.last().expect("collection should not be empty").clone().abs();
         if leading.is_zero() {
             return (BigRational::from(BigInt::from(0)), BigRational::from(BigInt::from(0)));
         }

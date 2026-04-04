@@ -10,6 +10,8 @@
 //! which is one of the most effective approaches for MaxSAT.
 
 use crate::literal::{LBool, Lit, Var};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::solver::{Solver, SolverConfig, SolverResult};
 use smallvec::SmallVec;
 

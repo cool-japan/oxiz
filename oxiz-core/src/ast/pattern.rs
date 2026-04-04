@@ -4,8 +4,9 @@
 //! powerful pattern-based transformations and analysis.
 
 use super::{TermId, TermKind, TermManager};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::sort::SortId;
-use rustc_hash::FxHashMap;
 
 /// A pattern for matching terms
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -455,7 +456,7 @@ mod tests {
         let x = manager.mk_var("x", manager.sorts.int_sort);
         let pattern = Pattern::Wildcard("a".to_string());
 
-        let subst = match_pattern(&pattern, x, &manager).unwrap();
+        let subst = match_pattern(&pattern, x, &manager).expect("test operation should succeed");
         assert_eq!(subst.get("a"), Some(&x));
     }
 
@@ -497,7 +498,8 @@ mod tests {
 
         let pattern = Pattern::Not(Box::new(Pattern::Wildcard("x".to_string())));
 
-        let subst = match_pattern(&pattern, not_p, &manager).unwrap();
+        let subst =
+            match_pattern(&pattern, not_p, &manager).expect("test operation should succeed");
         assert_eq!(subst.get("x"), Some(&p));
     }
 
@@ -514,7 +516,8 @@ mod tests {
             Pattern::Wildcard("b".to_string()),
         ]);
 
-        let subst = match_pattern(&pattern, and_pq, &manager).unwrap();
+        let subst =
+            match_pattern(&pattern, and_pq, &manager).expect("test operation should succeed");
         assert_eq!(subst.get("a"), Some(&p));
         assert_eq!(subst.get("b"), Some(&q));
     }
@@ -532,7 +535,7 @@ mod tests {
             Box::new(Pattern::IntConst(num_bigint::BigInt::from(5))),
         );
 
-        let subst = match_pattern(&pattern, eq, &manager).unwrap();
+        let subst = match_pattern(&pattern, eq, &manager).expect("test operation should succeed");
         assert_eq!(subst.get("var"), Some(&x));
     }
 
@@ -546,7 +549,8 @@ mod tests {
 
         let pattern = Pattern::Not(Box::new(Pattern::Wildcard("a".to_string())));
 
-        let result = instantiate_pattern(&pattern, &subst, &mut manager).unwrap();
+        let result = instantiate_pattern(&pattern, &subst, &mut manager)
+            .expect("test operation should succeed");
         if let Some(result_term) = manager.get(result) {
             assert!(matches!(result_term.kind, TermKind::Not(_)));
         }
@@ -590,7 +594,7 @@ mod tests {
             Pattern::Wildcard("b".to_string()),
         ]);
 
-        let subst = match_pattern(&pattern, sum, &manager).unwrap();
+        let subst = match_pattern(&pattern, sum, &manager).expect("test operation should succeed");
         assert_eq!(subst.len(), 2);
         assert_eq!(subst.get("a"), Some(&x));
         assert_eq!(subst.get("b"), Some(&y));
@@ -611,7 +615,7 @@ mod tests {
 
         let subst = match_pattern(&pattern, sum, &manager);
         assert!(subst.is_some());
-        assert_eq!(subst.unwrap().get("a"), Some(&x));
+        assert_eq!(subst.expect("key should exist in map").get("a"), Some(&x));
 
         // Try with different arguments
         let y = manager.mk_var("y", manager.sorts.int_sort);

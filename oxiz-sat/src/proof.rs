@@ -7,6 +7,8 @@
 //! that includes clause IDs and resolution hints for more efficient verification.
 
 use crate::literal::Lit;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::Path;
@@ -255,7 +257,7 @@ impl Drop for LratProof {
 #[derive(Debug)]
 pub struct ProofTrimmer {
     /// Clauses that are actually used in the proof
-    used_clauses: std::collections::HashSet<u64>,
+    used_clauses: crate::prelude::HashSet<u64>,
     /// The final clause ID (usually the empty clause)
     #[allow(dead_code)]
     final_clause_id: u64,
@@ -264,7 +266,7 @@ pub struct ProofTrimmer {
 impl ProofTrimmer {
     /// Create a new proof trimmer
     pub fn new(final_clause_id: u64) -> Self {
-        let mut used = std::collections::HashSet::new();
+        let mut used = crate::prelude::HashSet::new();
         used.insert(final_clause_id);
 
         Self {
@@ -366,35 +368,42 @@ mod tests {
 
         assert!(!proof.is_enabled());
 
-        proof.enable(path).unwrap();
+        proof.enable(path).expect("test operation should succeed");
         assert!(proof.is_enabled());
 
         let v0 = Var(0);
         let v1 = Var(1);
 
         // Add a clause: x0 ∨ x1
-        proof.add_clause(&[Lit::pos(v0), Lit::pos(v1)]).unwrap();
+        proof
+            .add_clause(&[Lit::pos(v0), Lit::pos(v1)])
+            .expect("test operation should succeed");
 
         // Add a clause: ~x0
-        proof.add_clause(&[Lit::neg(v0)]).unwrap();
+        proof
+            .add_clause(&[Lit::neg(v0)])
+            .expect("test operation should succeed");
 
         // Delete a clause
-        proof.delete_clause(&[Lit::pos(v0), Lit::pos(v1)]).unwrap();
+        proof
+            .delete_clause(&[Lit::pos(v0), Lit::pos(v1)])
+            .expect("test operation should succeed");
 
-        proof.flush().unwrap();
+        proof.flush().expect("test operation should succeed");
         proof.disable();
 
         // Read the proof file and verify
-        let mut file = File::open(path).unwrap();
+        let mut file = File::open(path).expect("file operation failed");
         let mut contents = String::new();
-        file.read_to_string(&mut contents).unwrap();
+        file.read_to_string(&mut contents)
+            .expect("test operation should succeed");
 
         assert!(contents.contains("1 2 0"));
         assert!(contents.contains("-1 0"));
         assert!(contents.contains("d 1 2 0"));
 
         // Clean up
-        fs::remove_file(path).unwrap();
+        fs::remove_file(path).expect("test operation should succeed");
     }
 
     #[test]
@@ -403,8 +412,12 @@ mod tests {
 
         // Should not error even though not enabled
         let v0 = Var(0);
-        proof.add_clause(&[Lit::pos(v0)]).unwrap();
-        proof.delete_clause(&[Lit::pos(v0)]).unwrap();
+        proof
+            .add_clause(&[Lit::pos(v0)])
+            .expect("test operation should succeed");
+        proof
+            .delete_clause(&[Lit::pos(v0)])
+            .expect("test operation should succeed");
     }
 
     #[test]
@@ -414,7 +427,7 @@ mod tests {
 
         assert!(!proof.is_enabled());
 
-        proof.enable(path).unwrap();
+        proof.enable(path).expect("test operation should succeed");
         assert!(proof.is_enabled());
 
         let v0 = Var(0);
@@ -423,30 +436,35 @@ mod tests {
         // Add an original clause: x0 ∨ x1
         let id1 = proof
             .add_original_clause(&[Lit::pos(v0), Lit::pos(v1)])
-            .unwrap();
+            .expect("test operation should succeed");
         assert_eq!(id1, 1);
 
         // Add a clause with hints: ~x0 (derived from clause 1)
-        let id2 = proof.add_clause(&[Lit::neg(v0)], &[1]).unwrap();
+        let id2 = proof
+            .add_clause(&[Lit::neg(v0)], &[1])
+            .expect("test operation should succeed");
         assert_eq!(id2, 2);
 
         // Delete clause 1
-        proof.delete_clause(id1).unwrap();
+        proof
+            .delete_clause(id1)
+            .expect("test operation should succeed");
 
-        proof.flush().unwrap();
+        proof.flush().expect("test operation should succeed");
         proof.disable();
 
         // Read the proof file and verify
-        let mut file = File::open(path).unwrap();
+        let mut file = File::open(path).expect("file operation failed");
         let mut contents = String::new();
-        file.read_to_string(&mut contents).unwrap();
+        file.read_to_string(&mut contents)
+            .expect("test operation should succeed");
 
         assert!(contents.contains("1 1 2 0"));
         assert!(contents.contains("2 -1 0 1 0"));
         assert!(contents.contains("d 1 0"));
 
         // Clean up
-        fs::remove_file(path).unwrap();
+        fs::remove_file(path).expect("test operation should succeed");
     }
 
     #[test]
@@ -454,23 +472,26 @@ mod tests {
         let path = "/tmp/test_lrat_empty.proof";
         let mut proof = LratProof::new();
 
-        proof.enable(path).unwrap();
+        proof.enable(path).expect("test operation should succeed");
 
         // Add empty clause (UNSAT proof) with hints
-        let id = proof.add_empty_clause(&[1, 2, 3]).unwrap();
+        let id = proof
+            .add_empty_clause(&[1, 2, 3])
+            .expect("test operation should succeed");
         assert_eq!(id, 1);
 
-        proof.flush().unwrap();
+        proof.flush().expect("test operation should succeed");
         proof.disable();
 
         // Read the proof file
-        let mut file = File::open(path).unwrap();
+        let mut file = File::open(path).expect("file operation failed");
         let mut contents = String::new();
-        file.read_to_string(&mut contents).unwrap();
+        file.read_to_string(&mut contents)
+            .expect("test operation should succeed");
 
         assert!(contents.contains("1 0 1 2 3 0"));
 
         // Clean up
-        fs::remove_file(path).unwrap();
+        fs::remove_file(path).expect("test operation should succeed");
     }
 }

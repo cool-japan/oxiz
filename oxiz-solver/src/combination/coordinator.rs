@@ -1,5 +1,4 @@
 //! Theory Combination Coordinator
-#![allow(missing_docs)] // Under development
 //!
 //! This module coordinates multiple theory solvers using the Nelson-Oppen method
 //! with optimizations:
@@ -8,8 +7,10 @@
 //! - Equality sharing between theories
 //! - Conflict minimization across theories
 
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::VecDeque;
+#![allow(missing_docs)] // Under development
+
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Placeholder term identifier
 pub type TermId = usize;
@@ -535,7 +536,10 @@ mod tests {
 
         let result = coordinator.check_sat();
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), SatResult::Sat);
+        assert_eq!(
+            result.expect("test operation should succeed"),
+            SatResult::Sat
+        );
         assert_eq!(coordinator.stats.check_sat_calls, 1);
     }
 
@@ -559,7 +563,9 @@ mod tests {
         coordinator.add_shared_term(1, TheoryId::Arithmetic);
         coordinator.add_shared_term(2, TheoryId::Arithmetic);
 
-        coordinator.merge_equivalence_classes(1, 2).unwrap();
+        coordinator
+            .merge_equivalence_classes(1, 2)
+            .expect("test operation should succeed");
 
         let rep1 = coordinator.find_representative(1);
         let rep2 = coordinator.find_representative(2);
@@ -591,7 +597,9 @@ mod tests {
 
         assert_eq!(coordinator.current_level(), 2);
 
-        coordinator.backtrack(0).unwrap();
+        coordinator
+            .backtrack(0)
+            .expect("test operation should succeed");
         assert_eq!(coordinator.current_level(), 0);
     }
 

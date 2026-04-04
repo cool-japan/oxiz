@@ -285,11 +285,12 @@ impl Runner {
                     let sort = self.parse_sort(&sort_str, &tm);
                     let _var = tm.mk_var(&name, sort);
                 }
-                Command::DeclareFun(name, arg_sorts, ret_sort) => {
-                    if arg_sorts.is_empty() {
-                        let sort = self.parse_sort(&ret_sort, &tm);
-                        let _var = tm.mk_var(&name, sort);
-                    }
+                Command::DeclareFun(name, arg_sorts, ret_sort) if arg_sorts.is_empty() => {
+                    let sort = self.parse_sort(&ret_sort, &tm);
+                    let _var = tm.mk_var(&name, sort);
+                    // Functions with arguments need uninterpreted function support
+                }
+                Command::DeclareFun(..) => {
                     // Functions with arguments need uninterpreted function support
                 }
                 Command::Assert(term) => {

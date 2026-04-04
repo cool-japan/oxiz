@@ -1,10 +1,16 @@
 //! Solver context
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::solver::{Solver, SolverResult};
 use oxiz_core::ast::{TermId, TermKind, TermManager};
+#[cfg(feature = "std")]
 use oxiz_core::error::Result;
+#[cfg(feature = "std")]
 use oxiz_core::smtlib::{Command, parse_script};
 use oxiz_core::sort::SortId;
+#[cfg(feature = "std")]
+use std::path::{Path, PathBuf};
 
 /// A declared constant
 #[derive(Debug, Clone)]
@@ -89,17 +95,24 @@ pub struct Context {
     /// Declared constants stack for push/pop
     const_stack: Vec<usize>,
     /// Mapping from constant names to indices (for efficient removal)
-    const_name_to_index: std::collections::HashMap<String, usize>,
+    const_name_to_index: crate::prelude::HashMap<String, usize>,
     /// Declared functions
     declared_funs: Vec<DeclaredFun>,
     /// Declared functions stack for push/pop
     fun_stack: Vec<usize>,
     /// Mapping from function names to indices
-    fun_name_to_index: std::collections::HashMap<String, usize>,
+    fun_name_to_index: crate::prelude::HashMap<String, usize>,
     /// Last check-sat result
     last_result: Option<SolverResult>,
     /// Options
-    options: std::collections::HashMap<String, String>,
+    options: crate::prelude::HashMap<String, String>,
+    /// Optional path for binary proof logging.
+    ///
+    /// When set, `check_sat` creates a `ProofLogger` at this path, records
+    /// proof steps derived from the solver result, and flushes/closes the log
+    /// before returning.
+    #[cfg(feature = "std")]
+    proof_log_path: Option<PathBuf>,
 }
 
 impl Default for Context {
@@ -120,13 +133,50 @@ impl Context {
             assertion_stack: Vec::new(),
             declared_consts: Vec::new(),
             const_stack: Vec::new(),
-            const_name_to_index: std::collections::HashMap::new(),
+            const_name_to_index: crate::prelude::HashMap::new(),
             declared_funs: Vec::new(),
             fun_stack: Vec::new(),
-            fun_name_to_index: std::collections::HashMap::new(),
+            fun_name_to_index: crate::prelude::HashMap::new(),
             last_result: None,
-            options: std::collections::HashMap::new(),
+            options: crate::prelude::HashMap::new(),
+            #[cfg(feature = "std")]
+            proof_log_path: None,
         }
+    }
+
+    /// Configure a path for binary proof logging.
+    ///
+    /// When a path is configured, every subsequent call to `check_sat` opens a
+    /// [`oxiz_proof::logging::ProofLogger`] at that path, writes a structural
+    /// summary of the proof, and flushes/closes the log before returning.
+    /// Pass `None` to disable proof logging.
+    #[cfg(feature = "std")]
+    pub fn set_proof_log_path(&mut self, path: Option<PathBuf>) {
+        self.proof_log_path = path;
+    }
+
+    /// Return the currently configured proof log path, if any.
+    #[cfg(feature = "std")]
+    #[must_use]
+    pub fn proof_log_path(&self) -> Option<&Path> {
+        self.proof_log_path.as_deref()
+    }
+
+    /// Verify a binary proof log produced by a previous `check_sat` call with
+    /// proof logging enabled.
+    ///
+    /// Delegates to [`oxiz_proof::replay::ProofReplayer::replay_from_file`].
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` only for hard I/O or binary-format failures; logical
+    /// invalidity is encoded as `Ok(VerificationResult::Invalid(_))`.
+    #[cfg(feature = "std")]
+    pub fn verify_proof_log(
+        path: &Path,
+    ) -> std::result::Result<oxiz_proof::replay::VerificationResult, oxiz_proof::replay::ProofError>
+    {
+        oxiz_proof::replay::ProofReplayer::replay_from_file(path)
     }
 
     /// Declare a constant
@@ -187,7 +237,113 @@ impl Context {
     pub fn check_sat(&mut self) -> SolverResult {
         let result = self.solver.check(&mut self.terms);
         self.last_result = Some(result);
+
+        // Write a binary proof log if a path is configured (std-only).
+        #[cfg(feature = "std")]
+        if let Some(ref path) = self.proof_log_path.clone() {
+            if let Err(e) = self.write_proof_log(path, result) {
+                // Non-fatal: warn but do not abort the solve.
+                #[cfg(feature = "tracing")]
+                tracing::warn!("proof log write failed for {:?}: {}", path, e);
+                let _ = e;
+            }
+        }
+
         result
+    }
+
+    /// Serialise a proof log entry for the given result.
+    ///
+    /// For `Unsat`, resolution proof steps are emitted when available;
+    /// for `Sat` and `Unknown`, a single axiom node is written so the log is
+    /// never empty and can be cleanly replayed.
+    #[cfg(feature = "std")]
+    fn write_proof_log(
+        &self,
+        path: &Path,
+        result: SolverResult,
+    ) -> std::result::Result<(), oxiz_proof::logging::LoggingError> {
+        use oxiz_proof::logging::ProofLogger;
+        use oxiz_proof::proof::{ProofNodeId, ProofStep};
+        use smallvec::SmallVec;
+
+        let mut logger = ProofLogger::create(path)?;
+
+        match result {
+            SolverResult::Unsat => {
+                if let Some(proof) = self.solver.get_proof() {
+                    let mut counter: u32 = 0;
+                    for step in proof.steps() {
+                        let entry = match step {
+                            crate::solver::ProofStep::Input { index, .. } => ProofStep::Axiom {
+                                conclusion: format!("input-clause-{}", index),
+                            },
+                            crate::solver::ProofStep::Resolution {
+                                index,
+                                left,
+                                right,
+                                pivot,
+                                ..
+                            } => {
+                                let mut premises: SmallVec<[ProofNodeId; 4]> = SmallVec::new();
+                                premises.push(ProofNodeId(*left));
+                                premises.push(ProofNodeId(*right));
+                                let mut args: SmallVec<[String; 2]> = SmallVec::new();
+                                args.push(format!("{:?}", pivot));
+                                ProofStep::Inference {
+                                    rule: "resolution".to_string(),
+                                    premises,
+                                    conclusion: format!("resolution-{}", index),
+                                    args,
+                                }
+                            }
+                            crate::solver::ProofStep::TheoryLemma { index, theory, .. } => {
+                                ProofStep::Axiom {
+                                    conclusion: format!("theory-lemma-{}-{}", theory, index),
+                                }
+                            }
+                        };
+                        logger.log_step(ProofNodeId(counter), &entry)?;
+                        counter += 1;
+                    }
+                    if counter == 0 {
+                        // Proof object present but empty — emit minimal witness.
+                        logger.log_step(
+                            ProofNodeId(0),
+                            &ProofStep::Axiom {
+                                conclusion: "unsat".to_string(),
+                            },
+                        )?;
+                    }
+                } else {
+                    logger.log_step(
+                        ProofNodeId(0),
+                        &ProofStep::Axiom {
+                            conclusion: "unsat".to_string(),
+                        },
+                    )?;
+                }
+            }
+            SolverResult::Sat => {
+                logger.log_step(
+                    ProofNodeId(0),
+                    &ProofStep::Axiom {
+                        conclusion: "sat".to_string(),
+                    },
+                )?;
+            }
+            SolverResult::Unknown => {
+                logger.log_step(
+                    ProofNodeId(0),
+                    &ProofStep::Axiom {
+                        conclusion: "unknown".to_string(),
+                    },
+                )?;
+            }
+        }
+
+        logger.flush()?;
+        logger.close()
     }
 
     /// Get the model (if SAT)
@@ -358,6 +514,7 @@ impl Context {
     }
 
     /// Format assertions as SMT-LIB2
+    #[cfg(feature = "std")]
     pub fn format_assertions(&self) -> String {
         if self.assertions.is_empty() {
             return "()".to_string();
@@ -468,6 +625,7 @@ impl Context {
     }
 
     /// Execute an SMT-LIB2 script
+    #[cfg(feature = "std")]
     pub fn execute_script(&mut self, script: &str) -> Result<Vec<String>> {
         let commands = parse_script(script, &mut self.terms)?;
         let mut output = Vec::new();
@@ -674,7 +832,9 @@ mod tests {
             (check-sat)
         "#;
 
-        let output = ctx.execute_script(script).unwrap();
+        let output = ctx
+            .execute_script(script)
+            .expect("test operation should succeed");
         assert_eq!(output, vec!["sat"]);
     }
 
@@ -696,7 +856,7 @@ mod tests {
         // Model should include both constants
         let model = ctx.get_model();
         assert!(model.is_some());
-        let model = model.unwrap();
+        let model = model.expect("test operation should succeed");
         assert_eq!(model.len(), 2);
     }
 
@@ -729,7 +889,9 @@ mod tests {
             (get-model)
         "#;
 
-        let output = ctx.execute_script(script).unwrap();
+        let output = ctx
+            .execute_script(script)
+            .expect("test operation should succeed");
         assert_eq!(output.len(), 2);
         assert_eq!(output[0], "sat");
         assert!(
@@ -754,13 +916,13 @@ mod tests {
         ctx.assert(t);
         let _ = ctx.check_sat();
 
-        let model = ctx.get_model().unwrap();
+        let model = ctx.get_model().expect("test operation should succeed");
         assert_eq!(model.len(), 2);
 
         ctx.pop();
         let _ = ctx.check_sat();
 
-        let model = ctx.get_model().unwrap();
+        let model = ctx.get_model().expect("test operation should succeed");
         assert_eq!(model.len(), 1);
         assert_eq!(model[0].0, "a");
     }
@@ -777,7 +939,9 @@ mod tests {
             (get-assertions)
         "#;
 
-        let output = ctx.execute_script(script).unwrap();
+        let output = ctx
+            .execute_script(script)
+            .expect("test operation should succeed");
         assert_eq!(output.len(), 1);
         assert!(output[0].starts_with('('));
         // Should contain both assertions
@@ -796,7 +960,9 @@ mod tests {
             (check-sat-assuming (q))
         "#;
 
-        let output = ctx.execute_script(script).unwrap();
+        let output = ctx
+            .execute_script(script)
+            .expect("test operation should succeed");
         assert_eq!(output.len(), 1);
         assert_eq!(output[0], "sat");
     }
@@ -810,7 +976,9 @@ mod tests {
             (get-option :produce-models)
         "#;
 
-        let output = ctx.execute_script(script).unwrap();
+        let output = ctx
+            .execute_script(script)
+            .expect("test operation should succeed");
         assert_eq!(output.len(), 1);
         assert_eq!(output[0], "true");
     }
@@ -828,7 +996,9 @@ mod tests {
             (check-sat)
         "#;
 
-        let output = ctx.execute_script(script).unwrap();
+        let output = ctx
+            .execute_script(script)
+            .expect("test operation should succeed");
         assert_eq!(output.len(), 2);
         assert_eq!(output[0], "()"); // No assertions after reset
         assert_eq!(output[1], "sat"); // Empty formula is SAT
@@ -842,7 +1012,9 @@ mod tests {
             (simplify (+ 1 2))
         "#;
 
-        let output = ctx.execute_script(script).unwrap();
+        let output = ctx
+            .execute_script(script)
+            .expect("test operation should succeed");
         assert_eq!(output.len(), 1);
         // Should simplify to 3
         assert_eq!(output[0], "3");
@@ -856,7 +1028,9 @@ mod tests {
             (simplify (* 2 3 4))
         "#;
 
-        let output = ctx.execute_script(script).unwrap();
+        let output = ctx
+            .execute_script(script)
+            .expect("test operation should succeed");
         assert_eq!(output.len(), 1);
         // Should simplify to 24
         assert_eq!(output[0], "24");
@@ -876,7 +1050,9 @@ mod tests {
             (get-value (p q (and p q) (or p q)))
         "#;
 
-        let output = ctx.execute_script(script).unwrap();
+        let output = ctx
+            .execute_script(script)
+            .expect("test operation should succeed");
         assert_eq!(output.len(), 2);
         assert_eq!(output[0], "sat");
 
@@ -900,7 +1076,9 @@ mod tests {
             (get-value (p))
         "#;
 
-        let output = ctx.execute_script(script).unwrap();
+        let output = ctx
+            .execute_script(script)
+            .expect("test operation should succeed");
         assert_eq!(output.len(), 1);
         assert!(output[0].contains("error") || output[0].contains("No model"));
     }
@@ -918,7 +1096,9 @@ mod tests {
             (get-value (p))
         "#;
 
-        let output = ctx.execute_script(script).unwrap();
+        let output = ctx
+            .execute_script(script)
+            .expect("test operation should succeed");
         assert_eq!(output.len(), 2);
         assert_eq!(output[0], "unsat");
         assert!(output[1].contains("error") || output[1].contains("No model"));

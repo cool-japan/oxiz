@@ -32,9 +32,9 @@
 //! - Shostak (1984): "Deciding Combinations of Theories"
 //! - Z3's `smt/theory_combine.cpp`
 
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::cmp::Ordering;
-use std::collections::BinaryHeap;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::cmp::Ordering;
 
 /// Term identifier.
 pub type TermId = u32;

@@ -435,7 +435,9 @@ mod tests {
         let mut layer = Layer::new(3, 2, Activation::ReLU);
         let input = Tensor::from_slice(&[1.0, 2.0, 3.0]);
 
-        let output = layer.forward(&input, false).unwrap();
+        let output = layer
+            .forward(&input, false)
+            .expect("test operation should succeed");
         assert_eq!(output.shape(), &[2]);
     }
 
@@ -450,7 +452,7 @@ mod tests {
             dropout_rate: 0.0,
         };
 
-        let network = NeuralNetwork::new(config).unwrap();
+        let network = NeuralNetwork::new(config).expect("test operation should succeed");
         assert_eq!(network.input_dim(), 10);
         assert_eq!(network.output_dim(), 1);
         assert_eq!(network.layers.len(), 3);
@@ -458,7 +460,7 @@ mod tests {
 
     #[test]
     fn test_network_simple() {
-        let network = NeuralNetwork::simple(vec![5, 3, 1]).unwrap();
+        let network = NeuralNetwork::simple(vec![5, 3, 1]).expect("test operation should succeed");
         assert_eq!(network.input_dim(), 5);
         assert_eq!(network.output_dim(), 1);
     }
@@ -480,7 +482,7 @@ mod tests {
 
     #[test]
     fn test_network_forward() {
-        let network = NeuralNetwork::simple(vec![3, 2, 1]).unwrap();
+        let network = NeuralNetwork::simple(vec![3, 2, 1]).expect("test operation should succeed");
         let input = vec![1.0, 2.0, 3.0];
 
         let output = network.predict(&input);
@@ -489,18 +491,22 @@ mod tests {
 
     #[test]
     fn test_network_training() {
-        let mut network = NeuralNetwork::simple(vec![2, 3, 1]).unwrap();
+        let mut network =
+            NeuralNetwork::simple(vec![2, 3, 1]).expect("test operation should succeed");
         let input = vec![1.0, 2.0];
         let target = vec![3.0];
 
-        let loss = network.train(&input, &target).unwrap();
+        let loss = network
+            .train(&input, &target)
+            .expect("test operation should succeed");
         assert!(loss >= 0.0);
         assert_eq!(network.num_training_steps(), 1);
     }
 
     #[test]
     fn test_network_training_convergence() {
-        let mut network = NeuralNetwork::simple(vec![2, 4, 1]).unwrap();
+        let mut network =
+            NeuralNetwork::simple(vec![2, 4, 1]).expect("test operation should succeed");
         let mut optimizer = crate::models::optimizer::Adam::new(0.01);
 
         // Train on simple pattern: output = 2*x1 + 3*x2
@@ -516,7 +522,9 @@ mod tests {
 
         for epoch in 0..100 {
             for (input, target) in &data {
-                let loss = network.train_step(input, target, &mut optimizer).unwrap();
+                let loss = network
+                    .train_step(input, target, &mut optimizer)
+                    .expect("test operation should succeed");
 
                 if epoch == 0 {
                     initial_loss = loss;
@@ -533,27 +541,33 @@ mod tests {
 
     #[test]
     fn test_network_num_parameters() {
-        let network = NeuralNetwork::simple(vec![10, 5, 1]).unwrap();
+        let network = NeuralNetwork::simple(vec![10, 5, 1]).expect("test operation should succeed");
         // (10*5 + 5) + (5*1 + 1) = 55 + 6 = 61
         assert_eq!(network.num_parameters(), 61);
     }
 
     #[test]
     fn test_network_save_load() {
-        let mut network = NeuralNetwork::simple(vec![3, 2, 1]).unwrap();
+        let mut network =
+            NeuralNetwork::simple(vec![3, 2, 1]).expect("test operation should succeed");
 
         // Train a bit to have some non-random weights
         let input = vec![1.0, 2.0, 3.0];
         let target = vec![5.0];
-        network.train(&input, &target).unwrap();
+        network
+            .train(&input, &target)
+            .expect("test operation should succeed");
 
         // Save
-        let saved = network.save().unwrap();
+        let saved = network.save().expect("test operation should succeed");
         assert!(!saved.is_empty());
 
         // Create new network and load
-        let mut network2 = NeuralNetwork::simple(vec![3, 2, 1]).unwrap();
-        network2.load(&saved).unwrap();
+        let mut network2 =
+            NeuralNetwork::simple(vec![3, 2, 1]).expect("test operation should succeed");
+        network2
+            .load(&saved)
+            .expect("test operation should succeed");
 
         // Predictions should be the same
         let pred1 = network.predict(&input);
@@ -566,7 +580,8 @@ mod tests {
 
     #[test]
     fn test_network_dimension_mismatch() {
-        let mut network = NeuralNetwork::simple(vec![3, 2, 1]).unwrap();
+        let mut network =
+            NeuralNetwork::simple(vec![3, 2, 1]).expect("test operation should succeed");
         let wrong_input = vec![1.0, 2.0]; // Should be 3
 
         let result = network.forward(&wrong_input, false);

@@ -308,7 +308,7 @@ mod tests {
         let mut opt = SmtLibOptimizer::new();
 
         let cmd = OptCommand::GetObjectives;
-        let result = opt.execute(cmd).unwrap();
+        let result = opt.execute(cmd).expect("test operation should succeed");
 
         if let CommandResult::Objectives(objs) = result {
             assert_eq!(objs.len(), 0);
@@ -329,16 +329,18 @@ mod tests {
             term: term1,
             name: Some("obj1".to_string()),
         })
-        .unwrap();
+        .expect("test operation should succeed");
 
         opt.execute(OptCommand::Maximize {
             term: term2,
             name: Some("obj2".to_string()),
         })
-        .unwrap();
+        .expect("test operation should succeed");
 
         // Get objectives
-        let result = opt.execute(OptCommand::GetObjectives).unwrap();
+        let result = opt
+            .execute(OptCommand::GetObjectives)
+            .expect("test operation should succeed");
 
         if let CommandResult::Objectives(objs) = result {
             assert_eq!(objs.len(), 2);
@@ -384,7 +386,7 @@ mod tests {
             term: TermId::from(1),
             name: Some("obj1".to_string()),
         })
-        .unwrap();
+        .expect("test operation should succeed");
 
         opt.execute(OptCommand::AssertSoft {
             term: TermId::from(2),
@@ -392,7 +394,7 @@ mod tests {
             group: None,
             id: None,
         })
-        .unwrap();
+        .expect("test operation should succeed");
 
         assert_eq!(opt.context.num_objectives(), 1);
         assert_eq!(opt.context.num_soft(), 1);

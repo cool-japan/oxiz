@@ -4,6 +4,8 @@
 //! These presets are based on extensive empirical testing and competition
 //! results from modern SAT solvers.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::solver::{RestartStrategy, SolverConfig};
 
 /// Preset categories for different problem types
@@ -311,8 +313,8 @@ impl ConfigPreset {
     }
 }
 
-impl std::fmt::Display for ConfigPreset {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for ConfigPreset {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let name = match self {
             Self::Default => "Default",
             Self::Industrial => "Industrial",

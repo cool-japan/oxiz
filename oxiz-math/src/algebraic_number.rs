@@ -22,10 +22,11 @@
 //! - Z3's `math/realclosure/` directory
 
 use crate::polynomial::Polynomial;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::cmp::Ordering;
 use num_rational::BigRational;
 use num_traits::{One, Signed, Zero};
-use rustc_hash::FxHashMap;
-use std::cmp::Ordering;
 
 /// An isolating interval for a real algebraic number.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -385,8 +386,8 @@ pub enum AlgebraicError {
     ArithmeticFailed,
 }
 
-impl std::fmt::Display for AlgebraicError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for AlgebraicError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             AlgebraicError::InvalidInterval => write!(f, "invalid interval"),
             AlgebraicError::NoRootInInterval => write!(f, "no root in interval"),
@@ -398,7 +399,7 @@ impl std::fmt::Display for AlgebraicError {
     }
 }
 
-impl std::error::Error for AlgebraicError {}
+impl core::error::Error for AlgebraicError {}
 
 #[cfg(test)]
 mod tests {

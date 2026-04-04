@@ -8,9 +8,9 @@
 //! - Strength reduction (expensive ops → cheap ops)
 //! - Pattern-based rewriting
 
-use rustc_hash::FxHashMap;
-
 /// Placeholder term identifier
+#[allow(unused_imports)]
+use crate::prelude::*;
 pub type TermId = usize;
 
 /// Bit-vector operation
@@ -598,9 +598,13 @@ mod tests {
         let mut rewriter = AdvancedBvRewriter::new(config);
 
         let x = 10;
-        let zero = rewriter.mk_const(0, 32).unwrap();
+        let zero = rewriter
+            .mk_const(0, 32)
+            .expect("test operation should succeed");
 
-        let result = rewriter.simplify_add(x, zero, 32).unwrap();
+        let result = rewriter
+            .simplify_add(x, zero, 32)
+            .expect("test operation should succeed");
         assert_eq!(result, x);
     }
 
@@ -610,9 +614,13 @@ mod tests {
         let mut rewriter = AdvancedBvRewriter::new(config);
 
         let x = 10;
-        let zero = rewriter.mk_const(0, 32).unwrap();
+        let zero = rewriter
+            .mk_const(0, 32)
+            .expect("test operation should succeed");
 
-        let result = rewriter.simplify_mul(x, zero, 32).unwrap();
+        let result = rewriter
+            .simplify_mul(x, zero, 32)
+            .expect("test operation should succeed");
         assert_eq!(result, zero);
     }
 
@@ -622,9 +630,13 @@ mod tests {
         let mut rewriter = AdvancedBvRewriter::new(config);
 
         let x = 10;
-        let one = rewriter.mk_const(1, 32).unwrap();
+        let one = rewriter
+            .mk_const(1, 32)
+            .expect("test operation should succeed");
 
-        let result = rewriter.simplify_mul(x, one, 32).unwrap();
+        let result = rewriter
+            .simplify_mul(x, one, 32)
+            .expect("test operation should succeed");
         assert_eq!(result, x);
     }
 
@@ -635,7 +647,9 @@ mod tests {
 
         let x = 10;
 
-        let result = rewriter.simplify_and(x, x, 32).unwrap();
+        let result = rewriter
+            .simplify_and(x, x, 32)
+            .expect("test operation should succeed");
         assert_eq!(result, x);
     }
 
@@ -646,8 +660,12 @@ mod tests {
 
         let x = 10;
 
-        let result = rewriter.simplify_xor(x, x, 32).unwrap();
-        let zero = rewriter.mk_const(0, 32).unwrap();
+        let result = rewriter
+            .simplify_xor(x, x, 32)
+            .expect("test operation should succeed");
+        let zero = rewriter
+            .mk_const(0, 32)
+            .expect("test operation should succeed");
         assert_eq!(result, zero);
     }
 
@@ -656,10 +674,16 @@ mod tests {
         let config = RewriterConfig::default();
         let mut rewriter = AdvancedBvRewriter::new(config);
 
-        let c1 = rewriter.mk_const(5, 32).unwrap();
-        let c2 = rewriter.mk_const(3, 32).unwrap();
+        let c1 = rewriter
+            .mk_const(5, 32)
+            .expect("test operation should succeed");
+        let c2 = rewriter
+            .mk_const(3, 32)
+            .expect("test operation should succeed");
 
-        let result = rewriter.simplify_add(c1, c2, 32).unwrap();
+        let result = rewriter
+            .simplify_add(c1, c2, 32)
+            .expect("test operation should succeed");
 
         // Result should be constant 8
         assert!(rewriter.constants.contains_key(&result));
@@ -679,11 +703,21 @@ mod tests {
     fn test_is_power_of_two() {
         let mut rewriter = AdvancedBvRewriter::new(RewriterConfig::default());
 
-        let t1 = rewriter.mk_const(1, 32).unwrap();
-        let t2 = rewriter.mk_const(2, 32).unwrap();
-        let t4 = rewriter.mk_const(4, 32).unwrap();
-        let t8 = rewriter.mk_const(8, 32).unwrap();
-        let t3 = rewriter.mk_const(3, 32).unwrap();
+        let t1 = rewriter
+            .mk_const(1, 32)
+            .expect("test operation should succeed");
+        let t2 = rewriter
+            .mk_const(2, 32)
+            .expect("test operation should succeed");
+        let t4 = rewriter
+            .mk_const(4, 32)
+            .expect("test operation should succeed");
+        let t8 = rewriter
+            .mk_const(8, 32)
+            .expect("test operation should succeed");
+        let t3 = rewriter
+            .mk_const(3, 32)
+            .expect("test operation should succeed");
 
         assert_eq!(rewriter.is_power_of_two(t1), Some(0));
         assert_eq!(rewriter.is_power_of_two(t2), Some(1));
@@ -701,7 +735,9 @@ mod tests {
         let mut rewriter = AdvancedBvRewriter::new(config);
 
         let x = 10;
-        let power_of_two = rewriter.mk_const(8, 32).unwrap();
+        let power_of_two = rewriter
+            .mk_const(8, 32)
+            .expect("test operation should succeed");
 
         let result = rewriter.simplify_mul(x, power_of_two, 32);
         assert!(result.is_ok());
@@ -715,9 +751,13 @@ mod tests {
         let mut rewriter = AdvancedBvRewriter::new(config);
 
         let x = 10;
-        let zero = rewriter.mk_const(0, 32).unwrap();
+        let zero = rewriter
+            .mk_const(0, 32)
+            .expect("test operation should succeed");
 
-        let result = rewriter.simplify_shl(x, zero, 32).unwrap();
+        let result = rewriter
+            .simplify_shl(x, zero, 32)
+            .expect("test operation should succeed");
         assert_eq!(result, x);
     }
 }

@@ -766,7 +766,7 @@ Returns the OxiZ WASM version.
 
 **Example:**
 ```javascript
-import { version } from 'oxiz-wasm';
+import { version } from '@cooljapan/oxiz';
 console.log(`OxiZ WASM version: ${version()}`);
 ```
 
@@ -777,7 +777,7 @@ console.log(`OxiZ WASM version: ${version()}`);
 OxiZ WASM includes full TypeScript declarations. Import types as:
 
 ```typescript
-import { WasmSolver, WasmErrorKind } from 'oxiz-wasm';
+import { WasmSolver, WasmErrorKind } from '@cooljapan/oxiz';
 
 const solver = new WasmSolver();
 solver.setLogic("QF_LIA");

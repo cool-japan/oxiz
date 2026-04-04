@@ -1,6 +1,6 @@
 # oxiz-cli TODO
 
-Last Updated: 2026-01-17
+Last Updated: 2026-03-28
 
 ## Progress: ~100% Complete
 
@@ -180,7 +180,7 @@ Benefits:
 
 ## Testing
 
-- [x] Add integration tests (13 tests covering CLI features, file I/O, formats, flags)
+- [x] Add integration tests (109 tests passing, covering CLI features, file I/O, formats, flags)
 - [x] Add benchmark suite (6 benchmark tests)
 - [x] Test with SMT-LIB benchmark suite (framework for testing with external benchmarks)
 

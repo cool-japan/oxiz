@@ -5,6 +5,8 @@
 //! to find a result wins.
 
 use crate::literal::Lit;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::solver::{RestartStrategy, Solver, SolverConfig, SolverResult};
 
 #[cfg(test)]

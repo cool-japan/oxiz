@@ -2,10 +2,11 @@
 //!
 //! Propagates interval bounds through bit-vector operations.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::ast::{TermId, TermKind, TermManager};
 use num_bigint::BigUint;
 use num_traits::{One, Zero};
-use rustc_hash::FxHashMap;
 
 /// Bit-vector bounds propagation tactic.
 pub struct BvBoundsPropagation {

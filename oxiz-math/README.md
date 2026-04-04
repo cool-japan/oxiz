@@ -1,5 +1,8 @@
 # oxiz-math
 
+[![Version](https://img.shields.io/badge/version-0.2.0-blue)](https://github.com/cool-japan/oxiz)
+[![Status](https://img.shields.io/badge/status-stable-green)]()
+
 Mathematical foundations for the OxiZ SMT solver.
 
 ## Overview
@@ -14,8 +17,8 @@ This crate provides Pure Rust implementations of mathematical algorithms require
 | `polynomial` | Polynomial arithmetic | `math/polynomial/` |
 | `interval` | Interval arithmetic for bounds | `math/interval/` |
 | `rational` | Arbitrary precision rationals | - |
-| `grobner` | Gröbner basis computation (planned) | `math/grobner/` |
-| `realclosure` | Real closed field arithmetic (planned) | `math/realclosure/` |
+| `grobner` | Gröbner basis computation | `math/grobner/` |
+| `realclosure` | Real closed field arithmetic | `math/realclosure/` |
 
 ## Usage
 
@@ -24,6 +27,16 @@ use oxiz_math::simplex::Simplex;
 use oxiz_math::polynomial::Polynomial;
 use oxiz_math::interval::Interval;
 ```
+
+## Status (v0.2.0)
+
+| Metric | Value |
+|:-------|:------|
+| Tests | 566 passing |
+| Rust LoC | 30,748 (60 files) |
+| Public API items | 1,036 |
+| `todo!`/`unimplemented!` | 0 |
+| Status | Stable |
 
 ## Design Principles
 

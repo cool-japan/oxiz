@@ -4,7 +4,8 @@
 //! to reduce the search space by exploiting structural symmetries.
 
 use crate::literal::{Lit, Var};
-use std::collections::HashMap;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Represents a permutation of variables
 #[derive(Debug, Clone)]

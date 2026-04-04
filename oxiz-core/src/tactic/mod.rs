@@ -4,6 +4,9 @@
 //! They form the basis of the strategy layer in the solver.
 
 // Existing submodules
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 pub mod lia2card;
 pub mod mbp;
 pub mod nla2bv;
@@ -22,6 +25,7 @@ mod combinators;
 mod core;
 mod ctx_simplify;
 mod eliminate;
+mod pb2bv;
 mod propagate;
 mod simplify;
 mod solve_eqs;
@@ -36,12 +40,13 @@ pub use bitblast::{BitBlastTactic, StatelessBitBlastTactic};
 pub use combinators::{OrElseTactic, ParallelTactic, RepeatTactic, ThenTactic, TimeoutTactic};
 pub use ctx_simplify::{CtxSolverSimplifyTactic, StatelessCtxSolverSimplifyTactic};
 pub use eliminate::{EliminateUnconstrainedTactic, StatelessEliminateUnconstrainedTactic};
+pub use pb2bv::{Pb2BvTactic, StatelessPb2BvTactic};
 pub use propagate::{PropagateValuesTactic, StatelessPropagateValuesTactic};
 pub use simplify::{SimplifyTactic, StatelessSimplifyTactic};
 pub use solve_eqs::{
-    CondTactic, FailIfTactic, FourierMotzkinTactic, NnfTactic, Pb2BvTactic, ScriptableTactic,
-    SolveEqsTactic, StatelessCnfTactic, StatelessFourierMotzkinTactic, StatelessNnfTactic,
-    StatelessPb2BvTactic, StatelessSolveEqsTactic, TseitinCnfTactic, WhenTactic,
+    CondTactic, FailIfTactic, FourierMotzkinTactic, NnfTactic, ScriptableTactic, SolveEqsTactic,
+    StatelessCnfTactic, StatelessFourierMotzkinTactic, StatelessNnfTactic, StatelessSolveEqsTactic,
+    TseitinCnfTactic, WhenTactic,
 };
 pub use split::{SplitTactic, StatelessSplitTactic};
 
@@ -91,7 +96,7 @@ mod tests {
         let goal = Goal::empty();
         let tactic = StatelessSimplifyTactic;
 
-        let result = tactic.apply(&goal).unwrap();
+        let result = tactic.apply(&goal).expect("test operation should succeed");
         assert!(matches!(result, TacticResult::SubGoals(_)));
     }
 
@@ -111,7 +116,9 @@ mod tests {
         let goal = Goal::new(vec![eq]);
         let mut tactic = SimplifyTactic::new(&mut manager);
 
-        let result = tactic.apply_mut(&goal).unwrap();
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
         // The goal should be solved as SAT (all assertions simplified to true)
         assert!(matches!(result, TacticResult::Solved(SolveResult::Sat)));
     }
@@ -128,7 +135,9 @@ mod tests {
         let goal = Goal::new(vec![lt]);
         let mut tactic = SimplifyTactic::new(&mut manager);
 
-        let result = tactic.apply_mut(&goal).unwrap();
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
         // The goal should be solved as UNSAT (an assertion simplified to false)
         assert!(matches!(result, TacticResult::Solved(SolveResult::Unsat)));
     }
@@ -183,7 +192,9 @@ mod tests {
         let goal = Goal::new(vec![eq, lt]);
         let mut tactic = PropagateValuesTactic::new(&mut manager);
 
-        let result = tactic.apply_mut(&goal).unwrap();
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
 
         // After propagation: (= 5 5) -> true, (< 5 10) -> true
         // Both simplify to true, so goal should be SAT
@@ -204,7 +215,9 @@ mod tests {
         let goal = Goal::new(vec![eq, lt]);
         let mut tactic = PropagateValuesTactic::new(&mut manager);
 
-        let result = tactic.apply_mut(&goal).unwrap();
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
 
         // After propagation: (= 5 5) -> true, (< 5 3) -> false
         // Contains false, so goal should be UNSAT
@@ -226,7 +239,9 @@ mod tests {
         let goal = Goal::new(vec![eq, lt]);
         let mut tactic = PropagateValuesTactic::new(&mut manager);
 
-        let result = tactic.apply_mut(&goal).unwrap();
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
 
         // After propagation: (= 5 5) -> true (removed), (< y 10) stays
         // Should produce a subgoal with just (< y 10)
@@ -252,7 +267,9 @@ mod tests {
         let goal = Goal::new(vec![lt]);
         let mut tactic = PropagateValuesTactic::new(&mut manager);
 
-        let result = tactic.apply_mut(&goal).unwrap();
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
 
         // No equalities of form (= var const), so not applicable
         assert!(matches!(result, TacticResult::NotApplicable));
@@ -276,7 +293,9 @@ mod tests {
         let goal = Goal::new(vec![eq_x_5, eq_y_x, lt_y_10]);
         let mut tactic = PropagateValuesTactic::new(&mut manager);
 
-        let result = tactic.apply_mut(&goal).unwrap();
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
 
         // x=5 is propagated, (= y x) becomes (= y 5)
         // We should get a reduced goal
@@ -297,7 +316,9 @@ mod tests {
         let goal = Goal::empty();
         let tactic = BitBlastTactic::new(&manager);
 
-        let result = tactic.apply_check(&goal).unwrap();
+        let result = tactic
+            .apply_check(&goal)
+            .expect("test operation should succeed");
         assert!(matches!(result, TacticResult::NotApplicable));
     }
 
@@ -310,7 +331,9 @@ mod tests {
         let goal = Goal::new(vec![bv]);
 
         let tactic = BitBlastTactic::new(&manager);
-        let result = tactic.apply_check(&goal).unwrap();
+        let result = tactic
+            .apply_check(&goal)
+            .expect("test operation should succeed");
 
         // Should detect BV term and return SubGoals (not NotApplicable)
         assert!(matches!(result, TacticResult::SubGoals(_)));
@@ -330,7 +353,9 @@ mod tests {
 
         let goal = Goal::new(vec![eq]);
         let tactic = BitBlastTactic::new(&manager);
-        let result = tactic.apply_check(&goal).unwrap();
+        let result = tactic
+            .apply_check(&goal)
+            .expect("test operation should succeed");
 
         // Should detect BV terms
         assert!(matches!(result, TacticResult::SubGoals(_)));
@@ -352,7 +377,9 @@ mod tests {
 
         let goal = Goal::new(vec![int_constraint, bv_constraint]);
         let tactic = BitBlastTactic::new(&manager);
-        let result = tactic.apply_check(&goal).unwrap();
+        let result = tactic
+            .apply_check(&goal)
+            .expect("test operation should succeed");
 
         // Should detect BV terms in the goal
         assert!(matches!(result, TacticResult::SubGoals(_)));
@@ -363,7 +390,7 @@ mod tests {
         let goal = Goal::empty();
         let tactic = StatelessBitBlastTactic;
 
-        let result = tactic.apply(&goal).unwrap();
+        let result = tactic.apply(&goal).expect("test operation should succeed");
         assert!(matches!(result, TacticResult::SubGoals(_)));
         assert_eq!(tactic.name(), "bit-blast");
         assert!(!tactic.description().is_empty());
@@ -381,7 +408,9 @@ mod tests {
         let goal = Goal::new(vec![constraint]);
         let mut tactic = AckermannizeTactic::new(&mut manager);
 
-        let result = tactic.apply_mut(&goal).unwrap();
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
         assert!(matches!(result, TacticResult::NotApplicable));
     }
 
@@ -399,7 +428,9 @@ mod tests {
         let goal = Goal::new(vec![constraint]);
         let mut tactic = AckermannizeTactic::new(&mut manager);
 
-        let result = tactic.apply_mut(&goal).unwrap();
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
 
         // Should produce a subgoal with the function replaced by a variable
         if let TacticResult::SubGoals(goals) = result {
@@ -426,7 +457,9 @@ mod tests {
         let goal = Goal::new(vec![constraint]);
         let mut tactic = AckermannizeTactic::new(&mut manager);
 
-        let result = tactic.apply_mut(&goal).unwrap();
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
 
         // Should produce a subgoal with:
         // 1. The original constraint with f(x) and f(y) replaced by fresh vars
@@ -455,7 +488,9 @@ mod tests {
         let goal = Goal::new(vec![constraint]);
         let mut tactic = AckermannizeTactic::new(&mut manager);
 
-        let result = tactic.apply_mut(&goal).unwrap();
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
 
         // Should produce subgoals with both function applications replaced
         if let TacticResult::SubGoals(goals) = result {
@@ -472,7 +507,7 @@ mod tests {
         let goal = Goal::empty();
         let tactic = StatelessAckermannizeTactic;
 
-        let result = tactic.apply(&goal).unwrap();
+        let result = tactic.apply(&goal).expect("test operation should succeed");
         assert!(matches!(result, TacticResult::SubGoals(_)));
         assert_eq!(tactic.name(), "ackermannize");
         assert!(!tactic.description().is_empty());
@@ -486,7 +521,9 @@ mod tests {
         let goal = Goal::empty();
         let mut tactic = CtxSolverSimplifyTactic::new(&mut manager);
 
-        let result = tactic.apply_mut(&goal).unwrap();
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
         assert!(matches!(result, TacticResult::NotApplicable));
     }
 
@@ -502,7 +539,9 @@ mod tests {
         let goal = Goal::new(vec![constraint]);
         let mut tactic = CtxSolverSimplifyTactic::new(&mut manager);
 
-        let result = tactic.apply_mut(&goal).unwrap();
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
         // No context to use, so not applicable
         assert!(matches!(result, TacticResult::NotApplicable));
     }
@@ -522,7 +561,9 @@ mod tests {
         let goal = Goal::new(vec![eq, lt]);
         let mut tactic = CtxSolverSimplifyTactic::new(&mut manager);
 
-        let result = tactic.apply_mut(&goal).unwrap();
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
 
         // The (< x 10) should simplify to (< 5 10) -> true and be filtered out
         if let TacticResult::SubGoals(goals) = result {
@@ -549,7 +590,9 @@ mod tests {
         let goal = Goal::new(vec![eq, lt]);
         let mut tactic = CtxSolverSimplifyTactic::new(&mut manager);
 
-        let result = tactic.apply_mut(&goal).unwrap();
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
         assert!(matches!(result, TacticResult::Solved(SolveResult::Unsat)));
     }
 
@@ -571,7 +614,9 @@ mod tests {
         let goal = Goal::new(vec![eq_x, eq_y, lt]);
         let mut tactic = CtxSolverSimplifyTactic::new(&mut manager);
 
-        let result = tactic.apply_mut(&goal).unwrap();
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
 
         // Should reduce the goal significantly
         match result {
@@ -592,7 +637,7 @@ mod tests {
         let goal = Goal::empty();
         let tactic = StatelessCtxSolverSimplifyTactic;
 
-        let result = tactic.apply(&goal).unwrap();
+        let result = tactic.apply(&goal).expect("test operation should succeed");
         assert!(matches!(result, TacticResult::SubGoals(_)));
         assert_eq!(tactic.name(), "ctx-solver-simplify");
         assert!(!tactic.description().is_empty());
@@ -606,7 +651,9 @@ mod tests {
         let goal = Goal::new(vec![manager.mk_true()]);
         let mut tactic = SplitTactic::new(&mut manager);
 
-        let result = tactic.apply_mut(&goal).unwrap();
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
         assert!(matches!(result, TacticResult::NotApplicable));
     }
 
@@ -619,7 +666,9 @@ mod tests {
         let goal = Goal::new(vec![x]);
 
         let mut tactic = SplitTactic::new(&mut manager);
-        let result = tactic.apply_mut(&goal).unwrap();
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
 
         // Should produce two sub-goals: (x, x) and (x, ¬x)
         if let TacticResult::SubGoals(goals) = result {
@@ -647,7 +696,9 @@ mod tests {
         let goal = Goal::new(vec![or_xy]);
         let mut tactic = SplitTactic::new(&mut manager);
 
-        let result = tactic.apply_mut(&goal).unwrap();
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
 
         // Should produce two sub-goals
         if let TacticResult::SubGoals(goals) = result {
@@ -675,15 +726,23 @@ mod tests {
         let goal = Goal::new(vec![and_expr]);
         let mut tactic = SplitTactic::new(&mut manager);
 
-        let result = tactic.apply_mut(&goal).unwrap();
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
 
         // Should split on a variable (x, y, or z) rather than the complex term (y ∨ z)
         if let TacticResult::SubGoals(goals) = result {
             assert_eq!(goals.len(), 2);
 
             // The split term should be a variable
-            let split_term_true = goals[0].assertions.last().unwrap();
-            let split_term_false = goals[1].assertions.last().unwrap();
+            let split_term_true = goals[0]
+                .assertions
+                .last()
+                .expect("collection should not be empty");
+            let split_term_false = goals[1]
+                .assertions
+                .last()
+                .expect("collection should not be empty");
 
             // One should be a variable, the other should be its negation
             if let Some(term_false) = manager.get(*split_term_false)
@@ -701,7 +760,7 @@ mod tests {
         let goal = Goal::empty();
         let tactic = StatelessSplitTactic;
 
-        let result = tactic.apply(&goal).unwrap();
+        let result = tactic.apply(&goal).expect("test operation should succeed");
         assert!(matches!(result, TacticResult::SubGoals(_)));
         assert_eq!(tactic.name(), "split");
         assert!(!tactic.description().is_empty());
@@ -727,7 +786,9 @@ mod tests {
         let goal = Goal::new(vec![eq, gt]);
 
         let mut tactic = EliminateUnconstrainedTactic::new(&mut manager);
-        let result = tactic.apply_mut(&goal).unwrap();
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
 
         // x should be eliminated, leaving only y > 0
         if let TacticResult::SubGoals(goals) = result {
@@ -755,7 +816,9 @@ mod tests {
         let goal = Goal::new(vec![or]);
 
         let mut tactic = EliminateUnconstrainedTactic::new(&mut manager);
-        let result = tactic.apply_mut(&goal).unwrap();
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
 
         // After eliminating x, the disjunction becomes true (unconstrained)
         if let TacticResult::Solved(SolveResult::Sat) = result {
@@ -782,7 +845,9 @@ mod tests {
         let goal = Goal::new(vec![eq1, eq2]);
 
         let mut tactic = EliminateUnconstrainedTactic::new(&mut manager);
-        let result = tactic.apply_mut(&goal).unwrap();
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
 
         // x appears twice, so it's not eliminable
         assert!(matches!(result, TacticResult::NotApplicable));
@@ -805,7 +870,9 @@ mod tests {
         let goal = Goal::new(vec![eq]);
 
         let mut tactic = EliminateUnconstrainedTactic::new(&mut manager);
-        let result = tactic.apply_mut(&goal).unwrap();
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
 
         // x appears on both sides, so it shouldn't be eliminated
         assert!(matches!(result, TacticResult::NotApplicable));
@@ -816,7 +883,7 @@ mod tests {
         let goal = Goal::empty();
         let tactic = StatelessEliminateUnconstrainedTactic;
 
-        let result = tactic.apply(&goal).unwrap();
+        let result = tactic.apply(&goal).expect("test operation should succeed");
         assert!(matches!(result, TacticResult::SubGoals(_)));
         assert_eq!(tactic.name(), "elim-uncnstr");
         assert!(!tactic.description().is_empty());
@@ -843,7 +910,9 @@ mod tests {
         let goal = Goal::new(vec![eq_x, eq_y]);
         let mut tactic = SolveEqsTactic::new(&mut manager);
 
-        let result = tactic.apply_mut(&goal).unwrap();
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
 
         // Should solve x = 5, substitute into y = x + 3 -> y = 8
         // Then solve y = 8, which results in all equations being solved (SAT)
@@ -880,7 +949,9 @@ mod tests {
         let goal = Goal::new(vec![eq_x, eq_y, eq_z]);
         let mut tactic = SolveEqsTactic::new(&mut manager);
 
-        let result = tactic.apply_mut(&goal).unwrap();
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
 
         // Should solve the chain
         match result {
@@ -913,7 +984,9 @@ mod tests {
         let goal = Goal::new(vec![eq, lt]);
         let mut tactic = SolveEqsTactic::new(&mut manager);
 
-        let result = tactic.apply_mut(&goal).unwrap();
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
 
         // Should solve (x + y) = 10 => x = 10 - y
         // Then substitute x in the second constraint
@@ -944,7 +1017,9 @@ mod tests {
         let goal = Goal::new(vec![eq1, eq2]);
         let mut tactic = SolveEqsTactic::new(&mut manager);
 
-        let result = tactic.apply_mut(&goal).unwrap();
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
 
         // After substituting x = 5 into x = 10, we get 5 = 10 which is false
         assert!(matches!(result, TacticResult::Solved(SolveResult::Unsat)));
@@ -965,7 +1040,9 @@ mod tests {
         let goal = Goal::new(vec![eq1, eq2]);
         let mut tactic = SolveEqsTactic::new(&mut manager);
 
-        let result = tactic.apply_mut(&goal).unwrap();
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
 
         // Both equations should simplify to true
         assert!(matches!(result, TacticResult::Solved(SolveResult::Sat)));
@@ -988,7 +1065,9 @@ mod tests {
         let goal = Goal::new(vec![eq, lt]);
         let mut tactic = SolveEqsTactic::new(&mut manager);
 
-        let result = tactic.apply_mut(&goal).unwrap();
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
 
         // After substituting x = 5 into x < 10, we get 5 < 10 which is true
         assert!(matches!(result, TacticResult::Solved(SolveResult::Sat)));
@@ -1009,7 +1088,9 @@ mod tests {
         let goal = Goal::new(vec![eq1, eq2]);
         let mut tactic = SolveEqsTactic::new(&mut manager);
 
-        let result = tactic.apply_mut(&goal).unwrap();
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
 
         // Should be able to solve at least one equation
         match result {
@@ -1029,7 +1110,7 @@ mod tests {
         let goal = Goal::empty();
         let tactic = StatelessSolveEqsTactic;
 
-        let result = tactic.apply(&goal).unwrap();
+        let result = tactic.apply(&goal).expect("test operation should succeed");
         assert!(matches!(result, TacticResult::SubGoals(_)));
         assert_eq!(tactic.name(), "solve-eqs");
         assert!(!tactic.description().is_empty());
@@ -1041,7 +1122,9 @@ mod tests {
         let tactic = std::sync::Arc::new(StatelessSimplifyTactic);
         let timeout_tactic = TimeoutTactic::new(tactic, 1000); // 1 second timeout
 
-        let result = timeout_tactic.apply(&goal).unwrap();
+        let result = timeout_tactic
+            .apply(&goal)
+            .expect("test operation should succeed");
         // Should complete quickly (stateless simplify returns SubGoals)
         assert!(matches!(result, TacticResult::SubGoals(_)));
         assert_eq!(timeout_tactic.name(), "timeout");
@@ -1077,7 +1160,9 @@ mod tests {
         let slow_tactic = Arc::new(SlowTactic { delay_ms: 500 });
         let timeout_tactic = TimeoutTactic::new(slow_tactic, 100); // 100ms timeout, but tactic takes 500ms
 
-        let result = timeout_tactic.apply(&goal).unwrap();
+        let result = timeout_tactic
+            .apply(&goal)
+            .expect("test operation should succeed");
         // Should timeout and return Failed
         match result {
             TacticResult::Failed(msg) => {
@@ -1093,7 +1178,9 @@ mod tests {
         let tactic = Box::new(StatelessSimplifyTactic);
         let timeout_tactic = TimeoutTactic::from_box(tactic, 1000);
 
-        let result = timeout_tactic.apply(&goal).unwrap();
+        let result = timeout_tactic
+            .apply(&goal)
+            .expect("test operation should succeed");
         assert!(matches!(result, TacticResult::SubGoals(_)));
     }
 
@@ -1110,10 +1197,10 @@ mod tests {
 
         let tactic =
             ScriptableTactic::new("test-script".to_string(), script, "Test script".to_string())
-                .unwrap();
+                .expect("test operation should succeed");
 
         let goal = Goal::new(vec![TermId(1), TermId(2)]);
-        let result = tactic.apply(&goal).unwrap();
+        let result = tactic.apply(&goal).expect("test operation should succeed");
 
         assert!(matches!(result, TacticResult::NotApplicable));
         assert_eq!(tactic.name(), "test-script");
@@ -1129,10 +1216,10 @@ mod tests {
 
         let tactic =
             ScriptableTactic::new("sat-tactic".to_string(), script, "Returns SAT".to_string())
-                .unwrap();
+                .expect("test operation should succeed");
 
         let goal = Goal::empty();
-        let result = tactic.apply(&goal).unwrap();
+        let result = tactic.apply(&goal).expect("test operation should succeed");
 
         assert!(matches!(result, TacticResult::Solved(SolveResult::Sat)));
     }
@@ -1149,10 +1236,10 @@ mod tests {
             script,
             "Returns UNSAT".to_string(),
         )
-        .unwrap();
+        .expect("test operation should succeed");
 
         let goal = Goal::empty();
-        let result = tactic.apply(&goal).unwrap();
+        let result = tactic.apply(&goal).expect("test operation should succeed");
 
         assert!(matches!(result, TacticResult::Solved(SolveResult::Unsat)));
     }
@@ -1169,10 +1256,10 @@ mod tests {
             script,
             "Returns Unknown".to_string(),
         )
-        .unwrap();
+        .expect("test operation should succeed");
 
         let goal = Goal::empty();
-        let result = tactic.apply(&goal).unwrap();
+        let result = tactic.apply(&goal).expect("test operation should succeed");
 
         assert!(matches!(result, TacticResult::Solved(SolveResult::Unknown)));
     }
@@ -1199,10 +1286,10 @@ mod tests {
             script,
             "Filters assertions".to_string(),
         )
-        .unwrap();
+        .expect("test operation should succeed");
 
         let goal = Goal::new(vec![TermId(1), TermId(2), TermId(3)]);
-        let result = tactic.apply(&goal).unwrap();
+        let result = tactic.apply(&goal).expect("test operation should succeed");
 
         match result {
             TacticResult::SubGoals(goals) => {
@@ -1247,16 +1334,20 @@ mod tests {
             script,
             "Check if goal is empty".to_string(),
         )
-        .unwrap();
+        .expect("test operation should succeed");
 
         // Test with empty goal
         let empty_goal = Goal::empty();
-        let result = tactic.apply(&empty_goal).unwrap();
+        let result = tactic
+            .apply(&empty_goal)
+            .expect("test operation should succeed");
         assert!(matches!(result, TacticResult::Solved(SolveResult::Sat)));
 
         // Test with non-empty goal
         let non_empty_goal = Goal::new(vec![TermId(1)]);
-        let result = tactic.apply(&non_empty_goal).unwrap();
+        let result = tactic
+            .apply(&non_empty_goal)
+            .expect("test operation should succeed");
         assert!(matches!(result, TacticResult::NotApplicable));
     }
 
@@ -1288,12 +1379,14 @@ mod tests {
             script,
             "Remove duplicate assertions".to_string(),
         )
-        .unwrap();
+        .expect("test operation should succeed");
 
         // Goal with duplicates
         let goal_with_dupes =
             Goal::new(vec![TermId(1), TermId(2), TermId(1), TermId(3), TermId(2)]);
-        let result = tactic.apply(&goal_with_dupes).unwrap();
+        let result = tactic
+            .apply(&goal_with_dupes)
+            .expect("test operation should succeed");
 
         match result {
             TacticResult::SubGoals(goals) => {
@@ -1305,7 +1398,9 @@ mod tests {
 
         // Goal without duplicates
         let goal_no_dupes = Goal::new(vec![TermId(1), TermId(2), TermId(3)]);
-        let result = tactic.apply(&goal_no_dupes).unwrap();
+        let result = tactic
+            .apply(&goal_no_dupes)
+            .expect("test operation should succeed");
         assert!(matches!(result, TacticResult::NotApplicable));
     }
 
@@ -1325,7 +1420,9 @@ mod tests {
         let goal = Goal::new(vec![eq]);
         let mut tactic = FourierMotzkinTactic::new(&mut manager);
 
-        let result = tactic.apply_mut(&goal).unwrap();
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
         // Equality constraints are not directly handled by FM
         assert!(matches!(result, TacticResult::NotApplicable));
     }
@@ -1342,7 +1439,9 @@ mod tests {
         let goal = Goal::new(vec![lt]);
         let mut tactic = FourierMotzkinTactic::new(&mut manager);
 
-        let result = tactic.apply_mut(&goal).unwrap();
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
 
         // Single bound with only one variable - should still be applicable
         // since the variable has only upper bound but no lower bound
@@ -1376,7 +1475,9 @@ mod tests {
         let goal = Goal::new(vec![lower, upper]);
         let mut tactic = FourierMotzkinTactic::new(&mut manager);
 
-        let result = tactic.apply_mut(&goal).unwrap();
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
 
         // After FM elimination of x: 0 <= 10 (tautology)
         match result {
@@ -1405,7 +1506,9 @@ mod tests {
         let goal = Goal::new(vec![lower, upper]);
         let mut tactic = FourierMotzkinTactic::new(&mut manager);
 
-        let result = tactic.apply_mut(&goal).unwrap();
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
 
         // After FM: 10 <= 5 (contradiction)
         assert!(matches!(result, TacticResult::Solved(SolveResult::Unsat)));
@@ -1429,7 +1532,9 @@ mod tests {
         let goal = Goal::new(vec![c1, c2, c3]);
         let mut tactic = FourierMotzkinTactic::new(&mut manager);
 
-        let result = tactic.apply_mut(&goal).unwrap();
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
 
         // FM should eliminate some variables
         match result {
@@ -1462,7 +1567,9 @@ mod tests {
         let goal = Goal::new(vec![c1, c2]);
         let mut tactic = FourierMotzkinTactic::new(&mut manager);
 
-        let result = tactic.apply_mut(&goal).unwrap();
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
 
         // Feasible: 1 <= x <= 5
         match result {
@@ -1481,7 +1588,7 @@ mod tests {
         let goal = Goal::empty();
         let tactic = StatelessFourierMotzkinTactic;
 
-        let result = tactic.apply(&goal).unwrap();
+        let result = tactic.apply(&goal).expect("test operation should succeed");
         assert!(matches!(result, TacticResult::SubGoals(_)));
         assert_eq!(tactic.name(), "fm");
         assert!(!tactic.description().is_empty());
@@ -1492,7 +1599,7 @@ mod tests {
         let goal = Goal::empty();
         let tactic = StatelessPb2BvTactic;
 
-        let result = tactic.apply(&goal).unwrap();
+        let result = tactic.apply(&goal).expect("test operation should succeed");
         assert!(matches!(result, TacticResult::SubGoals(_)));
         assert_eq!(tactic.name(), "pb2bv");
         assert!(!tactic.description().is_empty());
@@ -1507,7 +1614,9 @@ mod tests {
         let goal = Goal::new(vec![p]);
 
         let mut tactic = Pb2BvTactic::new(&mut manager);
-        let result = tactic.apply_mut(&goal).unwrap();
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
 
         // Should be not applicable since it's just a boolean variable
         assert!(matches!(result, TacticResult::NotApplicable));

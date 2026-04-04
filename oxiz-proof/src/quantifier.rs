@@ -420,7 +420,7 @@ mod tests {
         let mut recorder = QuantifierProofRecorder::new();
         let mut proof = Proof::new();
         proof.add_axiom("(> 5 0)");
-        let root = proof.root().unwrap();
+        let root = proof.root().expect("test operation should succeed");
 
         let vars = vec![QuantVar::new("x", "Int")];
         let formula = QuantifiedFormula::exists(vars, "(> x 0)");

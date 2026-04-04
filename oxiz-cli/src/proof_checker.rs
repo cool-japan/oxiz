@@ -432,7 +432,7 @@ mod tests {
             7: resolution 5 6 -> []
         "#;
 
-        let proof = parse_simple_proof(proof_text).unwrap();
+        let proof = parse_simple_proof(proof_text).expect("test operation should succeed");
         assert_eq!(proof.steps.len(), 7);
         assert!(proof.verify().is_ok());
         assert_eq!(proof.conclusion, Some(7));
@@ -446,7 +446,7 @@ mod tests {
             3: resolution 1 2 -> []
         "#;
 
-        let proof = parse_simple_proof(proof_text).unwrap();
+        let proof = parse_simple_proof(proof_text).expect("test operation should succeed");
         let core = proof.extract_unsat_core();
 
         assert_eq!(core.len(), 2);

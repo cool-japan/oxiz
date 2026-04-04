@@ -343,7 +343,7 @@ impl PmresSolver {
                         relax_vars.get(&core_soft_ids[j]),
                     ) {
                         // ~lit_i | ~lit_j (at most one can be true)
-                        solver.add_clause([lit_i.negate(), lit_j.negate()].into_iter());
+                        solver.add_clause([lit_i.negate(), lit_j.negate()]);
                     }
                 }
             }

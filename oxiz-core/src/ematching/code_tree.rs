@@ -18,10 +18,11 @@
 
 use crate::ast::{TermId, TermKind, TermManager};
 use crate::error::{OxizError, Result};
+use crate::interner::Spur;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::sort::SortId;
-use lasso::Spur;
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::fmt;
+use core::fmt;
 
 /// A compiled code tree for pattern matching
 #[derive(Debug, Clone)]
@@ -836,8 +837,8 @@ mod tests {
         let t_true = manager.mk_true();
         let t_false = manager.mk_false();
 
-        let term_true = manager.get(t_true).unwrap();
-        let term_false = manager.get(t_false).unwrap();
+        let term_true = manager.get(t_true).expect("key should exist in map");
+        let term_false = manager.get(t_false).expect("key should exist in map");
 
         assert_eq!(
             TermKindDiscriminant::from_term(term_true),
@@ -864,8 +865,10 @@ mod tests {
 
         let pattern = pattern_compiler
             .compile(f_x, &bound_vars, &manager)
-            .unwrap();
-        let code_tree = builder.compile(&pattern, &manager).unwrap();
+            .expect("test operation should succeed");
+        let code_tree = builder
+            .compile(&pattern, &manager)
+            .expect("test operation should succeed");
 
         assert!(!code_tree.instructions.is_empty());
         assert_eq!(code_tree.num_vars, 1);

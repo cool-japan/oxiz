@@ -19,7 +19,7 @@ const solver = new Context('main').solver();
 
 **OxiZ:**
 ```javascript
-import init, { WasmSolver } from 'oxiz-wasm';
+import init, { WasmSolver } from '@cooljapan/oxiz';
 await init();
 const solver = new WasmSolver();
 ```
@@ -134,7 +134,7 @@ async function solve() {
 
 **OxiZ:**
 ```javascript
-import init, { WasmSolver } from 'oxiz-wasm';
+import init, { WasmSolver } from '@cooljapan/oxiz';
 
 async function solve() {
   await init();

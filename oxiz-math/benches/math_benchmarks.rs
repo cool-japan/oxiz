@@ -1,12 +1,18 @@
 use criterion::{Criterion, criterion_group, criterion_main};
 use num_bigint::BigInt;
 use num_rational::BigRational;
+use oxiz_math::fast_rational::FastRational;
 use oxiz_math::*;
 use std::hint::black_box;
 
-// Helper to create rationals
+// Helper to create BigRationals (for polynomial/interval benchmarks)
 fn rat(n: i64) -> BigRational {
     BigRational::from_integer(BigInt::from(n))
+}
+
+// Helper to create FastRationals (for simplex benchmarks)
+fn frat(n: i64) -> FastRational {
+    FastRational::from(n)
 }
 
 fn benchmark_polynomial_operations(c: &mut Criterion) {
@@ -113,9 +119,9 @@ fn benchmark_simplex(c: &mut Criterion) {
 
     // Create a row: z = 5 + 2x + 3y
     let mut coeffs = rustc_hash::FxHashMap::default();
-    coeffs.insert(x, rat(2));
-    coeffs.insert(y, rat(3));
-    let row = simplex::Row::from_expr(z, rat(5), coeffs.clone());
+    coeffs.insert(x, frat(2));
+    coeffs.insert(y, frat(3));
+    let row = simplex::Row::from_expr(z, frat(5), coeffs.clone());
 
     group.bench_function("add_row", |b| {
         b.iter(|| {
@@ -127,8 +133,8 @@ fn benchmark_simplex(c: &mut Criterion) {
 
     // Benchmark row evaluation
     let mut assignment = rustc_hash::FxHashMap::default();
-    assignment.insert(x, rat(1));
-    assignment.insert(y, rat(2));
+    assignment.insert(x, frat(1));
+    assignment.insert(y, frat(2));
 
     group.bench_function("row_eval", |b| {
         b.iter(|| {

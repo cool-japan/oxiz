@@ -981,7 +981,7 @@ mod tests {
         let state = DashboardState::new();
         state.set_phase("solving");
 
-        let phase = state.phase.lock().unwrap();
+        let phase = state.phase.lock().expect("lock acquisition failed");
         assert_eq!(*phase, "solving");
     }
 }

@@ -17,10 +17,11 @@
 
 use super::{RewriteContext, RewriteResult, Rewriter};
 use crate::ast::{TermId, TermKind, TermManager};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_bigint::BigInt;
 use num_rational::Rational64;
 use num_traits::{One, Zero};
-use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 
 /// Arithmetic expression rewriter

@@ -14,7 +14,8 @@
 //! - Z3's `model/model_evaluator.cpp`
 
 use super::builder::{Model, Value, VarId};
-use rustc_hash::FxHashMap;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Strategy for completing missing values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

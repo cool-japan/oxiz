@@ -8,6 +8,8 @@
 
 use crate::clause::ClauseDatabase;
 use crate::literal::Lit;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::trail::Reason;
 use smallvec::SmallVec;
 

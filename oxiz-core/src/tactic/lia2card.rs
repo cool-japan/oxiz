@@ -24,11 +24,12 @@
 
 use crate::ast::{TermId, TermKind, TermManager};
 use crate::error::Result;
+use crate::interner::Spur;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::tactic::{Goal, Tactic, TacticResult};
-use lasso::Spur;
 use num_bigint::BigInt;
 use num_traits::{One, ToPrimitive, Zero};
-use rustc_hash::FxHashSet;
 
 /// Cardinality constraint type
 #[derive(Debug, Clone)]
@@ -782,7 +783,7 @@ mod tests {
         let vars = tactic.extract_sum(sum);
 
         assert!(vars.is_some());
-        assert_eq!(vars.unwrap().len(), 2);
+        assert_eq!(vars.expect("test operation should succeed").len(), 2);
     }
 
     #[test]

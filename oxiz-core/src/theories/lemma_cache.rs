@@ -7,7 +7,8 @@
 //! Reference: Z3's theory_cache and lemma management
 
 use crate::ast::TermId;
-use rustc_hash::{FxHashMap, FxHashSet};
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// A theory lemma representing a clause or implication
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -398,8 +399,8 @@ pub struct CacheStatistics {
     pub max_size: usize,
 }
 
-impl std::fmt::Display for CacheStatistics {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for CacheStatistics {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         writeln!(f, "Lemma Cache Statistics:")?;
         writeln!(f, "  Size:     {}/{}", self.size, self.max_size)?;
         writeln!(f, "  Hits:     {}", self.hits)?;
@@ -435,7 +436,7 @@ mod tests {
 
         let found = cache.lookup(&[term(1), term(2)], term(3));
         assert!(found.is_some());
-        assert_eq!(found.unwrap()[0], lemma);
+        assert_eq!(found.expect("test operation should succeed")[0], lemma);
     }
 
     #[test]

@@ -500,7 +500,9 @@ mod tests {
         let features = vec![vec![1.0], vec![2.0], vec![3.0]];
         let targets = vec![2.0, 4.0, 6.0]; // y = 2*x
 
-        model.fit_closed_form(&features, &targets).unwrap();
+        model
+            .fit_closed_form(&features, &targets)
+            .expect("test operation should succeed");
 
         // Check if learned approximately y = 2*x
         let pred = model.predict(&[4.0]);
@@ -517,10 +519,13 @@ mod tests {
 
         let losses = model
             .fit_gradient_descent(&features, &targets, &mut optimizer, 100)
-            .unwrap();
+            .expect("test operation should succeed");
 
         // Loss should decrease
-        assert!(losses.last().unwrap() < losses.first().unwrap());
+        assert!(
+            losses.last().expect("collection should not be empty")
+                < losses.first().expect("collection should not be empty")
+        );
     }
 
     #[test]
@@ -561,10 +566,15 @@ mod tests {
         ];
         let targets = vec![1.0, 1.0, 0.0, 0.0];
 
-        let losses = model.fit(&features, &targets, &mut optimizer, 50).unwrap();
+        let losses = model
+            .fit(&features, &targets, &mut optimizer, 50)
+            .expect("test operation should succeed");
 
         // Loss should decrease
-        assert!(losses.last().unwrap() < losses.first().unwrap());
+        assert!(
+            losses.last().expect("collection should not be empty")
+                < losses.first().expect("collection should not be empty")
+        );
     }
 
     #[test]
@@ -573,10 +583,10 @@ mod tests {
         model.weights.data = vec![1.0, 2.0];
         model.bias = 3.0;
 
-        let saved = model.save().unwrap();
+        let saved = model.save().expect("test operation should succeed");
 
         let mut model2 = LinearRegression::new(2);
-        model2.load(&saved).unwrap();
+        model2.load(&saved).expect("test operation should succeed");
 
         assert_eq!(model2.weights.data, vec![1.0, 2.0]);
         assert_eq!(model2.bias, 3.0);

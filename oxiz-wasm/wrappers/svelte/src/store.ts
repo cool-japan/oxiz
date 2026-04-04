@@ -54,7 +54,7 @@ export function createSolverStore(options: SolverOptions = {}): SolverStore {
       update(state => ({ ...state, loading: true, error: null }));
 
       // Dynamic import to avoid SSR issues
-      const { default: initWasm, WasmSolver } = await import('oxiz-wasm');
+      const { default: initWasm, WasmSolver } = await import('@cooljapan/oxiz');
 
       // Initialize WASM module
       await initWasm();

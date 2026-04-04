@@ -9,7 +9,8 @@
 
 use crate::ast::proof::{Proof, ProofId, ProofRule};
 use crate::ast::{TermId, TermKind, TermManager};
-use rustc_hash::{FxHashMap, FxHashSet};
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Interpolation context for computing Craig interpolants
 #[derive(Debug)]

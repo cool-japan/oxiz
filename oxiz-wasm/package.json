@@ -1,5 +1,5 @@
 {
-  "name": "oxiz-wasm",
+  "name": "@cooljapan/oxiz",
   "version": "0.1.3",
   "description": "WebAssembly bindings for OxiZ SMT Solver - Pure Rust SMT solving in the browser",
   "main": "pkg/oxiz_wasm.js",

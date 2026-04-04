@@ -15,9 +15,9 @@
 //! - Collins: "Quantifier Elimination for Real Closed Fields by CAD" (1975)
 //! - Z3's `qe/qe_arith.cpp`
 
-use rustc_hash::FxHashMap;
-
 use crate::TermId;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::qe::cad::{CellType, SamplePoint};
 
 /// Cell identifier.
@@ -316,8 +316,8 @@ pub enum DecompositionError {
     CellNotFound,
 }
 
-impl std::fmt::Display for DecompositionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for DecompositionError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             DecompositionError::TooManyCells => write!(f, "too many cells"),
             DecompositionError::InvalidLevel => write!(f, "invalid level"),
@@ -326,7 +326,7 @@ impl std::fmt::Display for DecompositionError {
     }
 }
 
-impl std::error::Error for DecompositionError {}
+impl core::error::Error for DecompositionError {}
 
 #[cfg(test)]
 mod tests {
@@ -367,10 +367,14 @@ mod tests {
             .add_cell(1, Some(parent_id), CellType::Section, sample2)
             .expect("failed");
 
-        let parent = decomp.get_cell(parent_id).unwrap();
+        let parent = decomp
+            .get_cell(parent_id)
+            .expect("test operation should succeed");
         assert_eq!(parent.children, vec![child_id]);
 
-        let child = decomp.get_cell(child_id).unwrap();
+        let child = decomp
+            .get_cell(child_id)
+            .expect("test operation should succeed");
         assert_eq!(child.parent, Some(parent_id));
     }
 

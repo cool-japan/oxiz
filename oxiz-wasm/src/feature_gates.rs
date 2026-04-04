@@ -710,7 +710,9 @@ mod tests {
         assert!(config.theories.contains(&"arithmetic".to_string()));
 
         let mut new_gates = FeatureGates::new();
-        new_gates.import_config(config).unwrap();
+        new_gates
+            .import_config(config)
+            .expect("test operation should succeed");
 
         assert!(new_gates.is_theory_enabled(Theory::Arithmetic));
         assert!(new_gates.is_feature_enabled(Feature::LinearIntegerArithmetic));

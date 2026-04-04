@@ -36,9 +36,10 @@
 //! - Een & Sörensson, "Translating Pseudo-Boolean Constraints into SAT" (2006)
 //! - Z3's `src/sat/sat_aig_cuts.cpp` and `src/sat/sat_aig_finder.cpp`
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::fmt;
 use oxiz_sat::{Lit, Solver as SatSolver, Var};
-use rustc_hash::FxHashMap;
-use std::fmt;
 
 /// Unique identifier for an AIG node
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

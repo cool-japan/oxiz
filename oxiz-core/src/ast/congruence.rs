@@ -11,7 +11,8 @@
 //! - Disequality reasoning and conflict detection
 
 use crate::ast::{TermId, TermKind, TermManager};
-use rustc_hash::{FxHashMap, FxHashSet};
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Explanation for why two terms are equal
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -81,7 +82,7 @@ impl CongruenceClosure {
 
     /// Find the representative of a term's equivalence class (without path compression for backtracking)
     pub fn find(&mut self, term: TermId) -> TermId {
-        if let std::collections::hash_map::Entry::Vacant(e) = self.parent.entry(term) {
+        if let crate::prelude::hash_map::Entry::Vacant(e) = self.parent.entry(term) {
             e.insert(term);
             self.rank.insert(term, 0);
             return term;
@@ -226,7 +227,7 @@ impl CongruenceClosure {
     /// Add a term to the congruence closure
     pub fn add_term(&mut self, term: TermId, manager: &TermManager) {
         // Initialize the term if not present
-        if let std::collections::hash_map::Entry::Vacant(e) = self.parent.entry(term) {
+        if let crate::prelude::hash_map::Entry::Vacant(e) = self.parent.entry(term) {
             e.insert(term);
             self.rank.insert(term, 0);
         }
@@ -771,6 +772,9 @@ mod tests {
         // Should have an explanation for this merge
         let exp = cc.get_explanation(a, b);
         assert!(exp.is_some());
-        assert_eq!(exp.unwrap(), Explanation::Given);
+        assert_eq!(
+            exp.expect("test operation should succeed"),
+            Explanation::Given
+        );
     }
 }

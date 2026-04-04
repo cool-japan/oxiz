@@ -5,7 +5,8 @@
 //! to simplify formulas and enable more powerful reasoning.
 
 use crate::literal::{Lit, Var};
-use std::collections::HashMap;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Types of extension variable definitions
 #[derive(Debug, Clone)]

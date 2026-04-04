@@ -2,10 +2,12 @@
 //!
 //! Provides runtime context, statistics tracking, and execution monitoring.
 
+use crate::prelude::HashMap;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use parking_lot::RwLock;
-use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use super::relation::RelationId;
@@ -568,7 +570,7 @@ mod tests {
         ctx.record_rule_stats(rule_id, 3, 50, 6);
 
         let stats = ctx.rule_stats();
-        let rule = stats.get(&rule_id).unwrap();
+        let rule = stats.get(&rule_id).expect("key should exist in map");
         assert_eq!(rule.fires, 2);
         assert_eq!(rule.tuples_derived, 8);
         assert_eq!(rule.eval_time_us, 150);

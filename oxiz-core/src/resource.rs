@@ -4,6 +4,8 @@
 //! (time, memory, decisions, conflicts) during solver execution.
 
 use crate::config::ResourceLimits;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::statistics::Statistics;
 use std::time::{Duration, Instant};
 
@@ -136,8 +138,8 @@ impl ResourceManager {
     }
 }
 
-impl std::fmt::Display for LimitStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for LimitStatus {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             LimitStatus::Ok => write!(f, "OK"),
             LimitStatus::TimeExceeded => write!(f, "Time limit exceeded"),
@@ -256,7 +258,7 @@ mod tests {
         manager.start();
         thread::sleep(Duration::from_millis(10));
 
-        let elapsed = manager.elapsed().unwrap();
+        let elapsed = manager.elapsed().expect("timing operation failed");
         assert!(elapsed >= Duration::from_millis(10));
     }
 
@@ -276,7 +278,9 @@ mod tests {
         manager.start();
         thread::sleep(Duration::from_millis(10));
 
-        let remaining = manager.remaining_time().unwrap();
+        let remaining = manager
+            .remaining_time()
+            .expect("test operation should succeed");
         assert!(remaining < Duration::from_secs(10));
         assert!(remaining > Duration::from_secs(9));
     }

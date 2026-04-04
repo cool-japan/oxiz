@@ -14,8 +14,9 @@
 //!
 //! - Z3's `smt/smt_model_generator.cpp`
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_sat::Lit;
-use rustc_hash::FxHashMap;
 
 /// Variable identifier.
 pub type VarId = u32;

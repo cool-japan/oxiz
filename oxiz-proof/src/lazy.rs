@@ -305,7 +305,10 @@ mod tests {
 
         let node = lazy_proof.force_node(id);
         assert!(node.is_some());
-        assert_eq!(node.unwrap().conclusion(), "x = x");
+        assert_eq!(
+            node.expect("test operation should succeed").conclusion(),
+            "x = x"
+        );
     }
 
     #[test]

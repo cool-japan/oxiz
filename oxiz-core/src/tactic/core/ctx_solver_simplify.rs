@@ -7,9 +7,9 @@
 //! - Substitute known equalities
 //! - Simplify using solver state
 
-use rustc_hash::{FxHashMap, FxHashSet};
-
 /// Placeholder term identifier
+#[allow(unused_imports)]
+use crate::prelude::*;
 pub type TermId = usize;
 
 /// Simplification context
@@ -421,7 +421,9 @@ mod tests {
 
         simplifier.add_fact(1, 100);
 
-        let result = simplifier.simplify(1).unwrap();
+        let result = simplifier
+            .simplify(1)
+            .expect("test operation should succeed");
         match result {
             SimplifyResult::Simplified(val) => assert_eq!(val, 100),
             _ => panic!("Expected simplification"),
@@ -437,7 +439,9 @@ mod tests {
 
         simplifier.add_equality(1, 2);
 
-        let result = simplifier.try_substitute_equality(1).unwrap();
+        let result = simplifier
+            .try_substitute_equality(1)
+            .expect("test operation should succeed");
         assert_eq!(result, Some(2));
     }
 
@@ -450,7 +454,9 @@ mod tests {
         simplifier.context.equalities.insert(2, 3);
         simplifier.context.equalities.insert(3, 4);
 
-        let result = simplifier.try_substitute_equality(1).unwrap();
+        let result = simplifier
+            .try_substitute_equality(1)
+            .expect("test operation should succeed");
         assert_eq!(result, Some(4));
     }
 
@@ -460,7 +466,9 @@ mod tests {
         let mut simplifier = CtxSolverSimplify::new(config);
 
         let terms = vec![1, 2, 3];
-        let result = simplifier.simplify_conjunction(&terms).unwrap();
+        let result = simplifier
+            .simplify_conjunction(&terms)
+            .expect("test operation should succeed");
 
         assert!(!result.is_empty());
     }
@@ -471,7 +479,9 @@ mod tests {
         let mut simplifier = CtxSolverSimplify::new(config);
 
         let terms = vec![1, 2, 3];
-        let result = simplifier.simplify_disjunction(&terms).unwrap();
+        let result = simplifier
+            .simplify_disjunction(&terms)
+            .expect("test operation should succeed");
 
         assert!(!result.is_empty());
     }
@@ -498,10 +508,10 @@ mod tests {
         cached.add_fact(1, 100);
 
         // First call computes
-        let result1 = cached.simplify(1).unwrap();
+        let result1 = cached.simplify(1).expect("test operation should succeed");
 
         // Second call uses cache
-        let result2 = cached.simplify(1).unwrap();
+        let result2 = cached.simplify(1).expect("test operation should succeed");
 
         match (result1, result2) {
             (SimplifyResult::Simplified(v1), SimplifyResult::Simplified(v2)) => {

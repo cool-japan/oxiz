@@ -2,6 +2,9 @@
 //!
 //! This module provides quantifier elimination for bitvector formulas.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 pub mod elimination_strategies;
 pub mod plugin;
 pub mod simplification;

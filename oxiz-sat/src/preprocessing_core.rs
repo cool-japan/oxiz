@@ -9,7 +9,8 @@
 
 use crate::clause::{ClauseDatabase, ClauseId};
 use crate::literal::{Lit, Var};
-use std::collections::HashSet;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Occurrence list: maps literals to clauses containing them
 #[derive(Debug, Clone)]
@@ -500,7 +501,7 @@ impl Preprocessor {
                 let mut second = clause.lits[1];
 
                 if first == lit.negate() {
-                    std::mem::swap(&mut first, &mut second);
+                    core::mem::swap(&mut first, &mut second);
                 }
 
                 // Try to find a new watch

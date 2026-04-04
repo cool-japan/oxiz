@@ -5,6 +5,8 @@
 
 use crate::ast::{Term, TermId, TermKind, TermManager};
 use crate::error::{OxizError, Result, SourceSpan};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::sort::{SortId, SortKind, SortManager};
 
 /// Infer the sort of a term based on its structure
@@ -338,12 +340,14 @@ mod tests {
         let f = manager.mk_false();
 
         if let Some(true_term) = manager.get(t) {
-            let inferred = infer_term_sort(true_term, &manager).unwrap();
+            let inferred =
+                infer_term_sort(true_term, &manager).expect("test operation should succeed");
             assert_eq!(inferred, manager.sorts.bool_sort);
         }
 
         if let Some(false_term) = manager.get(f) {
-            let inferred = infer_term_sort(false_term, &manager).unwrap();
+            let inferred =
+                infer_term_sort(false_term, &manager).expect("test operation should succeed");
             assert_eq!(inferred, manager.sorts.bool_sort);
         }
     }
@@ -354,7 +358,7 @@ mod tests {
         let five = manager.mk_int(5);
 
         if let Some(term) = manager.get(five) {
-            let inferred = infer_term_sort(term, &manager).unwrap();
+            let inferred = infer_term_sort(term, &manager).expect("test operation should succeed");
             assert_eq!(inferred, manager.sorts.int_sort);
         }
     }
@@ -367,7 +371,7 @@ mod tests {
         let sum = manager.mk_add(vec![five, ten]);
 
         if let Some(term) = manager.get(sum) {
-            let inferred = infer_term_sort(term, &manager).unwrap();
+            let inferred = infer_term_sort(term, &manager).expect("test operation should succeed");
             assert_eq!(inferred, manager.sorts.int_sort);
         }
     }
@@ -380,7 +384,7 @@ mod tests {
         let lt = manager.mk_lt(five, ten);
 
         if let Some(term) = manager.get(lt) {
-            let inferred = infer_term_sort(term, &manager).unwrap();
+            let inferred = infer_term_sort(term, &manager).expect("test operation should succeed");
             assert_eq!(inferred, manager.sorts.bool_sort);
         }
     }
@@ -393,7 +397,7 @@ mod tests {
         let and = manager.mk_and(vec![t, f]);
 
         if let Some(term) = manager.get(and) {
-            let inferred = infer_term_sort(term, &manager).unwrap();
+            let inferred = infer_term_sort(term, &manager).expect("test operation should succeed");
             assert_eq!(inferred, manager.sorts.bool_sort);
         }
     }
@@ -407,7 +411,7 @@ mod tests {
         let ite = manager.mk_ite(cond, five, ten);
 
         if let Some(term) = manager.get(ite) {
-            let inferred = infer_term_sort(term, &manager).unwrap();
+            let inferred = infer_term_sort(term, &manager).expect("test operation should succeed");
             assert_eq!(inferred, manager.sorts.int_sort);
         }
     }
@@ -423,7 +427,10 @@ mod tests {
 
         let result = check_homogeneous_sorts(&[five, ten], &manager, span);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), manager.sorts.int_sort);
+        assert_eq!(
+            result.expect("test operation should succeed"),
+            manager.sorts.int_sort
+        );
     }
 
     #[test]

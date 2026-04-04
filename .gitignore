@@ -29,3 +29,6 @@ Thumbs.db
 # Fuzzing
 fuzz/corpus/
 fuzz/artifacts/
+
+# Rustc ICE dumps
+rustc-ice-*.txt

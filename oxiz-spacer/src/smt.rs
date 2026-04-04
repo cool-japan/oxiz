@@ -488,7 +488,7 @@ mod tests {
 
         let result = solver.check_sat();
         assert!(result.is_ok());
-        assert!(result.unwrap());
+        assert!(result.expect("test operation should succeed"));
     }
 
     #[test]
@@ -502,7 +502,7 @@ mod tests {
 
         let result = solver.check_sat();
         assert!(result.is_ok());
-        assert!(!result.unwrap());
+        assert!(!result.expect("test operation should succeed"));
     }
 
     #[test]

@@ -5,10 +5,11 @@
 //! - Lift-and-project cuts
 //! - Cover inequalities
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_bigint::BigInt;
 use num_rational::BigRational;
 use num_traits::{One, Zero};
-use rustc_hash::FxHashSet;
 
 /// Cutting plane generator for MIP.
 #[derive(Debug)]
@@ -256,7 +257,7 @@ impl CuttingPlaneGenerator {
     ) -> Option<Vec<VarId>> {
         // Greedy approach: sort by weight descending
         let mut sorted_weights = weights.to_vec();
-        sorted_weights.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        sorted_weights.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(core::cmp::Ordering::Equal));
 
         let mut cover = Vec::new();
         let mut total_weight = BigRational::zero();

@@ -513,11 +513,11 @@ mod tests {
                 assert!(lower.is_some());
                 assert!(upper.is_some());
                 assert_eq!(
-                    lower.as_ref().unwrap(),
+                    lower.as_ref().expect("test operation should succeed"),
                     &BigRational::from_integer(BigInt::from(3))
                 );
                 assert_eq!(
-                    upper.as_ref().unwrap(),
+                    upper.as_ref().expect("test operation should succeed"),
                     &BigRational::from_integer(BigInt::from(3))
                 );
             }
@@ -588,7 +588,10 @@ mod tests {
         let result = solve_linear_univariate(&p, 0);
 
         assert!(result.is_some());
-        assert_eq!(result.unwrap(), BigRational::from_integer(BigInt::from(5)));
+        assert_eq!(
+            result.expect("test operation should succeed"),
+            BigRational::from_integer(BigInt::from(5))
+        );
     }
 
     #[test]
@@ -598,7 +601,10 @@ mod tests {
         let result = solve_linear_univariate(&p, 0);
 
         assert!(result.is_some());
-        assert_eq!(result.unwrap(), BigRational::from_integer(BigInt::from(5)));
+        assert_eq!(
+            result.expect("test operation should succeed"),
+            BigRational::from_integer(BigInt::from(5))
+        );
     }
 
     #[test]
@@ -608,7 +614,7 @@ mod tests {
         let result = isolate_variable(&p, 0);
 
         assert!(result.is_some());
-        let isolated = result.unwrap();
+        let isolated = result.expect("test operation should succeed");
         // Should be the constant 3
         assert!(isolated.is_constant());
         let expected = BigRational::from_integer(BigInt::from(3));

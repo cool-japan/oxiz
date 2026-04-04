@@ -4,6 +4,8 @@
 
 use super::{Model, ModelEvaluator, Value};
 use crate::ast::{TermId, TermKind, TermManager};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use std::collections::{HashMap, HashSet};
 
 /// Configuration for implicant extraction

@@ -10,6 +10,7 @@ mod arithmetic;
 mod constructors;
 mod extended_ops;
 mod helpers;
+pub mod simd;
 mod types;
 
 pub mod factorization;
@@ -30,8 +31,10 @@ pub use types::{Monomial, MonomialOrder, NULL_VAR, Term, Var, VarPower};
 // Re-export public utility functions
 pub use helpers::rational_sqrt;
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::ops::{Add, Mul, Neg, Sub};
 use num_traits::Signed;
-use std::ops::{Add, Mul, Neg, Sub};
 
 /// A multivariate polynomial over rationals.
 /// Represented as a sum of terms, sorted by monomial order.
@@ -126,8 +129,8 @@ impl PartialEq for Polynomial {
 
 impl Eq for Polynomial {}
 
-impl std::fmt::Debug for Polynomial {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for Polynomial {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         if self.is_zero() {
             write!(f, "0")
         } else {
@@ -150,8 +153,8 @@ impl std::fmt::Debug for Polynomial {
     }
 }
 
-impl std::fmt::Display for Polynomial {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(self, f)
+impl core::fmt::Display for Polynomial {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Debug::fmt(self, f)
     }
 }

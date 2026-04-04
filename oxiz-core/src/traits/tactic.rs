@@ -4,8 +4,9 @@
 //! Tactics are transformations applied to goals (formulas) to simplify them,
 //! decompose them, or prepare them for specific solvers.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::{TermId, TermManager};
-use rustc_hash::FxHashSet;
 
 /// Result of applying a tactic.
 #[derive(Debug, Clone)]
@@ -233,14 +234,9 @@ pub trait IterativeTactic: Tactic {
             let result = self.apply(&current_goal, tm);
 
             match result {
-                TacticResult::Success { ref subgoals, .. } => {
-                    if subgoals.len() == 1 {
-                        // Single subgoal: continue iterating
-                        current_goal = subgoals[0].clone();
-                    } else {
-                        // Multiple subgoals: stop iterating
-                        return result;
-                    }
+                TacticResult::Success { ref subgoals, .. } if subgoals.len() == 1 => {
+                    // Single subgoal: continue iterating
+                    current_goal = subgoals[0].clone();
                 }
                 _ => return result,
             }
@@ -369,12 +365,8 @@ impl Tactic for TacticCombinator {
                     let result = tactic.apply(&current_goal, tm);
 
                     match result {
-                        TacticResult::Success { ref subgoals, .. } => {
-                            if subgoals.len() == 1 {
-                                current_goal = subgoals[0].clone();
-                            } else {
-                                return result;
-                            }
+                        TacticResult::Success { ref subgoals, .. } if subgoals.len() == 1 => {
+                            current_goal = subgoals[0].clone();
                         }
                         _ => return result,
                     }

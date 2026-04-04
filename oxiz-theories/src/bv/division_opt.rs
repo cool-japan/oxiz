@@ -46,7 +46,8 @@
 //! - "Computer Arithmetic Algorithms" (Koren, 2002)
 
 use super::aig::{AigCircuit, AigEdge};
-use rustc_hash::FxHashMap;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Configuration for division optimization
 #[derive(Debug, Clone)]
@@ -520,12 +521,10 @@ impl DivisionOptimizer {
             let mut terms = Vec::new();
 
             // For each input pattern where this output bit should be 1
-            for input_val in 0..num_inputs {
-                let quotient = if divisor == 0 {
-                    (1u64 << width) - 1 // All 1s
-                } else {
-                    input_val / divisor
-                };
+            for input_val in 0u64..num_inputs {
+                let quotient = input_val
+                    .checked_div(divisor)
+                    .unwrap_or((1u64 << width) - 1);
 
                 let output_bit = (quotient >> bit_pos) & 1;
 
@@ -893,7 +892,7 @@ mod tests {
 
     #[test]
     fn test_barrett_params() {
-        let params = BarrettParams::new(7, 8).unwrap();
+        let params = BarrettParams::new(7, 8).expect("test operation should succeed");
         assert_eq!(params.divisor, 7);
 
         // Test division
@@ -909,7 +908,7 @@ mod tests {
 
     #[test]
     fn test_montgomery_params() {
-        let params = MontgomeryParams::new(7, 8).unwrap();
+        let params = MontgomeryParams::new(7, 8).expect("test operation should succeed");
         assert_eq!(params.modulus, 7);
 
         // Test conversion to/from Montgomery form
@@ -930,7 +929,7 @@ mod tests {
 
     #[test]
     fn test_montgomery_mod_exp() {
-        let params = MontgomeryParams::new(11, 8).unwrap();
+        let params = MontgomeryParams::new(11, 8).expect("test operation should succeed");
 
         // 2^3 mod 11 = 8
         assert_eq!(params.mod_exp(2, 3), 8);
@@ -977,7 +976,7 @@ mod tests {
 
     #[test]
     fn test_barrett_division_correctness() {
-        let params = BarrettParams::new(13, 16).unwrap();
+        let params = BarrettParams::new(13, 16).expect("test operation should succeed");
 
         for dividend in 0..200 {
             let quotient = params.divide(dividend);

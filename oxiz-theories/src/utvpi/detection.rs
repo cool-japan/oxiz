@@ -3,8 +3,9 @@
 //! Detects whether linear constraints are UTVPI (Unit Two-Variable Per Inequality).
 //! A constraint is UTVPI if it has the form: ax + by ≤ c where a, b ∈ {-1, 0, 1}
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_rational::Rational64;
-use std::collections::HashMap;
 
 /// Kind of UTVPI constraint detected
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -285,7 +286,7 @@ mod tests {
         let result = detector.detect(&coeffs, Rational64::from_integer(5), false);
 
         assert!(result.is_some());
-        let detected = result.unwrap();
+        let detected = result.expect("test operation should succeed");
         assert_eq!(detected.kind, UtConstraintKind::Constant);
     }
 
@@ -296,7 +297,7 @@ mod tests {
         let result = detector.detect(&coeffs, Rational64::from_integer(10), false);
 
         assert!(result.is_some());
-        let detected = result.unwrap();
+        let detected = result.expect("test operation should succeed");
         assert_eq!(detected.kind, UtConstraintKind::UpperBound);
         assert_eq!(detected.var1, Some(1));
         assert_eq!(detected.coef1, 1);
@@ -309,7 +310,7 @@ mod tests {
         let result = detector.detect(&coeffs, Rational64::from_integer(10), false);
 
         assert!(result.is_some());
-        let detected = result.unwrap();
+        let detected = result.expect("test operation should succeed");
         assert_eq!(detected.kind, UtConstraintKind::LowerBound);
         assert_eq!(detected.var1, Some(1));
         assert_eq!(detected.coef1, -1);
@@ -323,7 +324,7 @@ mod tests {
         let result = detector.detect(&coeffs, Rational64::from_integer(5), false);
 
         assert!(result.is_some());
-        let detected = result.unwrap();
+        let detected = result.expect("test operation should succeed");
         assert_eq!(detected.kind, UtConstraintKind::Difference);
     }
 
@@ -335,7 +336,7 @@ mod tests {
         let result = detector.detect(&coeffs, Rational64::from_integer(5), false);
 
         assert!(result.is_some());
-        let detected = result.unwrap();
+        let detected = result.expect("test operation should succeed");
         assert_eq!(detected.kind, UtConstraintKind::Sum);
     }
 
@@ -347,7 +348,7 @@ mod tests {
         let result = detector.detect(&coeffs, Rational64::from_integer(5), false);
 
         assert!(result.is_some());
-        let detected = result.unwrap();
+        let detected = result.expect("test operation should succeed");
         assert_eq!(detected.kind, UtConstraintKind::NegativeSum);
     }
 

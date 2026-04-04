@@ -9,7 +9,7 @@
     "run:ts": "ts-node basic.ts"
   },
   "dependencies": {
-    "oxiz-wasm": "file:../pkg"
+    "@cooljapan/oxiz": "file:../pkg"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

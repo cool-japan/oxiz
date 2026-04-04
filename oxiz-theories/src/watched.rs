@@ -12,9 +12,9 @@
 //! - Moskewicz et al., "Chaff: Engineering an Efficient SAT Solver" (2001)
 //! - Nieuwenhuis et al., "DPLL(T)" framework
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::ast::TermId;
-use rustc_hash::FxHashMap;
-use std::collections::VecDeque;
 
 /// A theory constraint with watched literals
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -486,7 +486,10 @@ mod tests {
 
         let constraint = watch_list.get_constraint(id);
         assert!(constraint.is_some());
-        assert_eq!(constraint.unwrap().literals, literals);
+        assert_eq!(
+            constraint.expect("test operation should succeed").literals,
+            literals
+        );
     }
 
     #[test]

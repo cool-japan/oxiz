@@ -1,5 +1,4 @@
 //! Advanced SAT Preprocessing
-#![allow(missing_docs)] // Under development - documentation in progress
 //!
 //! This module implements sophisticated preprocessing techniques for CNF formulas:
 //! - Variable elimination (bounded variable elimination)
@@ -8,7 +7,9 @@
 //! - Blocked clause elimination
 //! - Equivalent literal substitution
 
-use rustc_hash::{FxHashMap, FxHashSet};
+#![allow(missing_docs)] // Under development - documentation in progress
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Literal representation (positive/negative variable)
 pub type Lit = i32;

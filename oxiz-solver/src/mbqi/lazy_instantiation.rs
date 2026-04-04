@@ -11,11 +11,11 @@
 //! - **Cost-Guided**: Prioritize instantiations by estimated cost
 //! - **Incremental**: Add instantiations incrementally with backtracking
 
-use lasso::Spur;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::ast::{TermId, TermKind, TermManager};
+use oxiz_core::interner::Spur;
 use oxiz_core::sort::SortId;
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::{BinaryHeap, VecDeque};
 
 use super::counterexample::CounterExampleGenerator;
 use super::model_completion::CompletedModel;
@@ -449,9 +449,9 @@ impl LazyInstantiator {
         let mut instantiations = Vec::new();
 
         for quantifier in quantifiers {
-            let cexs = self.cex_generator.generate(quantifier, model, manager);
+            let cex_result = self.cex_generator.generate(quantifier, model, manager);
 
-            for cex in cexs {
+            for cex in cex_result.counterexamples {
                 let substituted =
                     self.apply_substitution(quantifier.body, &cex.assignment, manager);
                 let inst = cex.to_instantiation(substituted);
@@ -489,11 +489,11 @@ impl LazyInstantiator {
                 break;
             };
 
-            let cexs = self
+            let cex_result = self
                 .cex_generator
                 .generate(&pending.quantifier, model, manager);
 
-            for cex in cexs {
+            for cex in cex_result.counterexamples {
                 if instantiations.len() >= max_instantiations {
                     break;
                 }
@@ -528,9 +528,9 @@ impl LazyInstantiator {
                 continue;
             }
 
-            let cexs = self.cex_generator.generate(quantifier, model, manager);
+            let cex_result = self.cex_generator.generate(quantifier, model, manager);
 
-            for cex in cexs {
+            for cex in cex_result.counterexamples {
                 let substituted =
                     self.apply_substitution(quantifier.body, &cex.assignment, manager);
                 let inst = cex.to_instantiation(substituted);
@@ -565,11 +565,11 @@ impl LazyInstantiator {
 
         // Process in priority order
         while let Some(scored) = self.priority_queue.pop() {
-            let cexs = self
+            let cex_result = self
                 .cex_generator
                 .generate(&scored.quantifier, model, manager);
 
-            for cex in cexs {
+            for cex in cex_result.counterexamples {
                 let substituted =
                     self.apply_substitution(scored.quantifier.body, &cex.assignment, manager);
                 let inst = cex.to_instantiation(substituted);
@@ -601,9 +601,9 @@ impl LazyInstantiator {
                 break;
             }
 
-            let cexs = self.cex_generator.generate(quantifier, model, manager);
+            let cex_result = self.cex_generator.generate(quantifier, model, manager);
 
-            for cex in cexs {
+            for cex in cex_result.counterexamples {
                 if instantiations.len() >= max_per_round {
                     break;
                 }
@@ -762,18 +762,18 @@ impl PartialEq for ScoredInstantiation {
 impl Eq for ScoredInstantiation {}
 
 impl PartialOrd for ScoredInstantiation {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
 impl Ord for ScoredInstantiation {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         // Lower score = higher priority (min-heap behavior)
         other
             .score
             .partial_cmp(&self.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
+            .unwrap_or(core::cmp::Ordering::Equal)
     }
 }
 

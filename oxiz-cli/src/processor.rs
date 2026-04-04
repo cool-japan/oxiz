@@ -45,11 +45,7 @@ pub(crate) fn run_files(ctx: &mut Context, args: &Args, verbosity: Verbosity) {
     }
 
     if verbosity >= Verbosity::Normal && !args.smtcomp {
-        println_colored(
-            args,
-            &format!("Processing {} file(s)...", files.len()),
-            Some(owo_colors::AnsiColors::Cyan),
-        );
+        eprintln!("Processing {} file(s)...", files.len());
     }
 
     // Initialize cache if enabled

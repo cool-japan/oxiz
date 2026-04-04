@@ -588,7 +588,9 @@ mod tests {
         ];
 
         let reporter = Reporter::text();
-        let output = reporter.to_string(&results).unwrap();
+        let output = reporter
+            .to_string(&results)
+            .expect("test operation should succeed");
 
         assert!(output.contains("Total benchmarks: 2"));
         assert!(output.contains("SAT:"));

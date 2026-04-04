@@ -475,18 +475,21 @@ mod tests {
 
     #[test]
     fn test_result_saver() {
-        let dir = tempdir().unwrap();
+        let dir = tempdir().expect("test operation should succeed");
         let config = CheckpointConfig::default();
-        let mut saver = ResultSaver::new(dir.path(), "test", 10, config).unwrap();
+        let mut saver = ResultSaver::new(dir.path(), "test", 10, config)
+            .expect("test operation should succeed");
 
         let result = make_result("test.smt2", BenchmarkStatus::Sat);
-        saver.save_result(&result).unwrap();
+        saver
+            .save_result(&result)
+            .expect("test operation should succeed");
 
         assert_eq!(saver.checkpoint().completed, 1);
         assert!(saver.should_skip(Path::new("/tmp/test.smt2")));
         assert!(!saver.should_skip(Path::new("/tmp/other.smt2")));
 
-        saver.finalize().unwrap();
+        saver.finalize().expect("test operation should succeed");
 
         // Verify files were created
         assert!(dir.path().join("test.jsonl").exists());
@@ -495,51 +498,54 @@ mod tests {
 
     #[test]
     fn test_result_loader() {
-        let dir = tempdir().unwrap();
+        let dir = tempdir().expect("test operation should succeed");
         let config = CheckpointConfig::default();
 
         // Save some results
         {
-            let mut saver = ResultSaver::new(dir.path(), "test", 3, config).unwrap();
+            let mut saver = ResultSaver::new(dir.path(), "test", 3, config)
+                .expect("test operation should succeed");
             saver
                 .save_result(&make_result("a.smt2", BenchmarkStatus::Sat))
-                .unwrap();
+                .expect("test operation should succeed");
             saver
                 .save_result(&make_result("b.smt2", BenchmarkStatus::Unsat))
-                .unwrap();
-            saver.finalize().unwrap();
+                .expect("test operation should succeed");
+            saver.finalize().expect("test operation should succeed");
         }
 
         // Load results
-        let results = ResultLoader::load(dir.path().join("test.jsonl")).unwrap();
+        let results = ResultLoader::load(dir.path().join("test.jsonl"))
+            .expect("test operation should succeed");
         assert_eq!(results.len(), 2);
 
         // Load checkpoint
-        let checkpoint =
-            ResultLoader::load_checkpoint(dir.path().join("test.checkpoint.json")).unwrap();
+        let checkpoint = ResultLoader::load_checkpoint(dir.path().join("test.checkpoint.json"))
+            .expect("test operation should succeed");
         assert_eq!(checkpoint.completed, 2);
     }
 
     #[test]
     fn test_session_resumption() {
-        let dir = tempdir().unwrap();
+        let dir = tempdir().expect("test operation should succeed");
         let config = CheckpointConfig::default();
 
         // Start a session
         {
-            let mut saver =
-                ResultSaver::new(dir.path(), "resume_test", 10, config.clone()).unwrap();
+            let mut saver = ResultSaver::new(dir.path(), "resume_test", 10, config.clone())
+                .expect("test operation should succeed");
             saver
                 .save_result(&make_result("a.smt2", BenchmarkStatus::Sat))
-                .unwrap();
-            saver.finalize().unwrap();
+                .expect("test operation should succeed");
+            saver.finalize().expect("test operation should succeed");
         }
 
         // Try to resume
-        let resumed = ResultSaver::try_resume(dir.path(), "resume_test").unwrap();
+        let resumed = ResultSaver::try_resume(dir.path(), "resume_test")
+            .expect("test operation should succeed");
         assert!(resumed.is_some());
 
-        let saver = resumed.unwrap();
+        let saver = resumed.expect("test operation should succeed");
         assert_eq!(saver.checkpoint().completed, 1);
         assert!(saver.should_skip(Path::new("/tmp/a.smt2")));
     }

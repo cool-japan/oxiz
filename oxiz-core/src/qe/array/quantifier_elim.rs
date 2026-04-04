@@ -8,9 +8,9 @@
 //! - Array property templates
 //! - Skolemization for existential quantifiers
 
-use rustc_hash::{FxHashMap, FxHashSet};
-
 /// Placeholder term identifier
+#[allow(unused_imports)]
+use crate::prelude::*;
 pub type TermId = usize;
 
 /// Array term representation
@@ -486,7 +486,7 @@ mod tests {
         let result = eliminator.eliminate(formula, &[]);
 
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), formula);
+        assert_eq!(result.expect("test operation should succeed"), formula);
     }
 
     #[test]
@@ -539,7 +539,7 @@ mod tests {
 
         let result = eliminator.try_template_matching(42, &[]);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), None);
+        assert_eq!(result.expect("test operation should succeed"), None);
     }
 
     #[test]

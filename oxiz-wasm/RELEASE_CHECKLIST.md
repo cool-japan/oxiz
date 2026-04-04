@@ -1,6 +1,6 @@
 # OxiZ WASM Release Checklist
 
-This document provides a step-by-step checklist for releasing oxiz-wasm to NPM and deploying the playground.
+This document provides a step-by-step checklist for releasing @cooljapan/oxiz to NPM and deploying the playground.
 
 ## Pre-Release Checklist
 
@@ -92,7 +92,7 @@ See [BROWSER_TESTING.md](./BROWSER_TESTING.md) for detailed testing guide.
 
 2. [ ] Verify package name is available (first release only)
    ```bash
-   npm view oxiz-wasm
+   npm view @cooljapan/oxiz
    ```
 
 ### Dry Run
@@ -126,7 +126,7 @@ See [BROWSER_TESTING.md](./BROWSER_TESTING.md) for detailed testing guide.
 
 6. [ ] Verify publication
    ```bash
-   npm view oxiz-wasm
+   npm view @cooljapan/oxiz
    ```
 
 7. [ ] Push git tag
@@ -141,19 +141,19 @@ See [BROWSER_TESTING.md](./BROWSER_TESTING.md) for detailed testing guide.
 
 - [ ] Verify unpkg
   ```
-  https://unpkg.com/oxiz-wasm@X.Y.Z/
+  https://unpkg.com/@cooljapan/oxiz@X.Y.Z/
   ```
 
 - [ ] Verify jsDelivr
   ```
-  https://cdn.jsdelivr.net/npm/oxiz-wasm@X.Y.Z/
+  https://cdn.jsdelivr.net/npm/@cooljapan/oxiz@X.Y.Z/
   ```
 
 - [ ] Test CDN loading
   Create a simple HTML file:
   ```html
   <script type="module">
-    import init from 'https://unpkg.com/oxiz-wasm@X.Y.Z/pkg/oxiz_wasm.js';
+    import init from 'https://unpkg.com/@cooljapan/oxiz@X.Y.Z/pkg/oxiz_wasm.js';
     await init();
     console.log('Loaded from CDN!');
   </script>
@@ -254,12 +254,12 @@ If issues are found after release:
 
 ### Option 1: Deprecate Version
 ```bash
-npm deprecate oxiz-wasm@X.Y.Z "This version has issues, use X.Y.Z+1 instead"
+npm deprecate @cooljapan/oxiz@X.Y.Z "This version has issues, use X.Y.Z+1 instead"
 ```
 
 ### Option 2: Unpublish (within 72 hours)
 ```bash
-npm unpublish oxiz-wasm@X.Y.Z
+npm unpublish @cooljapan/oxiz@X.Y.Z
 ```
 
 **Note**: Only use this for critical security issues.
@@ -275,14 +275,14 @@ npm unpublish oxiz-wasm@X.Y.Z
 ### Package Health
 - [ ] Check NPM download stats
   ```
-  https://npm-stat.com/charts.html?package=oxiz-wasm
+  https://npm-stat.com/charts.html?package=@cooljapan/oxiz
   ```
 
 - [ ] Monitor GitHub issues for bug reports
 
 - [ ] Check CDN hit rates
   ```
-  https://www.jsdelivr.com/package/npm/oxiz-wasm
+  https://www.jsdelivr.com/package/npm/@cooljapan/oxiz
   ```
 
 ### Performance

@@ -308,12 +308,11 @@ impl ParallelRunner {
                     let sort = parse_sort(&sort_str, &tm);
                     let _var = tm.mk_var(&name, sort);
                 }
-                Command::DeclareFun(name, arg_sorts, ret_sort) => {
-                    if arg_sorts.is_empty() {
-                        let sort = parse_sort(&ret_sort, &tm);
-                        let _var = tm.mk_var(&name, sort);
-                    }
+                Command::DeclareFun(name, arg_sorts, ret_sort) if arg_sorts.is_empty() => {
+                    let sort = parse_sort(&ret_sort, &tm);
+                    let _var = tm.mk_var(&name, sort);
                 }
+                Command::DeclareFun(..) => {}
                 Command::Assert(term) => {
                     solver.assert(term, &mut tm);
                 }

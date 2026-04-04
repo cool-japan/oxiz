@@ -7,9 +7,10 @@
 //! Reference: Z3's Gröbner basis implementation and standard computer algebra texts.
 
 use crate::polynomial::{Monomial, MonomialOrder, Polynomial};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_rational::BigRational;
 use num_traits::{One, Signed, Zero};
-use rustc_hash::FxHashMap;
 
 /// Compute the S-polynomial of two polynomials.
 ///
@@ -317,10 +318,10 @@ impl Signature {
     }
 
     /// Compare signatures using the module monomial order
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         // First compare indices (reverse order - higher index is smaller)
         match other.index.cmp(&self.index) {
-            std::cmp::Ordering::Equal => {
+            core::cmp::Ordering::Equal => {
                 // If same index, compare monomials
                 self.monomial.grevlex_cmp(&other.monomial)
             }
@@ -363,7 +364,7 @@ impl LabeledPoly {
 fn f5_criterion(sig: &Signature, basis: &[LabeledPoly]) -> bool {
     // Check if there exists a polynomial in basis with same or smaller signature
     for p in basis {
-        if p.signature.cmp(sig) != std::cmp::Ordering::Greater {
+        if p.signature.cmp(sig) != core::cmp::Ordering::Greater {
             // Found a polynomial with signature <= sig
             // Check if its leading monomial divides the signature monomial
             if let Some(lm) = p.polynomial.leading_monomial()
@@ -466,7 +467,7 @@ pub fn grobner_basis_f5(polynomials: &[Polynomial]) -> Vec<Polynomial> {
             }
 
             // Choose the larger signature (smaller in our ordering since we reverse index)
-            let (s_poly, sig) = if sig_i.cmp(&sig_j) == std::cmp::Ordering::Greater {
+            let (s_poly, sig) = if sig_i.cmp(&sig_j) == core::cmp::Ordering::Greater {
                 (
                     s_polynomial(&basis[i].polynomial, &basis[j].polynomial),
                     sig_i,
@@ -1323,7 +1324,7 @@ mod tests {
 
         // Higher index should be "smaller" (comes earlier in processing)
         // In our reverse ordering, sig1 (index 0) > sig2 (index 1)
-        assert_eq!(sig1.cmp(&sig2), std::cmp::Ordering::Greater);
+        assert_eq!(sig1.cmp(&sig2), core::cmp::Ordering::Greater);
     }
 
     #[test]

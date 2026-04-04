@@ -27,6 +27,8 @@
 //! - `interpolation`: Interpolation for arrays
 
 #![allow(missing_docs)]
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 mod abstraction;
 mod cardinality;

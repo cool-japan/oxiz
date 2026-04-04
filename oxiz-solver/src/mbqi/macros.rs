@@ -3,6 +3,9 @@
 //! This module provides utility macros and helper functions for MBQI implementation.
 //! It includes macros for common patterns, debugging, and code generation.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 /// Macro for creating a quantified formula with default parameters
 #[macro_export]
 macro_rules! quantifier {
@@ -26,7 +29,7 @@ macro_rules! instantiation {
 #[macro_export]
 macro_rules! mbqi_debug {
     ($($arg:tt)*) => {
-        #[cfg(feature = "mbqi-debug")]
+        #[cfg(all(feature = "std", feature = "mbqi-debug"))]
         {
             eprintln!("[MBQI DEBUG] {}", format!($($arg)*));
         }
@@ -37,7 +40,7 @@ macro_rules! mbqi_debug {
 #[macro_export]
 macro_rules! mbqi_trace {
     ($($arg:tt)*) => {
-        #[cfg(feature = "mbqi-trace")]
+        #[cfg(all(feature = "std", feature = "mbqi-trace"))]
         {
             eprintln!("[MBQI TRACE] {}", format!($($arg)*));
         }
@@ -48,10 +51,14 @@ macro_rules! mbqi_trace {
 #[macro_export]
 macro_rules! mbqi_time {
     ($name:expr, $block:block) => {{
+        #[cfg(feature = "std")]
         let start = std::time::Instant::now();
         let result = $block;
-        let elapsed = start.elapsed();
-        mbqi_debug!("{} took {:?}", $name, elapsed);
+        #[cfg(feature = "std")]
+        {
+            let elapsed = start.elapsed();
+            mbqi_debug!("{} took {:?}", $name, elapsed);
+        }
         result
     }};
 }
@@ -80,9 +87,9 @@ macro_rules! finder_error {
 
 /// Utility functions for MBQI
 pub mod utils {
-    use lasso::Spur;
+    use crate::prelude::*;
     use oxiz_core::ast::{TermId, TermKind, TermManager};
-    use rustc_hash::{FxHashMap, FxHashSet};
+    use oxiz_core::interner::Spur;
 
     /// Check if a term is ground (no free variables)
     pub fn is_ground(term: TermId, manager: &TermManager) -> bool {

@@ -9,9 +9,10 @@
 //! This is particularly important for SMT solvers where the same sub-terms
 //! appear many times across different constraints.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::hash::Hash;
 use oxiz_core::ast::TermId;
-use rustc_hash::FxHashMap;
-use std::hash::Hash;
 
 /// A hash-consed term with structural sharing
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -6,10 +6,10 @@
 //! - Product automaton for intersection
 //! - Automata-based constraint solving
 
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::VecDeque;
-
 /// State ID
+#[allow(unused_imports)]
+use crate::prelude::*;
+/// State identifier for automata.
 pub type StateId = u32;
 
 /// Transition label
@@ -1017,6 +1017,6 @@ mod tests {
         let ca = ConstraintAutomaton::from_dfa(dfa);
         let sample = ca.sample();
         assert!(sample.is_some());
-        assert_eq!(sample.unwrap(), "h");
+        assert_eq!(sample.expect("test operation should succeed"), "h");
     }
 }

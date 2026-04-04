@@ -5,9 +5,10 @@
 use super::bellman_ford::{BellmanFord, BellmanFordResult, NegativeCycle, Spfa};
 use super::dense::DenseDiffLogic;
 use super::graph::{ConstraintGraph, ConstraintType, DiffConstraint, DiffVar};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_rational::Rational64;
 use oxiz_core::ast::TermId;
-use std::collections::HashMap;
 
 /// Configuration for the difference logic solver
 #[derive(Debug, Clone)]

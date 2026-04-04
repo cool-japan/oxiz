@@ -25,10 +25,11 @@
 //! - Polynomial factorization algorithms
 
 use crate::error::Result;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::tactic::core::{Goal, Tactic, TacticResult};
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::fmt;
-use std::hash::{Hash, Hasher};
+use core::fmt;
+use core::hash::{Hash, Hasher};
 
 /// Polynomial term representation.
 #[derive(Debug, Clone, PartialEq, Eq)]

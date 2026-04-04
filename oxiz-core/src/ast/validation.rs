@@ -5,10 +5,11 @@
 
 use crate::ast::{Model, ModelValue, TermId, TermKind, TermManager};
 use crate::error::{OxizError, Result};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_bigint::BigInt;
 use num_rational::BigRational;
 use num_traits::{One, Zero};
-use rustc_hash::FxHashMap;
 
 /// Evaluate a term under a given model
 ///
@@ -696,11 +697,16 @@ mod tests {
 
         // true
         let assertion = manager.mk_true();
-        assert!(validate_assertion(assertion, &manager, &model).unwrap());
+        assert!(
+            validate_assertion(assertion, &manager, &model).expect("test operation should succeed")
+        );
 
         // false
         let assertion = manager.mk_false();
-        assert!(!validate_assertion(assertion, &manager, &model).unwrap());
+        assert!(
+            !validate_assertion(assertion, &manager, &model)
+                .expect("test operation should succeed")
+        );
     }
 
     #[test]
@@ -716,11 +722,11 @@ mod tests {
 
         // Model: x = 5
         model.assign_int(x, BigInt::from(5));
-        assert!(validate_assertion(eq, &manager, &model).unwrap());
+        assert!(validate_assertion(eq, &manager, &model).expect("test operation should succeed"));
 
         // Model: x = 10
         model.assign_int(x, BigInt::from(10));
-        assert!(!validate_assertion(eq, &manager, &model).unwrap());
+        assert!(!validate_assertion(eq, &manager, &model).expect("test operation should succeed"));
     }
 
     #[test]
@@ -749,12 +755,16 @@ mod tests {
         // Model: x = 5, y = 10 (doesn't satisfy y < 10)
         model.assign_int(x, BigInt::from(5));
         model.assign_int(y, BigInt::from(10));
-        assert!(!validate_model(&assertions, &manager, &model).unwrap());
+        assert!(
+            !validate_model(&assertions, &manager, &model).expect("test operation should succeed")
+        );
 
         // Model: x = 7, y = 8 (satisfies all)
         model.assign_int(x, BigInt::from(7));
         model.assign_int(y, BigInt::from(8));
-        assert!(validate_model(&assertions, &manager, &model).unwrap());
+        assert!(
+            validate_model(&assertions, &manager, &model).expect("test operation should succeed")
+        );
     }
 
     #[test]
@@ -846,7 +856,11 @@ mod tests {
         let mut evaluator = CachedEvaluator::new(&manager, &model);
 
         // All assertions should be satisfied
-        assert!(evaluator.validate_assertions(&assertions).unwrap());
+        assert!(
+            evaluator
+                .validate_assertions(&assertions)
+                .expect("test operation should succeed")
+        );
     }
 
     #[test]
@@ -881,7 +895,11 @@ mod tests {
         let mut evaluator = CachedEvaluator::new(&manager, &model);
 
         // Should evaluate to true: (3*3) + (3*3) = 9 + 9 = 18
-        assert!(evaluator.validate_assertion(formula).unwrap());
+        assert!(
+            evaluator
+                .validate_assertion(formula)
+                .expect("test operation should succeed")
+        );
 
         // x_squared should only be evaluated once and cached
         assert!(evaluator.cache_size() >= 3); // At least x, x_squared, and sum

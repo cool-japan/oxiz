@@ -15,9 +15,10 @@
 //! ```
 
 use super::regex::Regex;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::ast::TermId;
 use oxiz_core::error::{OxizError, Result};
-use rustc_hash::FxHashMap;
 
 /// Replace operation mode
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -498,7 +499,7 @@ impl ReplaceAnalyzer {
                     (result_len, result_len)
                 } else {
                     // Non-empty pattern
-                    let max_occurrences = source_len / pattern_len;
+                    let max_occurrences = source_len.checked_div(pattern_len).unwrap_or(0);
                     let min_len = source_len; // No replacements
                     let max_len = source_len - (pattern_len * max_occurrences)
                         + (replacement_len * max_occurrences);
@@ -693,7 +694,7 @@ mod tests {
             origin,
         });
 
-        let deductions = solver.propagate().unwrap();
+        let deductions = solver.propagate().expect("test operation should succeed");
         assert_eq!(deductions.len(), 1);
         assert_eq!(deductions[0].0, result);
         assert_eq!(deductions[0].1, "hello Rust");
@@ -813,7 +814,7 @@ mod tests {
             .replacement(replacement)
             .replace_all()
             .build(result, origin)
-            .unwrap();
+            .expect("test operation should succeed");
 
         assert_eq!(constraint.source, source);
         assert_eq!(constraint.result, result);

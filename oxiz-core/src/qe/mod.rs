@@ -23,6 +23,9 @@
 //! // Fall back to full QE
 //! ```
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 mod mbi;
 mod qe_lite;
 mod term_graph;

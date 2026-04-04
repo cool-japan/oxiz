@@ -7,11 +7,11 @@
 //! - Gebauer-Möller installation strategy
 //! - Sugar cube selection strategy
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::cmp::Ordering;
 use num_rational::BigRational;
 use num_traits::{One, Zero};
-use rustc_hash::FxHashMap;
-use std::cmp::Ordering;
-use std::collections::BinaryHeap;
 
 /// Monomial (variable -> exponent)
 pub type Monomial = FxHashMap<usize, usize>;
@@ -576,7 +576,9 @@ mod tests {
         let dividend = make_monomial(&[(0, 3), (1, 2)]);
         let divisor = make_monomial(&[(0, 1), (1, 1)]);
 
-        let quotient = buchberger.monomial_quotient(&dividend, &divisor).unwrap();
+        let quotient = buchberger
+            .monomial_quotient(&dividend, &divisor)
+            .expect("test operation should succeed");
 
         assert_eq!(quotient.get(&0), Some(&2));
         assert_eq!(quotient.get(&1), Some(&1));

@@ -11,7 +11,8 @@
 
 use crate::clause::ClauseDatabase;
 use crate::literal::Lit;
-use std::collections::{HashMap, HashSet};
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Statistics for gate detection
 #[derive(Debug, Clone, Default)]

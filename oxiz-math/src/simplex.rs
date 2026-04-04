@@ -9,11 +9,12 @@
 //!
 //! Reference: Z3's `math/simplex/` directory and standard LP textbooks.
 
+use crate::fast_rational::FastRational;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::fmt;
 use num_bigint::BigInt;
-use num_rational::BigRational;
 use num_traits::{One, Signed, Zero};
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::fmt;
 
 /// Variable identifier for simplex.
 pub type VarId = u32;
@@ -40,12 +41,12 @@ pub struct Bound {
     /// The type of bound (lower, upper, or equality).
     pub bound_type: BoundType,
     /// The bound value.
-    pub value: BigRational,
+    pub value: FastRational,
 }
 
 impl Bound {
     /// Create a lower bound: var >= value.
-    pub fn lower(var: VarId, value: BigRational) -> Self {
+    pub fn lower(var: VarId, value: FastRational) -> Self {
         Self {
             var,
             bound_type: BoundType::Lower,
@@ -54,7 +55,7 @@ impl Bound {
     }
 
     /// Create an upper bound: var <= value.
-    pub fn upper(var: VarId, value: BigRational) -> Self {
+    pub fn upper(var: VarId, value: FastRational) -> Self {
         Self {
             var,
             bound_type: BoundType::Upper,
@@ -63,7 +64,7 @@ impl Bound {
     }
 
     /// Create an equality bound: var = value.
-    pub fn equal(var: VarId, value: BigRational) -> Self {
+    pub fn equal(var: VarId, value: FastRational) -> Self {
         Self {
             var,
             bound_type: BoundType::Equal,
@@ -87,9 +88,9 @@ pub struct Row {
     /// The basic variable for this row.
     pub basic_var: VarId,
     /// The constant term.
-    pub constant: BigRational,
+    pub constant: FastRational,
     /// Coefficients for non-basic variables: var_id -> coefficient.
-    pub coeffs: FxHashMap<VarId, BigRational>,
+    pub coeffs: FxHashMap<VarId, FastRational>,
 }
 
 impl Row {
@@ -97,7 +98,7 @@ impl Row {
     pub fn new(basic_var: VarId) -> Self {
         Self {
             basic_var,
-            constant: BigRational::zero(),
+            constant: FastRational::zero(),
             coeffs: FxHashMap::default(),
         }
     }
@@ -105,8 +106,8 @@ impl Row {
     /// Create a row representing: basic_var = constant + sum(coeffs).
     pub fn from_expr(
         basic_var: VarId,
-        constant: BigRational,
-        coeffs: FxHashMap<VarId, BigRational>,
+        constant: FastRational,
+        coeffs: FxHashMap<VarId, FastRational>,
     ) -> Self {
         let mut row = Self {
             basic_var,
@@ -122,7 +123,7 @@ impl Row {
     }
 
     /// Get the value of the basic variable given values of non-basic variables.
-    pub fn eval(&self, non_basic_values: &FxHashMap<VarId, BigRational>) -> BigRational {
+    pub fn eval(&self, non_basic_values: &FxHashMap<VarId, FastRational>) -> FastRational {
         let mut value = self.constant.clone();
         for (var, coeff) in &self.coeffs {
             if let Some(val) = non_basic_values.get(var) {
@@ -134,7 +135,7 @@ impl Row {
 
     /// Add a multiple of another row to this row.
     /// self += multiplier * other
-    pub fn add_row(&mut self, multiplier: &BigRational, other: &Row) {
+    pub fn add_row(&mut self, multiplier: &FastRational, other: &Row) {
         if multiplier.is_zero() {
             return;
         }
@@ -146,7 +147,7 @@ impl Row {
                 .coeffs
                 .get(var)
                 .cloned()
-                .unwrap_or_else(BigRational::zero)
+                .unwrap_or_else(FastRational::zero)
                 + multiplier * coeff;
             if new_coeff.is_zero() {
                 self.coeffs.remove(var);
@@ -157,9 +158,9 @@ impl Row {
     }
 
     /// Multiply the row by a scalar.
-    pub fn scale(&mut self, scalar: &BigRational) {
+    pub fn scale(&mut self, scalar: &FastRational) {
         if scalar.is_zero() {
-            self.constant = BigRational::zero();
+            self.constant = FastRational::zero();
             self.coeffs.clear();
             return;
         }
@@ -210,8 +211,8 @@ impl Row {
         if let Some(g) = gcd
             && !g.is_one()
         {
-            let divisor = BigRational::from_integer(g);
-            self.scale(&(BigRational::one() / divisor));
+            let divisor = FastRational::from_integer(g);
+            self.scale(&(FastRational::one() / divisor));
         }
     }
 }
@@ -270,11 +271,11 @@ pub struct SimplexTableau {
     /// Set of non-basic variables.
     non_basic_vars: FxHashSet<VarId>,
     /// Current assignment to all variables.
-    assignment: FxHashMap<VarId, BigRational>,
+    assignment: FxHashMap<VarId, FastRational>,
     /// Lower bounds for variables.
-    lower_bounds: FxHashMap<VarId, BigRational>,
+    lower_bounds: FxHashMap<VarId, FastRational>,
     /// Upper bounds for variables.
-    upper_bounds: FxHashMap<VarId, BigRational>,
+    upper_bounds: FxHashMap<VarId, FastRational>,
     /// Mapping from variables to the constraints that bound them.
     var_to_constraints: FxHashMap<VarId, Vec<ConstraintId>>,
     /// Next fresh variable ID.
@@ -304,12 +305,12 @@ impl SimplexTableau {
         let id = self.next_var_id;
         self.next_var_id += 1;
         self.non_basic_vars.insert(id);
-        self.assignment.insert(id, BigRational::zero());
+        self.assignment.insert(id, FastRational::zero());
         id
     }
 
     /// Add a variable with initial bounds.
-    pub fn add_var(&mut self, lower: Option<BigRational>, upper: Option<BigRational>) -> VarId {
+    pub fn add_var(&mut self, lower: Option<FastRational>, upper: Option<FastRational>) -> VarId {
         let var = self.fresh_var();
         if let Some(lb) = lower {
             self.lower_bounds.insert(var, lb.clone());
@@ -356,7 +357,7 @@ impl SimplexTableau {
         &mut self,
         var: VarId,
         bound_type: BoundType,
-        value: BigRational,
+        value: FastRational,
         constraint_id: ConstraintId,
     ) -> Result<(), Conflict> {
         self.var_to_constraints
@@ -429,7 +430,7 @@ impl SimplexTableau {
     }
 
     /// Get the current assignment to a variable.
-    pub fn get_value(&self, var: VarId) -> Option<&BigRational> {
+    pub fn get_value(&self, var: VarId) -> Option<&FastRational> {
         self.assignment.get(&var)
     }
 
@@ -553,7 +554,7 @@ impl SimplexTableau {
         new_row.constant = -&row.constant / &coeff;
         new_row
             .coeffs
-            .insert(basic_var, BigRational::one() / &coeff);
+            .insert(basic_var, FastRational::one() / &coeff);
 
         for (var, c) in &row.coeffs {
             if var != &non_basic_var {
@@ -636,9 +637,9 @@ impl SimplexTableau {
             {
                 // Compute the new value for nb_var
                 let target_value = if need_increase {
-                    lb.cloned().unwrap_or_else(BigRational::zero)
+                    lb.cloned().unwrap_or_else(FastRational::zero)
                 } else {
-                    ub.cloned().unwrap_or_else(BigRational::zero)
+                    ub.cloned().unwrap_or_else(FastRational::zero)
                 };
 
                 // Update nb_var to move basic_var to target
@@ -720,7 +721,7 @@ impl SimplexTableau {
                 .assignment
                 .get(&leaving_var)
                 .cloned()
-                .unwrap_or_else(BigRational::zero);
+                .unwrap_or_else(FastRational::zero);
 
             let lb = self.lower_bounds.get(&leaving_var);
             let ub = self.upper_bounds.get(&leaving_var);
@@ -758,7 +759,7 @@ impl SimplexTableau {
     /// - Among candidates, choose one that maintains dual feasibility
     fn find_entering_var_dual(&self, row: &Row, violated_lower: bool) -> Result<VarId, Conflict> {
         let mut best_var = None;
-        let mut best_ratio: Option<BigRational> = None;
+        let mut best_ratio: Option<FastRational> = None;
 
         // Iterate through non-basic variables in the row
         for (&nb_var, coeff) in &row.coeffs {
@@ -849,7 +850,7 @@ impl SimplexTableau {
 
     /// Get the current model (satisfying assignment).
     /// Returns None if the system is not known to be satisfiable.
-    pub fn get_model(&self) -> Option<FxHashMap<VarId, BigRational>> {
+    pub fn get_model(&self) -> Option<FxHashMap<VarId, FastRational>> {
         // Check if all variables satisfy their bounds
         for (var, val) in &self.assignment {
             if let Some(lb) = self.lower_bounds.get(var)
@@ -917,7 +918,7 @@ impl SimplexTableau {
 
     /// Theory propagation: deduce new bounds from existing constraints.
     /// Returns a list of (var, bound_type, value) tuples representing deduced bounds.
-    pub fn propagate(&self) -> Vec<(VarId, BoundType, BigRational)> {
+    pub fn propagate(&self) -> Vec<(VarId, BoundType, FastRational)> {
         let mut propagated = Vec::new();
 
         // For each row: basic_var = constant + sum(coeff * non_basic_var)
@@ -1004,8 +1005,8 @@ impl SimplexTableau {
     /// Returns a new slack variable if needed, and the constraint ID.
     pub fn assert_constraint(
         &mut self,
-        coeffs: FxHashMap<VarId, BigRational>,
-        constant: BigRational,
+        coeffs: FxHashMap<VarId, FastRational>,
+        constant: FastRational,
         bound_type: BoundType,
         constraint_id: ConstraintId,
     ) -> Result<VarId, Conflict> {
@@ -1019,7 +1020,7 @@ impl SimplexTableau {
         })?;
 
         // Add appropriate bound on slack_var based on bound_type
-        let zero = BigRational::zero();
+        let zero = FastRational::zero();
         match bound_type {
             BoundType::Lower => {
                 // sum(coeffs) + constant >= 0  =>  slack_var >= 0
@@ -1078,8 +1079,8 @@ impl fmt::Display for SimplexTableau {
 mod tests {
     use super::*;
 
-    fn rat(n: i64) -> BigRational {
-        BigRational::from_integer(BigInt::from(n))
+    fn rat(n: i64) -> FastRational {
+        FastRational::from_integer(BigInt::from(n))
     }
 
     #[test]
@@ -1136,14 +1137,20 @@ mod tests {
         row.coeffs.insert(x0, rat(-1));
         row.coeffs.insert(x1, rat(-1));
 
-        tableau.add_row(row).unwrap();
+        tableau.add_row(row).expect("test operation should succeed");
 
         // Bounds: x0 >= 0, x1 >= 0, x2 >= 0
-        tableau.add_bound(x0, BoundType::Lower, rat(0), 0).unwrap();
-        tableau.add_bound(x1, BoundType::Lower, rat(0), 1).unwrap();
-        tableau.add_bound(x2, BoundType::Lower, rat(0), 2).unwrap();
+        tableau
+            .add_bound(x0, BoundType::Lower, rat(0), 0)
+            .expect("test operation should succeed");
+        tableau
+            .add_bound(x1, BoundType::Lower, rat(0), 1)
+            .expect("test operation should succeed");
+        tableau
+            .add_bound(x2, BoundType::Lower, rat(0), 2)
+            .expect("test operation should succeed");
 
-        let result = tableau.check().unwrap();
+        let result = tableau.check().expect("test operation should succeed");
         assert_eq!(result, SimplexResult::Sat);
     }
 
@@ -1154,7 +1161,9 @@ mod tests {
         let x = tableau.fresh_var();
 
         // x >= 5 and x <= 3 (conflicting bounds)
-        tableau.add_bound(x, BoundType::Lower, rat(5), 0).unwrap();
+        tableau
+            .add_bound(x, BoundType::Lower, rat(5), 0)
+            .expect("test operation should succeed");
         let result = tableau.add_bound(x, BoundType::Upper, rat(3), 1);
 
         assert!(result.is_err());
@@ -1174,16 +1183,18 @@ mod tests {
         row.coeffs.insert(x0, rat(-2));
         row.coeffs.insert(x1, rat(-3));
 
-        tableau.add_row(row).unwrap();
+        tableau.add_row(row).expect("test operation should succeed");
 
         // Pivot x2 and x0
-        tableau.pivot(x2, x0).unwrap();
+        tableau
+            .pivot(x2, x0)
+            .expect("test operation should succeed");
 
         // After pivot: x0 = (10 - x2 - 3*x1) / 2 = 5 - x2/2 - 3*x1/2
         assert!(tableau.basic_vars.contains(&x0));
         assert!(tableau.non_basic_vars.contains(&x2));
 
-        let new_row = tableau.rows.get(&x0).unwrap();
+        let new_row = tableau.rows.get(&x0).expect("key should exist in map");
         assert_eq!(new_row.constant, rat(5));
     }
 
@@ -1206,15 +1217,21 @@ mod tests {
         row.coeffs.insert(x0, rat(-1));
         row.coeffs.insert(x1, rat(-1));
 
-        tableau.add_row(row).unwrap();
+        tableau.add_row(row).expect("test operation should succeed");
 
         // Bounds: x0 >= 0, x1 >= 0, x2 >= 0
-        tableau.add_bound(x0, BoundType::Lower, rat(0), 0).unwrap();
-        tableau.add_bound(x1, BoundType::Lower, rat(0), 1).unwrap();
-        tableau.add_bound(x2, BoundType::Lower, rat(0), 2).unwrap();
+        tableau
+            .add_bound(x0, BoundType::Lower, rat(0), 0)
+            .expect("test operation should succeed");
+        tableau
+            .add_bound(x1, BoundType::Lower, rat(0), 1)
+            .expect("test operation should succeed");
+        tableau
+            .add_bound(x2, BoundType::Lower, rat(0), 2)
+            .expect("test operation should succeed");
 
         // Use dual simplex
-        let result = tableau.check_dual().unwrap();
+        let result = tableau.check_dual().expect("test operation should succeed");
         assert_eq!(result, SimplexResult::Sat);
 
         // Verify the solution is feasible
@@ -1236,17 +1253,27 @@ mod tests {
         row.coeffs.insert(x0, rat(-1));
         row.coeffs.insert(x1, rat(-1));
 
-        tableau.add_row(row).unwrap();
+        tableau.add_row(row).expect("test operation should succeed");
 
         // Bounds: 0 <= x0 <= 5, 0 <= x1 <= 5, x2 >= 0
-        tableau.add_bound(x0, BoundType::Lower, rat(0), 0).unwrap();
-        tableau.add_bound(x0, BoundType::Upper, rat(5), 1).unwrap();
-        tableau.add_bound(x1, BoundType::Lower, rat(0), 2).unwrap();
-        tableau.add_bound(x1, BoundType::Upper, rat(5), 3).unwrap();
-        tableau.add_bound(x2, BoundType::Lower, rat(0), 4).unwrap();
+        tableau
+            .add_bound(x0, BoundType::Lower, rat(0), 0)
+            .expect("test operation should succeed");
+        tableau
+            .add_bound(x0, BoundType::Upper, rat(5), 1)
+            .expect("test operation should succeed");
+        tableau
+            .add_bound(x1, BoundType::Lower, rat(0), 2)
+            .expect("test operation should succeed");
+        tableau
+            .add_bound(x1, BoundType::Upper, rat(5), 3)
+            .expect("test operation should succeed");
+        tableau
+            .add_bound(x2, BoundType::Lower, rat(0), 4)
+            .expect("test operation should succeed");
 
         // Use dual simplex
-        let result = tableau.check_dual().unwrap();
+        let result = tableau.check_dual().expect("test operation should succeed");
         assert_eq!(result, SimplexResult::Sat);
 
         // Verify the solution is feasible

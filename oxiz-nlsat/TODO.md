@@ -1,6 +1,6 @@
 # oxiz-nlsat TODO
 
-Last Updated: 2026-01-06 (Enhanced)
+Last Updated: 2026-03-28 (v0.2.0)
 
 Reference: Z3's `nlsat/` directory at `../z3/src/nlsat/`
 
@@ -216,7 +216,7 @@ Reference: Z3's `nlsat/` directory at `../z3/src/nlsat/`
 - Integrated into lib.rs with proper re-exports
 - NO WARNINGS POLICY maintained
 
-**Total Test Count:** 331 unit tests + 17 integration tests = 348 tests
+**Total Test Count:** 363 tests (4 skipped)
 
 ### Previous Enhancement (2026-01-06 - Round 1: Core Optimizations)
 
@@ -339,11 +339,11 @@ Reference: Z3's `nlsat/` directory at `../z3/src/nlsat/`
 - ✓ NO warnings policy fully enforced across all targets
 
 ### Code Statistics
-- **Total modules**: 38 (was 30, added 8 new optimization modules)
-- **Total lines**: ~20,322 (was ~16,951)
-- **Test coverage**: 348 tests (comprehensive)
-  - 331 unit tests (1 ignored for complexity)
-  - 17 integration tests (3 ignored for challenging edge cases)
+- **Total files**: 42
+- **Total lines**: 19,253
+- **Public API items**: 722
+- **Test coverage**: 363 tests (4 skipped)
+- **Zero todo!/unimplemented! calls**
 - **Property tests**: 23 tests across critical modules
 - **Benchmarks**: 7 benchmark groups
 - **Examples**: 6 usage examples

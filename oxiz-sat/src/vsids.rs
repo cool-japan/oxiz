@@ -1,6 +1,8 @@
 //! VSIDS (Variable State Independent Decaying Sum) branching heuristic
 
 use crate::literal::Var;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// VSIDS branching heuristic
 #[derive(Debug)]
@@ -47,6 +49,7 @@ impl VSIDS {
     }
 
     /// Bump the activity of a variable
+    #[allow(dead_code)]
     pub fn bump(&mut self, var: Var) {
         let idx = var.index();
         if idx >= self.activity.len() {
@@ -66,6 +69,43 @@ impl VSIDS {
         }
     }
 
+    /// Bump a batch of variables and rebuild the affected portion of the heap.
+    ///
+    /// This is more efficient than calling `bump()` individually for each variable
+    /// when multiple variables need to be bumped at once (e.g., during conflict analysis).
+    /// Instead of performing a sift-up after each individual bump, this method bumps all
+    /// activities first and then rebuilds the heap once.
+    pub fn bump_batch(&mut self, vars: &[Var]) {
+        if vars.is_empty() {
+            return;
+        }
+
+        let mut needs_rescale = false;
+
+        for &var in vars {
+            let idx = var.index();
+            if idx >= self.activity.len() {
+                self.resize(idx + 1);
+            }
+            self.activity[idx] += self.increment;
+            if self.activity[idx] > 1e100 {
+                needs_rescale = true;
+            }
+        }
+
+        if needs_rescale {
+            self.rescale();
+        }
+
+        // Rebuild heap for affected variables by sifting up each one that's in the heap
+        for &var in vars {
+            let idx = var.index();
+            if idx < self.heap_pos.len() && self.heap_pos[idx] != usize::MAX {
+                self.sift_up(self.heap_pos[idx]);
+            }
+        }
+    }
+
     /// Decay all activities
     pub fn decay(&mut self) {
         self.increment /= self.decay;
@@ -78,10 +118,10 @@ impl VSIDS {
         }
 
         let max_var = self.heap[0];
-        let last = self
-            .heap
-            .pop()
-            .expect("heap non-empty after is_empty check");
+        let Some(last) = self.heap.pop() else {
+            // Should not happen: we just checked is_empty above
+            return None;
+        };
 
         if !self.heap.is_empty() {
             self.heap[0] = last;
@@ -236,7 +276,7 @@ mod tests {
         assert!(vsids.activity(Var::new(2)) > 0.0);
 
         // Variable 2 should be on top
-        let max = vsids.pop_max().unwrap();
+        let max = vsids.pop_max().expect("test operation should succeed");
         assert_eq!(max, Var::new(2));
     }
 
@@ -253,8 +293,17 @@ mod tests {
         vsids.bump(Var::new(2));
 
         // Should come out in order of activity
-        assert_eq!(vsids.pop_max().unwrap(), Var::new(2));
-        assert_eq!(vsids.pop_max().unwrap(), Var::new(1));
-        assert_eq!(vsids.pop_max().unwrap(), Var::new(0));
+        assert_eq!(
+            vsids.pop_max().expect("test operation should succeed"),
+            Var::new(2)
+        );
+        assert_eq!(
+            vsids.pop_max().expect("test operation should succeed"),
+            Var::new(1)
+        );
+        assert_eq!(
+            vsids.pop_max().expect("test operation should succeed"),
+            Var::new(0)
+        );
     }
 }

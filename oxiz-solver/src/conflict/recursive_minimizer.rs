@@ -1,5 +1,4 @@
 //! Recursive Conflict Clause Minimization
-#![allow(missing_docs, clippy::ptr_arg)] // Under development
 //!
 //! This module implements advanced conflict clause minimization techniques:
 //! - Recursive resolution-based minimization
@@ -7,7 +6,10 @@
 //! - Stamp-based minimization (seen/poison marking)
 //! - Self-subsuming resolution detection
 
-use rustc_hash::{FxHashMap, FxHashSet};
+#![allow(missing_docs, clippy::ptr_arg)] // Under development
+
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Literal representation
 pub type Lit = i32;

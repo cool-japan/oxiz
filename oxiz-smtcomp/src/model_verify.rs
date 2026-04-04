@@ -274,13 +274,12 @@ impl ModelVerifier {
                     let sort_id = parse_sort(sort, &tm);
                     let _var = tm.mk_var(name, sort_id);
                 }
-                Command::DeclareFun(name, arg_sorts, ret_sort) => {
-                    if arg_sorts.is_empty() {
-                        variables.push((name.clone(), ret_sort.clone()));
-                        let sort_id = parse_sort(ret_sort, &tm);
-                        let _var = tm.mk_var(name, sort_id);
-                    }
+                Command::DeclareFun(name, arg_sorts, ret_sort) if arg_sorts.is_empty() => {
+                    variables.push((name.clone(), ret_sort.clone()));
+                    let sort_id = parse_sort(ret_sort, &tm);
+                    let _var = tm.mk_var(name, sort_id);
                 }
+                Command::DeclareFun(..) => {}
                 Command::Assert(term) => {
                     solver.assert(*term, &mut tm);
                 }

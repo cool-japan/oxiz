@@ -32,6 +32,9 @@
 //! (assert (> (str.len s) 10))
 //! ```
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 pub mod advanced_regex;
 pub mod automata;
 pub mod char_ops;

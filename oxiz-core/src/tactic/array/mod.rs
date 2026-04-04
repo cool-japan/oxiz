@@ -2,6 +2,9 @@
 //!
 //! Tactics for simplifying and normalizing array constraints.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 pub mod array_bounds;
 pub mod select_store_elim;
 

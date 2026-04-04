@@ -7,6 +7,8 @@
 
 use super::{RewriteContext, RewriteResult, Rewriter};
 use crate::ast::{TermId, TermKind, TermManager};
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Array rewriter
 #[derive(Debug, Clone)]

@@ -5,6 +5,8 @@
 
 use crate::error::{OxizError, SourceLocation, SourceSpan};
 use crate::error_context::ErrorContext;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::{Sort, TermId};
 
 /// Result type with ErrorContext.

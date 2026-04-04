@@ -707,7 +707,7 @@ mod tests {
         let id = proof.add_axiom("p");
 
         assert_eq!(proof.len(), 1);
-        let node = proof.get_node(id).unwrap();
+        let node = proof.get_node(id).expect("test operation should succeed");
         assert_eq!(node.id, ProofNodeId(0));
         assert_eq!(node.depth, 0);
     }
@@ -720,7 +720,7 @@ mod tests {
         let i1 = proof.add_inference("and", vec![a1, a2], "p /\\ q");
 
         assert_eq!(proof.len(), 3);
-        let node = proof.get_node(i1).unwrap();
+        let node = proof.get_node(i1).expect("test operation should succeed");
         assert_eq!(node.depth, 1);
     }
 
@@ -742,7 +742,7 @@ mod tests {
         let i1 = proof.add_inference("and", vec![a1, a2], "p /\\ q");
         let i2 = proof.add_inference("not", vec![i1], "~(p /\\ q)");
 
-        let node = proof.get_node(i2).unwrap();
+        let node = proof.get_node(i2).expect("test operation should succeed");
         assert_eq!(node.depth, 2);
     }
 
@@ -791,10 +791,10 @@ mod tests {
         let a2 = proof.add_axiom("q");
         let i1 = proof.add_inference("and", vec![a1, a2], "p /\\ q");
 
-        let node_a1 = proof.get_node(a1).unwrap();
+        let node_a1 = proof.get_node(a1).expect("test operation should succeed");
         assert!(node_a1.dependents.contains(&i1));
 
-        let node_a2 = proof.get_node(a2).unwrap();
+        let node_a2 = proof.get_node(a2).expect("test operation should succeed");
         assert!(node_a2.dependents.contains(&i1));
     }
 
@@ -812,7 +812,9 @@ mod tests {
 
         proof.set_metadata(id, meta);
 
-        let retrieved = proof.get_metadata(id).unwrap();
+        let retrieved = proof
+            .get_metadata(id)
+            .expect("test operation should succeed");
         assert_eq!(retrieved.priority(), Priority::High);
         assert_eq!(retrieved.difficulty(), Difficulty::Easy);
     }
@@ -889,7 +891,9 @@ mod tests {
         let meta = proof.get_or_create_metadata(id);
         meta.set_priority(Priority::VeryHigh);
 
-        let retrieved = proof.get_metadata(id).unwrap();
+        let retrieved = proof
+            .get_metadata(id)
+            .expect("test operation should succeed");
         assert_eq!(retrieved.priority(), Priority::VeryHigh);
     }
 
@@ -939,7 +943,7 @@ mod tests {
             fn prop_axiom_depth_zero(conclusion in var_name()) {
                 let mut proof = Proof::new();
                 let id = proof.add_axiom(&conclusion);
-                let node = proof.get_node(id).unwrap();
+                let node = proof.get_node(id).expect("test operation should succeed");
                 prop_assert_eq!(node.depth, 0);
             }
 
@@ -973,10 +977,10 @@ mod tests {
                         axiom_ids.clone(),
                         format!("({} {})", rule, conclusions.join(" "))
                     );
-                    let inf_node = proof.get_node(inf_id).unwrap();
+                    let inf_node = proof.get_node(inf_id).expect("test operation should succeed");
 
                     for &premise_id in &axiom_ids {
-                        let premise_node = proof.get_node(premise_id).unwrap();
+                        let premise_node = proof.get_node(premise_id).expect("test operation should succeed");
                         prop_assert!(inf_node.depth > premise_node.depth);
                     }
                 }

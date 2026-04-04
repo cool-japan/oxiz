@@ -15,6 +15,6 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
-    "oxiz-wasm": "file:../../pkg"
+    "@cooljapan/oxiz": "file:../../pkg"
   }
 }

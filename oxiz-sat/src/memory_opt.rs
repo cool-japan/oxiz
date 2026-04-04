@@ -7,7 +7,8 @@
 //! - Fragmentation tracking and mitigation
 //! - Memory pressure monitoring
 
-use std::collections::HashMap;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Memory statistics
 #[derive(Debug, Default, Clone)]
@@ -101,6 +102,7 @@ impl SizeClass {
 }
 
 /// Memory pool for a specific size class
+#[derive(Debug)]
 struct MemoryPool {
     /// Free blocks available
     free_blocks: Vec<Vec<u8>>,
@@ -147,6 +149,7 @@ impl MemoryPool {
 }
 
 /// Memory optimizer with size-class pools
+#[derive(Debug)]
 pub struct MemoryOptimizer {
     /// Memory pools by size class
     pools: HashMap<SizeClass, MemoryPool>,

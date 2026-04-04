@@ -1,5 +1,8 @@
 //! Model Building for SMT Solvers.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 pub mod advanced_builder;
 pub mod builder;
 pub mod completion;

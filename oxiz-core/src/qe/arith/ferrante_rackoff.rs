@@ -4,6 +4,8 @@
 //! over linear real arithmetic.
 
 use crate::ast::{TermId, TermManager};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_bigint::BigInt;
 use num_rational::BigRational;
 use num_traits::Zero;

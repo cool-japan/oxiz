@@ -1,13 +1,14 @@
 //! Regular Expression Constraint Solver for String Theory
-#![allow(missing_docs)] // Under development - documentation in progress
 //!
 //! This module implements solving for string constraints with regular expressions:
 //! - Membership testing (str ∈ regex)
 //! - Negated membership (str ∉ regex)
 //! - Regex intersection and complement
 //! - Length-aware regex solving
+#![allow(missing_docs)] // Under development - documentation in progress
 
-use rustc_hash::{FxHashMap, FxHashSet};
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// String variable identifier
 pub type StrVar = usize;
@@ -588,10 +589,14 @@ mod tests {
         let config = RegexSolverConfig::default();
         let mut solver = RegexSolver::new(config);
 
-        let result = solver.test_membership("", &Regex::Epsilon).unwrap();
+        let result = solver
+            .test_membership("", &Regex::Epsilon)
+            .expect("regex compilation failed");
         assert!(result);
 
-        let result2 = solver.test_membership("a", &Regex::Epsilon).unwrap();
+        let result2 = solver
+            .test_membership("a", &Regex::Epsilon)
+            .expect("regex compilation failed");
         assert!(!result2);
     }
 
@@ -601,9 +606,21 @@ mod tests {
         let mut solver = RegexSolver::new(config);
 
         let regex = Regex::Char('a');
-        assert!(solver.test_membership("a", &regex).unwrap());
-        assert!(!solver.test_membership("b", &regex).unwrap());
-        assert!(!solver.test_membership("aa", &regex).unwrap());
+        assert!(
+            solver
+                .test_membership("a", &regex)
+                .expect("regex compilation failed")
+        );
+        assert!(
+            !solver
+                .test_membership("b", &regex)
+                .expect("regex compilation failed")
+        );
+        assert!(
+            !solver
+                .test_membership("aa", &regex)
+                .expect("regex compilation failed")
+        );
     }
 
     #[test]
@@ -613,9 +630,21 @@ mod tests {
 
         let regex = Regex::Union(vec![Regex::Char('a'), Regex::Char('b')]);
 
-        assert!(solver.test_membership("a", &regex).unwrap());
-        assert!(solver.test_membership("b", &regex).unwrap());
-        assert!(!solver.test_membership("c", &regex).unwrap());
+        assert!(
+            solver
+                .test_membership("a", &regex)
+                .expect("regex compilation failed")
+        );
+        assert!(
+            solver
+                .test_membership("b", &regex)
+                .expect("regex compilation failed")
+        );
+        assert!(
+            !solver
+                .test_membership("c", &regex)
+                .expect("regex compilation failed")
+        );
     }
 
     #[test]
@@ -625,9 +654,21 @@ mod tests {
 
         let regex = Regex::Concat(vec![Regex::Char('a'), Regex::Char('b')]);
 
-        assert!(solver.test_membership("ab", &regex).unwrap());
-        assert!(!solver.test_membership("a", &regex).unwrap());
-        assert!(!solver.test_membership("ba", &regex).unwrap());
+        assert!(
+            solver
+                .test_membership("ab", &regex)
+                .expect("regex compilation failed")
+        );
+        assert!(
+            !solver
+                .test_membership("a", &regex)
+                .expect("regex compilation failed")
+        );
+        assert!(
+            !solver
+                .test_membership("ba", &regex)
+                .expect("regex compilation failed")
+        );
     }
 
     #[test]
@@ -637,10 +678,26 @@ mod tests {
 
         let regex = Regex::Star(Box::new(Regex::Char('a')));
 
-        assert!(solver.test_membership("", &regex).unwrap());
-        assert!(solver.test_membership("a", &regex).unwrap());
-        assert!(solver.test_membership("aa", &regex).unwrap());
-        assert!(!solver.test_membership("ab", &regex).unwrap());
+        assert!(
+            solver
+                .test_membership("", &regex)
+                .expect("regex compilation failed")
+        );
+        assert!(
+            solver
+                .test_membership("a", &regex)
+                .expect("regex compilation failed")
+        );
+        assert!(
+            solver
+                .test_membership("aa", &regex)
+                .expect("regex compilation failed")
+        );
+        assert!(
+            !solver
+                .test_membership("ab", &regex)
+                .expect("regex compilation failed")
+        );
     }
 
     #[test]

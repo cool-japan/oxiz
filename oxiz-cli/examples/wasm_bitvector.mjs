@@ -6,7 +6,7 @@
 // - Low-level programming verification
 // - Cryptographic property checking
 
-import init, { WasmSolver } from 'oxiz-wasm';
+import init, { WasmSolver } from '@cooljapan/oxiz';
 
 async function main() {
     await init();

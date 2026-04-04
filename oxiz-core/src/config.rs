@@ -3,6 +3,9 @@
 //! This module provides structures for configuring solver behavior,
 //! including search parameters, heuristics, and optimizations.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+#[cfg(feature = "std")]
 use std::time::Duration;
 
 /// Configuration for the solver
@@ -81,6 +84,7 @@ pub struct SimplifyParams {
 #[derive(Debug, Clone, Default)]
 pub struct ResourceLimits {
     /// Maximum solving time (None = unlimited)
+    #[cfg(feature = "std")]
     pub time_limit: Option<Duration>,
     /// Maximum number of decisions (None = unlimited)
     pub decision_limit: Option<u64>,
@@ -191,6 +195,7 @@ impl Config {
     }
 
     /// Set time limit
+    #[cfg(feature = "std")]
     pub fn set_time_limit(&mut self, limit: Option<Duration>) -> &mut Self {
         self.limits.time_limit = limit;
         self

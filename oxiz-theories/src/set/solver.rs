@@ -11,14 +11,14 @@ use super::{
     CardConstraint, CardConstraintKind, CardPropagator, MemberConstraint, MemberPropagator,
     SetConflict, SetLiteral, SetProofStep, SetSort, SubsetConstraint, SubsetPropagator,
 };
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::theory::{
     EqualityNotification, Theory, TheoryCombination, TheoryId, TheoryResult as TR,
 };
 use oxiz_core::ast::TermId;
 use oxiz_core::error::Result;
-use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
-use std::collections::VecDeque;
 
 /// Set variable identifier
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -333,7 +333,7 @@ pub struct SetStats {
 }
 
 /// Set solver result
-pub type SetResult<T> = std::result::Result<T, SetConflict>;
+pub type SetResult<T> = core::result::Result<T, SetConflict>;
 
 /// Set solver state for push/pop
 #[derive(Debug, Clone)]
@@ -1025,7 +1025,9 @@ mod tests {
         assert!(result.is_ok());
 
         // Verify the element is in must_members
-        let var = solver.get_var(s).unwrap();
+        let var = solver
+            .get_var(s)
+            .expect("environment variable should be set");
         assert!(var.must_members.contains(&42));
     }
 
@@ -1037,7 +1039,7 @@ mod tests {
         // Assert: 42 ∈ S
         solver
             .add_member_constraint(42, &SetExpr::Var(s), true)
-            .unwrap();
+            .expect("test operation should succeed");
 
         // Assert: 42 ∉ S (conflict)
         let result = solver.add_member_constraint(42, &SetExpr::Var(s), false);
@@ -1052,9 +1054,11 @@ mod tests {
         // Assert: |S| ≤ 5
         solver
             .add_cardinality_constraint(&SetExpr::Var(s), CardConstraintKind::Le, 5)
-            .unwrap();
+            .expect("test operation should succeed");
 
-        let var = solver.get_var(s).unwrap();
+        let var = solver
+            .get_var(s)
+            .expect("environment variable should be set");
         let (lower, upper) = var.cardinality_bounds();
         assert_eq!(lower, 0);
         assert_eq!(upper, Some(5));
@@ -1068,7 +1072,7 @@ mod tests {
         // Assert: |S| ≥ 10
         solver
             .add_cardinality_constraint(&SetExpr::Var(s), CardConstraintKind::Ge, 10)
-            .unwrap();
+            .expect("test operation should succeed");
 
         // Assert: |S| ≤ 5 (conflict)
         let result = solver.add_cardinality_constraint(&SetExpr::Var(s), CardConstraintKind::Le, 5);
@@ -1084,17 +1088,19 @@ mod tests {
         // Assert: 42 ∈ S1
         solver
             .add_member_constraint(42, &SetExpr::Var(s1), true)
-            .unwrap();
+            .expect("test operation should succeed");
 
         // Assert: S1 ⊆ S2
         solver
             .add_subset_constraint(&SetExpr::Var(s1), &SetExpr::Var(s2), true)
-            .unwrap();
+            .expect("test operation should succeed");
 
         // Propagate: 42 should now be in S2
-        solver.propagate().unwrap();
+        solver.propagate().expect("test operation should succeed");
 
-        let var2 = solver.get_var(s2).unwrap();
+        let var2 = solver
+            .get_var(s2)
+            .expect("environment variable should be set");
         assert!(var2.must_members.contains(&42));
     }
 
@@ -1106,9 +1112,11 @@ mod tests {
         // Assert: |S| = 0
         solver
             .add_cardinality_constraint(&SetExpr::Var(s), CardConstraintKind::Equal, 0)
-            .unwrap();
+            .expect("test operation should succeed");
 
-        let var = solver.get_var(s).unwrap();
+        let var = solver
+            .get_var(s)
+            .expect("environment variable should be set");
         assert!(var.is_definitely_empty());
     }
 
@@ -1121,15 +1129,17 @@ mod tests {
         // Assert: 42 ∈ S1
         solver
             .add_member_constraint(42, &SetExpr::Var(s1), true)
-            .unwrap();
+            .expect("test operation should succeed");
 
         // Assert: S1 ∩ S2 = ∅
         solver
             .add_disjoint_constraint(&SetExpr::Var(s1), &SetExpr::Var(s2))
-            .unwrap();
+            .expect("test operation should succeed");
 
         // 42 should not be in S2
-        let var2 = solver.get_var(s2).unwrap();
+        let var2 = solver
+            .get_var(s2)
+            .expect("environment variable should be set");
         assert!(var2.must_not_members.contains(&42));
     }
 
@@ -1143,14 +1153,26 @@ mod tests {
         // Assert: 42 ∈ S
         solver
             .add_member_constraint(42, &SetExpr::Var(s), true)
-            .unwrap();
+            .expect("test operation should succeed");
 
-        assert!(solver.get_var(s).unwrap().must_members.contains(&42));
+        assert!(
+            solver
+                .get_var(s)
+                .expect("environment variable should be set")
+                .must_members
+                .contains(&42)
+        );
 
         solver.pop();
 
         // After pop, 42 should not be in must_members
-        assert!(!solver.get_var(s).unwrap().must_members.contains(&42));
+        assert!(
+            !solver
+                .get_var(s)
+                .expect("environment variable should be set")
+                .must_members
+                .contains(&42)
+        );
     }
 
     #[test]

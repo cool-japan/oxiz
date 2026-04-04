@@ -13,6 +13,8 @@
 
 use crate::clause::{ClauseDatabase, ClauseId};
 use crate::literal::{LBool, Lit};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use smallvec::SmallVec;
 
 /// Asymmetric Branching engine

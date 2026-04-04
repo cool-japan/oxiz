@@ -1,6 +1,6 @@
 # oxiz-core TODO
 
-Last Updated: 2026-01-06
+Last Updated: 2026-03-28
 
 Reference: Z3's `ast/`, `util/`, and `tactic/` directories at `../z3/src/`
 
@@ -146,7 +146,7 @@ Reference: Z3's `ast/`, `util/`, and `tactic/` directories at `../z3/src/`
   - Added comprehensive documentation for BitVectorAxiom enum fields
   - Added comprehensive documentation for FloatingPointAxiom enum fields
   - Refactored identical blocks in bitvector theory for cleaner code
-  - All 410 tests passing with zero warnings
+  - All 1,176 tests passing with zero warnings
 - [x] Cost-based extraction for E-graphs
   - **Completed:** 2026-01-06
   - Enables extraction of optimal term representations from equivalence classes
@@ -154,7 +154,7 @@ Reference: Z3's `ast/`, `util/`, and `tactic/` directories at `../z3/src/`
   - User-defined cost functions for flexible optimization strategies
   - Comprehensive test suite with 6 tests covering various scenarios
   - Pure Rust implementation with efficient fixed-point iteration
-  - All 415 tests passing with zero warnings
+  - All 1,176 tests passing with zero warnings
 - [x] Theory lemma caching
   - **Completed:** 2026-01-06
   - Implements efficient caching for theory lemmas to avoid redundant propagation
@@ -164,7 +164,7 @@ Reference: Z3's `ast/`, `util/`, and `tactic/` directories at `../z3/src/`
   - Cache statistics tracking (hits, misses, hit rate)
   - Comprehensive test suite with 17 tests covering all cache operations
   - Pure Rust implementation with FxHashMap for performance
-  - All 428 tests passing with zero warnings
+  - All 1,176 tests passing with zero warnings
 - [x] Parallel term operations with Rayon
   - **Completed:** 2026-01-06
   - Leverages Rayon for data parallelism on multi-core systems
@@ -175,7 +175,7 @@ Reference: Z3's `ast/`, `util/`, and `tactic/` directories at `../z3/src/`
   - ParallelStats for tracking parallelization metrics
   - Comprehensive test suite with 14 tests
   - Pure Rust implementation with zero unsafe code
-  - All 442 tests passing with zero warnings
+  - All 1,176 tests passing with zero warnings
 
 ---
 

@@ -681,7 +681,7 @@ mod tests {
         let mut plot = SvgPlot::cactus("Test Cactus Plot");
         plot.add_results("Solver A", &results);
 
-        let svg = plot.to_svg().unwrap();
+        let svg = plot.to_svg().expect("test operation should succeed");
         assert!(svg.contains("<svg"));
         assert!(svg.contains("Test Cactus Plot"));
         assert!(svg.contains("Solver A"));
@@ -708,7 +708,8 @@ mod tests {
         solver_results.insert("Solver A".to_string(), results_a);
         solver_results.insert("Solver B".to_string(), results_b);
 
-        let svg = generate_cactus_plot(&solver_results, "Comparison").unwrap();
+        let svg = generate_cactus_plot(&solver_results, "Comparison")
+            .expect("test operation should succeed");
         assert!(svg.contains("Solver A"));
         assert!(svg.contains("Solver B"));
     }

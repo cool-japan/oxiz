@@ -184,7 +184,7 @@ mod tests {
 
         // Should detect tautology and remove redundant literal
         assert!(result.is_some());
-        let vivified = result.unwrap();
+        let vivified = result.expect("test operation should succeed");
         assert!(vivified.len() < clause.len());
     }
 

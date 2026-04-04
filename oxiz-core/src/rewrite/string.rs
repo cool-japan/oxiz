@@ -10,7 +10,8 @@
 
 use super::{RewriteContext, RewriteResult, Rewriter};
 use crate::ast::{TermId, TermKind, TermManager};
-use rustc_hash::FxHashMap;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// String rewriter
 #[derive(Debug, Clone)]

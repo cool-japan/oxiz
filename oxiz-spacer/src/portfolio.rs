@@ -336,7 +336,7 @@ mod tests {
         let result = portfolio.solve_sequential(&mut terms, &system);
 
         assert!(result.is_ok());
-        let portfolio_result = result.unwrap();
+        let portfolio_result = result.expect("test operation should succeed");
         assert_eq!(portfolio_result.result, SpacerResult::Safe);
         assert!(portfolio_result.strategies_tried > 0);
     }
@@ -346,6 +346,9 @@ mod tests {
         let portfolio = PortfolioSolver::new().with_global_timeout(Duration::from_secs(30));
 
         assert!(portfolio.global_timeout.is_some());
-        assert_eq!(portfolio.global_timeout.unwrap(), Duration::from_secs(30));
+        assert_eq!(
+            portfolio.global_timeout.expect("timing operation failed"),
+            Duration::from_secs(30)
+        );
     }
 }

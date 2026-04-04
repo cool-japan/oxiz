@@ -572,7 +572,7 @@ mod tests {
     fn test_parse_simple_dimacs() {
         let input = "c Simple SAT problem\np cnf 3 2\n1 -2 0\n2 3 -1 0\n";
         let cursor = Cursor::new(input);
-        let cnf = DimacsCnf::parse(cursor).unwrap();
+        let cnf = DimacsCnf::parse(cursor).expect("test operation should succeed");
 
         assert_eq!(cnf.num_vars, 3);
         assert_eq!(cnf.clauses.len(), 2);
@@ -589,9 +589,10 @@ mod tests {
         cnf.comments.push("Test problem".to_string());
 
         let mut output = Vec::new();
-        cnf.write(&mut output).unwrap();
+        cnf.write(&mut output)
+            .expect("test operation should succeed");
 
-        let output_str = String::from_utf8(output).unwrap();
+        let output_str = String::from_utf8(output).expect("test operation should succeed");
         assert!(output_str.contains("c Test problem"));
         assert!(output_str.contains("p cnf 2 2"));
         assert!(output_str.contains("1 -2 0"));
@@ -635,7 +636,7 @@ mod tests {
     fn test_parse_qdimacs() {
         let input = "c QBF example\np cnf 4 2\na 1 2 0\ne 3 4 0\n1 -2 3 0\n-1 2 -4 0\n";
         let cursor = Cursor::new(input);
-        let qcnf = QDimacsCnf::parse(cursor).unwrap();
+        let qcnf = QDimacsCnf::parse(cursor).expect("test operation should succeed");
 
         assert_eq!(qcnf.num_vars, 4);
         assert_eq!(qcnf.quantifiers.len(), 2);
@@ -661,9 +662,10 @@ mod tests {
         qcnf.clauses.push(vec![2, 3]);
 
         let mut output = Vec::new();
-        qcnf.write(&mut output).unwrap();
+        qcnf.write(&mut output)
+            .expect("test operation should succeed");
 
-        let output_str = String::from_utf8(output).unwrap();
+        let output_str = String::from_utf8(output).expect("test operation should succeed");
         assert!(output_str.contains("p cnf 3 2"));
         assert!(output_str.contains("e 1 2 0"));
         assert!(output_str.contains("a 3 0"));

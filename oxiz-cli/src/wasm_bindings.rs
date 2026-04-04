@@ -14,15 +14,15 @@
 //! ## Installation
 //!
 //! ```bash
-//! npm install oxiz-wasm
+//! npm install @cooljapan/oxiz
 //! # or
-//! yarn add oxiz-wasm
+//! yarn add @cooljapan/oxiz
 //! ```
 //!
 //! ## Basic Usage (JavaScript)
 //!
 //! ```javascript
-//! import init, { WasmSolver } from 'oxiz-wasm';
+//! import init, { WasmSolver } from '@cooljapan/oxiz';
 //!
 //! async function solveSMT() {
 //!     // Initialize the WASM module
@@ -57,7 +57,7 @@
 //! ## TypeScript Usage
 //!
 //! ```typescript
-//! import init, { WasmSolver, WasmErrorKind } from 'oxiz-wasm';
+//! import init, { WasmSolver, WasmErrorKind } from '@cooljapan/oxiz';
 //!
 //! interface SMTModel {
 //!     [key: string]: {
@@ -94,7 +94,7 @@
 //!
 //! ```typescript
 //! import { useState, useEffect } from 'react';
-//! import init, { WasmSolver } from 'oxiz-wasm';
+//! import init, { WasmSolver } from '@cooljapan/oxiz';
 //!
 //! function SMTSolverComponent() {
 //!     const [solver, setSolver] = useState<WasmSolver | null>(null);
@@ -234,7 +234,7 @@ export interface Statistics {
  *
  * @example
  * ```typescript
- * import init, { WasmSolver } from 'oxiz-wasm';
+ * import init, { WasmSolver } from '@cooljapan/oxiz';
  *
  * async function main() {
  *     await init();
@@ -433,7 +433,7 @@ pub fn write_typescript_types(path: &Path) -> Result<(), String> {
 pub const EXAMPLE_JS_BASIC: &str = r#"// Basic OxiZ WASM Usage Example
 // Run with: node --experimental-wasm-modules basic.mjs
 
-import init, { WasmSolver } from 'oxiz-wasm';
+import init, { WasmSolver } from '@cooljapan/oxiz';
 
 async function main() {
     // Initialize WASM module
@@ -479,7 +479,7 @@ main().catch(console.error);
 pub const EXAMPLE_JS_INCREMENTAL: &str = r#"// Incremental Solving with OxiZ WASM
 // Demonstrates push/pop for exploring multiple scenarios
 
-import init, { WasmSolver } from 'oxiz-wasm';
+import init, { WasmSolver } from '@cooljapan/oxiz';
 
 async function main() {
     await init();
@@ -532,7 +532,7 @@ main().catch(console.error);
 /// Example TypeScript code with error handling
 pub const EXAMPLE_TS_ERROR_HANDLING: &str = r#"// TypeScript Example with Error Handling
 
-import init, { WasmSolver, WasmErrorKind } from 'oxiz-wasm';
+import init, { WasmSolver, WasmErrorKind } from '@cooljapan/oxiz';
 
 interface OxiZError {
     kind: string;
@@ -606,7 +606,7 @@ main().catch(console.error);
 pub const EXAMPLE_JS_BITVECTORS: &str = r#"// Bitvector Operations with OxiZ WASM
 // Useful for hardware verification and low-level programming
 
-import init, { WasmSolver } from 'oxiz-wasm';
+import init, { WasmSolver } from '@cooljapan/oxiz';
 
 async function main() {
     await init();
@@ -681,10 +681,10 @@ pub fn format_wasm_help() -> String {
 The oxiz-wasm crate provides WebAssembly bindings for using OxiZ in browsers and Node.js.
 
 Installation:
-  npm install oxiz-wasm
+  npm install @cooljapan/oxiz
 
 Usage in JavaScript:
-  import init, { WasmSolver } from 'oxiz-wasm';
+  import init, { WasmSolver } from '@cooljapan/oxiz';
 
   await init();
   const solver = new WasmSolver();
@@ -730,7 +730,7 @@ mod tests {
         let result = write_typescript_types(&path);
         assert!(result.is_ok());
 
-        let contents = fs::read_to_string(&path).unwrap();
+        let contents = fs::read_to_string(&path).expect("test operation should succeed");
         assert!(contents.contains("WasmSolver"));
 
         let _ = fs::remove_file(&path);
@@ -755,7 +755,7 @@ mod tests {
     #[test]
     fn test_format_wasm_help() {
         let help = format_wasm_help();
-        assert!(help.contains("npm install oxiz-wasm"));
+        assert!(help.contains("npm install @cooljapan/oxiz"));
         assert!(help.contains("WasmSolver"));
     }
 }

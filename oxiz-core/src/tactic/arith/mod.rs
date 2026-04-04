@@ -3,6 +3,9 @@
 //! This module provides tactics for simplifying and normalizing arithmetic
 //! constraints before they reach the theory solver.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 pub mod arith_bounds;
 pub mod card2bv;
 pub mod factor;

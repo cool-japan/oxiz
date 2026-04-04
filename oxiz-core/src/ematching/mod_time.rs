@@ -5,7 +5,8 @@
 //! only considers terms that have been added or modified since the last instantiation.
 
 use crate::ast::TermId;
-use rustc_hash::{FxHashMap, FxHashSet};
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Modification time (generation counter)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

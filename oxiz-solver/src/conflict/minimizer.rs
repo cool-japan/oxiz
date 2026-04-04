@@ -19,8 +19,9 @@
 //! - Beame et al.: "Understanding and Using Short Implicants" (SAT 2017)
 //! - Z3's conflict minimization in `smt/smt_conflict_resolution.cpp`
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_sat::Lit;
-use rustc_hash::FxHashSet;
 
 /// Configuration for conflict minimization.
 #[derive(Debug, Clone)]
@@ -99,6 +100,7 @@ impl ConflictMinimizer {
     ///
     /// Returns the minimized clause (subset of input).
     pub fn minimize(&mut self, conflict: &[Lit]) -> Vec<Lit> {
+        #[cfg(feature = "std")]
         let start = std::time::Instant::now();
         let original_size = conflict.len();
 
@@ -138,7 +140,10 @@ impl ConflictMinimizer {
             self.stats.avg_reduction = total_removed / total_processed;
         }
 
-        self.stats.time_us += start.elapsed().as_micros() as u64;
+        #[cfg(feature = "std")]
+        {
+            self.stats.time_us += start.elapsed().as_micros() as u64;
+        }
 
         minimized
     }

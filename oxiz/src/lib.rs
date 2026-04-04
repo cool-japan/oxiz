@@ -3,32 +3,28 @@
 //! **OxiZ** is a high-performance SMT (Satisfiability Modulo Theories) solver written entirely in Pure Rust,
 //! designed to achieve feature parity with Z3 while leveraging Rust's safety, performance, and concurrency features.
 //!
-//! ## 🎯 Key Features
+//! ## Key Features
 //!
 //! - **Pure Rust Implementation**: No C/C++ dependencies, no FFI, complete memory safety
 //! - **Z3-Compatible**: Extensive theory support and familiar API patterns
 //! - **High Performance**: Optimized SAT core with advanced heuristics (VSIDS, LRB, CHB)
 //! - **Modular Design**: Use only what you need via feature flags
-//! - **SMT-LIB2 Support**: Full parser and printer for standard format
+//! - **SMT-LIB2 Support**: Full parser and printer for standard format (requires `std` feature)
+//! - **no_std Support**: Core solver compiles for bare-metal targets (RISC-V, zkVM)
 //!
-//! ## 📦 Module Overview
+//! ## Module Overview
 //!
-//! ### Core Infrastructure
+//! ### Core Infrastructure (always available)
 //!
 //! | Module | Description |
 //! |--------|-------------|
 //! | [`core`] | Term management, sorts, and SMT-LIB2 parsing |
 //! | [`math`] | Mathematical utilities (polynomials, rationals, CAD) |
-//!
-//! ### Solver Components (enabled by `solver` feature)
-//!
-//! | Module | Description |
-//! |--------|-------------|
 //! | `sat` | CDCL SAT solver with advanced heuristics |
 //! | `theories` | Theory solvers (EUF, LRA, LIA, Arrays, BV, etc.) |
 //! | `solver` | Main SMT solver with DPLL(T) |
 //!
-//! ### Advanced Features
+//! ### Advanced Features (require `std`)
 //!
 //! | Module | Feature Flag | Description |
 //! |--------|--------------|-------------|
@@ -37,7 +33,7 @@
 //! | `spacer` | `spacer` | CHC solver for program verification |
 //! | `proof` | `proof` | Proof generation and checking |
 //!
-//! ## 🚀 Quick Start
+//! ## Quick Start
 //!
 //! ### Installation
 //!
@@ -45,21 +41,28 @@
 //!
 //! ```toml
 //! [dependencies]
-//! oxiz = "0.1.3"  # Default: solver feature
+//! oxiz = "0.2.0"  # Default: std + core solver
+//! ```
+//!
+//! For no_std (e.g., zkVM):
+//!
+//! ```toml
+//! [dependencies]
+//! oxiz = { version = "0.2.0", default-features = false }
 //! ```
 //!
 //! With additional features:
 //!
 //! ```toml
 //! [dependencies]
-//! oxiz = { version = "0.1.3", features = ["nlsat", "optimization"] }
+//! oxiz = { version = "0.2.0", features = ["nlsat", "optimization"] }
 //! ```
 //!
 //! Or use all features:
 //!
 //! ```toml
 //! [dependencies]
-//! oxiz = { version = "0.1.3", features = ["full"] }
+//! oxiz = { version = "0.2.0", features = ["full"] }
 //! ```
 //!
 //! ### Basic SMT Solving
@@ -122,19 +125,19 @@
 //! // solver.execute_script(script, &mut tm)?;
 //! ```
 //!
-//! ## 🔧 Feature Flags
+//! ## Feature Flags
 //!
 //! | Feature | Description | Default |
 //! |---------|-------------|---------|
-//! | `solver` | Core SMT solver (SAT + theories) | ✓ |
-//! | `nlsat` | Nonlinear real arithmetic | |
-//! | `optimization` | MaxSMT and optimization | |
-//! | `spacer` | CHC solver | |
-//! | `proof` | Proof generation | |
+//! | `std` | Standard library support | Yes |
+//! | `nlsat` | Nonlinear real arithmetic (implies std) | |
+//! | `optimization` | MaxSMT and optimization (implies std) | |
+//! | `spacer` | CHC solver (implies std) | |
+//! | `proof` | Proof generation (implies std) | |
 //! | `standard` | All common features except SPACER | |
 //! | `full` | All features | |
 //!
-//! ## 📚 Theory Support
+//! ## Theory Support
 //!
 //! - **EUF**: Equality and uninterpreted functions
 //! - **LRA**: Linear real arithmetic (simplex)
@@ -145,55 +148,34 @@
 //! - **Strings**: String operations with regex
 //! - **Datatypes**: Algebraic data types
 //! - **Floating-Point**: IEEE 754 semantics
-//!
-//! ## 🎓 Examples
-//!
-//! See the [examples directory](https://github.com/cool-japan/oxiz/tree/main/examples) for more:
-//!
-//! - Basic constraint solving
-//! - Program verification
-//! - Optimization problems
-//! - Theory combinations
-//!
-//! ## 🔗 Related Projects
-//!
-//! - [oxiz-cli](https://crates.io/crates/oxiz-cli): Command-line interface
-//! - [oxiz-wasm](https://www.npmjs.com/package/oxiz-wasm): WebAssembly bindings
-//!
-//! ## 📖 More Information
-//!
-//! - [GitHub Repository](https://github.com/cool-japan/oxiz)
-//! - [Documentation](https://docs.rs/oxiz)
-//! - [SMT-LIB Standard](https://smtlib.cs.uiowa.edu/)
 
+#![cfg_attr(not(feature = "std"), no_std)]
 #![warn(missing_docs)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
+
+#[cfg(not(feature = "std"))]
+extern crate alloc;
 
 // Re-export core modules (always available)
 pub use oxiz_core as core;
 pub use oxiz_math as math;
 
+// Re-export solver components (always available now)
+pub use oxiz_sat as sat;
+pub use oxiz_solver as solver;
+pub use oxiz_solver::{Solver, SolverResult};
+pub use oxiz_theories as theories;
+
 // Re-export core types for convenience
 pub use oxiz_core::{Sort, SortId, Term, TermId, TermManager};
 
-// Re-export solver components (feature-gated)
-#[cfg(feature = "solver")]
-#[cfg_attr(docsrs, doc(cfg(feature = "solver")))]
-pub use oxiz_sat as sat;
+#[cfg(feature = "std")]
+#[cfg_attr(docsrs, doc(cfg(feature = "std")))]
+pub mod easy;
 
-#[cfg(feature = "solver")]
-#[cfg_attr(docsrs, doc(cfg(feature = "solver")))]
-pub use oxiz_theories as theories;
+pub use oxiz_solver::resource_limits;
 
-#[cfg(feature = "solver")]
-#[cfg_attr(docsrs, doc(cfg(feature = "solver")))]
-pub use oxiz_solver as solver;
-
-#[cfg(feature = "solver")]
-#[cfg_attr(docsrs, doc(cfg(feature = "solver")))]
-pub use oxiz_solver::{Solver, SolverResult};
-
-// Re-export advanced features
+// Re-export advanced features (require std)
 #[cfg(feature = "nlsat")]
 #[cfg_attr(docsrs, doc(cfg(feature = "nlsat")))]
 pub use oxiz_nlsat as nlsat;

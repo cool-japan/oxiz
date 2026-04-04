@@ -39,9 +39,8 @@
 
 #![allow(missing_docs)]
 #![allow(dead_code)]
-
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::VecDeque;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Term identifier.
 pub type TermId = u32;

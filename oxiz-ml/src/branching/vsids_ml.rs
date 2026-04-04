@@ -261,7 +261,7 @@ mod tests {
 
         let decision = vsids.select_variable(&[0, 1, 2]);
         assert!(decision.is_some());
-        assert_eq!(decision.unwrap().variable, 1);
+        assert_eq!(decision.expect("test operation should succeed").variable, 1);
     }
 
     #[test]

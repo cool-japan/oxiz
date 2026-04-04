@@ -1,16 +1,16 @@
 # oxiz-theories TODO
 
-Last Updated: 2026-02-05
+Last Updated: 2026-03-28
 
 Reference: Z3's `smt/` directory at `../z3/src/smt/`
 
-## 🎉 Major Achievement: 100% Z3 Parity (v0.1.3)
+## 🎉 Major Achievement: 100% Z3 Parity (v0.2.0)
 
 **Date Achieved**: February 5, 2026
 
 All theory solvers in oxiz-theories have achieved **100% correctness parity with Z3** across 88 benchmark tests.
 
-### Theory-Specific Achievements (v0.1.3)
+### Theory-Specific Achievements (v0.2.0)
 
 #### String Theory (QF_S) - 100% (10/10 tests) ✅
 - ✅ **string_02**: Fixed concatenation length validation - enforce `len(concat(a,b,c)) = len(a) + len(b) + len(c)`
@@ -174,7 +174,7 @@ All theory solvers in oxiz-theories have achieved **100% correctness parity with
 
 - [x] SCIRS2 Policy compliance documented
 - [x] All clippy warnings fixed (`cargo clippy --all-features` - oxiz-theories has zero warnings)
-- [x] All tests passing (273 tests with `cargo test --lib`)
+- [x] All tests passing (1,314 tests with `cargo test --lib`, 2 skipped)
 - [x] Code formatting applied (`cargo fmt --all`)
 - [x] Refactor remaining production `.unwrap()` calls
 - [x] Documentation warnings fixed (rustdoc builds cleanly with `-D warnings`)
@@ -197,7 +197,7 @@ All theory solvers in oxiz-theories have achieved **100% correctness parity with
 - [x] Intelligent cut selection ordering (MIR > CG > Gomory based on strength)
 
 ### Code Quality
-- [x] All 273 tests passing with zero warnings
+- [x] All 1,314 tests passing (2 skipped) with zero warnings
 - [x] Clean clippy output (zero warnings)
 - [x] Maintained backward compatibility with default constructors
 
@@ -466,9 +466,9 @@ All theory solvers in oxiz-theories have achieved **100% correctness parity with
 ## Summary
 
 The oxiz-theories crate is now **100% complete + advanced optimizations** with:
-- 21,150 lines of pure Rust code (grew from 13,896 → 21,150, +52% growth)
-- 37 source files
-- 286 passing tests (increased from 280)
+- 64,226 lines of pure Rust code across 123 files
+- 2,609 public API items
+- 1,314 passing tests (2 skipped), zero todo!/unimplemented! calls
 - Zero warnings from oxiz-theories (cargo test, cargo clippy)
 - Production-ready error handling
 - Comprehensive documentation with academic references

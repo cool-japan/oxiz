@@ -1,7 +1,9 @@
 //! Model printing functionality
 
 use crate::ast::{model::Model, model::ModelValue};
-use std::fmt::Write;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::fmt::Write;
 
 use super::basic::Printer;
 

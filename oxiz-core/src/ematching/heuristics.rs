@@ -1,7 +1,8 @@
 //! Instantiation heuristics for E-matching
 
 use crate::ast::TermId;
-use rustc_hash::FxHashSet;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Configuration for instantiation heuristics
 #[derive(Debug, Clone)]
@@ -78,7 +79,7 @@ impl InstantiationHeuristic for GreedyHeuristic {
         candidates.sort_by(|a, b| {
             let pa = self.compute_priority(a.0, &a.1);
             let pb = self.compute_priority(b.0, &b.1);
-            pb.partial_cmp(&pa).unwrap_or(std::cmp::Ordering::Equal)
+            pb.partial_cmp(&pa).unwrap_or(core::cmp::Ordering::Equal)
         });
         candidates.truncate(limit);
         candidates
@@ -125,7 +126,7 @@ impl InstantiationHeuristic for ConflictDrivenHeuristic {
         candidates.sort_by(|a, b| {
             let pa = self.compute_priority(a.0, &a.1);
             let pb = self.compute_priority(b.0, &b.1);
-            pb.partial_cmp(&pa).unwrap_or(std::cmp::Ordering::Equal)
+            pb.partial_cmp(&pa).unwrap_or(core::cmp::Ordering::Equal)
         });
         candidates.truncate(limit);
         candidates
@@ -173,7 +174,7 @@ impl InstantiationHeuristic for HybridHeuristic {
         candidates.sort_by(|a, b| {
             let pa = self.compute_priority(a.0, &a.1);
             let pb = self.compute_priority(b.0, &b.1);
-            pb.partial_cmp(&pa).unwrap_or(std::cmp::Ordering::Equal)
+            pb.partial_cmp(&pa).unwrap_or(core::cmp::Ordering::Equal)
         });
         candidates.truncate(limit);
         candidates

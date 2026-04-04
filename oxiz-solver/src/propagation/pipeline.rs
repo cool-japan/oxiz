@@ -7,9 +7,9 @@
 //! - Theory-specific propagation (arithmetic, bit-vectors, etc.)
 //! - Priority-based scheduling of propagations
 
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::cmp::Ordering;
-use std::collections::BinaryHeap;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::cmp::Ordering;
 
 /// Placeholder term identifier
 pub type TermId = usize;
@@ -576,7 +576,7 @@ mod tests {
                 .stats
                 .theory_propagations
                 .get(&TheoryId::Arithmetic)
-                .unwrap(),
+                .expect("test operation should succeed"),
             1
         );
     }
@@ -621,7 +621,9 @@ mod tests {
         assert!(pipeline.is_propagated(5));
 
         // Backtrack to level 0
-        pipeline.backtrack(0).unwrap();
+        pipeline
+            .backtrack(0)
+            .expect("test operation should succeed");
         assert!(!pipeline.is_propagated(5));
         assert_eq!(pipeline.current_level(), 0);
     }

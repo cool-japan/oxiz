@@ -5,8 +5,9 @@
 
 #![allow(dead_code)] // Module ready for integration
 
-use rustc_hash::FxHashMap;
-use std::hash::Hash;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::hash::Hash;
 
 /// A node in the LRU doubly-linked list
 #[derive(Debug)]

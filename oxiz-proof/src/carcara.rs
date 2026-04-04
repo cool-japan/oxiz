@@ -281,7 +281,9 @@ mod tests {
     #[test]
     fn test_add_assume() {
         let mut proof = CarcaraProof::new();
-        let idx = proof.add_assume("p").unwrap();
+        let idx = proof
+            .add_assume("p")
+            .expect("test operation should succeed");
         assert_eq!(idx, 1);
         assert_eq!(proof.len(), 1);
     }
@@ -289,8 +291,12 @@ mod tests {
     #[test]
     fn test_add_step_with_premise() {
         let mut proof = CarcaraProof::new();
-        let p1 = proof.add_assume("p").unwrap();
-        let p2 = proof.add_assume("q").unwrap();
+        let p1 = proof
+            .add_assume("p")
+            .expect("test operation should succeed");
+        let p2 = proof
+            .add_assume("q")
+            .expect("test operation should succeed");
 
         let step = proof.add_step(
             vec!["(or p q)".to_string()],
@@ -322,8 +328,12 @@ mod tests {
     #[test]
     fn test_validation() {
         let mut proof = CarcaraProof::new();
-        proof.add_assume("p").unwrap();
-        proof.add_assume("q").unwrap();
+        proof
+            .add_assume("p")
+            .expect("test operation should succeed");
+        proof
+            .add_assume("q")
+            .expect("test operation should succeed");
 
         let result = proof.validate();
         assert!(result.is_ok());
@@ -332,9 +342,15 @@ mod tests {
     #[test]
     fn test_sequential_indices() {
         let mut proof = CarcaraProof::new();
-        let i1 = proof.add_assume("p").unwrap();
-        let i2 = proof.add_assume("q").unwrap();
-        let i3 = proof.add_assume("r").unwrap();
+        let i1 = proof
+            .add_assume("p")
+            .expect("test operation should succeed");
+        let i2 = proof
+            .add_assume("q")
+            .expect("test operation should succeed");
+        let i3 = proof
+            .add_assume("r")
+            .expect("test operation should succeed");
 
         assert_eq!(i1, 1);
         assert_eq!(i2, 2);
@@ -344,8 +360,12 @@ mod tests {
     #[test]
     fn test_clear() {
         let mut proof = CarcaraProof::new();
-        proof.add_assume("p").unwrap();
-        proof.add_assume("q").unwrap();
+        proof
+            .add_assume("p")
+            .expect("test operation should succeed");
+        proof
+            .add_assume("q")
+            .expect("test operation should succeed");
 
         assert_eq!(proof.len(), 2);
 
@@ -353,7 +373,9 @@ mod tests {
         assert!(proof.is_empty());
 
         // After clear, indices should start from 1 again
-        let idx = proof.add_assume("r").unwrap();
+        let idx = proof
+            .add_assume("r")
+            .expect("test operation should succeed");
         assert_eq!(idx, 1);
     }
 
@@ -362,7 +384,7 @@ mod tests {
         let mut proof = CarcaraProof::new();
         let idx = proof
             .add_anchor(vec![("x".to_string(), "Int".to_string())])
-            .unwrap();
+            .expect("test operation should succeed");
         assert_eq!(idx, 1);
         assert_eq!(proof.len(), 1);
     }
@@ -389,7 +411,7 @@ mod tests {
             vec![],
         );
 
-        let carcara = to_carcara_format(&alethe).unwrap();
+        let carcara = to_carcara_format(&alethe).expect("test operation should succeed");
         assert_eq!(carcara.len(), 3);
         assert!(carcara.validate().is_ok());
     }

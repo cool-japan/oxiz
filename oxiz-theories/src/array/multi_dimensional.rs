@@ -10,9 +10,10 @@
 
 #![allow(missing_docs)]
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::fmt;
 use oxiz_core::error::{OxizError, Result};
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::fmt;
 
 /// Represents the dimensionality of an array
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -94,7 +95,7 @@ impl MultiDimSelect {
 
     /// Compute hash for this select operation
     fn compute_hash(array: u32, indices: &[u32]) -> u64 {
-        use std::hash::{Hash, Hasher};
+        use core::hash::{Hash, Hasher};
         let mut hasher = rustc_hash::FxHasher::default();
         array.hash(&mut hasher);
         indices.hash(&mut hasher);
@@ -144,7 +145,7 @@ impl MultiDimStore {
 
     /// Compute hash for this store operation
     fn compute_hash(array: u32, indices: &[u32], value: u32) -> u64 {
-        use std::hash::{Hash, Hasher};
+        use core::hash::{Hash, Hasher};
         let mut hasher = rustc_hash::FxHasher::default();
         array.hash(&mut hasher);
         indices.hash(&mut hasher);
@@ -744,7 +745,7 @@ mod tests {
 
         let result = mgr.flatten_index(0, &indices, &bounds);
         assert!(result.is_some());
-        let flattened = result.unwrap();
+        let flattened = result.expect("test operation should succeed");
         // For row-major: multipliers are [600, 30, 1]
         // index = 1*600 + 2*30 + 3*1 = 663
         assert_eq!(flattened.len(), 3);
@@ -810,7 +811,7 @@ mod tests {
 
         let bounds = mgr.get_dimension_bounds(10);
         assert!(bounds.is_some());
-        assert_eq!(bounds.unwrap().len(), 3);
+        assert_eq!(bounds.expect("test operation should succeed").len(), 3);
     }
 
     #[test]
@@ -822,7 +823,8 @@ mod tests {
         let ctx = mgr.push();
 
         mgr.register_array(20, dims);
-        mgr.register_select(100, 10, vec![5]).unwrap();
+        mgr.register_select(100, 10, vec![5])
+            .expect("test operation should succeed");
 
         mgr.pop(&ctx);
         assert_eq!(mgr.md_selects.len(), 0);

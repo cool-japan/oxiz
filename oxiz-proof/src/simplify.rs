@@ -524,7 +524,9 @@ mod tests {
         assert!(stats.double_negations > 0);
 
         // Check that conclusion was simplified
-        let node = proof.get_node(ProofNodeId(0)).unwrap();
+        let node = proof
+            .get_node(ProofNodeId(0))
+            .expect("test operation should succeed");
         assert_eq!(node.conclusion(), "p");
     }
 
@@ -536,7 +538,9 @@ mod tests {
         let stats = simplify_proof(&mut proof);
         assert!(stats.identities_removed > 0);
 
-        let node = proof.get_node(ProofNodeId(0)).unwrap();
+        let node = proof
+            .get_node(ProofNodeId(0))
+            .expect("test operation should succeed");
         assert_eq!(node.conclusion(), "p");
     }
 
@@ -548,7 +552,9 @@ mod tests {
         let stats = simplify_proof(&mut proof);
         assert!(stats.tautologies_simplified > 0);
 
-        let node = proof.get_node(ProofNodeId(0)).unwrap();
+        let node = proof
+            .get_node(ProofNodeId(0))
+            .expect("test operation should succeed");
         assert_eq!(node.conclusion(), "true");
     }
 

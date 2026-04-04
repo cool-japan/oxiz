@@ -8,8 +8,9 @@
 
 use super::super::simplex::{Simplex, VarId};
 use crate::config::LiaConfig;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_rational::Rational64;
-use rustc_hash::FxHashMap;
 
 /// A bound on an integer variable
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

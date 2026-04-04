@@ -345,10 +345,12 @@ mod tests {
             vec![],
         );
 
-        let path = checkpoint.save(&temp_dir).unwrap();
+        let path = checkpoint
+            .save(&temp_dir)
+            .expect("test operation should succeed");
         assert!(path.exists());
 
-        let loaded = Checkpoint::load(&path).unwrap();
+        let loaded = Checkpoint::load(&path).expect("test operation should succeed");
         assert_eq!(loaded.problem, checkpoint.problem);
         assert_eq!(loaded.logic, checkpoint.logic);
 
@@ -374,7 +376,9 @@ mod tests {
             vec![],
         );
 
-        manager.save_checkpoint(checkpoint1).unwrap();
+        manager
+            .save_checkpoint(checkpoint1)
+            .expect("test operation should succeed");
 
         // Immediately shouldn't checkpoint again
         assert!(!manager.should_checkpoint());
@@ -401,16 +405,19 @@ mod tests {
                 ProgressInfo::new(1000 * i as u128, 33.0, "solving".to_string()),
                 vec![],
             );
-            manager.save_checkpoint(checkpoint).unwrap();
+            manager
+                .save_checkpoint(checkpoint)
+                .expect("test operation should succeed");
         }
 
         // Should have only 2 checkpoints (cleanup happens after each save)
-        let checkpoints = Checkpoint::list_checkpoints(&temp_dir).unwrap();
+        let checkpoints =
+            Checkpoint::list_checkpoints(&temp_dir).expect("test operation should succeed");
         assert_eq!(checkpoints.len(), 2);
 
         // Verify that the most recent 2 checkpoints are kept
-        let loaded1 = Checkpoint::load(&checkpoints[0]).unwrap();
-        let loaded2 = Checkpoint::load(&checkpoints[1]).unwrap();
+        let loaded1 = Checkpoint::load(&checkpoints[0]).expect("test operation should succeed");
+        let loaded2 = Checkpoint::load(&checkpoints[1]).expect("test operation should succeed");
 
         // The most recent should be checkpoint_1002 and checkpoint_1001
         assert!(loaded1.id == "checkpoint_1002" || loaded1.id == "checkpoint_1001");

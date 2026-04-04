@@ -22,10 +22,11 @@
 //! - Bruttomesso et al.: "A Lazy and Layered SMT(BV) Solver"
 
 use crate::error::Result;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::tactic::core::{Goal, Tactic, TacticResult};
 use crate::{Sort, Term};
-use rustc_hash::FxHashMap;
-use std::fmt;
+use core::fmt;
 
 /// Array identifier.
 pub type ArrayId = usize;

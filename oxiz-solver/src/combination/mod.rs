@@ -9,6 +9,9 @@
 //! - Convexity checking and handling
 //! - Partition refinement algorithms
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 pub mod coordinator;
 pub mod equality_propagation;
 pub mod nelson_oppen;

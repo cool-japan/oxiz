@@ -6,8 +6,9 @@
 //! - Undo/redo operations
 //! - Incremental solving state
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::ast::TermId;
-use rustc_hash::FxHashMap;
 
 /// Backtrack manager for incremental SMT solving.
 pub struct BacktrackManager {
@@ -387,7 +388,8 @@ mod tests {
         let mut mgr = BacktrackManager::new();
 
         let var = TermId::from(1);
-        mgr.decide(var, true).unwrap();
+        mgr.decide(var, true)
+            .expect("test operation should succeed");
 
         assert_eq!(mgr.current_level(), 1);
         assert_eq!(mgr.stats.decisions, 1);
@@ -399,11 +401,13 @@ mod tests {
         let mut mgr = BacktrackManager::new();
 
         let var1 = TermId::from(1);
-        mgr.decide(var1, true).unwrap();
+        mgr.decide(var1, true)
+            .expect("test operation should succeed");
 
         let var2 = TermId::from(2);
         let reason = ReasonClause::BooleanClause(vec![var1]);
-        mgr.propagate(var2, false, reason).unwrap();
+        mgr.propagate(var2, false, reason)
+            .expect("test operation should succeed");
 
         assert_eq!(mgr.stats.propagations, 1);
         assert!(mgr.is_assigned(var2));
@@ -414,14 +418,16 @@ mod tests {
         let mut mgr = BacktrackManager::new();
 
         let var1 = TermId::from(1);
-        mgr.decide(var1, true).unwrap();
+        mgr.decide(var1, true)
+            .expect("test operation should succeed");
 
         let var2 = TermId::from(2);
-        mgr.decide(var2, false).unwrap();
+        mgr.decide(var2, false)
+            .expect("test operation should succeed");
 
         assert_eq!(mgr.current_level(), 2);
 
-        mgr.backtrack(1).unwrap();
+        mgr.backtrack(1).expect("test operation should succeed");
 
         assert_eq!(mgr.current_level(), 1);
         assert!(mgr.is_assigned(var1));
@@ -432,10 +438,12 @@ mod tests {
     fn test_restart() {
         let mut mgr = BacktrackManager::new();
 
-        mgr.decide(TermId::from(1), true).unwrap();
-        mgr.decide(TermId::from(2), false).unwrap();
+        mgr.decide(TermId::from(1), true)
+            .expect("test operation should succeed");
+        mgr.decide(TermId::from(2), false)
+            .expect("test operation should succeed");
 
-        mgr.restart().unwrap();
+        mgr.restart().expect("test operation should succeed");
 
         assert_eq!(mgr.current_level(), 0);
         assert_eq!(mgr.stats.restarts, 1);
@@ -446,12 +454,14 @@ mod tests {
     fn test_checkpoint() {
         let mut mgr = BacktrackManager::new();
 
-        mgr.decide(TermId::from(1), true).unwrap();
+        mgr.decide(TermId::from(1), true)
+            .expect("test operation should succeed");
         mgr.push_checkpoint();
 
-        mgr.decide(TermId::from(2), false).unwrap();
+        mgr.decide(TermId::from(2), false)
+            .expect("test operation should succeed");
 
-        mgr.pop_checkpoint().unwrap();
+        mgr.pop_checkpoint().expect("test operation should succeed");
 
         assert_eq!(mgr.current_level(), 1);
         assert!(!mgr.is_assigned(TermId::from(2)));
@@ -462,9 +472,12 @@ mod tests {
         let mut mgr = BacktrackManager::new();
 
         let var = TermId::from(1);
-        mgr.decide(var, true).unwrap();
+        mgr.decide(var, true)
+            .expect("test operation should succeed");
 
-        let assignment = mgr.get_assignment(var).unwrap();
+        let assignment = mgr
+            .get_assignment(var)
+            .expect("test operation should succeed");
         assert!(assignment.value);
         assert_eq!(assignment.level, 1);
         assert!(assignment.reason.is_none());

@@ -884,7 +884,7 @@ mod tests {
         let result = parser.parse(input);
         assert!(result.is_ok());
 
-        let system = result.unwrap();
+        let system = result.expect("test operation should succeed");
         assert_eq!(system.num_predicates(), 1);
     }
 
@@ -910,7 +910,7 @@ mod tests {
     #[test]
     fn test_lexer_basic() {
         let mut lexer = Lexer::new("(set-logic HORN)");
-        let tokens = lexer.tokenize().unwrap();
+        let tokens = lexer.tokenize().expect("test operation should succeed");
 
         assert_eq!(tokens.len(), 4);
         assert_eq!(tokens[0], Token::LParen);
@@ -922,7 +922,7 @@ mod tests {
     #[test]
     fn test_lexer_keywords() {
         let mut lexer = Lexer::new(":name :type");
-        let tokens = lexer.tokenize().unwrap();
+        let tokens = lexer.tokenize().expect("test operation should succeed");
 
         assert_eq!(tokens.len(), 2);
         assert_eq!(tokens[0], Token::Keyword("name".to_string()));
@@ -932,7 +932,7 @@ mod tests {
     #[test]
     fn test_lexer_numbers() {
         let mut lexer = Lexer::new("42 3.14");
-        let tokens = lexer.tokenize().unwrap();
+        let tokens = lexer.tokenize().expect("test operation should succeed");
 
         assert_eq!(tokens.len(), 2);
         assert_eq!(tokens[0], Token::Numeral("42".to_string()));
@@ -942,7 +942,7 @@ mod tests {
     #[test]
     fn test_lexer_string() {
         let mut lexer = Lexer::new(r#""hello world""#);
-        let tokens = lexer.tokenize().unwrap();
+        let tokens = lexer.tokenize().expect("test operation should succeed");
 
         assert_eq!(tokens.len(), 1);
         assert_eq!(tokens[0], Token::StringLit("hello world".to_string()));
@@ -951,7 +951,7 @@ mod tests {
     #[test]
     fn test_lexer_comments() {
         let mut lexer = Lexer::new("; this is a comment\n(foo bar)");
-        let tokens = lexer.tokenize().unwrap();
+        let tokens = lexer.tokenize().expect("test operation should succeed");
 
         assert_eq!(tokens.len(), 4);
         assert_eq!(tokens[0], Token::LParen);
@@ -962,7 +962,7 @@ mod tests {
 
     #[test]
     fn test_sexpr_parser_atom() {
-        let exprs = SExprParser::parse_str("foo").unwrap();
+        let exprs = SExprParser::parse_str("foo").expect("test operation should succeed");
 
         assert_eq!(exprs.len(), 1);
         assert!(exprs[0].is_atom());
@@ -971,12 +971,12 @@ mod tests {
 
     #[test]
     fn test_sexpr_parser_list() {
-        let exprs = SExprParser::parse_str("(foo bar)").unwrap();
+        let exprs = SExprParser::parse_str("(foo bar)").expect("test operation should succeed");
 
         assert_eq!(exprs.len(), 1);
         assert!(exprs[0].is_list());
 
-        let list = exprs[0].as_list().unwrap();
+        let list = exprs[0].as_list().expect("test operation should succeed");
         assert_eq!(list.len(), 2);
         assert_eq!(list[0].as_symbol(), Some("foo"));
         assert_eq!(list[1].as_symbol(), Some("bar"));
@@ -984,16 +984,17 @@ mod tests {
 
     #[test]
     fn test_sexpr_parser_nested() {
-        let exprs = SExprParser::parse_str("(foo (bar baz) qux)").unwrap();
+        let exprs =
+            SExprParser::parse_str("(foo (bar baz) qux)").expect("test operation should succeed");
 
         assert_eq!(exprs.len(), 1);
-        let list = exprs[0].as_list().unwrap();
+        let list = exprs[0].as_list().expect("test operation should succeed");
         assert_eq!(list.len(), 3);
         assert_eq!(list[0].as_symbol(), Some("foo"));
         assert!(list[1].is_list());
         assert_eq!(list[2].as_symbol(), Some("qux"));
 
-        let inner = list[1].as_list().unwrap();
+        let inner = list[1].as_list().expect("test operation should succeed");
         assert_eq!(inner.len(), 2);
         assert_eq!(inner[0].as_symbol(), Some("bar"));
         assert_eq!(inner[1].as_symbol(), Some("baz"));
@@ -1001,7 +1002,7 @@ mod tests {
 
     #[test]
     fn test_sexpr_parser_multiple() {
-        let exprs = SExprParser::parse_str("(foo) (bar)").unwrap();
+        let exprs = SExprParser::parse_str("(foo) (bar)").expect("test operation should succeed");
 
         assert_eq!(exprs.len(), 2);
         assert!(exprs[0].is_list());

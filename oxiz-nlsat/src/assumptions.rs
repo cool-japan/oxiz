@@ -255,12 +255,22 @@ mod tests {
         mgr.add_clause(1);
         mgr.add_clause(2);
 
-        assert_eq!(mgr.clauses_at_level(0).unwrap().len(), 2);
+        assert_eq!(
+            mgr.clauses_at_level(0)
+                .expect("test operation should succeed")
+                .len(),
+            2
+        );
 
         mgr.push(0, 0);
         mgr.add_clause(3);
 
-        assert_eq!(mgr.clauses_at_level(1).unwrap().len(), 1);
+        assert_eq!(
+            mgr.clauses_at_level(1)
+                .expect("test operation should succeed")
+                .len(),
+            1
+        );
 
         let to_remove = mgr.clauses_to_remove();
         assert_eq!(to_remove.len(), 1);

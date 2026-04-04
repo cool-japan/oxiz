@@ -17,6 +17,9 @@
 //! into SAT constraints. This is the most common approach for
 //! floating-point SMT solving (used by MathSAT, CVC5, etc.).
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 pub mod ieee754_full;
 pub mod interval_arithmetic;
 mod solver;

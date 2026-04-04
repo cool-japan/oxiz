@@ -10,25 +10,52 @@ keywords = ["smt", "ast", "logic"]
 categories = ["algorithms", "data-structures"]
 
 [dependencies]
-bumpalo = { workspace = true, features = ["collections"] }
-indexmap = { workspace = true }
-lasso = { version = "0.7", features = ["multi-threaded"] }
-winnow = { workspace = true }
-thiserror = { workspace = true }
-tracing = { workspace = true }
+# Always available (no_std compatible)
+indexmap = { workspace = true, default-features = false }
+thiserror = { workspace = true, default-features = false }
+tracing = { workspace = true, default-features = false, optional = true }
 smallvec = { workspace = true }
 rustc-hash = { workspace = true }
-num-rational = { workspace = true }
-num-bigint = { workspace = true }
-num-traits = { workspace = true }
-num-integer = { workspace = true }
-rhai = { version = "1.24", features = ["sync"] }
-wide = "1.1"
-rayon = { workspace = true }
-parking_lot = "0.12"
+num-rational = { workspace = true, default-features = false, features = ["num-bigint"] }
+num-bigint = { workspace = true, default-features = false }
+num-traits = { workspace = true, default-features = false }
+num-integer = { workspace = true, default-features = false }
+hashbrown.workspace = true
+portable-atomic = { workspace = true }
+portable-atomic-util = { workspace = true }
+oxiz-math = { workspace = true, default-features = false }
+
+# Optional (std-only)
+lasso = { version = "0.7", optional = true, features = ["multi-threaded"] }
+bumpalo = { workspace = true, features = ["collections"], optional = true }
+winnow = { workspace = true, optional = true }
+rhai = { version = "1.24", features = ["sync"], optional = true }
+wide = { version = "1.2", optional = true }
+rayon = { workspace = true, optional = true }
+parking_lot = { version = "0.12", optional = true }
 
 [features]
-default = []
+default = ["std"]
+std = [
+    "lasso",
+    "bumpalo",
+    "winnow",
+    "rhai",
+    "wide",
+    "rayon",
+    "parking_lot",
+    "tracing",
+    "tracing/std",
+    "thiserror/std",
+    "indexmap/std",
+    "num-rational/std",
+    "num-bigint/std",
+    "num-traits/std",
+    "num-integer/std",
+    "rustc-hash/std",
+    "oxiz-math/std",
+]
+arena = ["bumpalo"]
 property-tests = []
 
 [dev-dependencies]

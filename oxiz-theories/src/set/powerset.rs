@@ -5,7 +5,8 @@
 #![allow(dead_code)]
 
 use super::{SetConflict, SetVarId};
-use rustc_hash::{FxHashMap, FxHashSet};
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Powerset constraint: S2 = P(S1)
 #[derive(Debug, Clone)]
@@ -550,7 +551,7 @@ mod tests {
         let result = manager.generate(base, vec![1, 2]);
         assert!(result.is_ok());
 
-        let powerset = result.unwrap();
+        let powerset = result.expect("test operation should succeed");
         assert_eq!(powerset.len(), 4);
     }
 
@@ -569,7 +570,9 @@ mod tests {
         let mut manager = PowersetManager::new();
 
         let base = SetVarId(0);
-        manager.generate(base, vec![1, 2]).unwrap();
+        manager
+            .generate(base, vec![1, 2])
+            .expect("test operation should succeed");
 
         let mut subset = FxHashSet::default();
         subset.insert(1);

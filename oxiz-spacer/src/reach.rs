@@ -707,7 +707,7 @@ mod tests {
         let rule = RuleId::new(0);
 
         let id = store.add(pred, fact, rule, true);
-        let reach_fact = store.get(id).unwrap();
+        let reach_fact = store.get(id).expect("key should exist in map");
 
         assert!(reach_fact.is_init());
         assert_eq!(reach_fact.rule(), rule);
@@ -727,9 +727,12 @@ mod tests {
         let id2 = store.add(pred, fact2, rule, false);
 
         // Add justification
-        store.get_mut(id2).unwrap().add_justification(id1);
+        store
+            .get_mut(id2)
+            .expect("test operation should succeed")
+            .add_justification(id1);
 
-        let reach_fact = store.get(id2).unwrap();
+        let reach_fact = store.get(id2).expect("key should exist in map");
         assert_eq!(reach_fact.justifications(), &[id1]);
     }
 

@@ -9,7 +9,8 @@
 
 use super::proof::{Proof, ProofId, ProofRule};
 use crate::ast::{TermId, TermManager};
-use rustc_hash::FxHashMap;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 #[cfg(test)]
 use super::proof::ProofNode;
@@ -495,7 +496,9 @@ mod tests {
         let nd_proof = resolution_to_natural_deduction(&res_proof, &manager);
         assert_eq!(nd_proof.size(), 1);
 
-        let nd_node = nd_proof.get_node(ProofId(0)).unwrap();
+        let nd_node = nd_proof
+            .get_node(ProofId(0))
+            .expect("test operation should succeed");
         assert_eq!(nd_node.rule, NaturalDeductionRule::Assume);
     }
 

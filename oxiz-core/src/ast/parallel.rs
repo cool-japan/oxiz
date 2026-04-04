@@ -7,6 +7,8 @@
 //! Reference: Rust's rayon library for data parallelism
 
 use crate::ast::TermId;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use rayon::prelude::*;
 
 /// Threshold for parallelization (terms below this are processed sequentially)
@@ -60,7 +62,7 @@ pub fn parallel_all_distinct(terms: &[TermId]) -> bool {
 
     if terms.len() < PARALLEL_THRESHOLD {
         // Sequential check using HashSet
-        use rustc_hash::FxHashSet;
+        use crate::prelude::FxHashSet;
         let mut seen = FxHashSet::default();
         terms.iter().all(|t| seen.insert(*t))
     } else {
@@ -186,8 +188,8 @@ impl ParallelStats {
     }
 }
 
-impl std::fmt::Display for ParallelStats {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for ParallelStats {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         writeln!(f, "Parallel Statistics:")?;
         writeln!(f, "  Parallel ops:    {}", self.parallel_ops)?;
         writeln!(f, "  Sequential ops:  {}", self.sequential_ops)?;

@@ -4,10 +4,11 @@
 //! sets of tuples. This module provides both EDB (Extensional Database)
 //! and IDB (Intensional Database) relation types.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::sync::atomic::{AtomicU64, Ordering};
 use parking_lot::RwLock;
-use rustc_hash::FxHashSet;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::index::{IndexId, IndexKey, MultiIndex, TupleId};
 use super::schema::{ColumnId, Schema};
@@ -77,7 +78,7 @@ impl DeltaSet {
 
     /// Advance to next iteration
     pub fn advance(&mut self) {
-        self.current = std::mem::take(&mut self.new_tuples);
+        self.current = core::mem::take(&mut self.new_tuples);
         self.changed = false;
     }
 
@@ -480,8 +481,8 @@ impl Relation {
         };
 
         // Build phase
-        let mut hash_table: rustc_hash::FxHashMap<IndexKey, Vec<&Tuple>> =
-            rustc_hash::FxHashMap::default();
+        let mut hash_table: crate::prelude::FxHashMap<IndexKey, Vec<&Tuple>> =
+            crate::prelude::FxHashMap::default();
         for tuple in build_rel.iter() {
             let key = IndexKey::from_tuple(tuple, build_cols);
             hash_table.entry(key).or_default().push(tuple);
@@ -642,7 +643,7 @@ mod tests {
         rel2.insert(TupleBuilder::new().push_i64(3).push_i64(4).build());
         rel2.insert(TupleBuilder::new().push_i64(1).push_i64(2).build()); // Duplicate
 
-        let union = rel1.union(&rel2).unwrap();
+        let union = rel1.union(&rel2).expect("test operation should succeed");
         assert_eq!(union.len(), 2);
     }
 
@@ -655,7 +656,9 @@ mod tests {
         let mut rel2 = create_test_relation();
         rel2.insert(TupleBuilder::new().push_i64(1).push_i64(2).build());
 
-        let diff = rel1.difference(&rel2).unwrap();
+        let diff = rel1
+            .difference(&rel2)
+            .expect("test operation should succeed");
         assert_eq!(diff.len(), 1);
     }
 

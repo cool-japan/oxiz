@@ -339,7 +339,7 @@ mod tests {
 
         let freq = computer.compute_rule_frequency(&proof);
         assert!(freq.contains_key("resolution"));
-        assert_eq!(*freq.get("resolution").unwrap(), 1);
+        assert_eq!(*freq.get("resolution").expect("key should exist in map"), 1);
     }
 
     #[test]

@@ -24,6 +24,8 @@
 //! - Faugère: "A New Efficient Algorithm for Computing Gröbner Bases (F4)" (1999)
 //! - Z3's `math/grobner/grobner.cpp`
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_rational::BigRational;
 use num_traits::Zero;
 
@@ -96,7 +98,7 @@ pub enum MonomialOrder {
 
 impl MonomialOrder {
     /// Compare two monomials.
-    pub fn compare(&self, a: &Monomial, b: &Monomial) -> std::cmp::Ordering {
+    pub fn compare(&self, a: &Monomial, b: &Monomial) -> core::cmp::Ordering {
         match self {
             MonomialOrder::Lex => self.lex_compare(a, b),
             MonomialOrder::DegRevLex => self.deg_revlex_compare(a, b),
@@ -104,47 +106,47 @@ impl MonomialOrder {
         }
     }
 
-    fn lex_compare(&self, a: &Monomial, b: &Monomial) -> std::cmp::Ordering {
+    fn lex_compare(&self, a: &Monomial, b: &Monomial) -> core::cmp::Ordering {
         let max_len = a.len().max(b.len());
         for i in 0..max_len {
             let a_exp = a.get(i).copied().unwrap_or(0);
             let b_exp = b.get(i).copied().unwrap_or(0);
             match a_exp.cmp(&b_exp) {
-                std::cmp::Ordering::Equal => continue,
+                core::cmp::Ordering::Equal => continue,
                 other => return other,
             }
         }
-        std::cmp::Ordering::Equal
+        core::cmp::Ordering::Equal
     }
 
-    fn deg_revlex_compare(&self, a: &Monomial, b: &Monomial) -> std::cmp::Ordering {
+    fn deg_revlex_compare(&self, a: &Monomial, b: &Monomial) -> core::cmp::Ordering {
         let a_deg: u32 = a.iter().sum();
         let b_deg: u32 = b.iter().sum();
 
         match a_deg.cmp(&b_deg) {
-            std::cmp::Ordering::Equal => {
+            core::cmp::Ordering::Equal => {
                 // Reverse lexicographic on exponents
                 let max_len = a.len().max(b.len());
                 for i in (0..max_len).rev() {
                     let a_exp = a.get(i).copied().unwrap_or(0);
                     let b_exp = b.get(i).copied().unwrap_or(0);
                     match a_exp.cmp(&b_exp) {
-                        std::cmp::Ordering::Equal => continue,
+                        core::cmp::Ordering::Equal => continue,
                         other => return other,
                     }
                 }
-                std::cmp::Ordering::Equal
+                core::cmp::Ordering::Equal
             }
             other => other,
         }
     }
 
-    fn deg_lex_compare(&self, a: &Monomial, b: &Monomial) -> std::cmp::Ordering {
+    fn deg_lex_compare(&self, a: &Monomial, b: &Monomial) -> core::cmp::Ordering {
         let a_deg: u32 = a.iter().sum();
         let b_deg: u32 = b.iter().sum();
 
         match a_deg.cmp(&b_deg) {
-            std::cmp::Ordering::Equal => self.lex_compare(a, b),
+            core::cmp::Ordering::Equal => self.lex_compare(a, b),
             other => other,
         }
     }
@@ -224,6 +226,7 @@ impl F4Algorithm {
 
     /// Compute Gröbner basis using F4.
     pub fn compute_basis(&mut self, generators: Vec<Polynomial>) -> Vec<Polynomial> {
+        #[cfg(feature = "std")]
         let start = std::time::Instant::now();
 
         if generators.is_empty() {
@@ -286,7 +289,10 @@ impl F4Algorithm {
         basis = self.interreduce(basis);
 
         self.stats.basis_size = basis.len() as u64;
-        self.stats.time_us += start.elapsed().as_micros() as u64;
+        #[cfg(feature = "std")]
+        {
+            self.stats.time_us += start.elapsed().as_micros() as u64;
+        }
 
         basis
     }
@@ -481,7 +487,7 @@ mod tests {
         let m2 = vec![1, 2];
 
         // m1 > m2 in lex order (compare first exponent)
-        assert_eq!(order.compare(&m1, &m2), std::cmp::Ordering::Greater);
+        assert_eq!(order.compare(&m1, &m2), core::cmp::Ordering::Greater);
     }
 
     #[test]
@@ -492,7 +498,7 @@ mod tests {
         let m2 = vec![1, 1]; // degree 2
 
         // m1 > m2 (higher degree)
-        assert_eq!(order.compare(&m1, &m2), std::cmp::Ordering::Greater);
+        assert_eq!(order.compare(&m1, &m2), core::cmp::Ordering::Greater);
     }
 
     #[test]

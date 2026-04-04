@@ -21,10 +21,11 @@
 //! - Z3's `tactic/arith/propagate_ineqs_tactic.cpp`
 
 use crate::error::Result;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::tactic::core::{Goal, Tactic, TacticResult};
+use core::fmt;
 use num_rational::BigRational;
-use rustc_hash::FxHashMap;
-use std::fmt;
 
 /// Variable identifier.
 pub type VarId = usize;

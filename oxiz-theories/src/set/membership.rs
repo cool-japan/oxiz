@@ -5,7 +5,8 @@
 #![allow(dead_code)]
 
 use super::{SetConflict, SetLiteral, SetProofStep, SetVar, SetVarId};
-use rustc_hash::{FxHashMap, FxHashSet};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use smallvec::SmallVec;
 
 /// Membership variable
@@ -633,7 +634,7 @@ impl MembershipInference {
 
             for rule in &self.rules {
                 if let Some((var, value)) = rule.apply(&self.known)
-                    && let std::collections::hash_map::Entry::Vacant(e) = self.known.entry(var)
+                    && let crate::prelude::hash_map::Entry::Vacant(e) = self.known.entry(var)
                 {
                     e.insert(value);
                     inferred.insert(var, value);
@@ -811,7 +812,7 @@ mod tests {
         let mut prop = MemberPropagator::new();
 
         prop.add_constraint(MemberConstraint::new(42, SetVarId(0), true, 0))
-            .unwrap();
+            .expect("test operation should succeed");
 
         let result = prop.add_constraint(MemberConstraint::new(42, SetVarId(0), false, 0));
         assert!(result.is_err());
@@ -826,7 +827,7 @@ mod tests {
 
         // 42 ∈ lhs
         prop.add_constraint(MemberConstraint::new(42, lhs, true, 0))
-            .unwrap();
+            .expect("test operation should succeed");
 
         let vars = vec![
             SetVar::new(lhs, "lhs".to_string(), super::super::SetSort::IntSet, 0),
@@ -839,7 +840,8 @@ mod tests {
             ),
         ];
 
-        prop.propagate_union(lhs, rhs, result, &vars).unwrap();
+        prop.propagate_union(lhs, rhs, result, &vars)
+            .expect("test operation should succeed");
 
         // 42 should be in result
         let result_var = MemberVar::new(42, result);
@@ -855,10 +857,10 @@ mod tests {
 
         // 42 ∈ lhs
         prop.add_constraint(MemberConstraint::new(42, lhs, true, 0))
-            .unwrap();
+            .expect("test operation should succeed");
         // 42 ∈ rhs
         prop.add_constraint(MemberConstraint::new(42, rhs, true, 0))
-            .unwrap();
+            .expect("test operation should succeed");
 
         let vars = vec![
             SetVar::new(lhs, "lhs".to_string(), super::super::SetSort::IntSet, 0),
@@ -872,7 +874,7 @@ mod tests {
         ];
 
         prop.propagate_intersection(lhs, rhs, result, &vars)
-            .unwrap();
+            .expect("test operation should succeed");
 
         // 42 should be in result
         let result_var = MemberVar::new(42, result);
@@ -888,10 +890,10 @@ mod tests {
 
         // 42 ∈ lhs
         prop.add_constraint(MemberConstraint::new(42, lhs, true, 0))
-            .unwrap();
+            .expect("test operation should succeed");
         // 42 ∉ rhs
         prop.add_constraint(MemberConstraint::new(42, rhs, false, 0))
-            .unwrap();
+            .expect("test operation should succeed");
 
         let vars = vec![
             SetVar::new(lhs, "lhs".to_string(), super::super::SetSort::IntSet, 0),
@@ -904,7 +906,8 @@ mod tests {
             ),
         ];
 
-        prop.propagate_difference(lhs, rhs, result, &vars).unwrap();
+        prop.propagate_difference(lhs, rhs, result, &vars)
+            .expect("test operation should succeed");
 
         // 42 should be in result
         let result_var = MemberVar::new(42, result);
@@ -919,7 +922,7 @@ mod tests {
 
         // 42 ∈ set
         prop.add_constraint(MemberConstraint::new(42, set, true, 0))
-            .unwrap();
+            .expect("test operation should succeed");
 
         let mut universe = FxHashSet::default();
         universe.insert(42);
@@ -936,7 +939,7 @@ mod tests {
         ];
 
         prop.propagate_complement(set, result, Some(&universe), &vars)
-            .unwrap();
+            .expect("test operation should succeed");
 
         // 42 should not be in result
         let result_var_42 = MemberVar::new(42, result);
@@ -1009,11 +1012,11 @@ mod tests {
         let set = SetVarId(0);
 
         prop.add_constraint(MemberConstraint::new(1, set, true, 0))
-            .unwrap();
+            .expect("test operation should succeed");
         prop.add_constraint(MemberConstraint::new(2, set, true, 0))
-            .unwrap();
+            .expect("test operation should succeed");
         prop.add_constraint(MemberConstraint::new(3, set, false, 0))
-            .unwrap();
+            .expect("test operation should succeed");
 
         let must_members = prop.get_must_members(set);
         assert_eq!(must_members.len(), 2);
@@ -1028,11 +1031,11 @@ mod tests {
         let set = SetVarId(0);
 
         prop.add_constraint(MemberConstraint::new(1, set, true, 0))
-            .unwrap();
+            .expect("test operation should succeed");
         prop.add_constraint(MemberConstraint::new(2, set, false, 0))
-            .unwrap();
+            .expect("test operation should succeed");
         prop.add_constraint(MemberConstraint::new(3, set, false, 0))
-            .unwrap();
+            .expect("test operation should succeed");
 
         let must_not_members = prop.get_must_not_members(set);
         assert_eq!(must_not_members.len(), 2);

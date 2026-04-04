@@ -6,10 +6,11 @@
 //! - Theory propagation explanations
 //! - Interpolation
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::fmt;
 use oxiz_core::ast::TermId;
-use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
-use std::fmt;
 
 /// A proof step in the congruence closure
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -173,7 +174,7 @@ impl ProofForest {
 
     /// Make a term (ensure it exists)
     pub fn make(&mut self, term: TermId) {
-        if let std::collections::hash_map::Entry::Vacant(e) = self.parent.entry(term) {
+        if let crate::prelude::hash_map::Entry::Vacant(e) = self.parent.entry(term) {
             e.insert(term);
             self.rank.insert(term, 0);
         }
@@ -205,15 +206,15 @@ impl ProofForest {
         let rank_b = self.rank.get(&root_b).copied().unwrap_or(0);
 
         match rank_a.cmp(&rank_b) {
-            std::cmp::Ordering::Less => {
+            core::cmp::Ordering::Less => {
                 self.parent.insert(root_a, root_b);
                 self.proof_to_parent.insert(root_a, proof);
             }
-            std::cmp::Ordering::Greater => {
+            core::cmp::Ordering::Greater => {
                 self.parent.insert(root_b, root_a);
                 self.proof_to_parent.insert(root_b, proof);
             }
-            std::cmp::Ordering::Equal => {
+            core::cmp::Ordering::Equal => {
                 self.parent.insert(root_b, root_a);
                 self.proof_to_parent.insert(root_b, proof);
                 self.rank.insert(root_a, rank_a + 1);

@@ -1,6 +1,9 @@
 //! Helper functions for LIA solver
 
 /// Compute GCD of two integers using Euclidean algorithm
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 pub(super) fn gcd(a: i64, b: i64) -> i64 {
     let mut a = a.abs();
     let mut b = b.abs();

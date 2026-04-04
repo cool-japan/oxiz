@@ -334,7 +334,7 @@ impl CadOrderingAnalyzer {
             .collect();
 
         // Sort by conflict count (descending)
-        with_counts.sort_by(|a, b| b.1.cmp(&a.1));
+        with_counts.sort_by_key(|item| std::cmp::Reverse(item.1));
 
         for (i, (v, _)) in with_counts.into_iter().enumerate() {
             vars[i] = v;
@@ -677,7 +677,7 @@ mod tests {
 
         // Insert and retrieve
         cache.insert(&p, 0, samples.clone());
-        assert_eq!(cache.get(&p, 0).unwrap().len(), 2);
+        assert_eq!(cache.get(&p, 0).expect("key should exist in map").len(), 2);
         assert_eq!(cache.len(), 1);
 
         // Clear
@@ -781,7 +781,7 @@ mod tests {
         // Second access is a hit
         let cached = builder.get_cached_samples(&p, 0);
         assert!(cached.is_some());
-        assert_eq!(cached.unwrap().len(), 2);
+        assert_eq!(cached.expect("test operation should succeed").len(), 2);
         assert_eq!(builder.stats().sample_cache_hits, 1);
     }
 

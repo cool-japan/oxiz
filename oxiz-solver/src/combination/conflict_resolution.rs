@@ -28,9 +28,10 @@
 //! - Nieuwenhuis, Oliveras, Tinelli (2006): "Solving SAT and SAT Modulo Theories"
 //! - Z3's `smt/theory_combination.cpp`, `smt/smt_conflict.cpp`
 
-use rustc_hash::{FxHashMap, FxHashSet};
-
 /// Term identifier.
+#[allow(unused_imports)]
+use crate::prelude::*;
+/// Term identifier for conflict resolution.
 pub type TermId = u32;
 
 /// Theory identifier.

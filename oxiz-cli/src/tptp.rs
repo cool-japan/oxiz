@@ -1101,7 +1101,7 @@ mod tests {
             fof(conj, conjecture, mortal(socrates)).
         "#;
 
-        let problem = TptpProblem::parse(input).unwrap();
+        let problem = TptpProblem::parse(input).expect("test operation should succeed");
         assert_eq!(problem.statements.len(), 3);
         assert_eq!(problem.statements[0].role, TptpRole::Axiom);
         assert_eq!(problem.statements[1].role, TptpRole::Axiom);
@@ -1114,7 +1114,7 @@ mod tests {
             fof(test, axiom, ![X,Y]: ((p(X) & q(Y)) => r(X,Y))).
         "#;
 
-        let problem = TptpProblem::parse(input).unwrap();
+        let problem = TptpProblem::parse(input).expect("test operation should succeed");
         assert_eq!(problem.statements.len(), 1);
     }
 
@@ -1125,7 +1125,7 @@ mod tests {
             fof(neq_test, axiom, a != b).
         "#;
 
-        let problem = TptpProblem::parse(input).unwrap();
+        let problem = TptpProblem::parse(input).expect("test operation should succeed");
         assert_eq!(problem.statements.len(), 2);
     }
 
@@ -1137,7 +1137,7 @@ mod tests {
             fof(conj, conjecture, mortal(socrates)).
         "#;
 
-        let problem = TptpProblem::parse(input).unwrap();
+        let problem = TptpProblem::parse(input).expect("test operation should succeed");
         let smtlib = problem.to_smtlib2();
 
         assert!(smtlib.contains("(set-logic UF)"));
@@ -1183,7 +1183,7 @@ mod tests {
             fof(ax2, axiom, q).
         "#;
 
-        let problem = TptpProblem::parse(input).unwrap();
+        let problem = TptpProblem::parse(input).expect("test operation should succeed");
         assert_eq!(problem.statements.len(), 2);
         assert!(!problem.comments.is_empty());
     }
@@ -1194,7 +1194,7 @@ mod tests {
             fof(ex_test, axiom, ?[X]: p(X)).
         "#;
 
-        let problem = TptpProblem::parse(input).unwrap();
+        let problem = TptpProblem::parse(input).expect("test operation should succeed");
         assert_eq!(problem.statements.len(), 1);
 
         let smtlib = problem.to_smtlib2();
@@ -1207,7 +1207,7 @@ mod tests {
             fof(iff_test, axiom, p <=> q).
         "#;
 
-        let problem = TptpProblem::parse(input).unwrap();
+        let problem = TptpProblem::parse(input).expect("test operation should succeed");
         assert_eq!(problem.statements.len(), 1);
     }
 
@@ -1217,7 +1217,7 @@ mod tests {
             fof(func_test, axiom, p(f(a, g(b)))).
         "#;
 
-        let problem = TptpProblem::parse(input).unwrap();
+        let problem = TptpProblem::parse(input).expect("test operation should succeed");
         assert_eq!(problem.statements.len(), 1);
 
         let smtlib = problem.to_smtlib2();

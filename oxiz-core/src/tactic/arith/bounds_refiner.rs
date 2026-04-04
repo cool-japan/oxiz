@@ -3,12 +3,13 @@
 //! Iteratively refines variable bounds through constraint propagation,
 //! leading to stronger simplifications and faster solving.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::ast::{Term, TermId, TermKind, TermManager};
 use crate::tactic::{Goal, Tactic, TacticResult};
 use num_rational::BigRational;
 use num_traits::{One, Zero};
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::VecDeque;
+use crate::prelude::VecDeque;
 
 /// Bounds refinement tactic for arithmetic constraints.
 pub struct BoundsRefinerTactic {
@@ -628,7 +629,7 @@ mod tests {
             upper: Some(BigRational::from_integer(4.into())),
         };
 
-        let sum = i1.add(&i2).unwrap();
+        let sum = i1.add(&i2).expect("test operation should succeed");
         assert_eq!(sum.lower, Some(BigRational::from_integer(3.into())));
         assert_eq!(sum.upper, Some(BigRational::from_integer(7.into())));
     }

@@ -12,6 +12,8 @@
 //! - Reasonable clause count
 
 use crate::literal::{Lit, Var};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::solver::Solver;
 use smallvec::SmallVec;
 

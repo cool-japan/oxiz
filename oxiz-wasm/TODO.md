@@ -1,6 +1,6 @@
 # oxiz-wasm TODO
 
-Last Updated: 2026-01-05
+Last Updated: 2026-03-28
 
 ## Progress: ~99% Complete
 
@@ -227,7 +227,7 @@ Last Updated: 2026-01-05
 - [x] debugDump() method for comprehensive state inspection
 - [x] setTracing() method for enabling/disabling debug tracing
 - [x] Comprehensive unit tests for all new features
-- [x] Browser-based tests (tests/browser.rs) with 60+ test cases
+- [x] Browser-based tests (tests/browser.rs) with 114 test cases
 - [x] Node.js integration tests (tests/nodejs.rs) with comprehensive coverage
 - [x] React wrapper with hooks and context (@oxiz/react)
 - [x] Vue 3 wrapper with composables and stores (@oxiz/vue)

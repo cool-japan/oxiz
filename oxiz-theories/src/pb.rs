@@ -14,8 +14,9 @@
 //! PB: 3*x + 2*y + z >= 5
 //! ```
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::ast::TermId;
-use std::collections::HashMap;
 
 /// A weighted literal in a PB constraint
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -106,7 +107,7 @@ impl PbConstraint {
             .collect();
 
         // Sort by weight (descending) for better propagation
-        self.lits.sort_by(|a, b| b.weight.cmp(&a.weight));
+        self.lits.sort_by_key(|wl| std::cmp::Reverse(wl.weight));
 
         // Update kind
         let is_card = self.lits.iter().all(|wl| wl.weight == 1);

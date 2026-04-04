@@ -14,10 +14,10 @@
 //!
 //! - Z3's `smt/smt_context.cpp` propagation queue
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::cmp::Ordering;
 use oxiz_sat::Lit;
-use rustc_hash::FxHashMap;
-use std::cmp::Ordering;
-use std::collections::BinaryHeap;
 
 /// Priority level (lower = higher priority).
 pub type Priority = u8;
@@ -257,7 +257,7 @@ mod tests {
         let boolean = queue.enqueue(PropagationType::Boolean, Some(Lit::pos(Var::new(0))));
 
         // Boolean should be dequeued first (highest priority)
-        let first = queue.dequeue().unwrap();
+        let first = queue.dequeue().expect("test operation should succeed");
         assert_eq!(first.id, boolean);
         assert_eq!(first.priority, 0);
     }
@@ -272,9 +272,18 @@ mod tests {
         let id3 = queue.enqueue(PropagationType::Theory(0), None);
 
         // Should dequeue in FIFO order
-        assert_eq!(queue.dequeue().unwrap().id, id1);
-        assert_eq!(queue.dequeue().unwrap().id, id2);
-        assert_eq!(queue.dequeue().unwrap().id, id3);
+        assert_eq!(
+            queue.dequeue().expect("test operation should succeed").id,
+            id1
+        );
+        assert_eq!(
+            queue.dequeue().expect("test operation should succeed").id,
+            id2
+        );
+        assert_eq!(
+            queue.dequeue().expect("test operation should succeed").id,
+            id3
+        );
     }
 
     #[test]
@@ -283,11 +292,11 @@ mod tests {
         let mut queue = PropagationQueue::default_config();
         let id = queue.enqueue(PropagationType::Boolean, Some(Lit::pos(Var::new(0))));
 
-        let peeked = queue.peek().unwrap();
+        let peeked = queue.peek().expect("test operation should succeed");
         assert_eq!(peeked.id, id);
         assert_eq!(queue.len(), 1); // Still in queue
 
-        let dequeued = queue.dequeue().unwrap();
+        let dequeued = queue.dequeue().expect("test operation should succeed");
         assert_eq!(dequeued.id, id);
         assert_eq!(queue.len(), 0);
     }

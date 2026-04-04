@@ -409,8 +409,10 @@ mod tests {
         let result = proof.resolve(c1, c2, Literal::pos(1));
         assert!(result.is_ok());
 
-        let resolvent_id = result.unwrap();
-        let resolvent = proof.get_clause(resolvent_id).unwrap();
+        let resolvent_id = result.expect("test operation should succeed");
+        let resolvent = proof
+            .get_clause(resolvent_id)
+            .expect("test operation should succeed");
 
         // Should get (y ∨ z)
         assert_eq!(resolvent.literals.len(), 2);
@@ -430,8 +432,10 @@ mod tests {
         let result = proof.resolve(c1, c2, Literal::pos(1));
         assert!(result.is_ok());
 
-        let empty_id = result.unwrap();
-        let empty = proof.get_clause(empty_id).unwrap();
+        let empty_id = result.expect("test operation should succeed");
+        let empty = proof
+            .get_clause(empty_id)
+            .expect("test operation should succeed");
 
         assert!(empty.is_empty());
         assert!(proof.derives_empty_clause());
@@ -450,8 +454,10 @@ mod tests {
         let result = proof.unit_propagate(unit, clause);
         assert!(result.is_ok());
 
-        let derived = result.unwrap();
-        let derived_clause = proof.get_clause(derived).unwrap();
+        let derived = result.expect("test operation should succeed");
+        let derived_clause = proof
+            .get_clause(derived)
+            .expect("test operation should succeed");
 
         // Should derive y
         assert!(derived_clause.is_unit());
@@ -600,7 +606,7 @@ mod tests {
 
                 let result = proof.resolve(c1, c2, Literal::pos(var));
                 if let Ok(resolvent_id) = result {
-                    let resolvent = proof.get_clause(resolvent_id).unwrap();
+                    let resolvent = proof.get_clause(resolvent_id).expect("test operation should succeed");
                     prop_assert!(resolvent.is_empty());
                 }
             }

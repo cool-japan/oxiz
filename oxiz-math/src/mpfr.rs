@@ -37,12 +37,14 @@
 //! This is a simplified MPFR-like implementation suitable for SMT solving scenarios
 //! that require extended precision arithmetic.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::cmp::Ordering;
+use core::fmt;
+use core::ops::{Add, Div, Mul, Neg, Sub};
 use num_bigint::BigUint;
 use num_integer::Integer;
 use num_traits::{One, ToPrimitive, Zero};
-use std::cmp::Ordering;
-use std::fmt;
-use std::ops::{Add, Div, Mul, Neg, Sub};
 
 /// Precision specification for arbitrary precision floats.
 ///
@@ -1031,9 +1033,9 @@ mod tests {
     #[test]
     fn test_from_f64_basic() {
         let prec = Precision::new(64);
-        let f = ArbitraryFloat::from_f64(std::f64::consts::PI, prec);
+        let f = ArbitraryFloat::from_f64(core::f64::consts::PI, prec);
         let back = f.to_f64(RoundingMode::RoundNearest);
-        assert!(approx_eq(back, std::f64::consts::PI));
+        assert!(approx_eq(back, core::f64::consts::PI));
     }
 
     #[test]
@@ -1251,16 +1253,16 @@ mod tests {
     fn test_from_str() {
         let prec = Precision::new(64);
 
-        let nan = ArbitraryFloat::from_str("NaN", prec).unwrap();
+        let nan = ArbitraryFloat::from_str("NaN", prec).expect("serialization failed");
         assert!(nan.is_nan());
 
-        let inf = ArbitraryFloat::from_str("inf", prec).unwrap();
+        let inf = ArbitraryFloat::from_str("inf", prec).expect("serialization failed");
         assert!(inf.is_pos_infinity());
 
-        let neg_inf = ArbitraryFloat::from_str("-inf", prec).unwrap();
+        let neg_inf = ArbitraryFloat::from_str("-inf", prec).expect("serialization failed");
         assert!(neg_inf.is_neg_infinity());
 
-        let val = ArbitraryFloat::from_str("3.5", prec).unwrap();
+        let val = ArbitraryFloat::from_str("3.5", prec).expect("serialization failed");
         assert!(approx_eq(val.to_f64(RoundingMode::RoundNearest), 3.5));
     }
 

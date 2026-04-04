@@ -177,7 +177,7 @@ impl PatternExtractor {
     /// Get patterns sorted by frequency (most common first).
     pub fn get_patterns_by_frequency(&self) -> Vec<&LemmaPattern> {
         let mut patterns = self.get_patterns();
-        patterns.sort_by(|a, b| b.frequency.cmp(&a.frequency));
+        patterns.sort_by_key(|p| std::cmp::Reverse(p.frequency));
         patterns
     }
 

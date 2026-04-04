@@ -6,6 +6,8 @@
 //! - Pareto optimization (multi-objective)
 //! - Soft constraints (MaxSMT)
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::solver::{Solver, SolverResult};
 use num_bigint::BigInt;
 use num_rational::Rational64;

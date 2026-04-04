@@ -13,6 +13,8 @@
 //! Reference: Z3's optimization components and standard optimization texts.
 
 use crate::matrix::Matrix;
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_rational::Rational64;
 use num_traits::{One, Signed, Zero};
 

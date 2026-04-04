@@ -568,7 +568,7 @@ mod tests {
     fn test_parse_define_fun() {
         let result = parse_define_fun("(define-fun x () Int 42)");
         assert!(result.is_some());
-        let (name, value) = result.unwrap();
+        let (name, value) = result.expect("test operation should succeed");
         assert_eq!(name, "x");
         assert_eq!(value, "42");
     }

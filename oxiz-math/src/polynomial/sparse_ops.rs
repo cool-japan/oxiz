@@ -17,9 +17,10 @@
 //! - Z3's `math/polynomial/polynomial.cpp` (sparse mode)
 
 use super::{Monomial, MonomialOrder, Polynomial, Term, Var};
+#[allow(unused_imports)]
+use crate::prelude::*;
 use num_rational::BigRational;
 use num_traits::{One, Zero};
-use rustc_hash::FxHashMap;
 
 /// Configuration for sparse operations.
 #[derive(Debug, Clone)]

@@ -15,8 +15,9 @@
 //! - "Effective Bit-Width Analysis" (Brummayer & Biere, 2009)
 //! - Z3's `tactic/bv/bv_rewriter.cpp`
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use crate::{TermId, TermKind, TermManager};
-use rustc_hash::FxHashMap;
 
 /// Bit-vector width.
 pub type BvWidth = u32;

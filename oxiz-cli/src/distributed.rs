@@ -873,8 +873,8 @@ mod tests {
             assumptions: vec![Literal::pos(1), Literal::neg(2)],
         };
 
-        let json = serde_json::to_string(&msg).unwrap();
-        let parsed: Message = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&msg).expect("serialization failed");
+        let parsed: Message = serde_json::from_str(&json).expect("serialization failed");
 
         if let Message::WorkUnit {
             cube_id,

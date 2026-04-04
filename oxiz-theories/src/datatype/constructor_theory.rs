@@ -7,8 +7,9 @@
 //! - Exhaustiveness checking
 //! - Structural induction
 
+#[allow(unused_imports)]
+use crate::prelude::*;
 use oxiz_core::ast::{TermId, TermKind, TermManager};
-use rustc_hash::{FxHashMap, FxHashSet};
 
 /// Constructor theory solver.
 pub struct ConstructorTheory {
@@ -541,7 +542,9 @@ mod tests {
         let bool_id = theory.define_bool();
         assert_eq!(theory.stats.datatypes_defined, 1);
 
-        let constructors = theory.get_constructors(bool_id).unwrap();
+        let constructors = theory
+            .get_constructors(bool_id)
+            .expect("test operation should succeed");
         assert_eq!(constructors.len(), 2);
     }
 
@@ -550,7 +553,10 @@ mod tests {
         let mut theory = ConstructorTheory::new();
 
         let nat_id = theory.define_nat();
-        let dt = theory.datatypes.get(&nat_id).unwrap();
+        let dt = theory
+            .datatypes
+            .get(&nat_id)
+            .expect("key should exist in map");
 
         assert!(dt.is_recursive);
         assert_eq!(dt.constructors.len(), 2);
@@ -561,7 +567,10 @@ mod tests {
         let mut theory = ConstructorTheory::new();
 
         let list_id = theory.define_list("Int".to_string());
-        let dt = theory.datatypes.get(&list_id).unwrap();
+        let dt = theory
+            .datatypes
+            .get(&list_id)
+            .expect("key should exist in map");
 
         assert!(dt.is_recursive);
         assert_eq!(dt.constructors.len(), 2);

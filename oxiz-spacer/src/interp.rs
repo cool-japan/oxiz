@@ -507,7 +507,7 @@ mod tests {
         let result = interpolator.interpolate(&mut terms, a, b);
         assert!(result.is_ok());
 
-        let interp = result.unwrap();
+        let interp = result.expect("test operation should succeed");
         // Conservative interpolation returns A
         assert_eq!(interp.formula, a);
     }
@@ -525,7 +525,7 @@ mod tests {
         let result = interpolator.sequence_interpolate(&mut terms, &trace);
         assert!(result.is_ok());
 
-        let interpolants = result.unwrap();
+        let interpolants = result.expect("test operation should succeed");
         assert_eq!(interpolants.len(), 2);
     }
 

@@ -3,6 +3,9 @@
 //! This module provides tactics for simplifying and normalizing bitvector
 //! constraints before they reach the SAT solver.
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 pub mod advanced_rewriter;
 // TODO: Implement bounds_propagation module
 // pub mod bounds_propagation;

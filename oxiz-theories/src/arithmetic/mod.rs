@@ -3,6 +3,9 @@
 //! Implements the Dual Simplex algorithm for Linear Real Arithmetic (LRA)
 //! with extensions for Linear Integer Arithmetic (LIA).
 
+#[allow(unused_imports)]
+use crate::prelude::*;
+
 mod delta;
 mod gaussian;
 mod lia;
@@ -16,5 +19,5 @@ pub use lia::{HermiteNormalForm, LiaSolver, PseudoBooleanSolver};
 pub use optimize::{
     ConstraintSense, LraOptimizer, Objective, ObjectiveBuilder, OptModel, OptResult,
 };
-pub use simplex::Simplex;
+pub use simplex::{LinExpr, Simplex, VarId};
 pub use solver::ArithSolver;

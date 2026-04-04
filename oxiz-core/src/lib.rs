@@ -1,10 +1,10 @@
-//! OxiZ Core - AST, Sorts, and Tactics for the SMT Solver
+//! OxiZ Core - AST, Sorts, and Traits for the SMT Solver
 //!
 //! This crate provides the foundational types and traits for the OxiZ SMT solver:
 //! - Arena-allocated terms with efficient [`TermId`] references
 //! - Sort system for type checking
-//! - SMT-LIB2 parser and printer
-//! - Tactic framework for preprocessing and simplification
+//! - SMT-LIB2 parser and printer (requires `std` feature)
+//! - Tactic framework for preprocessing and simplification (requires `std` feature)
 //! - Rewrite system for term transformations
 //!
 //! # Examples
@@ -64,39 +64,63 @@
 //! let result = tactic.apply(&goal);
 //! ```
 
+#![cfg_attr(not(feature = "std"), no_std)]
 #![deny(unsafe_code)]
 #![warn(missing_docs)]
 
-pub mod alloc;
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+
+pub mod interner;
+mod prelude;
+
+// === Always-available modules (no_std compatible) ===
 pub mod ast;
 pub mod config;
-pub mod datalog;
-pub mod diagnostics;
-pub mod ematching;
 pub mod error;
 pub mod error_context;
 pub mod error_recovery;
 pub mod error_utils;
 pub mod literal;
-pub mod model;
-pub mod qe;
-pub mod resource;
+pub mod lockfree;
 pub mod rewrite;
-pub mod smtlib;
 pub mod sort;
-pub mod statistics;
-pub mod tactic;
 pub mod theories;
 pub mod traits;
 pub mod unsat_core;
 
+// === std-only modules ===
+#[cfg(feature = "std")]
+pub mod alloc;
+#[cfg(feature = "std")]
+pub mod datalog;
+#[cfg(feature = "std")]
+pub mod diagnostics;
+#[cfg(feature = "std")]
+pub mod ematching;
+#[cfg(feature = "std")]
+pub mod model;
+#[cfg(feature = "std")]
+pub mod qe;
+#[cfg(feature = "std")]
+pub mod resource;
+#[cfg(feature = "std")]
+pub mod smtlib;
+#[cfg(feature = "std")]
+pub mod statistics;
+#[cfg(feature = "std")]
+pub mod tactic;
+
+// === Always-available exports ===
 pub use ast::{Term, TermId, TermKind, TermManager};
 pub use config::{
     ClauseDeletionStrategy, Config, GeneralParams, PhaseSaving, ResourceLimits, SatParams,
     SimplifyParams,
 };
-pub use diagnostics::{Diagnostic, DiagnosticEmitter, Fix, RelatedDiagnostic, Severity};
-pub use error::{OxizError, Result};
+pub use error::{
+    EnhancedError, OxizError, Result, extract_context_snippet, find_closest_match,
+    levenshtein_distance,
+};
 pub use error_context::{ErrorContext, ResultExt};
 pub use error_recovery::{
     ErrorBatch, ErrorRecovery, RecoveryConfig, RecoveryResult, RecoveryStats, RecoveryStrategy,
@@ -107,28 +131,8 @@ pub use error_utils::{
     validate_arity_range, validate_max_arity, validate_min_arity,
 };
 pub use literal::{Lit, Var};
-pub use resource::{LimitStatus, ResourceManager};
 pub use sort::{DataTypeConstructor, Sort, SortId, SortKind};
-pub use statistics::{Statistics, Timer};
 pub use unsat_core::{UnsatCore, UnsatCoreBuilder, UnsatCoreStrategy};
-
-// Allocator exports
-pub use alloc::{
-    Arena, ArenaConfig, ArenaError, ArenaHandle, ObjectPool, PoolConfig, PoolGuard, PoolStats,
-    Region, RegionAllocator, RegionRef, RegionSlice, SharedObjectPool, SharedPoolGuard,
-};
-
-// Model exports
-pub use model::{
-    EvalCache, EvalResult, ImplicantConfig, ImplicantExtractor, Model, ModelCompletion,
-    ModelCompletionConfig, ModelEvaluator, PrimeImplicant, Value, ValueFactory, ValueFactoryConfig,
-};
-
-// QE exports
-pub use qe::{
-    MbiConfig, MbiInterpolant, MbiSolver, MbiStats, QeLiteConfig, QeLiteResult, QeLiteSolver,
-    QeLiteStats, TermGraph, TermGraphConfig, TermGraphStats, TermNode, TermNodeKind,
-};
 
 // Rewrite exports
 pub use rewrite::{
@@ -147,4 +151,33 @@ pub use traits::{
     Rewriter as RewriterTrait, SequentialRewriter as SequentialRewriterTrait, Tactic,
     TacticCombinator, TacticConfig, TacticResult, TacticStats, Theory, TheoryCheckResult,
     TheoryConflict, TheoryModel, TheoryPropagationResult, WatchedPropagator,
+};
+
+// === std-only exports ===
+#[cfg(feature = "std")]
+pub use diagnostics::{Diagnostic, DiagnosticEmitter, Fix, RelatedDiagnostic, Severity};
+#[cfg(feature = "std")]
+pub use resource::{LimitStatus, ResourceManager};
+#[cfg(feature = "std")]
+pub use statistics::{Statistics, Timer};
+
+// Allocator exports
+#[cfg(feature = "std")]
+pub use alloc::{
+    Arena, ArenaConfig, ArenaError, ArenaHandle, ObjectPool, PoolConfig, PoolGuard, PoolStats,
+    Region, RegionAllocator, RegionRef, RegionSlice, SharedObjectPool, SharedPoolGuard,
+};
+
+// Model exports
+#[cfg(feature = "std")]
+pub use model::{
+    EvalCache, EvalResult, ImplicantConfig, ImplicantExtractor, Model, ModelCompletion,
+    ModelCompletionConfig, ModelEvaluator, PrimeImplicant, Value, ValueFactory, ValueFactoryConfig,
+};
+
+// QE exports
+#[cfg(feature = "std")]
+pub use qe::{
+    MbiConfig, MbiInterpolant, MbiSolver, MbiStats, QeLiteConfig, QeLiteResult, QeLiteSolver,
+    QeLiteStats, TermGraph, TermGraphConfig, TermGraphStats, TermNode, TermNodeKind,
 };

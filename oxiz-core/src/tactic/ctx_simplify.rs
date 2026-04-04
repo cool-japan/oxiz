@@ -3,6 +3,8 @@
 use super::core::*;
 use crate::ast::{TermId, TermManager};
 use crate::error::Result;
+#[allow(unused_imports)]
+use crate::prelude::*;
 
 /// Context-based solver simplification tactic
 pub struct CtxSolverSimplifyTactic<'a> {
@@ -33,9 +35,9 @@ impl<'a> CtxSolverSimplifyTactic<'a> {
         &self,
         assertions: &[TermId],
         skip_index: usize,
-    ) -> rustc_hash::FxHashMap<TermId, TermId> {
+    ) -> crate::prelude::FxHashMap<TermId, TermId> {
         use crate::ast::TermKind;
-        use rustc_hash::FxHashMap;
+        use crate::prelude::FxHashMap;
 
         let mut subst: FxHashMap<TermId, TermId> = FxHashMap::default();
 

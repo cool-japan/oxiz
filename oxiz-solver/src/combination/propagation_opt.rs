@@ -36,9 +36,9 @@
 #![allow(missing_docs)]
 #![allow(dead_code)]
 
-use rustc_hash::{FxHashMap, FxHashSet};
-use std::cmp::Ordering;
-use std::collections::BinaryHeap;
+#[allow(unused_imports)]
+use crate::prelude::*;
+use core::cmp::Ordering;
 
 /// Term identifier.
 pub type TermId = u32;
