@@ -75,17 +75,17 @@ oxiz-ml = { version = "0.2.0", path = "oxiz-ml" }
 
 # Memory & Interning
 bumpalo = "3.20"
-indexmap = { version = "2.13", default-features = false }
+indexmap = { version = "2.14", default-features = false }
 lasso = "0.7"
 
 # Parsing
-winnow = "0.7"
+winnow = "1.0"
 
 # E-graph / Rewriting
 egg = "0.11"
 
 # Parallelism
-rayon = "1.11"
+rayon = "1.12"
 num_cpus = "1.17"
 
 # Logging & Tracing
@@ -99,7 +99,7 @@ anyhow = "1.0"
 # CLI
 clap = { version = "4.6", features = ["derive", "cargo"] }
 clap_complete = "4.6"
-rustyline = "17.0"
+rustyline = "18.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
@@ -108,10 +108,10 @@ indicatif = "0.18"
 walkdir = "2.5"
 globset = "0.4"
 notify = "8.2"
-sysinfo = "0.36"
+sysinfo = "0.38"
 dirs = "6.0"
 tower-lsp = "0.20"
-tokio = "1.51"
+tokio = "1.52"
 axum = { version = "0.8", features = ["ws"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors"] }
@@ -126,12 +126,12 @@ oxiarc-brotli = "0.2.6"
 
 # Testing
 proptest = "1.11"
-criterion = "0.7"
+criterion = "0.8"
 
 # Utilities
 smallvec = { version = "1.15", features = ["serde"] }
 rustc-hash = { version = "2.1", default-features = false }
-hashbrown = "0.15"
+hashbrown = "0.17"
 num-rational = { version = "0.4", default-features = false }
 num-bigint = { version = "0.4", default-features = false }
 num-traits = { version = "0.2", default-features = false }
@@ -139,7 +139,7 @@ num-integer = { version = "0.1", default-features = false }
 libm = "0.2"
 portable-atomic = { version = "1.13", default-features = false, features = ["critical-section"] }
 portable-atomic-util = { version = "0.2", default-features = false, features = ["alloc"] }
-rand = "0.9"
+rand = "0.10"
 
 [profile.release]
 opt-level = "z"
