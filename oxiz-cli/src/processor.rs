@@ -16,7 +16,7 @@ use globset::{Glob, GlobSetBuilder};
 use indicatif::{ProgressBar, ProgressStyle};
 use notify::{RecursiveMode, Watcher};
 use rayon::prelude::*;
-use sysinfo::System;
+use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 use walkdir::WalkDir;
 
 use oxiz_solver::Context;
@@ -62,9 +62,14 @@ pub(crate) fn run_files(ctx: &mut Context, args: &Args, verbosity: Verbosity) {
         .map(|path| cache::BenchmarkTracker::new(path.clone()));
 
     let start_time = Instant::now();
+    let current_pid = Pid::from_u32(std::process::id());
     let mut sys = if args.memory {
-        let mut s = System::new_all();
-        s.refresh_all();
+        let mut s = System::new();
+        s.refresh_processes_specifics(
+            ProcessesToUpdate::Some(&[current_pid]),
+            true,
+            ProcessRefreshKind::nothing().with_memory(),
+        );
         Some(s)
     } else {
         None
@@ -89,10 +94,15 @@ pub(crate) fn run_files(ctx: &mut Context, args: &Args, verbosity: Verbosity) {
         0
     };
 
-    // Collect memory statistics
+    // Collect memory statistics (process-scope resident set size, not system-wide)
     let (memory_bytes, peak_memory) = if let Some(ref mut s) = sys {
-        s.refresh_all();
-        (s.used_memory(), s.used_memory())
+        s.refresh_processes_specifics(
+            ProcessesToUpdate::Some(&[current_pid]),
+            true,
+            ProcessRefreshKind::nothing().with_memory(),
+        );
+        let rss = s.process(current_pid).map(|p| p.memory()).unwrap_or(0);
+        (rss, rss)
     } else {
         (0, 0)
     };

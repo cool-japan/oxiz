@@ -63,7 +63,7 @@ impl Tensor {
 
     /// Create a random tensor with uniform distribution [min, max]
     pub fn random_uniform(shape: &[usize], min: f64, max: f64) -> Self {
-        use rand::Rng;
+        use rand::RngExt;
         let mut rng = rand::rng();
         let size = shape.iter().product();
         let data: Vec<f64> = (0..size).map(|_| rng.random_range(min..max)).collect();
@@ -76,7 +76,7 @@ impl Tensor {
 
     /// Create a random tensor with normal distribution (mean=0, std=1)
     pub fn random_normal(shape: &[usize], mean: f64, std: f64) -> Self {
-        use rand::Rng;
+        use rand::RngExt;
 
         let mut rng = rand::rng();
         let size = shape.iter().product();

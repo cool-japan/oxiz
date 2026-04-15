@@ -38,7 +38,7 @@ default-members = [
 ]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 authors = ["COOLJAPAN OU (Team KitaSan)"]
 license = "Apache-2.0"
@@ -124,14 +124,19 @@ js-sys = "0.3"
 oxiarc-deflate = "0.2.6"
 oxiarc-brotli = "0.2.6"
 
+# PDF (Pure Rust)
+pdf-writer = "0.14"
+
 # Testing
 proptest = "1.11"
 criterion = "0.8"
+tempfile = "3.27"
 
 # Utilities
 smallvec = { version = "1.15", features = ["serde"] }
 rustc-hash = { version = "2.1", default-features = false }
 hashbrown = "0.17"
+lru = "0.17"
 num-rational = { version = "0.4", default-features = false }
 num-bigint = { version = "0.4", default-features = false }
 num-traits = { version = "0.2", default-features = false }

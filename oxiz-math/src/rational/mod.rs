@@ -615,7 +615,7 @@ pub fn solve_linear_diophantine(a: &BigInt, b: &BigInt, c: &BigInt) -> Option<(B
 #[cfg(feature = "std")]
 pub fn is_prime(n: &BigInt, k: usize) -> bool {
     use num_traits::One;
-    use rand::Rng;
+    use rand::RngExt;
 
     // Handle small cases
     if n <= &BigInt::one() {
@@ -737,7 +737,7 @@ pub fn trial_division(n: &BigInt, limit: u64) -> Vec<BigInt> {
 /// ```
 #[cfg(feature = "std")]
 pub fn pollard_rho(n: &BigInt) -> Option<BigInt> {
-    use rand::Rng;
+    use rand::RngExt;
 
     if n <= &BigInt::one() {
         return None;

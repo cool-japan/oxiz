@@ -418,40 +418,56 @@ impl Solver {
             // Negation
             TermKind::Neg(arg) => self.extract_linear_terms(*arg, -scale, terms, constant, manager),
 
-            // Multiplication by constant
+            // Multiplication of linear terms.  A product is linear iff at most one
+            // factor is non-constant.  Each factor may itself be a nested
+            // expression that reduces to a pure constant (e.g. `(- 3.0)`,
+            // `(+ 1 2)`) or to a single scaled variable (e.g. `(- x)`).
             TermKind::Mul(args) => {
-                // Check if all but one are constants
                 let mut const_product = Rational64::one();
-                let mut var_term: Option<TermId> = None;
+                // The single non-constant factor, if any, represented as a sum of
+                // (variable, coefficient) pairs.  The factor must be linear-as-a-whole
+                // (exactly one variable term, no additive constant) for the product
+                // to remain linear.
+                let mut var_factor: Option<(TermId, Rational64)> = None;
 
                 for &arg in args {
-                    let arg_term = manager.get(arg)?;
-                    match &arg_term.kind {
-                        TermKind::IntConst(n) => {
-                            if let Some(val) = n.to_i64() {
-                                const_product *= Rational64::from_integer(val);
-                            } else {
-                                return None; // BigInt too large
-                            }
+                    let mut sub_terms: SmallVec<[(TermId, Rational64); 4]> = SmallVec::new();
+                    let mut sub_constant = Rational64::zero();
+                    self.extract_linear_terms(
+                        arg,
+                        Rational64::one(),
+                        &mut sub_terms,
+                        &mut sub_constant,
+                        manager,
+                    )?;
+
+                    if sub_terms.is_empty() {
+                        // Pure constant factor — absorb into product.
+                        const_product *= sub_constant;
+                    } else if sub_terms.len() == 1 && sub_constant.is_zero() {
+                        // Exactly one scaled variable with no additive constant,
+                        // e.g. `x`, `(- x)`, `(* 2 x)`.  Record as the variable
+                        // factor; if we already have one, the product is nonlinear.
+                        if var_factor.is_some() {
+                            return None;
                         }
-                        TermKind::RealConst(r) => {
-                            const_product *= *r;
-                        }
-                        _ => {
-                            if var_term.is_some() {
-                                // Multiple non-constant terms - not linear
-                                return None;
-                            }
-                            var_term = Some(arg);
-                        }
+                        var_factor = Some(sub_terms[0]);
+                    } else {
+                        // Either multi-variable (e.g. `(+ x y)`), or a linear
+                        // expression with a constant offset (e.g. `(+ 1 x)`).
+                        // Multiplying such a factor by another variable yields a
+                        // nonlinear product.
+                        return None;
                     }
                 }
 
                 let new_scale = scale * const_product;
-                match var_term {
-                    Some(v) => self.extract_linear_terms(v, new_scale, terms, constant, manager),
+                match var_factor {
+                    Some((v, coef)) => {
+                        terms.push((v, new_scale * coef));
+                        Some(())
+                    }
                     None => {
-                        // All constants
                         *constant += new_scale;
                         Some(())
                     }

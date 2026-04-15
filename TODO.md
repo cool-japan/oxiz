@@ -171,20 +171,20 @@ OxiZ is not just a Z3 port - it surpasses Z3 in critical areas:
 **Goal**: Support additional SMT-LIB logics beyond the core 8
 
 - [ ] Quantified logics (5 items)
-  - [ ] UFLIA - Uninterpreted Functions + Linear Integer Arithmetic
-  - [ ] UFLRA - Uninterpreted Functions + Linear Real Arithmetic
-  - [ ] AUFLIA - Arrays + UF + LIA
-  - [ ] AUFLIRA - Arrays + UF + LIA + LRA
+  - [x] UFLIA - Uninterpreted Functions + Linear Integer Arithmetic
+  - [x] UFLRA - Uninterpreted Functions + Linear Real Arithmetic
+  - [x] AUFLIA - Arrays + UF + LIA
+  - [x] AUFLIRA - Arrays + UF + LIA + LRA
   - [ ] Improve quantifier instantiation heuristics
 
 - [ ] Combined theories (3 items)
-  - [ ] QF_AUFBV - Arrays + UF + BV (validation needed)
-  - [ ] QF_ALIA - Arrays + LIA
-  - [ ] QF_ABV - Arrays + BV
+  - [x] QF_AUFBV - Arrays + UF + BV (validation needed)
+  - [x] QF_ALIA - Arrays + LIA
+  - [x] QF_ABV - Arrays + BV
 
 - [ ] Non-linear arithmetic (2 items)
   - [ ] Extend QF_NIA coverage (more benchmarks)
-  - [ ] QF_NIRA - Non-linear Integer/Real Arithmetic
+  - [x] QF_NIRA - Non-linear Integer/Real Arithmetic
 
 ### Medium Priority: Advanced Features
 

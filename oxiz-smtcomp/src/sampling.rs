@@ -5,6 +5,7 @@
 
 use crate::benchmark::{BenchmarkStatus, SingleResult};
 use crate::loader::{BenchmarkMeta, ExpectedStatus};
+use rand::Rng;
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -116,14 +117,14 @@ impl SamplingConfig {
 /// Benchmark sampler
 pub struct Sampler {
     config: SamplingConfig,
-    rng: Box<dyn RngCore>,
+    rng: Box<dyn Rng>,
 }
 
 impl Sampler {
     /// Create a new sampler
     #[must_use]
     pub fn new(config: SamplingConfig) -> Self {
-        let rng: Box<dyn RngCore> = if let Some(seed) = config.seed {
+        let rng: Box<dyn Rng> = if let Some(seed) = config.seed {
             Box::new(StdRng::seed_from_u64(seed))
         } else {
             Box::new(rand::rng())

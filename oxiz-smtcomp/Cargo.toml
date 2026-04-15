@@ -12,6 +12,10 @@ categories = ["development-tools::testing"]
 [lints]
 workspace = true
 
+[features]
+default = []
+pdf-report = ["dep:pdf-writer"]
+
 [dependencies]
 oxiz-core = { workspace = true, features = ["std"] }
 oxiz-solver = { workspace = true, features = ["std"] }
@@ -22,7 +26,9 @@ thiserror = { workspace = true, features = ["std"] }
 tracing = { workspace = true, features = ["std"] }
 rayon = { workspace = true }
 rand = { workspace = true }
+lru = { workspace = true }
+pdf-writer = { workspace = true, optional = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
-tempfile = "3.27"
+tempfile = { workspace = true }

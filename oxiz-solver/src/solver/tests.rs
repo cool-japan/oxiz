@@ -324,6 +324,73 @@ fn test_arithmetic_model_generation() {
 }
 
 #[test]
+fn test_lra_issue_6_negative_coefficient_mul() {
+    // Regression for https://github.com/cool-japan/oxiz/issues/6
+    // Assertions:
+    //   (>= (* -3.0 x1) 3.0)   =>  x1 <= -1
+    //   (=  (* 4.0 x1)  -1.0)  =>  x1 = -1/4
+    // These are jointly unsatisfiable.  Previously OxiZ answered `sat` with
+    // x1 = 0 because `(* const var)` was silently dropped by the linear
+    // extractor whenever the constant factor was the result of a negation or
+    // when a negative numeric literal was encoded as an opaque symbol.
+    use num_rational::Rational64;
+
+    let mut solver = Solver::new();
+    let mut manager = TermManager::new();
+
+    let x1 = manager.mk_var("x1", manager.sorts.real_sort);
+
+    // (* -3.0 x1) >= 3.0
+    let neg_three = manager.mk_real(Rational64::new(-3, 1));
+    let three = manager.mk_real(Rational64::new(3, 1));
+    let lhs1 = manager.mk_mul([neg_three, x1]);
+    let c1 = manager.mk_ge(lhs1, three);
+
+    // (* 4.0 x1) = -1.0
+    let four = manager.mk_real(Rational64::new(4, 1));
+    let neg_one = manager.mk_real(Rational64::new(-1, 1));
+    let lhs2 = manager.mk_mul([four, x1]);
+    let c2 = manager.mk_eq(lhs2, neg_one);
+
+    solver.assert(c1, &mut manager);
+    solver.assert(c2, &mut manager);
+
+    assert_eq!(
+        solver.check(&mut manager),
+        SolverResult::Unsat,
+        "x1 <= -1 AND x1 = -1/4 must be UNSAT"
+    );
+}
+
+#[test]
+fn test_lra_issue_6_mul_with_negation_factor() {
+    // Companion check: the constant factor appearing inside `Mul` as a
+    // negation node `(- 3.0)` instead of a direct `RealConst(-3.0)` must also
+    // be recognised as a pure constant by the linear extractor.
+    use num_rational::Rational64;
+
+    let mut solver = Solver::new();
+    let mut manager = TermManager::new();
+
+    let x1 = manager.mk_var("x1", manager.sorts.real_sort);
+
+    let three = manager.mk_real(Rational64::new(3, 1));
+    let neg_three = manager.mk_neg(three);
+    let lhs = manager.mk_mul([neg_three, x1]);
+    let c = manager.mk_ge(lhs, three);
+    solver.assert(c, &mut manager);
+
+    // x1 <= -1, additionally assert x1 = -1/4 to force UNSAT.
+    let four = manager.mk_real(Rational64::new(4, 1));
+    let neg_one = manager.mk_real(Rational64::new(-1, 1));
+    let lhs2 = manager.mk_mul([four, x1]);
+    let c2 = manager.mk_eq(lhs2, neg_one);
+    solver.assert(c2, &mut manager);
+
+    assert_eq!(solver.check(&mut manager), SolverResult::Unsat);
+}
+
+#[test]
 fn test_model_pretty_print() {
     let mut solver = Solver::new();
     let mut manager = TermManager::new();

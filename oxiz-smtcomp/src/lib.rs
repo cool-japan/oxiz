@@ -89,6 +89,7 @@
 // Core modules
 pub mod benchmark;
 pub mod loader;
+pub mod logic_detector;
 pub mod reporter;
 pub mod statistics;
 
@@ -101,6 +102,8 @@ pub mod starexec;
 // Medium priority modules
 pub mod filtering;
 pub mod html_report;
+#[cfg(feature = "pdf-report")]
+pub mod pdf_report;
 pub mod plotting;
 pub mod resumption;
 pub mod virtual_best;
@@ -117,7 +120,12 @@ pub use benchmark::{
     SingleResult,
 };
 
-pub use loader::{Benchmark, BenchmarkMeta, Loader, LoaderConfig, LoaderError, LoaderResult};
+pub use loader::{
+    Benchmark, BenchmarkMeta, DEFAULT_PARSE_CACHE_CAPACITY, Loader, LoaderConfig, LoaderError,
+    LoaderResult, ParseCache,
+};
+
+pub use logic_detector::{TheoryBits, detect_logic, detect_theory_bits, logic_from_bits};
 
 pub use reporter::{
     Report, ReportFormat, Reporter, ReporterConfig, ReporterError, ReporterResult, ResultEntry,
@@ -150,6 +158,12 @@ pub use plotting::{
 
 // Re-export HTML report types
 pub use html_report::{HtmlReportConfig, HtmlReportGenerator, generate_comparison_report};
+
+// Re-export PDF report types (feature-gated)
+#[cfg(feature = "pdf-report")]
+pub use pdf_report::{
+    PdfReport, PdfReportConfig, PdfReportError, PdfReportGenerator, PdfReportResult,
+};
 
 // Re-export resumption types
 pub use resumption::{
