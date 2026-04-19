@@ -6,7 +6,7 @@
 mod benchmarks;
 
 use anyhow::{Context, Result};
-use benchmarks::{run_all_benchmarks, BenchmarkCategory, BenchmarkResult};
+use benchmarks::{BenchmarkCategory, BenchmarkResult, run_all_benchmarks};
 use oxiz_smtcomp::loader::BenchmarkMeta;
 use oxiz_smtcomp::regression::{RegressionAnalysis, RegressionConfig, RegressionDetector};
 use oxiz_smtcomp::{BenchmarkStatus, SingleResult};
@@ -171,8 +171,8 @@ fn load_baseline(path: &PathBuf) -> Result<Option<Baseline>> {
     let content = fs::read_to_string(path)
         .with_context(|| format!("Failed to read baseline file: {}", path.display()))?;
 
-    let baseline: Baseline = serde_json::from_str(&content)
-        .with_context(|| "Failed to parse baseline JSON")?;
+    let baseline: Baseline =
+        serde_json::from_str(&content).with_context(|| "Failed to parse baseline JSON")?;
 
     Ok(Some(baseline))
 }
@@ -197,8 +197,8 @@ fn save_baseline(path: &PathBuf, results: &[BenchmarkResult]) -> Result<()> {
         benchmarks,
     };
 
-    let json = serde_json::to_string_pretty(&baseline)
-        .with_context(|| "Failed to serialize baseline")?;
+    let json =
+        serde_json::to_string_pretty(&baseline).with_context(|| "Failed to serialize baseline")?;
 
     fs::write(path, json)
         .with_context(|| format!("Failed to write baseline file: {}", path.display()))?;
@@ -403,12 +403,7 @@ fn print_github_actions_report(report: &RegressionReport) {
 
         println!(
             "| {} | {} | {:.1}us | {} | {} | {} |",
-            comp.name,
-            comp.category,
-            comp.current_us,
-            baseline_str,
-            change_str,
-            comp.status
+            comp.name, comp.category, comp.current_us, baseline_str, change_str, comp.status
         );
     }
 
@@ -508,7 +503,10 @@ fn main() -> Result<()> {
     let baseline = load_baseline(&baseline_path)?;
 
     if baseline.is_none() && !config.update_baseline {
-        eprintln!("Warning: No baseline file found at {}. Running benchmarks anyway.", baseline_path.display());
+        eprintln!(
+            "Warning: No baseline file found at {}. Running benchmarks anyway.",
+            baseline_path.display()
+        );
     }
 
     // Run benchmarks

@@ -42,7 +42,7 @@
   - **Files:** `oxiz-smtcomp/src/logic_detector.rs` (new), `oxiz-smtcomp/src/lib.rs`, `oxiz-smtcomp/src/loader.rs`.
   - **Tests:** `test_detect_qf_lia`, `test_detect_uflia`, `test_detect_qf_aufbv`, `test_fallback_all`. In-memory benchmark fixtures; no file I/O.
   - **Risk:** Detection layer — if the loader only sees raw source and defers parsing to oxiz-core, detection must sit in the solver layer or run a lightweight parse. Verify before coding; mark `oversized` and re-plan if detection requires cross-crate refactoring.
-- [ ] Benchmark classification by structure
+- [x] Benchmark classification by structure
 
 ### Visualization
 - [ ] Interactive web-based result explorer

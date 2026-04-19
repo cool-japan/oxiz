@@ -332,8 +332,10 @@ impl Loader {
         }
 
         let content = fs::read_to_string(path)?;
+        let mut loaded_meta = meta.clone();
+        loaded_meta.structural_features = Some(extract_structural_features(&content));
         let benchmark = Arc::new(Benchmark {
-            meta: meta.clone(),
+            meta: loaded_meta,
             content,
         });
 
@@ -361,8 +363,7 @@ impl Loader {
         let category = self.extract_category_from_path(path);
 
         // For expected status, try to extract from filename or read file header.
-        let expected_status =
-            self.extract_expected_status_with_content(path, content.as_deref());
+        let expected_status = self.extract_expected_status_with_content(path, content.as_deref());
 
         // Extract structural features if content is available.
         let structural_features = content.as_deref().map(extract_structural_features);

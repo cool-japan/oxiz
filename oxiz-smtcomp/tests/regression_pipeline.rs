@@ -1,5 +1,6 @@
+use oxiz_smtcomp::loader::ExpectedStatus;
 use oxiz_smtcomp::regression::{RegressionConfig, RegressionDetector, RegressionType};
-use oxiz_smtcomp::{BenchmarkMeta, BenchmarkStatus, ExpectedStatus, SingleResult};
+use oxiz_smtcomp::{BenchmarkMeta, BenchmarkStatus, SingleResult};
 use std::path::PathBuf;
 use std::time::Duration;
 

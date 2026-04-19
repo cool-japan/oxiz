@@ -272,11 +272,9 @@ impl Sampler {
         let target = self.config.calculate_target(benchmarks.len());
 
         // Check whether any benchmark carries structural features.
-        let has_structural = benchmarks
-            .iter()
-            .any(|b| b.structural_features.is_some());
+        let all_have_structural = benchmarks.iter().all(|b| b.structural_features.is_some());
 
-        if has_structural {
+        if all_have_structural {
             // Use structural feature-space distance to maximise diversity.
             // We greedily pick the benchmark that is maximally far from the
             // already-selected set, measuring distance in a 3-dimensional
@@ -498,29 +496,14 @@ impl Sampler {
 /// solver difficulty. Used as a proxy when no historical timing data is
 /// available.
 ///
-/// Weights are chosen heuristically:
-/// - Term depth: heavy weight — deeply nested terms grow the search space
-///   exponentially in most theory solvers.
-/// - Atom count: moderate weight — more atoms ≈ more clauses to satisfy.
-/// - Quantifier nesting: very heavy — each quantifier level can cause
-///   instantiation storms.
-/// - ITE depth: moderate — nested conditionals branch-explode.
-/// - Let depth: light — `let` typically compresses rather than complicates.
+/// The primary proxy is "high term depth + many atoms". Secondary structure
+/// only acts as a light tie-breaker.
 fn structural_complexity_score(meta: &BenchmarkMeta) -> f64 {
     if let Some(ref sf) = meta.structural_features {
-        let depth_score = f64::from(sf.max_term_depth) * 3.0;
-        let atom_score = f64::from(sf.atom_count) * 1.5;
-        let quant_score = f64::from(sf.max_quantifier_nesting) * 10.0;
-        let ite_score = f64::from(sf.max_ite_depth) * 2.0;
-        let let_score = f64::from(sf.max_let_depth) * 0.5;
-        // BV width adds complexity proportional to the widest operand.
-        let bv_score = sf
-            .bv_width_histogram
-            .iter()
-            .map(|&(width, _count)| f64::from(width))
-            .fold(0.0_f64, f64::max)
-            / 64.0; // normalise by 64-bit width
-        depth_score + atom_score + quant_score + ite_score + let_score + bv_score
+        let depth_score = f64::from(sf.max_term_depth) * 4.0;
+        let atom_score = f64::from(sf.atom_count);
+        let tie_break_score = f64::from(sf.max_quantifier_nesting) * 0.25;
+        depth_score + atom_score + tie_break_score
     } else {
         // No structural features: fall back to file-size proxy.
         meta.file_size as f64 / 1024.0

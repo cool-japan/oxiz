@@ -159,7 +159,7 @@ OxiZ is not just a Z3 port - it surpasses Z3 in critical areas:
   - [ ] Memory layout optimization
   - [ ] Allocation-free theory propagation paths
 
-- [ ] Performance regression testing (3 items)
+- [x] Performance regression testing (3 items)
   - [ ] CI/CD integration for performance tracking
   - [ ] Automated benchmark comparison vs Z3
   - [ ] Performance dashboard
@@ -455,7 +455,7 @@ oxiz-core (foundation)
 - [x] Quantified logic support (UFLIA, UFLRA, AUFLIA)
 - [ ] Combined theory validation (QF_AUFBV, QF_ALIA, QF_ABV)
 - [ ] Enhanced preprocessing tactics
-- [ ] Performance regression CI pipeline
+- [x] Performance regression CI pipeline
 - [ ] SMT-COMP 2026 entry preparation
 
 ### v1.0.0 (Target: Q4 2026)

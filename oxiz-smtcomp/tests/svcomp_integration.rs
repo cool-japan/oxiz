@@ -18,21 +18,22 @@ fn setup_synthetic_svcomp() -> TempDir {
     let root = dir.path();
 
     // 1. A valid SMT-LIB2 benchmark file
-    let smt2_content = "(set-logic QF_LIA)\n(declare-fun x () Int)\n(assert (> x 0))\n(check-sat)\n";
+    let smt2_content =
+        "(set-logic QF_LIA)\n(declare-fun x () Int)\n(assert (> x 0))\n(check-sat)\n";
     let smt2_path = root.join("benchmark.smt2");
     fs::write(&smt2_path, smt2_content).expect("writing smt2 fixture should succeed");
 
     // 2. A valid SV-COMP YAML task pointing at the .smt2 file
-    let task_smt2_yaml = format!(
+    let task_smt2_yaml =
         "format_version: \"2.0\"\ninput_files:\n  - benchmark.smt2\nexpected_verdict: \"true\"\n"
-    );
+            .to_string();
     fs::write(root.join("task_smt2.yml"), &task_smt2_yaml)
         .expect("writing task_smt2.yml should succeed");
 
     // 3. A valid SV-COMP YAML task pointing at a .c file (no SMT-LIB → skipped)
-    let task_c_yaml = "format_version: \"2.0\"\ninput_files:\n  - program.c\nexpected_verdict: \"false\"\n";
-    fs::write(root.join("task_c.yml"), task_c_yaml)
-        .expect("writing task_c.yml should succeed");
+    let task_c_yaml =
+        "format_version: \"2.0\"\ninput_files:\n  - program.c\nexpected_verdict: \"false\"\n";
+    fs::write(root.join("task_c.yml"), task_c_yaml).expect("writing task_c.yml should succeed");
 
     // 4. A malformed YAML file (unterminated flow mapping → parse failure)
     let malformed_yaml = "format_version: {[broken\n";
@@ -45,7 +46,8 @@ fn setup_synthetic_svcomp() -> TempDir {
 #[test]
 fn test_discover_succeeds() {
     let dir = setup_synthetic_svcomp();
-    let reader = SvCompReader::discover(dir.path()).expect("discover should succeed on synthetic layout");
+    let reader =
+        SvCompReader::discover(dir.path()).expect("discover should succeed on synthetic layout");
     drop(dir); // explicit: keep dir alive until assertions done
 
     // We just want to confirm it doesn't error
@@ -179,7 +181,11 @@ fn test_discover_yaml_extension_case_insensitive() {
     fs::write(root.join("task.YAML"), yaml).expect("write task.YAML should succeed");
 
     let reader = SvCompReader::discover(root).expect("discover should succeed");
-    assert_eq!(reader.tasks().len(), 1, "uppercase .YAML should be accepted");
+    assert_eq!(
+        reader.tasks().len(),
+        1,
+        "uppercase .YAML should be accepted"
+    );
 }
 
 #[test]

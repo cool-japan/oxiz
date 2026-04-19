@@ -92,6 +92,7 @@ pub mod loader;
 pub mod logic_detector;
 pub mod reporter;
 pub mod statistics;
+pub mod svcomp;
 
 // High priority modules
 pub mod memory;
@@ -135,6 +136,8 @@ pub use reporter::{
     Report, ReportFormat, Reporter, ReporterConfig, ReporterError, ReporterResult, ResultEntry,
     SmtCompScore, SolverInfo,
 };
+
+pub use svcomp::{SkippedReason, SvCompError, SvCompReader, SvCompTask};
 
 pub use statistics::{
     CactusPoint, CategoryStats, DifficultyAnalysis, FullAnalysis, ScatterPoint, SolverComparison,

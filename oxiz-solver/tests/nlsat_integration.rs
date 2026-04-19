@@ -414,8 +414,8 @@ fn expected_result(path: &std::path::Path) -> Option<SolverResult> {
 
 #[test]
 fn test_qf_nia_ext_fixtures() {
-    let fixture_dir =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../bench/extended_theories/QF_NIA_ext");
+    let fixture_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../bench/extended_theories/QF_NIA_ext");
 
     if !fixture_dir.exists() {
         // Fixture directory doesn't exist — skip silently.
@@ -425,12 +425,7 @@ fn test_qf_nia_ext_fixtures() {
     let entries: Vec<_> = std::fs::read_dir(&fixture_dir)
         .unwrap_or_else(|_| panic!("Failed to read {:?}", fixture_dir))
         .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.path()
-                .extension()
-                .map(|x| x == "smt2")
-                .unwrap_or(false)
-        })
+        .filter(|e| e.path().extension().map(|x| x == "smt2").unwrap_or(false))
         .collect();
 
     if entries.is_empty() {
@@ -485,12 +480,7 @@ fn test_qf_nia_z3_parity_fixtures() {
     let entries: Vec<_> = std::fs::read_dir(&fixture_dir)
         .unwrap_or_else(|_| panic!("Failed to read {:?}", fixture_dir))
         .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.path()
-                .extension()
-                .map(|x| x == "smt2")
-                .unwrap_or(false)
-        })
+        .filter(|e| e.path().extension().map(|x| x == "smt2").unwrap_or(false))
         .collect();
 
     if entries.is_empty() {
@@ -505,7 +495,8 @@ fn test_qf_nia_z3_parity_fixtures() {
         let actual = run_smt2_fixture(&path);
 
         if let Some(exp) = expected
-            && actual != exp && !matches!(actual, SolverResult::Unknown)
+            && actual != exp
+            && !matches!(actual, SolverResult::Unknown)
         {
             failures.push(format!(
                 "{}: expected {:?}, got {:?}",

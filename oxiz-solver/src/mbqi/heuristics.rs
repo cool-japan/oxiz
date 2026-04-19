@@ -680,9 +680,7 @@ impl MultiTriggerScorer {
                 // Conservative: prefer smaller trigger sets
                 1.0 / (1.0 + ts.terms.len() as f64)
             }
-            ScorerPolicy::Ranked => {
-                self.ranked_score(ts, manager)
-            }
+            ScorerPolicy::Ranked => self.ranked_score(ts, manager),
         }
     }
 
@@ -736,16 +734,17 @@ impl MultiTriggerScorer {
                 .map(|&a| self.term_depth(a, manager, current + 1, cap))
                 .max()
                 .unwrap_or(current),
-            TermKind::Not(a) | TermKind::Neg(a) => {
-                self.term_depth(*a, manager, current + 1, cap)
-            }
+            TermKind::Not(a) | TermKind::Neg(a) => self.term_depth(*a, manager, current + 1, cap),
             TermKind::And(args) | TermKind::Or(args) => args
                 .iter()
                 .map(|&a| self.term_depth(a, manager, current + 1, cap))
                 .max()
                 .unwrap_or(current),
-            TermKind::Eq(l, r) | TermKind::Lt(l, r) | TermKind::Le(l, r)
-            | TermKind::Gt(l, r) | TermKind::Ge(l, r) => {
+            TermKind::Eq(l, r)
+            | TermKind::Lt(l, r)
+            | TermKind::Le(l, r)
+            | TermKind::Gt(l, r)
+            | TermKind::Ge(l, r) => {
                 let ld = self.term_depth(*l, manager, current + 1, cap);
                 let rd = self.term_depth(*r, manager, current + 1, cap);
                 ld.max(rd)
@@ -813,8 +812,11 @@ impl MultiTriggerScorer {
                     self.collect_vars_rec(a, manager, vars, visited);
                 }
             }
-            TermKind::Eq(l, r) | TermKind::Lt(l, r) | TermKind::Le(l, r)
-            | TermKind::Gt(l, r) | TermKind::Ge(l, r) => {
+            TermKind::Eq(l, r)
+            | TermKind::Lt(l, r)
+            | TermKind::Le(l, r)
+            | TermKind::Gt(l, r)
+            | TermKind::Ge(l, r) => {
                 self.collect_vars_rec(*l, manager, vars, visited);
                 self.collect_vars_rec(*r, manager, vars, visited);
             }

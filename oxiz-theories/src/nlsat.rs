@@ -26,10 +26,10 @@ use num_rational::BigRational;
 use num_traits::ToPrimitive;
 use oxiz_core::ast::{TermId, TermKind, TermManager};
 use oxiz_core::error::Result;
+use oxiz_math::polynomial::Polynomial;
 use oxiz_nlsat::nia::{NiaConfig, NiaSolver, VarType};
 use oxiz_nlsat::solver::{NlsatSolver, SolverResult};
 use oxiz_nlsat::types::AtomKind;
-use oxiz_math::polynomial::Polynomial;
 use std::collections::HashMap;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -156,10 +156,7 @@ pub fn term_is_nonlinear(term_id: TermId, manager: &TermManager) -> bool {
     };
     match &term.kind {
         TermKind::Mul(args) => {
-            let non_const_count = args
-                .iter()
-                .filter(|&&a| !is_const_term(a, manager))
-                .count();
+            let non_const_count = args.iter().filter(|&&a| !is_const_term(a, manager)).count();
             if non_const_count >= 2 {
                 return true;
             }
@@ -255,8 +252,7 @@ fn extract_poly_atoms(
     };
     match &term.kind.clone() {
         TermKind::Eq(lhs, rhs) => {
-            if let (Some(lp), Some(rp)) = (translator.translate(*lhs), translator.translate(*rhs))
-            {
+            if let (Some(lp), Some(rp)) = (translator.translate(*lhs), translator.translate(*rhs)) {
                 out.push(PolyAtom {
                     poly: Polynomial::sub(&lp, &rp),
                     kind: AtomKind::Eq,
@@ -266,8 +262,7 @@ fn extract_poly_atoms(
         }
         TermKind::Lt(lhs, rhs) => {
             // lhs < rhs → rhs - lhs > 0
-            if let (Some(lp), Some(rp)) = (translator.translate(*lhs), translator.translate(*rhs))
-            {
+            if let (Some(lp), Some(rp)) = (translator.translate(*lhs), translator.translate(*rhs)) {
                 out.push(PolyAtom {
                     poly: Polynomial::sub(&rp, &lp),
                     kind: AtomKind::Gt,
@@ -277,8 +272,7 @@ fn extract_poly_atoms(
         }
         TermKind::Le(lhs, rhs) => {
             // lhs <= rhs → rhs - lhs >= 0 → NOT(rhs - lhs < 0)
-            if let (Some(lp), Some(rp)) = (translator.translate(*lhs), translator.translate(*rhs))
-            {
+            if let (Some(lp), Some(rp)) = (translator.translate(*lhs), translator.translate(*rhs)) {
                 out.push(PolyAtom {
                     poly: Polynomial::sub(&rp, &lp),
                     kind: AtomKind::Lt,
@@ -288,8 +282,7 @@ fn extract_poly_atoms(
         }
         TermKind::Gt(lhs, rhs) => {
             // lhs > rhs → lhs - rhs > 0
-            if let (Some(lp), Some(rp)) = (translator.translate(*lhs), translator.translate(*rhs))
-            {
+            if let (Some(lp), Some(rp)) = (translator.translate(*lhs), translator.translate(*rhs)) {
                 out.push(PolyAtom {
                     poly: Polynomial::sub(&lp, &rp),
                     kind: AtomKind::Gt,
@@ -299,8 +292,7 @@ fn extract_poly_atoms(
         }
         TermKind::Ge(lhs, rhs) => {
             // lhs >= rhs → NOT(lhs - rhs < 0)
-            if let (Some(lp), Some(rp)) = (translator.translate(*lhs), translator.translate(*rhs))
-            {
+            if let (Some(lp), Some(rp)) = (translator.translate(*lhs), translator.translate(*rhs)) {
                 out.push(PolyAtom {
                     poly: Polynomial::sub(&lp, &rp),
                     kind: AtomKind::Lt,
@@ -358,14 +350,18 @@ pub fn dispatch_nia_constraints(
         return None;
     }
 
-    let unsat_is_trustworthy = !has_unsupported_ops && poly_atoms.iter().all(|atom| atom.poly.is_univariate());
+    let unsat_is_trustworthy =
+        !has_unsupported_ops && poly_atoms.iter().all(|atom| atom.poly.is_univariate());
 
     for atom in &poly_atoms {
         let atom_id = translator
             .nlsat
             .nlsat_mut()
             .new_ineq_atom(atom.poly.clone(), atom.kind);
-        let lit = translator.nlsat.nlsat().atom_literal(atom_id, atom.positive);
+        let lit = translator
+            .nlsat
+            .nlsat()
+            .atom_literal(atom_id, atom.positive);
         translator.nlsat.nlsat_mut().add_clause(vec![lit]);
     }
 
@@ -462,8 +458,7 @@ fn extract_real_poly_atoms(
     };
     match &term.kind.clone() {
         TermKind::Eq(lhs, rhs) => {
-            if let (Some(lp), Some(rp)) = (translator.translate(*lhs), translator.translate(*rhs))
-            {
+            if let (Some(lp), Some(rp)) = (translator.translate(*lhs), translator.translate(*rhs)) {
                 out.push(PolyAtom {
                     poly: Polynomial::sub(&lp, &rp),
                     kind: AtomKind::Eq,
@@ -472,8 +467,7 @@ fn extract_real_poly_atoms(
             }
         }
         TermKind::Lt(lhs, rhs) => {
-            if let (Some(lp), Some(rp)) = (translator.translate(*lhs), translator.translate(*rhs))
-            {
+            if let (Some(lp), Some(rp)) = (translator.translate(*lhs), translator.translate(*rhs)) {
                 out.push(PolyAtom {
                     poly: Polynomial::sub(&rp, &lp),
                     kind: AtomKind::Gt,
@@ -482,8 +476,7 @@ fn extract_real_poly_atoms(
             }
         }
         TermKind::Le(lhs, rhs) => {
-            if let (Some(lp), Some(rp)) = (translator.translate(*lhs), translator.translate(*rhs))
-            {
+            if let (Some(lp), Some(rp)) = (translator.translate(*lhs), translator.translate(*rhs)) {
                 out.push(PolyAtom {
                     poly: Polynomial::sub(&rp, &lp),
                     kind: AtomKind::Lt,
@@ -492,8 +485,7 @@ fn extract_real_poly_atoms(
             }
         }
         TermKind::Gt(lhs, rhs) => {
-            if let (Some(lp), Some(rp)) = (translator.translate(*lhs), translator.translate(*rhs))
-            {
+            if let (Some(lp), Some(rp)) = (translator.translate(*lhs), translator.translate(*rhs)) {
                 out.push(PolyAtom {
                     poly: Polynomial::sub(&lp, &rp),
                     kind: AtomKind::Gt,
@@ -502,8 +494,7 @@ fn extract_real_poly_atoms(
             }
         }
         TermKind::Ge(lhs, rhs) => {
-            if let (Some(lp), Some(rp)) = (translator.translate(*lhs), translator.translate(*rhs))
-            {
+            if let (Some(lp), Some(rp)) = (translator.translate(*lhs), translator.translate(*rhs)) {
                 out.push(PolyAtom {
                     poly: Polynomial::sub(&lp, &rp),
                     kind: AtomKind::Lt,
@@ -628,7 +619,11 @@ impl NlsatTheory {
 
 impl Theory for NlsatTheory {
     fn id(&self) -> TheoryId {
-        if self.is_integer { TheoryId::NIA } else { TheoryId::NRA }
+        if self.is_integer {
+            TheoryId::NIA
+        } else {
+            TheoryId::NRA
+        }
     }
 
     fn name(&self) -> &str {
@@ -854,7 +849,9 @@ mod tests {
         let triple = manager.mk_mul(vec![x, y, z]);
         let mut nia = NiaSolver::new();
         let mut t = TermPolyTranslator::new(&manager, &mut nia, true);
-        let poly = t.translate(triple).expect("triple product should translate");
+        let poly = t
+            .translate(triple)
+            .expect("triple product should translate");
         assert_eq!(poly.num_terms(), 1);
         assert_eq!(poly.total_degree(), 3);
     }
@@ -873,7 +870,9 @@ mod tests {
         let product = manager.mk_mul(vec![xp1, ym2]);
         let mut nia = NiaSolver::new();
         let mut t = TermPolyTranslator::new(&manager, &mut nia, true);
-        let poly = t.translate(product).expect("factored product should translate");
+        let poly = t
+            .translate(product)
+            .expect("factored product should translate");
         // (x+1)(y-2) = xy - 2x + y - 2  → 4 terms
         assert_eq!(poly.num_terms(), 4);
         assert_eq!(poly.total_degree(), 2);

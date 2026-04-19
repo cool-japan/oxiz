@@ -70,9 +70,13 @@ fn test_depth_bound_terminates() {
     instantiator.increment_depth(quant_term);
     instantiator.increment_depth(quant_term);
 
-    let blocked = instantiator.instantiate_from_conflict(&quantifier, &[zero], &model, &mut manager);
+    let blocked =
+        instantiator.instantiate_from_conflict(&quantifier, &[zero], &model, &mut manager);
 
-    assert!(blocked.is_empty(), "instantiation must stop once max_depth=2 is reached");
+    assert!(
+        blocked.is_empty(),
+        "instantiation must stop once max_depth=2 is reached"
+    );
     assert_eq!(instantiator.current_depth(quant_term), 2);
 }
 
@@ -96,5 +100,9 @@ fn test_uflia_sat_correctness() {
     ctx.assert(quantifier);
 
     let result = ctx.check_sat();
-    assert_eq!(result, SolverResult::Sat, "simple UFLIA formula should be SAT");
+    assert_eq!(
+        result,
+        SolverResult::Sat,
+        "simple UFLIA formula should be SAT"
+    );
 }

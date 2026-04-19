@@ -1,92 +1,10 @@
-//! Automatic SMT-LIB logic detection from benchmark source text.
+//! Auto-generated module
 //!
-//! SMT-LIB benchmarks normally announce their theory with a `(set-logic ...)`
-//! directive near the top of the file. Real-world corpora are not so tidy:
-//! some inputs omit the directive, some annotate it only in a trailing
-//! `(set-info ...)` comment, and some ship unadorned scripts. The
-//! [`detect_logic`] function bridges that gap by scanning the raw SMT-LIB
-//! source for theory keywords and deriving the most specific standard logic
-//! name it can.
-//!
-//! # Why text-level detection?
-//!
-//! The [`crate::loader::Loader`] pipeline reads SMT-LIB files as raw
-//! `String` content before handing them off to [`oxiz_core::smtlib::parse_script`].
-//! Detecting the logic at the text layer keeps the analysis crate-local —
-//! we do not have to build a parser dependency, keep a [`oxiz_core::ast::TermManager`]
-//! alive, or re-implement the term AST walk. SMT-LIB's surface syntax uses
-//! reserved theory keywords (`bvadd`, `select`, `fp.add`, `forall`, …) that
-//! are stable enough across the current language revision for a lightweight
-//! tokenizer to classify a benchmark correctly.
-//!
-//! # Accuracy
-//!
-//! The scanner is deliberately conservative: when in doubt it picks a more
-//! general logic (e.g., falls back to `"ALL"`) rather than claim a feature
-//! that is not actually used. The detector is therefore safe to use as a
-//! default when no `(set-logic)` header is present; an explicit
-//! `(set-logic X)` always takes precedence.
-//!
-//! # Examples
-//!
-//! ```
-//! use oxiz_smtcomp::logic_detector::detect_logic;
-//!
-//! let src = "(declare-const x Int)(assert (>= x 0))(check-sat)";
-//! assert_eq!(detect_logic(src), "QF_LIA");
-//! ```
+//! 🤖 Generated with [SplitRS](https://github.com/cool-japan/splitrs)
 
 use std::collections::HashSet;
 
-/// Theory feature flags detected in an SMT-LIB benchmark.
-///
-/// Each field records whether the associated theory appears anywhere in the
-/// scanned source. `TheoryBits` is a flat, copyable descriptor so it can be
-/// combined, compared, and mapped to logic names without additional
-/// allocation.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct TheoryBits {
-    /// User-declared uninterpreted functions with non-empty argument lists.
-    pub has_uf: bool,
-    /// Integer sort or any integer-flavoured operator.
-    pub has_int: bool,
-    /// Real sort or any real-flavoured operator.
-    pub has_real: bool,
-    /// `BitVec` sort or any `bv*` operator.
-    pub has_bv: bool,
-    /// Array sort or any `select`/`store` operator.
-    pub has_array: bool,
-    /// `String` sort or any `str.*` operator.
-    pub has_string: bool,
-    /// `FloatingPoint` sort or any `fp.*` operator.
-    pub has_fp: bool,
-    /// `declare-datatype(s)` declarations.
-    pub has_dt: bool,
-    /// Nonlinear arithmetic (variable-by-variable `*` / `/` / `mod` / `pow`).
-    pub has_nonlinear: bool,
-    /// `forall` / `exists` binders.
-    pub has_quantifier: bool,
-}
-
-impl TheoryBits {
-    /// Whether any theory bit is set.
-    ///
-    /// Used by the logic mapper to distinguish "no signal — probably a pure
-    /// Boolean script" from "something interesting was detected".
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        !(self.has_uf
-            || self.has_int
-            || self.has_real
-            || self.has_bv
-            || self.has_array
-            || self.has_string
-            || self.has_fp
-            || self.has_dt
-            || self.has_nonlinear
-            || self.has_quantifier)
-    }
-}
+use super::types::{ConstructKind, StructuralFeatures, TheoryBits};
 
 /// Detect the minimal SMT-LIB logic that covers the given benchmark source.
 ///
@@ -104,7 +22,6 @@ pub fn detect_logic(smtlib_source: &str) -> String {
     let bits = detect_theory_bits(smtlib_source);
     logic_from_bits(&bits)
 }
-
 /// Scan the SMT-LIB source for theory feature flags.
 ///
 /// Returns a [`TheoryBits`] recording which theories the scanner found
@@ -115,9 +32,7 @@ pub fn detect_logic(smtlib_source: &str) -> String {
 pub fn detect_theory_bits(smtlib_source: &str) -> TheoryBits {
     let tokens = tokenize(smtlib_source);
     let token_set: HashSet<&str> = tokens.iter().map(String::as_str).collect();
-
     let mut bits = TheoryBits::default();
-
     scan_sort_keywords(&token_set, &mut bits);
     scan_arith_keywords(&token_set, &mut bits);
     scan_bv_keywords(&token_set, &mut bits);
@@ -126,13 +41,10 @@ pub fn detect_theory_bits(smtlib_source: &str) -> TheoryBits {
     scan_fp_keywords(&token_set, &mut bits);
     scan_quantifier_keywords(&token_set, &mut bits);
     scan_datatype_keywords(&token_set, &mut bits);
-
     scan_uf_declarations(&tokens, &mut bits);
     scan_nonlinear_multiplication(&tokens, &mut bits);
-
     bits
 }
-
 /// Extract the argument of a `(set-logic X)` directive when one is present.
 ///
 /// The scanner examines the first 200 tokens of the source — large enough to
@@ -142,10 +54,7 @@ fn extract_set_logic(source: &str) -> Option<String> {
     let tokens = tokenize(source);
     let mut iter = tokens.iter().take(200).peekable();
     while let Some(tok) = iter.next() {
-        if tok == "set-logic"
-            && let Some(next) = iter.peek()
-            && !next.is_empty()
-        {
+        if tok == "set-logic" && let Some(next) = iter.peek() && !next.is_empty() {
             let candidate = next.trim_end_matches(')');
             if !candidate.is_empty() && candidate != "(" && candidate != ")" {
                 return Some(candidate.to_string());
@@ -154,7 +63,6 @@ fn extract_set_logic(source: &str) -> Option<String> {
     }
     None
 }
-
 /// Tokenize SMT-LIB source for keyword scanning.
 ///
 /// The tokenizer splits on whitespace and parentheses, drops empty pieces,
@@ -166,13 +74,11 @@ fn tokenize(source: &str) -> Vec<String> {
     let mut in_line_comment = false;
     let mut in_string = false;
     let mut in_quoted_symbol = false;
-
     let flush = |current: &mut String, tokens: &mut Vec<String>| {
         if !current.is_empty() {
             tokens.push(std::mem::take(current));
         }
     };
-
     for ch in source.chars() {
         if in_line_comment {
             if ch == '\n' {
@@ -181,7 +87,6 @@ fn tokenize(source: &str) -> Vec<String> {
             continue;
         }
         if in_string {
-            // SMT-LIB string literal — consume until matching `"`.
             if ch == '"' {
                 in_string = false;
             }
@@ -193,7 +98,6 @@ fn tokenize(source: &str) -> Vec<String> {
             }
             continue;
         }
-
         match ch {
             ';' => {
                 flush(&mut current, &mut tokens);
@@ -220,7 +124,6 @@ fn tokenize(source: &str) -> Vec<String> {
     flush(&mut current, &mut tokens);
     tokens
 }
-
 /// Detect sort keywords that unambiguously mark a theory.
 fn scan_sort_keywords(tokens: &HashSet<&str>, bits: &mut TheoryBits) {
     if tokens.contains("Int") {
@@ -238,17 +141,13 @@ fn scan_sort_keywords(tokens: &HashSet<&str>, bits: &mut TheoryBits) {
     if tokens.contains("String") {
         bits.has_string = true;
     }
-    if tokens.contains("FloatingPoint")
-        || tokens.contains("Float16")
-        || tokens.contains("Float32")
-        || tokens.contains("Float64")
-        || tokens.contains("Float128")
-        || tokens.contains("RoundingMode")
+    if tokens.contains("FloatingPoint") || tokens.contains("Float16")
+        || tokens.contains("Float32") || tokens.contains("Float64")
+        || tokens.contains("Float128") || tokens.contains("RoundingMode")
     {
         bits.has_fp = true;
     }
 }
-
 /// Detect arithmetic operators that force integer or real flavouring.
 fn scan_arith_keywords(tokens: &HashSet<&str>, bits: &mut TheoryBits) {
     const INT_OPS: &[&str] = &["mod", "div", "abs", "to_int", "int.pow"];
@@ -263,51 +162,35 @@ fn scan_arith_keywords(tokens: &HashSet<&str>, bits: &mut TheoryBits) {
             bits.has_real = true;
         }
     }
-    // `/` is the real-division operator when applied as a head symbol. We
-    // cannot reliably distinguish "/ as division" from "/ appearing in a
-    // longer identifier" at the token layer, so we rely on the sort
-    // declarations above to seed the Real flag and only treat `/` as a hint.
     if tokens.contains("/") {
-        // `/` is a weak signal — many Int-only benchmarks include `/` as part
-        // of path-like identifiers. Only promote to Real if no Int sort is
-        // already declared.
         if !bits.has_int {
             bits.has_real = true;
         }
     }
 }
-
 /// Detect bit-vector operators beyond the `BitVec` sort.
 fn scan_bv_keywords(tokens: &HashSet<&str>, bits: &mut TheoryBits) {
     if bits.has_bv {
         return;
     }
     for tok in tokens {
-        // Fixed-width BV prefix covers bvadd, bvsub, bvmul, bvand, bvor,
-        // bvxor, bvshl, bvshr, bvlshr, bvashr, bvult, bvule, bvslt, bvsle,
-        // bvneg, bvnot, bvnand, bvnor, bvxnor, bvcomp, bvudiv, bvurem,
-        // bvsdiv, bvsrem, bvsmod.
-        if tok.starts_with("bv") && tok.len() > 2 && tok.chars().skip(2).all(|c| c.is_alphabetic())
+        if tok.starts_with("bv") && tok.len() > 2
+            && tok.chars().skip(2).all(|c| c.is_alphabetic())
         {
             bits.has_bv = true;
             return;
         }
     }
-    // `concat` and `extract` are BV operators but also appear in String
-    // theory. They only imply BV if no string signal is present; we
-    // therefore defer the decision until after the string scan.
     if tokens.contains("concat") && !tokens.contains("str.++") {
         bits.has_bv = true;
     }
 }
-
 /// Detect array operators.
 fn scan_array_keywords(tokens: &HashSet<&str>, bits: &mut TheoryBits) {
     if tokens.contains("select") || tokens.contains("store") {
         bits.has_array = true;
     }
 }
-
 /// Detect string operators.
 fn scan_string_keywords(tokens: &HashSet<&str>, bits: &mut TheoryBits) {
     if bits.has_string {
@@ -320,7 +203,6 @@ fn scan_string_keywords(tokens: &HashSet<&str>, bits: &mut TheoryBits) {
         }
     }
 }
-
 /// Detect floating-point operators.
 fn scan_fp_keywords(tokens: &HashSet<&str>, bits: &mut TheoryBits) {
     if bits.has_fp {
@@ -333,25 +215,21 @@ fn scan_fp_keywords(tokens: &HashSet<&str>, bits: &mut TheoryBits) {
         }
     }
 }
-
 /// Detect universal/existential quantifiers.
 fn scan_quantifier_keywords(tokens: &HashSet<&str>, bits: &mut TheoryBits) {
     if tokens.contains("forall") || tokens.contains("exists") {
         bits.has_quantifier = true;
     }
 }
-
 /// Detect datatype declarations.
 fn scan_datatype_keywords(tokens: &HashSet<&str>, bits: &mut TheoryBits) {
-    if tokens.contains("declare-datatype")
-        || tokens.contains("declare-datatypes")
+    if tokens.contains("declare-datatype") || tokens.contains("declare-datatypes")
         || tokens.contains("declare-codatatype")
         || tokens.contains("declare-codatatypes")
     {
         bits.has_dt = true;
     }
 }
-
 /// Detect uninterpreted-function declarations.
 ///
 /// In SMT-LIB `(declare-fun f (<arg-sorts>) <ret-sort>)` introduces an
@@ -364,9 +242,7 @@ fn scan_uf_declarations(tokens: &[String], bits: &mut TheoryBits) {
     let mut i = 0;
     while i + 4 < tokens.len() {
         if tokens[i] == "(" && tokens[i + 1] == "declare-fun" {
-            // tokens[i+2] = function name, tokens[i+3] = "(" opening arg list
             if tokens[i + 3] == "(" {
-                // If the next token is `)` the arg list is empty — constant.
                 if tokens[i + 4] != ")" {
                     bits.has_uf = true;
                     return;
@@ -376,19 +252,16 @@ fn scan_uf_declarations(tokens: &[String], bits: &mut TheoryBits) {
         i += 1;
     }
 }
-
 /// Heuristic nonlinear detection: flag a `(* a b)` where neither `a` nor `b`
 /// is an obvious numeric literal. Also flags `int.pow` / `^` power operators.
 fn scan_nonlinear_multiplication(tokens: &[String], bits: &mut TheoryBits) {
     if bits.has_nonlinear {
         return;
     }
-    // `^` power, if present, is nonlinear by definition.
     if tokens.iter().any(|t| t == "^" || t == "int.pow") {
         bits.has_nonlinear = true;
         return;
     }
-    // Look for `( * X Y )` patterns where both X and Y are non-literals.
     let mut i = 0;
     while i + 4 < tokens.len() {
         if tokens[i] == "(" && tokens[i + 1] == "*" {
@@ -402,7 +275,6 @@ fn scan_nonlinear_multiplication(tokens: &[String], bits: &mut TheoryBits) {
         i += 1;
     }
 }
-
 /// Whether a token is a numeric literal (integer or decimal).
 fn is_numeric_literal(tok: &str) -> bool {
     if tok.is_empty() {
@@ -414,7 +286,6 @@ fn is_numeric_literal(tok: &str) -> bool {
         None => return false,
     };
     if first == '-' {
-        // A bare "-" is the subtraction operator, not a literal.
         if tok.len() == 1 {
             return false;
         }
@@ -423,91 +294,6 @@ fn is_numeric_literal(tok: &str) -> bool {
     }
     tok.chars().skip(1).all(|c| c.is_ascii_digit() || c == '.')
 }
-
-/// Structural features extracted by scanning the raw SMT-LIB source text.
-///
-/// These features characterise the syntactic complexity of a benchmark without
-/// requiring a full AST walk. They are intended to support difficulty
-/// prediction, diversity-based sampling, and performance classification.
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
-pub struct StructuralFeatures {
-    /// Maximum nesting depth of parentheses (proxy for term depth).
-    pub max_paren_depth: usize,
-    /// Total number of `assert` commands.
-    pub assert_count: usize,
-    /// Number of `declare-const` / `declare-fun` declarations.
-    pub decl_count: usize,
-    /// Total number of `let` binders detected.
-    pub let_count: usize,
-    /// Maximum nesting depth of `let` binders.
-    pub let_depth: usize,
-    /// Number of `forall` / `exists` binders detected.
-    pub quantifier_count: usize,
-    /// Maximum nesting depth of quantifier binders.
-    pub quantifier_depth: usize,
-    /// Estimated clause / atom count (number of `and` / `or` / `not` occurrences).
-    pub clause_count: usize,
-    /// Number of `ite` (if-then-else) terms.
-    pub ite_count: usize,
-
-    // --- Extended structural classification fields ---
-
-    /// Maximum depth of nested terms (derived from paren depth inside assertions).
-    ///
-    /// Measures syntactic term complexity: higher values indicate deeper nesting.
-    pub max_term_depth: u32,
-    /// Number of atomic propositions / predicate applications detected.
-    ///
-    /// Counts top-level comparisons (`=`, `<`, `<=`, `>`, `>=`, `distinct`,
-    /// `not`, and bare Boolean variables occurring as assert arguments).
-    pub atom_count: u32,
-    /// Maximum nesting depth of quantifier binders (`forall`/`exists`).
-    ///
-    /// Mirrors `quantifier_depth` but stored as `u32` for feature-vector
-    /// arithmetic in the sampler.
-    pub max_quantifier_nesting: u32,
-    /// Histogram of bit-vector widths: each entry is `(width, count)`.
-    ///
-    /// Populated whenever `(_ BitVec N)` patterns appear in the source.
-    #[serde(default)]
-    pub bv_width_histogram: Vec<(u32, u32)>,
-    /// Histogram of array dimensionalities: each entry is `(dims, count)`.
-    ///
-    /// Each `(Array ...)` sort annotation increments the `dims=1` bucket.
-    /// Nested `(Array (Array ...))` sorts increment the `dims=2` bucket, etc.
-    #[serde(default)]
-    pub array_dim_histogram: Vec<(u32, u32)>,
-    /// Maximum nesting depth of `ite` (if-then-else) expressions.
-    pub max_ite_depth: u32,
-    /// Maximum nesting depth of `let` binders (as `u32`).
-    ///
-    /// Mirrors `let_depth` for feature-vector arithmetic.
-    pub max_let_depth: u32,
-}
-
-use serde::{Deserialize, Serialize};
-
-/// Kind of syntactic construct at the current depth on the nesting stack.
-///
-/// Used by [`extract_structural_features`] to track which construct each open
-/// parenthesis belongs to so that closing parentheses can update the correct
-/// depth counters.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ConstructKind {
-    /// A `forall` or `exists` quantifier binder.
-    Quantifier,
-    /// An `ite` (if-then-else) expression.
-    Ite,
-    /// A `let` binder.
-    Let,
-    /// A `(_ BitVec N)` or similar indexed sort annotation.
-    BvOp,
-    /// An `(Array ...)` sort annotation.
-    ArrayOp,
-    /// Any other parenthesised expression.
-    Other,
-}
-
 /// Increment the count for `width` inside `histogram`, inserting a new entry
 /// `(width, 1)` if no existing entry matches.
 fn histogram_increment(histogram: &mut Vec<(u32, u32)>, key: u32) {
@@ -519,12 +305,10 @@ fn histogram_increment(histogram: &mut Vec<(u32, u32)>, key: u32) {
     }
     histogram.push((key, 1));
 }
-
 /// Try to parse an unsigned decimal integer from `tok`.
 fn parse_u32(tok: &str) -> Option<u32> {
     tok.parse::<u32>().ok()
 }
-
 /// Extract structural features from raw SMT-LIB source text.
 ///
 /// The extractor makes a single pass over the token stream produced by
@@ -536,144 +320,96 @@ fn parse_u32(tok: &str) -> Option<u32> {
 #[must_use]
 pub fn extract_structural_features(source: &str) -> StructuralFeatures {
     let mut features = StructuralFeatures::default();
-
-    // Per-construct current depths for correct unwinding.
-    let mut let_depth: usize = 0;
-    let mut quantifier_depth: usize = 0;
-    let mut ite_depth: usize = 0;
-
-    // Stack of construct kinds, one entry per open `(`.
+    let mut let_depth = 0_u32;
+    let mut quantifier_depth = 0_u32;
+    let mut ite_depth = 0_u32;
     let mut depth_stack: Vec<ConstructKind> = Vec::new();
-
     let tokens = tokenize(source);
     let mut i = 0;
     while i < tokens.len() {
         let tok = &tokens[i];
         match tok.as_str() {
             "(" => {
-                let paren_depth = depth_stack.len().saturating_add(1);
-                // Record maximum paren depth.
-                if paren_depth > features.max_paren_depth {
-                    features.max_paren_depth = paren_depth;
-                }
-                let paren_depth_u32 = paren_depth as u32;
-                if paren_depth_u32 > features.max_term_depth {
-                    features.max_term_depth = paren_depth_u32;
-                }
-
-                // Identify the construct opened by this `(` by peeking ahead.
-                let kind = if let Some(next) = tokens.get(i + 1) {
-                    match next.as_str() {
-                        "assert" => {
-                            features.assert_count += 1;
-                            // Each `assert` introduces a clause boundary.
-                            // Atom count is updated separately below.
-                            ConstructKind::Other
-                        }
-                        "declare-const" | "declare-fun" | "define-fun" | "define-const" => {
-                            features.decl_count += 1;
-                            ConstructKind::Other
-                        }
-                        "let" => {
-                            features.let_count += 1;
-                            let_depth = let_depth.saturating_add(1);
-                            if let_depth > features.let_depth {
-                                features.let_depth = let_depth;
-                            }
-                            let let_u32 = let_depth as u32;
-                            if let_u32 > features.max_let_depth {
-                                features.max_let_depth = let_u32;
-                            }
-                            ConstructKind::Let
-                        }
-                        "forall" | "exists" => {
-                            features.quantifier_count += 1;
-                            quantifier_depth = quantifier_depth.saturating_add(1);
-                            if quantifier_depth > features.quantifier_depth {
-                                features.quantifier_depth = quantifier_depth;
-                            }
-                            let q_u32 = quantifier_depth as u32;
-                            if q_u32 > features.max_quantifier_nesting {
-                                features.max_quantifier_nesting = q_u32;
-                            }
-                            ConstructKind::Quantifier
-                        }
-                        "and" | "or" | "not" => {
-                            features.clause_count += 1;
-                            ConstructKind::Other
-                        }
-                        "ite" => {
-                            features.ite_count += 1;
-                            ite_depth = ite_depth.saturating_add(1);
-                            let ite_u32 = ite_depth as u32;
-                            if ite_u32 > features.max_ite_depth {
-                                features.max_ite_depth = ite_u32;
-                            }
-                            ConstructKind::Ite
-                        }
-                        // `=`, `<`, `<=`, `>`, `>=`, `distinct` are atomic
-                        // predicate applications — count them as atoms.
-                        "=" | "<" | "<=" | ">" | ">=" | "distinct" => {
-                            features.atom_count = features.atom_count.saturating_add(1);
-                            ConstructKind::Other
-                        }
-                        // Array sort: `(Array <index> <element>)`.
-                        "Array" => {
-                            // Compute nesting depth of Array sorts by looking
-                            // at how many ArrayOp entries are on the stack.
-                            let dims = depth_stack
-                                .iter()
-                                .filter(|&&k| k == ConstructKind::ArrayOp)
-                                .count() as u32
-                                + 1;
-                            histogram_increment(&mut features.array_dim_histogram, dims);
-                            ConstructKind::ArrayOp
-                        }
-                        // `_` marks an indexed sort / function: `(_ BitVec N)`.
-                        "_" => {
-                            // Look ahead for `BitVec N`.
-                            if tokens.get(i + 2).map(String::as_str) == Some("BitVec") {
-                                if let Some(width_tok) = tokens.get(i + 3) {
-                                    if let Some(width) = parse_u32(width_tok) {
-                                        histogram_increment(
-                                            &mut features.bv_width_histogram,
-                                            width,
-                                        );
-                                    }
-                                }
-                                ConstructKind::BvOp
-                            } else {
-                                ConstructKind::Other
-                            }
-                        }
-                        _ => ConstructKind::Other,
+                let next = tokens.get(i + 1).map(String::as_str);
+                let max_depth = u32::try_from(depth_stack.len().saturating_add(1))
+                    .unwrap_or(u32::MAX);
+                features.max_term_depth = features.max_term_depth.max(max_depth);
+                let parent = depth_stack.last().copied();
+                let kind = match next {
+                    Some("assert") => {
+                        features.clause_count = features.clause_count.saturating_add(1);
+                        ConstructKind::Assert
                     }
-                } else {
-                    ConstructKind::Other
+                    Some("forall") | Some("exists") => {
+                        quantifier_depth = quantifier_depth.saturating_add(1);
+                        features.max_quantifier_nesting = features
+                            .max_quantifier_nesting
+                            .max(quantifier_depth);
+                        ConstructKind::Quantifier
+                    }
+                    Some("ite") => {
+                        ite_depth = ite_depth.saturating_add(1);
+                        features.max_ite_depth = features.max_ite_depth.max(ite_depth);
+                        ConstructKind::Ite
+                    }
+                    Some("let") => {
+                        let_depth = let_depth.saturating_add(1);
+                        features.max_let_depth = features.max_let_depth.max(let_depth);
+                        ConstructKind::Let
+                    }
+                    Some("and") | Some("or") | Some("not") | Some("=>") | Some("xor") => {
+                        ConstructKind::Bool
+                    }
+                    Some("=")
+                    | Some("<")
+                    | Some("<=")
+                    | Some(">")
+                    | Some(">=")
+                    | Some("distinct") => {
+                        features.atom_count = features.atom_count.saturating_add(1);
+                        ConstructKind::Other
+                    }
+                    Some("Array") => {
+                        let dims = depth_stack
+                            .iter()
+                            .filter(|&&kind| kind == ConstructKind::Array)
+                            .count()
+                            .saturating_add(1);
+                        let dims = u32::try_from(dims).unwrap_or(u32::MAX);
+                        histogram_increment(&mut features.array_dim_histogram, dims);
+                        ConstructKind::Array
+                    }
+                    Some("_") => {
+                        if tokens.get(i + 2).map(String::as_str) == Some("BitVec")
+                            && let Some(width) = tokens
+                                .get(i + 3)
+                                .and_then(|tok| parse_u32(tok))
+                        {
+                            histogram_increment(&mut features.bv_width_histogram, width);
+                        }
+                        ConstructKind::Other
+                    }
+                    Some(head) => {
+                        if should_count_as_predicate_app(head, parent) {
+                            features.atom_count = features.atom_count.saturating_add(1);
+                        }
+                        ConstructKind::Other
+                    }
+                    None => ConstructKind::Other,
                 };
-
                 depth_stack.push(kind);
             }
             ")" => {
                 if let Some(closed) = depth_stack.pop() {
                     match closed {
-                        ConstructKind::Let => {
-                            if let_depth > 0 {
-                                let_depth -= 1;
-                            }
-                        }
+                        ConstructKind::Let => let_depth = let_depth.saturating_sub(1),
                         ConstructKind::Quantifier => {
-                            if quantifier_depth > 0 {
-                                quantifier_depth -= 1;
-                            }
+                            quantifier_depth = quantifier_depth.saturating_sub(1);
                         }
-                        ConstructKind::Ite => {
-                            if ite_depth > 0 {
-                                ite_depth -= 1;
-                            }
-                        }
-                        ConstructKind::BvOp
-                        | ConstructKind::ArrayOp
+                        ConstructKind::Ite => ite_depth = ite_depth.saturating_sub(1),
+                        ConstructKind::Assert
+                        | ConstructKind::Bool
+                        | ConstructKind::Array
                         | ConstructKind::Other => {}
                     }
                 }
@@ -682,10 +418,31 @@ pub fn extract_structural_features(source: &str) -> StructuralFeatures {
         }
         i += 1;
     }
-
+    features.bv_width_histogram.sort_unstable_by_key(|&(width, _)| width);
+    features.array_dim_histogram.sort_unstable_by_key(|&(dims, _)| dims);
     features
 }
-
+/// Whether `head` should count as a predicate application in the current context.
+fn should_count_as_predicate_app(head: &str, parent: Option<ConstructKind>) -> bool {
+    if !matches!(
+        parent, Some(ConstructKind::Assert | ConstructKind::Bool |
+        ConstructKind::Quantifier)
+    ) {
+        return false;
+    }
+    if head.is_empty()
+        || matches!(head, "(" | ")" | "_" | "let" | "ite" | "forall" | "exists")
+    {
+        return false;
+    }
+    !matches!(
+        head, "assert" | "check-sat" | "check-sat-assuming" | "declare-const" |
+        "declare-fun" | "define-const" | "define-fun" | "set-logic" | "set-info" |
+        "set-option" | "Array" | "BitVec" | "and" | "or" | "not" | "=>" | "xor" | "+" |
+        "-" | "*" | "/" | "div" | "mod" | "abs" | "to_real" | "to_int" | "select" |
+        "store" | "concat" | "extract"
+    )
+}
 /// Map a [`TheoryBits`] fingerprint to the most specific standard logic name.
 ///
 /// The order of the checks matters: richer combinations must be tested
@@ -705,10 +462,6 @@ pub fn logic_from_bits(bits: &TheoryBits) -> String {
     let fp = bits.has_fp;
     let dt = bits.has_dt;
     let nl = bits.has_nonlinear;
-
-    // Floating-point: no standard logic currently mixes FP with quantifiers
-    // or with other theories outside BV. Keep FP checks early and fall back
-    // to ALL for exotic blends.
     if fp && !quant && !string && !arr && !dt {
         if bv {
             return "QF_BVFP".to_string();
@@ -718,16 +471,12 @@ pub fn logic_from_bits(bits: &TheoryBits) -> String {
         }
         return "ALL".to_string();
     }
-
-    // String logics.
     if string && !quant && !bv && !arr && !fp && !dt {
         if int {
             return "QF_SLIA".to_string();
         }
         return "QF_S".to_string();
     }
-
-    // Datatypes.
     if dt && !quant && !string && !fp {
         if uf {
             return "QF_UFDT".to_string();
@@ -737,8 +486,6 @@ pub fn logic_from_bits(bits: &TheoryBits) -> String {
     if dt && quant && uf && !string && !fp {
         return "UFDT".to_string();
     }
-
-    // Bit-vector family (ordered most-specific → least-specific).
     if bv && !string && !fp && !dt {
         if quant {
             if arr && uf {
@@ -763,8 +510,6 @@ pub fn logic_from_bits(bits: &TheoryBits) -> String {
         }
         return "QF_BV".to_string();
     }
-
-    // Array + integer / real (no BV).
     if arr && !bv && !string && !fp && !dt {
         if quant {
             if int && real && uf {
@@ -788,11 +533,8 @@ pub fn logic_from_bits(bits: &TheoryBits) -> String {
             }
         }
     }
-
-    // Pure arithmetic family.
     if !bv && !arr && !string && !fp && !dt {
         if quant {
-            // Quantified arithmetic.
             if int && real && uf && nl {
                 return "AUFNIRA".to_string();
             }
@@ -827,7 +569,6 @@ pub fn logic_from_bits(bits: &TheoryBits) -> String {
                 return "UF".to_string();
             }
         } else {
-            // Quantifier-free arithmetic.
             if int && real && nl {
                 return "QF_NIRA".to_string();
             }
@@ -866,84 +607,66 @@ pub fn logic_from_bits(bits: &TheoryBits) -> String {
             }
         }
     }
-
-    // Nothing matched a standard logic — fall back to ALL.
     "ALL".to_string()
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
     const QF_LIA_SRC: &str = "
 (set-logic QF_LIA)
 (declare-const x Int)
 (assert (>= x 0))
 (check-sat)
 ";
-
     const QF_LIA_NO_HEADER: &str = "
 (declare-const x Int)
 (declare-const y Int)
 (assert (>= (+ x y) 0))
 (check-sat)
 ";
-
     const UFLIA_SRC_NO_HEADER: &str = "
 (declare-fun f (Int) Int)
 (assert (forall ((x Int)) (= (f x) x)))
 (check-sat)
 ";
-
     const QF_AUFBV_SRC: &str = "
 (declare-const a (Array (_ BitVec 8) (_ BitVec 8)))
 (declare-fun g ((_ BitVec 8)) (_ BitVec 8))
 (assert (= (g (select a #x00)) #xff))
 (check-sat)
 ";
-
     const QF_BV_SRC: &str = "
 (declare-const x (_ BitVec 32))
 (declare-const y (_ BitVec 32))
 (assert (= (bvadd x y) #x00000000))
 (check-sat)
 ";
-
     const QF_LRA_SRC: &str = "
 (declare-const x Real)
 (assert (>= x 0.0))
 (check-sat)
 ";
-
     const QF_NIA_SRC: &str = "
 (declare-const x Int)
 (declare-const y Int)
 (assert (= (* x y) 10))
 (check-sat)
 ";
-
     #[test]
     fn test_detect_qf_lia() {
-        // Explicit header takes precedence.
         assert_eq!(detect_logic(QF_LIA_SRC), "QF_LIA");
-        // And the scanner arrives at the same answer without a header.
         assert_eq!(detect_logic(QF_LIA_NO_HEADER), "QF_LIA");
     }
-
     #[test]
     fn test_detect_uflia() {
         assert_eq!(detect_logic(UFLIA_SRC_NO_HEADER), "UFLIA");
     }
-
     #[test]
     fn test_detect_qf_aufbv() {
         assert_eq!(detect_logic(QF_AUFBV_SRC), "QF_AUFBV");
     }
-
     #[test]
     fn test_fallback_all() {
-        // Mix string + FP + BV + quantifier — no single standard logic
-        // covers all four, so the detector must fall back.
         let src = "
 (declare-const s String)
 (declare-const f (_ FloatingPoint 8 24))
@@ -953,26 +676,20 @@ mod tests {
 ";
         assert_eq!(detect_logic(src), "ALL");
     }
-
     #[test]
     fn test_detect_qf_bv() {
         assert_eq!(detect_logic(QF_BV_SRC), "QF_BV");
     }
-
     #[test]
     fn test_detect_qf_lra() {
         assert_eq!(detect_logic(QF_LRA_SRC), "QF_LRA");
     }
-
     #[test]
     fn test_detect_qf_nia() {
         assert_eq!(detect_logic(QF_NIA_SRC), "QF_NIA");
     }
-
     #[test]
     fn test_detect_explicit_wins_over_inference() {
-        // Source declares an Int sort so inference would pick QF_LIA, but
-        // the explicit header asks for UFLIA.
         let src = "
 (set-logic UFLIA)
 (declare-const x Int)
@@ -981,7 +698,6 @@ mod tests {
 ";
         assert_eq!(detect_logic(src), "UFLIA");
     }
-
     #[test]
     fn test_detect_qf_slia() {
         let src = "
@@ -992,7 +708,6 @@ mod tests {
 ";
         assert_eq!(detect_logic(src), "QF_SLIA");
     }
-
     #[test]
     fn test_detect_qf_fp() {
         let src = "
@@ -1003,10 +718,8 @@ mod tests {
 ";
         assert_eq!(detect_logic(src), "QF_FP");
     }
-
     #[test]
     fn test_detect_uf_only() {
-        // Pure Boolean uninterpreted-function fragment.
         let src = "
 (declare-fun p (Bool) Bool)
 (declare-const x Bool)
@@ -1015,7 +728,6 @@ mod tests {
 ";
         assert_eq!(detect_logic(src), "QF_UF");
     }
-
     #[test]
     fn test_detect_dt_fragment() {
         let src = "
@@ -1026,25 +738,21 @@ mod tests {
 ";
         assert_eq!(detect_logic(src), "QF_DT");
     }
-
     #[test]
     fn test_theory_bits_empty() {
         let bits = TheoryBits::default();
         assert!(bits.is_empty());
     }
-
     #[test]
     fn test_theory_bits_nonempty() {
         let bits = TheoryBits {
             has_int: true,
             ..TheoryBits::default()
         };
-        assert!(!bits.is_empty());
+        assert!(! bits.is_empty());
     }
-
     #[test]
     fn test_comments_do_not_confuse_scanner() {
-        // Keywords inside a `;` comment or a `"..."` string must be ignored.
         let src = "
 ; this mentions Int and BitVec and forall but is a comment
 (set-info :name \"contains Int Real BitVec forall\")
@@ -1052,15 +760,11 @@ mod tests {
 (assert b)
 (check-sat)
 ";
-        // Only pure Boolean content — should fall back since no theory bit
-        // fires and there are no arithmetic/UF markers.
         let logic = detect_logic(src);
         assert_eq!(logic, "ALL");
     }
-
     #[test]
     fn test_nonlinear_with_constant_is_linear() {
-        // `(* 2 x)` is linear, so detector must not mark nonlinear.
         let src = "
 (declare-const x Int)
 (assert (= (* 2 x) 6))
@@ -1068,10 +772,8 @@ mod tests {
 ";
         assert_eq!(detect_logic(src), "QF_LIA");
     }
-
     #[test]
     fn test_uf_constant_only_is_not_uf() {
-        // `(declare-fun x () Int)` is nullary — a constant, not a UF symbol.
         let src = "
 (declare-fun x () Int)
 (assert (>= x 0))
@@ -1079,12 +781,8 @@ mod tests {
 ";
         assert_eq!(detect_logic(src), "QF_LIA");
     }
-
-    // --- Structural feature tests ---
-
     #[test]
     fn test_max_term_depth() {
-        // Nested expression: (+ (+ x y) (+ a b)) has paren depth >= 3 from root.
         let src = "
 (declare-const x Int)
 (declare-const y Int)
@@ -1094,18 +792,13 @@ mod tests {
 (check-sat)
 ";
         let features = extract_structural_features(src);
-        // The assert wraps at depth 1; the outer `+` is at depth 2;
-        // the inner `+` exprs are at depth 3 — so max_term_depth >= 3.
         assert!(
-            features.max_term_depth >= 2,
-            "expected max_term_depth >= 2, got {}",
+            features.max_term_depth >= 2, "expected max_term_depth >= 2, got {}",
             features.max_term_depth
         );
     }
-
     #[test]
-    fn test_atom_count() {
-        // Three assert statements: assert_count must be exactly 3.
+    fn test_clause_count() {
         let src = "
 (declare-const x Int)
 (declare-const y Int)
@@ -1117,15 +810,12 @@ mod tests {
 ";
         let features = extract_structural_features(src);
         assert_eq!(
-            features.assert_count, 3,
-            "expected assert_count == 3, got {}",
-            features.assert_count
+            features.clause_count, 3, "expected clause_count == 3, got {}", features
+            .clause_count
         );
     }
-
     #[test]
     fn test_quantifier_nesting() {
-        // Two nested quantifiers: max_quantifier_nesting must be 2.
         let src = "
 (declare-fun p (Int Int) Bool)
 (assert (forall ((x Int)) (forall ((y Int)) (p x y))))
@@ -1134,14 +824,12 @@ mod tests {
         let features = extract_structural_features(src);
         assert_eq!(
             features.max_quantifier_nesting, 2,
-            "expected max_quantifier_nesting == 2, got {}",
-            features.max_quantifier_nesting
+            "expected max_quantifier_nesting == 2, got {}", features
+            .max_quantifier_nesting
         );
     }
-
     #[test]
     fn test_bv_width_histogram() {
-        // Formula uses (_ BitVec 8) and (_ BitVec 32).
         let src = "
 (declare-const a (_ BitVec 8))
 (declare-const b (_ BitVec 32))
@@ -1155,20 +843,16 @@ mod tests {
             .map(|&(w, _)| w)
             .collect();
         assert!(
-            widths.contains(&8),
-            "expected width 8 in histogram, got {:?}",
-            features.bv_width_histogram
+            widths.contains(& 8), "expected width 8 in histogram, got {:?}", features
+            .bv_width_histogram
         );
         assert!(
-            widths.contains(&32),
-            "expected width 32 in histogram, got {:?}",
-            features.bv_width_histogram
+            widths.contains(& 32), "expected width 32 in histogram, got {:?}", features
+            .bv_width_histogram
         );
     }
-
     #[test]
     fn test_ite_depth() {
-        // Nested ite: (ite c1 (ite c2 a b) c) — max_ite_depth must be 2.
         let src = "
 (declare-const c1 Bool)
 (declare-const c2 Bool)
@@ -1180,15 +864,12 @@ mod tests {
 ";
         let features = extract_structural_features(src);
         assert_eq!(
-            features.max_ite_depth, 2,
-            "expected max_ite_depth == 2, got {}",
-            features.max_ite_depth
+            features.max_ite_depth, 2, "expected max_ite_depth == 2, got {}", features
+            .max_ite_depth
         );
     }
-
     #[test]
     fn test_let_depth() {
-        // Two nested let binders: max_let_depth must be 2.
         let src = "
 (declare-const x Int)
 (assert
@@ -1199,18 +880,16 @@ mod tests {
 ";
         let features = extract_structural_features(src);
         assert_eq!(
-            features.max_let_depth, 2,
-            "expected max_let_depth == 2, got {}",
-            features.max_let_depth
+            features.max_let_depth, 2, "expected max_let_depth == 2, got {}", features
+            .max_let_depth
         );
     }
-
     #[test]
     fn test_structural_features_default_zero() {
-        // Empty source should yield all-zero features.
         let features = extract_structural_features("(check-sat)");
-        assert_eq!(features.max_term_depth, 1); // one open paren
+        assert_eq!(features.max_term_depth, 1);
         assert_eq!(features.atom_count, 0);
+        assert_eq!(features.clause_count, 0);
         assert_eq!(features.max_quantifier_nesting, 0);
         assert!(features.bv_width_histogram.is_empty());
         assert!(features.array_dim_histogram.is_empty());

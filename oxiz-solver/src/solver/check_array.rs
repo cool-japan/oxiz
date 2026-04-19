@@ -65,11 +65,7 @@ impl Solver {
 
         // Also inject alias-aware values into select_values so BV cross-theory checks work.
         // When (= val (select B i)) and B aliases store(A, i, v), we can infer val = v.
-        self.inject_alias_select_values(
-            &array_var_aliases,
-            &mut select_values,
-            manager,
-        );
+        self.inject_alias_select_values(&array_var_aliases, &mut select_values, manager);
 
         // Check: Alias-derived BV ordering conflicts.
         // When (= val (select B i)), B aliases (store A i w), we infer val = w.
@@ -123,11 +119,9 @@ impl Solver {
             }
             // Alias-aware evaluation (handles array variables aliased to store terms).
             if !array_var_aliases.is_empty() {
-                if let Some(evaluated_value) = self.evaluate_select_axiom_with_alias(
-                    select_term,
-                    &array_var_aliases,
-                    manager,
-                ) {
+                if let Some(evaluated_value) =
+                    self.evaluate_select_axiom_with_alias(select_term, &array_var_aliases, manager)
+                {
                     if evaluated_value != asserted_value
                         && self.are_different_values(evaluated_value, asserted_value, manager)
                     {
@@ -157,11 +151,9 @@ impl Solver {
             }
             // Alias-aware evaluation.
             if !array_var_aliases.is_empty() {
-                if let Some(axiom_val) = self.evaluate_select_axiom_with_alias(
-                    select_term,
-                    &array_var_aliases,
-                    manager,
-                ) {
+                if let Some(axiom_val) =
+                    self.evaluate_select_axiom_with_alias(select_term, &array_var_aliases, manager)
+                {
                     if axiom_val == negated_val
                         || self.values_equal_concrete(axiom_val, negated_val, manager)
                         || self.is_value_constrained_to(
@@ -955,10 +947,7 @@ impl Solver {
     ///
     /// Multiple levels of aliasing (B → store1 → store2) are handled by a
     /// fixpoint iteration: at most `max_iters` passes to resolve chains.
-    fn collect_array_var_aliases(
-        &self,
-        manager: &TermManager,
-    ) -> FxHashMap<TermId, TermId> {
+    fn collect_array_var_aliases(&self, manager: &TermManager) -> FxHashMap<TermId, TermId> {
         let mut aliases: FxHashMap<TermId, TermId> = FxHashMap::default();
 
         for &assertion in &self.assertions {
@@ -1159,9 +1148,7 @@ impl Solver {
         // `stored_val` is the value that the axiom forces at this index.
         // Record under the original array variable key so downstream checks
         // can look it up.
-        select_values
-            .entry((*array, *index))
-            .or_insert(*stored_val);
+        select_values.entry((*array, *index)).or_insert(*stored_val);
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -1198,8 +1185,20 @@ impl Solver {
                 continue;
             };
             if let TermKind::Eq(lhs, rhs) = &data.kind {
-                self.try_derive_bv_from_alias_select(*lhs, *rhs, aliases, &mut derived_values, manager);
-                self.try_derive_bv_from_alias_select(*rhs, *lhs, aliases, &mut derived_values, manager);
+                self.try_derive_bv_from_alias_select(
+                    *lhs,
+                    *rhs,
+                    aliases,
+                    &mut derived_values,
+                    manager,
+                );
+                self.try_derive_bv_from_alias_select(
+                    *rhs,
+                    *lhs,
+                    aliases,
+                    &mut derived_values,
+                    manager,
+                );
             }
         }
 
@@ -1357,10 +1356,16 @@ impl Solver {
                     if wa == wb {
                         let half = BigInt::one() << (wa as usize - 1);
                         let mod_val = BigInt::one() << wa as usize;
-                        let signed_a =
-                            if va >= half { va.clone() - &mod_val } else { va.clone() };
-                        let signed_b =
-                            if vb >= half { vb.clone() - &mod_val } else { vb.clone() };
+                        let signed_a = if va >= half {
+                            va.clone() - &mod_val
+                        } else {
+                            va.clone()
+                        };
+                        let signed_b = if vb >= half {
+                            vb.clone() - &mod_val
+                        } else {
+                            vb.clone()
+                        };
                         return signed_a >= signed_b;
                     }
                 }
@@ -1370,10 +1375,16 @@ impl Solver {
                     if wa == wb {
                         let half = BigInt::one() << (wa as usize - 1);
                         let mod_val = BigInt::one() << wa as usize;
-                        let signed_a =
-                            if va >= half { va.clone() - &mod_val } else { va.clone() };
-                        let signed_b =
-                            if vb >= half { vb.clone() - &mod_val } else { vb.clone() };
+                        let signed_a = if va >= half {
+                            va.clone() - &mod_val
+                        } else {
+                            va.clone()
+                        };
+                        let signed_b = if vb >= half {
+                            vb.clone() - &mod_val
+                        } else {
+                            vb.clone()
+                        };
                         return signed_a > signed_b;
                     }
                 }

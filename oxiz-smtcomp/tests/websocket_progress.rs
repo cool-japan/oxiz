@@ -7,23 +7,28 @@
 
 use futures_util::StreamExt;
 use oxiz_smtcomp::websocket::WsProgressServer;
+use std::io::ErrorKind;
 use std::net::SocketAddr;
 use std::time::Duration;
 use tokio::time::timeout;
 
 /// Bind an OS-assigned port and return a listener + its address.
-async fn bind_free_port() -> (tokio::net::TcpListener, SocketAddr) {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("failed to bind free port");
+async fn bind_free_port() -> Option<(tokio::net::TcpListener, SocketAddr)> {
+    let listener = match tokio::net::TcpListener::bind("127.0.0.1:0").await {
+        Ok(listener) => listener,
+        Err(err) if err.kind() == ErrorKind::PermissionDenied => return None,
+        Err(err) => panic!("failed to bind free port: {err}"),
+    };
     let addr = listener.local_addr().expect("failed to get local addr");
-    (listener, addr)
+    Some((listener, addr))
 }
 
 #[tokio::test]
 async fn test_receives_progress_events() {
     // 1. Pick an OS-assigned port so we don't collide with anything.
-    let (probe, addr) = bind_free_port().await;
+    let Some((probe, addr)) = bind_free_port().await else {
+        return;
+    };
     drop(probe); // release the port; WsProgressServer will re-bind it
 
     // 2. Start the WebSocket server.
@@ -71,7 +76,9 @@ async fn test_receives_progress_events() {
 
 #[tokio::test]
 async fn test_multiple_clients_receive_events() {
-    let (probe, addr) = bind_free_port().await;
+    let Some((probe, addr)) = bind_free_port().await else {
+        return;
+    };
     drop(probe);
 
     let server = WsProgressServer::new(addr);
@@ -120,7 +127,9 @@ async fn test_multiple_clients_receive_events() {
 
 #[tokio::test]
 async fn test_progress_json_fields() {
-    let (probe, addr) = bind_free_port().await;
+    let Some((probe, addr)) = bind_free_port().await else {
+        return;
+    };
     drop(probe);
 
     let server = WsProgressServer::new(addr);

@@ -170,10 +170,7 @@ impl SvCompReader {
             }
 
             let path = entry.path();
-            let ext = path
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("");
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if !ext.eq_ignore_ascii_case("yml") && !ext.eq_ignore_ascii_case("yaml") {
                 continue;
             }
@@ -209,10 +206,7 @@ impl SvCompReader {
 
             for input in &input_files {
                 let file_path = PathBuf::from(input);
-                let file_ext = file_path
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .unwrap_or("");
+                let file_ext = file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
                 if is_smt2_extension(file_ext) {
                     // Resolve relative to the directory that contains the YAML
@@ -230,7 +224,8 @@ impl SvCompReader {
             if !smt2_sources.is_empty() {
                 // Derive expected verdict: prefer property-level verdict if all agree,
                 // otherwise fall back to the top-level field.
-                let expected_verdict = resolve_expected_verdict(&yaml.expected_verdict, &yaml.properties);
+                let expected_verdict =
+                    resolve_expected_verdict(&yaml.expected_verdict, &yaml.properties);
 
                 let name = path
                     .file_stem()

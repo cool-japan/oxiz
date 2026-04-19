@@ -95,14 +95,12 @@ fn check_fixture(path: &std::path::Path) -> Result<(), String> {
     // Unknown for any formula without being incorrect.  We only count it as
     // a failure when the solver asserts the *wrong* definitive answer.
     match (expected, actual) {
-        (SolverResult::Sat, SolverResult::Unsat) => Err(format!(
-            "{}: expected sat, got unsat",
-            path.display()
-        )),
-        (SolverResult::Unsat, SolverResult::Sat) => Err(format!(
-            "{}: expected unsat, got sat",
-            path.display()
-        )),
+        (SolverResult::Sat, SolverResult::Unsat) => {
+            Err(format!("{}: expected sat, got unsat", path.display()))
+        }
+        (SolverResult::Unsat, SolverResult::Sat) => {
+            Err(format!("{}: expected unsat, got sat", path.display()))
+        }
         _ => Ok(()), // sat/sat, unsat/unsat, or unknown in either position
     }
 }
@@ -141,7 +139,10 @@ fn sweep_dir(dir: &str) -> Vec<String> {
 /// All QF_ABV fixtures from z3_parity benchmarks
 #[test]
 fn sweep_z3_parity_qf_abv() {
-    let base = concat!(env!("CARGO_MANIFEST_DIR"), "/../bench/z3_parity/benchmarks/QF_ABV");
+    let base = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../bench/z3_parity/benchmarks/QF_ABV"
+    );
     let failures = sweep_dir(base);
     assert!(
         failures.is_empty(),
@@ -153,7 +154,10 @@ fn sweep_z3_parity_qf_abv() {
 /// All QF_AUFBV fixtures from z3_parity benchmarks
 #[test]
 fn sweep_z3_parity_qf_aufbv() {
-    let base = concat!(env!("CARGO_MANIFEST_DIR"), "/../bench/z3_parity/benchmarks/QF_AUFBV");
+    let base = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../bench/z3_parity/benchmarks/QF_AUFBV"
+    );
     let failures = sweep_dir(base);
     assert!(
         failures.is_empty(),
@@ -165,7 +169,10 @@ fn sweep_z3_parity_qf_aufbv() {
 /// All QF_ALIA fixtures from z3_parity benchmarks
 #[test]
 fn sweep_z3_parity_qf_alia() {
-    let base = concat!(env!("CARGO_MANIFEST_DIR"), "/../bench/z3_parity/benchmarks/QF_ALIA");
+    let base = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../bench/z3_parity/benchmarks/QF_ALIA"
+    );
     let failures = sweep_dir(base);
     assert!(
         failures.is_empty(),
@@ -177,7 +184,10 @@ fn sweep_z3_parity_qf_alia() {
 /// All QF_ABV fixtures from extended_theories
 #[test]
 fn sweep_extended_qf_abv() {
-    let base = concat!(env!("CARGO_MANIFEST_DIR"), "/../bench/extended_theories/QF_ABV");
+    let base = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../bench/extended_theories/QF_ABV"
+    );
     let failures = sweep_dir(base);
     assert!(
         failures.is_empty(),
@@ -189,7 +199,10 @@ fn sweep_extended_qf_abv() {
 /// All QF_AUFBV fixtures from extended_theories
 #[test]
 fn sweep_extended_qf_aufbv() {
-    let base = concat!(env!("CARGO_MANIFEST_DIR"), "/../bench/extended_theories/QF_AUFBV");
+    let base = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../bench/extended_theories/QF_AUFBV"
+    );
     let failures = sweep_dir(base);
     assert!(
         failures.is_empty(),
@@ -201,7 +214,10 @@ fn sweep_extended_qf_aufbv() {
 /// All QF_ALIA fixtures from extended_theories
 #[test]
 fn sweep_extended_qf_alia() {
-    let base = concat!(env!("CARGO_MANIFEST_DIR"), "/../bench/extended_theories/QF_ALIA");
+    let base = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../bench/extended_theories/QF_ALIA"
+    );
     let failures = sweep_dir(base);
     assert!(
         failures.is_empty(),
