@@ -759,23 +759,20 @@ impl MultiTriggerScorer {
         if terms.len() <= 1 {
             return 0;
         }
-        // Build per-term variable sets
+
         let var_sets: Vec<FxHashSet<Spur>> = terms
             .iter()
             .map(|&t| self.collect_vars(t, manager))
             .collect();
 
-        // Find variables that appear in at least 2 distinct terms
-        let mut shared_count = 0usize;
-        if let Some(first) = var_sets.first() {
-            for var in first.iter() {
-                let in_count = var_sets.iter().filter(|s| s.contains(var)).count();
-                if in_count >= 2 {
-                    shared_count += 1;
-                }
+        let mut frequencies: FxHashMap<Spur, usize> = FxHashMap::default();
+        for vars in &var_sets {
+            for &var in vars {
+                *frequencies.entry(var).or_insert(0) += 1;
             }
         }
-        shared_count
+
+        frequencies.values().filter(|&&count| count >= 2).count()
     }
 
     fn collect_vars(&self, term: TermId, manager: &TermManager) -> FxHashSet<Spur> {

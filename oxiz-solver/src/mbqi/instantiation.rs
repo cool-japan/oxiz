@@ -325,8 +325,8 @@ impl QuantifierInstantiator {
         self.current_depth(quantifier) < self.max_depth
     }
 
-    /// Increment the depth counter for a quantifier after a successful instantiation
-    fn increment_depth(&mut self, quantifier: TermId) {
+    /// Increment the depth counter for a quantifier after a successful instantiation.
+    pub fn increment_depth(&mut self, quantifier: TermId) {
         let entry = self.depth_tracking.entry(quantifier).or_insert(0);
         *entry = entry.saturating_add(1);
     }

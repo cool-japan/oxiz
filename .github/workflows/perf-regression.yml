@@ -46,13 +46,16 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Build regression tests
-        run: cargo build -p bench-regression --release
+        run: |
+          cd bench/regression
+          cargo build --release
 
       - name: Run regression tests
         id: regression
         run: |
+          cd bench/regression
           THRESHOLD="${{ github.event.inputs.threshold || '10' }}"
-          cargo run -p bench-regression --release -- --threshold "$THRESHOLD" --github 2>&1 | tee bench/regression/regression-output.txt
+          cargo run --release -- --threshold "$THRESHOLD" --github 2>&1 | tee regression-output.txt
           EXIT_CODE=${PIPESTATUS[0]}
           echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
           exit $EXIT_CODE
@@ -61,7 +64,8 @@ jobs:
       - name: Generate JSON report
         if: always()
         run: |
-          cargo run -p bench-regression --release -- --json > bench/regression/regression-report.json 2>/dev/null || true
+          cd bench/regression
+          cargo run --release -- --json > regression-report.json 2>/dev/null || true
 
       - name: Upload regression report
         if: always()
@@ -90,7 +94,9 @@ jobs:
 
       - name: Update baseline
         if: github.event.inputs.update_baseline == 'true' && github.ref == 'refs/heads/main'
-        run: cargo run -p bench-regression --release -- --update
+        run: |
+          cd bench/regression
+          cargo run --release -- --update
 
       - name: Commit baseline update
         if: github.event.inputs.update_baseline == 'true' && github.ref == 'refs/heads/main'
@@ -131,13 +137,14 @@ jobs:
 
       - name: Run Criterion benchmarks
         run: |
-          cargo bench -p bench-regression --no-run 2>/dev/null || echo "Criterion benchmarks not yet configured"
+          cd bench/regression
+          cargo bench --no-run 2>/dev/null || echo "Criterion benchmarks not yet configured"
 
       - name: Upload benchmark results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: criterion-results
-          path: target/criterion
+          path: bench/regression/target/criterion
           retention-days: 30
           if-no-files-found: ignore

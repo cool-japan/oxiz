@@ -188,6 +188,46 @@ fn is_const_term(term_id: TermId, manager: &TermManager) -> bool {
         .unwrap_or(false)
 }
 
+fn contains_non_polynomial_ops(term_id: TermId, manager: &TermManager) -> bool {
+    let Some(term) = manager.get(term_id) else {
+        return false;
+    };
+
+    match &term.kind {
+        TermKind::Div(_, _) | TermKind::Mod(_, _) => true,
+        TermKind::Apply { .. }
+        | TermKind::Forall { .. }
+        | TermKind::Exists { .. }
+        | TermKind::Let { .. }
+        | TermKind::Match { .. } => true,
+        TermKind::Neg(inner) | TermKind::Not(inner) => contains_non_polynomial_ops(*inner, manager),
+        TermKind::Add(args)
+        | TermKind::Mul(args)
+        | TermKind::And(args)
+        | TermKind::Or(args)
+        | TermKind::Distinct(args) => args
+            .iter()
+            .any(|&arg| contains_non_polynomial_ops(arg, manager)),
+        TermKind::Ite(cond, then_term, else_term) => {
+            contains_non_polynomial_ops(*cond, manager)
+                || contains_non_polynomial_ops(*then_term, manager)
+                || contains_non_polynomial_ops(*else_term, manager)
+        }
+        TermKind::Xor(lhs, rhs) | TermKind::Implies(lhs, rhs) => {
+            contains_non_polynomial_ops(*lhs, manager) || contains_non_polynomial_ops(*rhs, manager)
+        }
+        TermKind::Sub(lhs, rhs)
+        | TermKind::Eq(lhs, rhs)
+        | TermKind::Gt(lhs, rhs)
+        | TermKind::Ge(lhs, rhs)
+        | TermKind::Lt(lhs, rhs)
+        | TermKind::Le(lhs, rhs) => {
+            contains_non_polynomial_ops(*lhs, manager) || contains_non_polynomial_ops(*rhs, manager)
+        }
+        _ => false,
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Polynomial atom (internal representation)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -298,6 +338,9 @@ pub fn dispatch_nia_constraints(
     if !has_nl {
         return None;
     }
+    let has_unsupported_ops = assertions
+        .iter()
+        .any(|&a| contains_non_polynomial_ops(a, manager));
 
     let config = NiaConfig {
         enable_cutting_planes: true,
@@ -315,6 +358,8 @@ pub fn dispatch_nia_constraints(
         return None;
     }
 
+    let unsat_is_trustworthy = !has_unsupported_ops && poly_atoms.iter().all(|atom| atom.poly.is_univariate());
+
     for atom in &poly_atoms {
         let atom_id = translator
             .nlsat
@@ -325,9 +370,9 @@ pub fn dispatch_nia_constraints(
     }
 
     match translator.nlsat.solve() {
-        SolverResult::Unsat => Some(NlDispatchResult::Unsat),
+        SolverResult::Unsat if unsat_is_trustworthy => Some(NlDispatchResult::Unsat),
         SolverResult::Sat => Some(NlDispatchResult::Sat),
-        SolverResult::Unknown => None,
+        SolverResult::Unsat | SolverResult::Unknown => None,
     }
 }
 
@@ -497,6 +542,8 @@ pub fn dispatch_nra_constraints(
         return None;
     }
 
+    let unsat_is_trustworthy = poly_atoms.iter().all(|atom| atom.kind != AtomKind::Eq);
+
     for atom in &poly_atoms {
         let atom_id = translator.nlsat.new_ineq_atom(atom.poly.clone(), atom.kind);
         let lit = translator.nlsat.atom_literal(atom_id, atom.positive);
@@ -504,9 +551,9 @@ pub fn dispatch_nra_constraints(
     }
 
     match translator.nlsat.solve() {
-        SolverResult::Unsat => Some(NlDispatchResult::Unsat),
+        SolverResult::Unsat if unsat_is_trustworthy => Some(NlDispatchResult::Unsat),
         SolverResult::Sat => Some(NlDispatchResult::Sat),
-        SolverResult::Unknown => None,
+        SolverResult::Unsat | SolverResult::Unknown => None,
     }
 }
 

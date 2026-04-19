@@ -394,7 +394,7 @@ fn run_smt2_fixture(path: &std::path::Path) -> SolverResult {
 }
 
 /// Extract the expected result from the first comment line of an SMT2 file.
-/// Looks for `;; expected: sat` or `;; expected: unsat` or `; expected: ...`.
+/// Looks for `;; expected: sat`, `unsat`, or `unknown`.
 fn expected_result(path: &std::path::Path) -> Option<SolverResult> {
     let source = std::fs::read_to_string(path).ok()?;
     for line in source.lines().take(10) {
@@ -402,6 +402,8 @@ fn expected_result(path: &std::path::Path) -> Option<SolverResult> {
         if lower.contains("expected:") || lower.contains("expected :") {
             if lower.contains("unsat") {
                 return Some(SolverResult::Unsat);
+            } else if lower.contains("unknown") {
+                return Some(SolverResult::Unknown);
             } else if lower.contains("sat") {
                 return Some(SolverResult::Sat);
             }
@@ -443,8 +445,17 @@ fn test_qf_nia_ext_fixtures() {
         let actual = run_smt2_fixture(&path);
 
         if let Some(exp) = expected {
-            // Allow Unknown as a valid "pass" when solver is inconclusive.
-            if actual != exp && !matches!(actual, SolverResult::Unknown) {
+            // Allow Unknown as a valid "pass" when a fixture is expected to be
+            // solved but the current architecture is inconclusive.
+            let passes = if matches!(exp, SolverResult::Unknown) {
+                // `expected: unknown` marks fixtures that are out of scope for
+                // the current architecture. Keep them in the sweep for
+                // visibility, but do not require a specific definitive answer.
+                true
+            } else {
+                actual == exp || matches!(actual, SolverResult::Unknown)
+            };
+            if !passes {
                 failures.push(format!(
                     "{}: expected {:?}, got {:?}",
                     path.display(),

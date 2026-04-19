@@ -16,10 +16,10 @@ oxiz-sat = { workspace = true, features = ["std"] }
 oxiz-solver = { workspace = true, features = ["std"] }
 oxiz-theories = { workspace = true, features = ["std"] }
 oxiz-opt.workspace = true
-oxiz-smtcomp.workspace = true
+oxiz-smtcomp = { path = "../../oxiz-smtcomp" }
 
 # Benchmarking
-criterion = { workspace = true }
+criterion.workspace = true
 
 # Utilities
 serde.workspace = true

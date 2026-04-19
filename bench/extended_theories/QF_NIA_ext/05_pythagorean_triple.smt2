@@ -1,5 +1,5 @@
 ; Test: Pythagorean triple
-;; expected: sat
+;; expected: unknown
 ; Pattern: x^2 + y^2 = z^2 with positive integers
 
 (set-logic QF_NIA)

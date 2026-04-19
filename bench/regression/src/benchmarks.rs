@@ -10,9 +10,9 @@ use num_bigint::BigInt;
 use oxiz_core::ast::TermManager;
 use oxiz_core::smtlib::parse_script;
 use oxiz_opt::{MaxSatSolver, Weight};
-use oxiz_sat::{DimacsParser, Lit, Solver as SatSolver, SolverResult as SatResult, Var};
-use oxiz_solver::{Solver, SolverResult};
-use std::time::{Duration, Instant};
+use oxiz_sat::{DimacsParser, Lit, Solver as SatSolver, Var};
+use oxiz_solver::Solver;
+use std::time::Instant;
 
 /// Result of a single benchmark run
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

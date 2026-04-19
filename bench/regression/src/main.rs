@@ -7,10 +7,14 @@ mod benchmarks;
 
 use anyhow::{Context, Result};
 use benchmarks::{run_all_benchmarks, BenchmarkCategory, BenchmarkResult};
+use oxiz_smtcomp::loader::BenchmarkMeta;
+use oxiz_smtcomp::regression::{RegressionAnalysis, RegressionConfig, RegressionDetector};
+use oxiz_smtcomp::{BenchmarkStatus, SingleResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+use std::time::Duration;
 
 /// Baseline performance data
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,29 +39,12 @@ pub struct BaselineEntry {
 /// Regression report
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegressionReport {
-    /// Whether any regression was detected
-    pub has_regression: bool,
+    /// Shared regression analysis derived from oxiz-smtcomp
+    pub analysis: RegressionAnalysis,
     /// Regression threshold percentage
     pub threshold_percent: f64,
     /// Individual benchmark comparisons
     pub comparisons: Vec<BenchmarkComparison>,
-    /// Summary statistics
-    pub summary: ReportSummary,
-}
-
-/// Summary of the regression report
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ReportSummary {
-    /// Total benchmarks run
-    pub total_benchmarks: usize,
-    /// Number of regressions detected
-    pub regressions: usize,
-    /// Number of improvements detected
-    pub improvements: usize,
-    /// Number of unchanged benchmarks
-    pub unchanged: usize,
-    /// Number of new benchmarks (no baseline)
-    pub new_benchmarks: usize,
 }
 
 /// Comparison of a single benchmark against baseline
@@ -90,6 +77,40 @@ pub enum ComparisonStatus {
     Unchanged,
     /// No baseline available (new benchmark)
     New,
+}
+
+impl RegressionReport {
+    fn total_benchmarks(&self) -> usize {
+        self.comparisons.len()
+    }
+
+    fn regressions(&self) -> usize {
+        self.comparisons
+            .iter()
+            .filter(|comp| comp.status == ComparisonStatus::Regression)
+            .count()
+    }
+
+    fn improvements(&self) -> usize {
+        self.comparisons
+            .iter()
+            .filter(|comp| comp.status == ComparisonStatus::Improvement)
+            .count()
+    }
+
+    fn unchanged(&self) -> usize {
+        self.comparisons
+            .iter()
+            .filter(|comp| comp.status == ComparisonStatus::Unchanged)
+            .count()
+    }
+
+    fn new_benchmarks(&self) -> usize {
+        self.comparisons
+            .iter()
+            .filter(|comp| comp.status == ComparisonStatus::New)
+            .count()
+    }
 }
 
 impl std::fmt::Display for ComparisonStatus {
@@ -194,6 +215,55 @@ fn chrono_lite_timestamp() -> String {
     format!("unix:{}", duration.as_secs())
 }
 
+fn result_meta(name: &str) -> BenchmarkMeta {
+    BenchmarkMeta {
+        path: PathBuf::from(name),
+        logic: None,
+        expected_status: None,
+        file_size: 0,
+        category: None,
+        structural_features: None,
+    }
+}
+
+fn to_single_result(name: &str, avg_time_us: f64) -> SingleResult {
+    let meta = result_meta(name);
+    let duration = Duration::from_secs_f64((avg_time_us / 1_000_000.0).max(0.0));
+    SingleResult::new(&meta, BenchmarkStatus::Sat, duration)
+}
+
+fn build_regression_analysis(
+    results: &[BenchmarkResult],
+    baseline: Option<&Baseline>,
+    threshold_percent: f64,
+) -> RegressionAnalysis {
+    let current_results: Vec<_> = results
+        .iter()
+        .map(|result| to_single_result(&result.name, result.avg_time_us))
+        .collect();
+
+    let baseline_results: Vec<_> = baseline
+        .map(|data| {
+            results
+                .iter()
+                .filter_map(|result| {
+                    data.benchmarks
+                        .get(&result.name)
+                        .map(|entry| to_single_result(&result.name, entry.avg_time_us))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let detector = RegressionDetector::new(
+        RegressionConfig::default()
+            .with_time_threshold(threshold_percent)
+            .with_solve_threshold(threshold_percent),
+    );
+
+    detector.analyze(&baseline_results, &current_results)
+}
+
 /// Compare results against baseline
 fn compare_results(
     results: &[BenchmarkResult],
@@ -201,11 +271,6 @@ fn compare_results(
     threshold_percent: f64,
 ) -> RegressionReport {
     let mut comparisons = Vec::new();
-    let mut has_regression = false;
-    let mut regressions = 0;
-    let mut improvements = 0;
-    let mut unchanged = 0;
-    let mut new_benchmarks = 0;
 
     for result in results {
         let baseline_entry = baseline.and_then(|b| b.benchmarks.get(&result.name));
@@ -228,13 +293,10 @@ fn compare_results(
         };
 
         match status {
-            ComparisonStatus::Regression => {
-                has_regression = true;
-                regressions += 1;
-            }
-            ComparisonStatus::Improvement => improvements += 1,
-            ComparisonStatus::Unchanged => unchanged += 1,
-            ComparisonStatus::New => new_benchmarks += 1,
+            ComparisonStatus::Regression
+            | ComparisonStatus::Improvement
+            | ComparisonStatus::Unchanged
+            | ComparisonStatus::New => {}
         }
 
         comparisons.push(BenchmarkComparison {
@@ -249,16 +311,9 @@ fn compare_results(
     }
 
     RegressionReport {
-        has_regression,
+        analysis: build_regression_analysis(results, baseline, threshold_percent),
         threshold_percent,
         comparisons,
-        summary: ReportSummary {
-            total_benchmarks: results.len(),
-            regressions,
-            improvements,
-            unchanged,
-            new_benchmarks,
-        },
     }
 }
 
@@ -267,11 +322,15 @@ fn print_text_report(report: &RegressionReport) {
     println!("=== OxiZ Performance Regression Report ===\n");
 
     println!("Summary:");
-    println!("  Total benchmarks: {}", report.summary.total_benchmarks);
-    println!("  Regressions:      {} (threshold: {:.1}%)", report.summary.regressions, report.threshold_percent);
-    println!("  Improvements:     {}", report.summary.improvements);
-    println!("  Unchanged:        {}", report.summary.unchanged);
-    println!("  New benchmarks:   {}", report.summary.new_benchmarks);
+    println!("  Total benchmarks: {}", report.total_benchmarks());
+    println!(
+        "  Regressions:      {} (threshold: {:.1}%)",
+        report.regressions(),
+        report.threshold_percent
+    );
+    println!("  Improvements:     {}", report.improvements());
+    println!("  Unchanged:        {}", report.unchanged());
+    println!("  New benchmarks:   {}", report.new_benchmarks());
     println!();
 
     // Group by category
@@ -311,7 +370,7 @@ fn print_text_report(report: &RegressionReport) {
         println!();
     }
 
-    if report.has_regression {
+    if report.analysis.has_regressions {
         println!("RESULT: FAILED - Performance regressions detected!");
     } else {
         println!("RESULT: PASSED - No performance regressions detected.");
@@ -366,8 +425,11 @@ fn print_github_actions_report(report: &RegressionReport) {
         }
     }
 
-    if report.has_regression {
-        println!("\n::error::Performance regressions detected! {} benchmarks regressed.", report.summary.regressions);
+    if report.analysis.has_regressions {
+        println!(
+            "\n::error::Performance regressions detected! {} benchmarks regressed.",
+            report.regressions()
+        );
     }
 }
 
@@ -434,7 +496,9 @@ fn main() -> Result<()> {
         // Try to find baseline relative to the source directory
         let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
             .map(PathBuf::from)
-            .unwrap_or_else(|_| std::env::current_dir().unwrap());
+            .unwrap_or_else(|_| {
+                std::env::current_dir().expect("current working directory should be available")
+            });
         manifest_dir.join(&config.baseline_path)
     } else {
         config.baseline_path.clone()
@@ -469,7 +533,7 @@ fn main() -> Result<()> {
     }
 
     // Exit with appropriate code
-    if report.has_regression {
+    if report.analysis.has_regressions {
         std::process::exit(1);
     }
 

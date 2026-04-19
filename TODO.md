@@ -175,7 +175,7 @@ OxiZ is not just a Z3 port - it surpasses Z3 in critical areas:
   - [x] UFLRA - Uninterpreted Functions + Linear Real Arithmetic
   - [x] AUFLIA - Arrays + UF + LIA
   - [x] AUFLIRA - Arrays + UF + LIA + LRA
-  - [ ] Improve quantifier instantiation heuristics
+  - [x] Improve quantifier instantiation heuristics
 
 - [ ] Combined theories (3 items)
   - [x] QF_AUFBV - Arrays + UF + BV (validation needed)
@@ -183,7 +183,7 @@ OxiZ is not just a Z3 port - it surpasses Z3 in critical areas:
   - [x] QF_ABV - Arrays + BV
 
 - [ ] Non-linear arithmetic (2 items)
-  - [ ] Extend QF_NIA coverage (more benchmarks)
+  - [x] Extend QF_NIA coverage (more benchmarks)
   - [x] QF_NIRA - Non-linear Integer/Real Arithmetic
 
 ### Medium Priority: Advanced Features
@@ -452,7 +452,7 @@ oxiz-core (foundation)
 ### v0.3.0 (Target: June 2026)
 **Focus: Performance Parity and SMT-COMP**
 - [ ] Performance parity with Z3 (within 1.2x)
-- [ ] Quantified logic support (UFLIA, UFLRA, AUFLIA)
+- [x] Quantified logic support (UFLIA, UFLRA, AUFLIA)
 - [ ] Combined theory validation (QF_AUFBV, QF_ALIA, QF_ABV)
 - [ ] Enhanced preprocessing tactics
 - [ ] Performance regression CI pipeline
