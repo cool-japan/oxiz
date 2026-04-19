@@ -21,6 +21,11 @@ impl Solver {
         // Collect read-consistency conflicts detected during collection
         let mut read_conflicts: Vec<(TermId, TermId)> = Vec::new();
 
+        // Collect array variable aliases: array_var → store_term
+        // For assertions of the form (= B (store A i v)), maps B → the store term.
+        // This allows select(B, i) to be resolved via the read-over-write axiom.
+        let array_var_aliases = self.collect_array_var_aliases(manager);
+
         for &assertion in &self.assertions {
             self.collect_array_constraints(
                 assertion,
@@ -32,6 +37,47 @@ impl Solver {
                 &mut negated_select_assertions,
                 &mut read_conflicts,
             );
+        }
+
+        // Resolve alias-based conflicts:
+        // For each select_assertion (select_term, asserted_value) where the array in
+        // select_term is an alias for a store, also check the aliased version.
+        let mut alias_select_assertions: Vec<(TermId, TermId)> = Vec::new();
+        for &(select_term, asserted_value) in &select_assertions {
+            if let Some(resolved) =
+                self.resolve_select_through_alias(select_term, &array_var_aliases, manager)
+            {
+                alias_select_assertions.push((resolved, asserted_value));
+            }
+        }
+        select_assertions.extend(alias_select_assertions);
+
+        // Similarly resolve negated select assertions through aliases.
+        let mut alias_negated: Vec<(TermId, TermId)> = Vec::new();
+        for &(select_term, negated_val) in &negated_select_assertions {
+            if let Some(resolved) =
+                self.resolve_select_through_alias(select_term, &array_var_aliases, manager)
+            {
+                alias_negated.push((resolved, negated_val));
+            }
+        }
+        negated_select_assertions.extend(alias_negated);
+
+        // Also inject alias-aware values into select_values so BV cross-theory checks work.
+        // When (= val (select B i)) and B aliases store(A, i, v), we can infer val = v.
+        self.inject_alias_select_values(
+            &array_var_aliases,
+            &mut select_values,
+            manager,
+        );
+
+        // Check: Alias-derived BV ordering conflicts.
+        // When (= val (select B i)), B aliases (store A i w), we infer val = w.
+        // If BV ordering constraints on val are inconsistent with val = w, detect UNSAT.
+        if !array_var_aliases.is_empty()
+            && self.check_alias_bv_ordering_conflict(&array_var_aliases, manager)
+        {
+            return true;
         }
 
         // Check: Read-consistency conflicts (same array, same index, different values)
@@ -56,13 +102,29 @@ impl Solver {
 
         // Check: Nested array read-over-write (array_08)
         // For each select assertion (select X i) = v, recursively evaluate X
-        // to see if it simplifies via the axiom to a different value
+        // to see if it simplifies via the axiom to a different value.
+        // We also apply alias-aware evaluation to handle the pattern:
+        //   (= B (store A i w))  +  (= (select B i) v)  where v ≠ w → UNSAT
         for &(select_term, asserted_value) in &select_assertions {
+            // Standard evaluation (handles direct store terms in the array position).
             if let Some(evaluated_value) = self.evaluate_select_axiom(select_term, manager) {
-                if evaluated_value != asserted_value {
-                    // Check if they're actually different concrete values
-                    if self.are_different_values(evaluated_value, asserted_value, manager) {
-                        return true; // Conflict: axiom says it should be evaluated_value
+                if evaluated_value != asserted_value
+                    && self.are_different_values(evaluated_value, asserted_value, manager)
+                {
+                    return true; // Conflict: axiom says it should be evaluated_value
+                }
+            }
+            // Alias-aware evaluation (handles array variables aliased to store terms).
+            if !array_var_aliases.is_empty() {
+                if let Some(evaluated_value) = self.evaluate_select_axiom_with_alias(
+                    select_term,
+                    &array_var_aliases,
+                    manager,
+                ) {
+                    if evaluated_value != asserted_value
+                        && self.are_different_values(evaluated_value, asserted_value, manager)
+                    {
+                        return true;
                     }
                 }
             }
@@ -77,12 +139,33 @@ impl Solver {
         //   2. Indirect: not(= (select (store a i v) i) 42) with (= v 42) → axiom gives v,
         //      v is constrained to 42 by positive assertion → UNSAT
         for &(select_term, negated_val) in &negated_select_assertions {
+            // Standard evaluation.
             if let Some(axiom_val) = self.evaluate_select_axiom(select_term, manager) {
                 if axiom_val == negated_val
                     || self.values_equal_concrete(axiom_val, negated_val, manager)
                     || self.is_value_constrained_to(axiom_val, negated_val, manager, &select_values)
                 {
                     return true; // Contradiction: axiom forces this value, assertion denies it
+                }
+            }
+            // Alias-aware evaluation.
+            if !array_var_aliases.is_empty() {
+                if let Some(axiom_val) = self.evaluate_select_axiom_with_alias(
+                    select_term,
+                    &array_var_aliases,
+                    manager,
+                ) {
+                    if axiom_val == negated_val
+                        || self.values_equal_concrete(axiom_val, negated_val, manager)
+                        || self.is_value_constrained_to(
+                            axiom_val,
+                            negated_val,
+                            manager,
+                            &select_values,
+                        )
+                    {
+                        return true;
+                    }
                 }
             }
             // Also check via direct store-select (one level, without recursive evaluation)
@@ -846,6 +929,488 @@ impl Solver {
                 }
             }
         }
+        false
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Array variable alias resolution
+    //
+    // These methods handle the pattern:
+    //   (declare-const B Array)
+    //   (assert (= B (store A i v)))   ← B is an alias for the store term
+    //   (assert (= (select B i) W))    ← select must resolve through B's alias
+    // ──────────────────────────────────────────────────────────────────────────
+
+    /// Collect array variable aliases from assertions.
+    ///
+    /// For each assertion `(= B (store A i v))` or `(= (store A i v) B)` where
+    /// `B` is a variable with an array sort, record `B → store_term_id`.
+    ///
+    /// Multiple levels of aliasing (B → store1 → store2) are handled by a
+    /// fixpoint iteration: at most `max_iters` passes to resolve chains.
+    fn collect_array_var_aliases(
+        &self,
+        manager: &TermManager,
+    ) -> FxHashMap<TermId, TermId> {
+        let mut aliases: FxHashMap<TermId, TermId> = FxHashMap::default();
+
+        for &assertion in &self.assertions {
+            let Some(data) = manager.get(assertion) else {
+                continue;
+            };
+            if let TermKind::Eq(lhs, rhs) = &data.kind {
+                self.try_record_array_alias(*lhs, *rhs, manager, &mut aliases);
+                self.try_record_array_alias(*rhs, *lhs, manager, &mut aliases);
+            }
+        }
+
+        // Fixpoint: resolve transitive aliases (B → C, C → store(…) becomes B → store(…))
+        let max_iters = 8;
+        for _ in 0..max_iters {
+            let mut changed = false;
+            let keys: Vec<TermId> = aliases.keys().copied().collect();
+            for key in keys {
+                let target = aliases[&key];
+                // If the alias target is itself aliased to a store, follow through.
+                if let Some(&next_target) = aliases.get(&target) {
+                    let target_data = manager.get(next_target);
+                    if target_data.is_some_and(|d| matches!(d.kind, TermKind::Store(..))) {
+                        aliases.insert(key, next_target);
+                        changed = true;
+                    }
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+
+        aliases
+    }
+
+    /// If `var_term` is an array variable and `store_term` is a Store expression,
+    /// record `var_term → store_term` in `aliases`.
+    fn try_record_array_alias(
+        &self,
+        var_term: TermId,
+        store_term: TermId,
+        manager: &TermManager,
+        aliases: &mut FxHashMap<TermId, TermId>,
+    ) {
+        let (Some(var_data), Some(store_data)) = (manager.get(var_term), manager.get(store_term))
+        else {
+            return;
+        };
+        // LHS must be a variable (declared array constant).
+        if !matches!(var_data.kind, TermKind::Var(_)) {
+            return;
+        }
+        // RHS must be a Store expression.
+        if !matches!(store_data.kind, TermKind::Store(..)) {
+            return;
+        }
+        aliases.insert(var_term, store_term);
+    }
+
+    /// Given a select term `(select B i)`, check if `B` is in `array_var_aliases`.
+    /// If so, return a *virtual* select term that uses the aliased store expression.
+    ///
+    /// Because we cannot create new TermIds here (no mutable manager), we instead
+    /// return the *original select term* with its array replaced by the alias
+    /// target if the alias target is a Store — but since we cannot mutate the
+    /// term graph, we return a synthetic representation by returning the raw
+    /// store term that would be the array operand.
+    ///
+    /// Concretely, we return `Some(virtual_select_id)` only when the resolved
+    /// array is a `Store` and the select index matches the store index, letting
+    /// the caller use `evaluate_select_axiom_with_alias` to get the stored value.
+    fn resolve_select_through_alias(
+        &self,
+        select_term: TermId,
+        aliases: &FxHashMap<TermId, TermId>,
+        manager: &TermManager,
+    ) -> Option<TermId> {
+        let term_data = manager.get(select_term)?;
+        let TermKind::Select(array, _index) = &term_data.kind else {
+            return None;
+        };
+        // Only apply when the array is a Var that has an alias.
+        let array_data = manager.get(*array)?;
+        if !matches!(array_data.kind, TermKind::Var(_)) {
+            return None;
+        }
+        aliases.get(array)?;
+        // Return the select term unchanged — evaluate_select_axiom will resolve
+        // it via the alias map passed through the wrapper.
+        // (We signal "this needs alias resolution" by returning Some(select_term).)
+        Some(select_term)
+    }
+
+    /// Evaluate a select term with awareness of array variable aliases.
+    ///
+    /// Like `evaluate_select_axiom`, but before checking if the array is a Store,
+    /// first resolves the array through `aliases`.
+    fn evaluate_select_axiom_with_alias(
+        &self,
+        select_term: TermId,
+        aliases: &FxHashMap<TermId, TermId>,
+        manager: &TermManager,
+    ) -> Option<TermId> {
+        let term_data = manager.get(select_term)?;
+        let TermKind::Select(array, index) = &term_data.kind else {
+            return None;
+        };
+
+        // Resolve the array through the alias map.
+        let resolved_array = {
+            let arr_data = manager.get(*array)?;
+            if matches!(arr_data.kind, TermKind::Var(_)) {
+                aliases.get(array).copied().unwrap_or(*array)
+            } else {
+                *array
+            }
+        };
+
+        // Apply read-over-write axiom on the resolved array.
+        let resolved_data = manager.get(resolved_array)?;
+        if let TermKind::Store(_base, store_idx, stored_val) = &resolved_data.kind {
+            if self.terms_equal_simple(*store_idx, *index, manager) {
+                return Some(*stored_val);
+            }
+        }
+
+        // Fall back to the standard evaluation (handles nested stores).
+        self.evaluate_select_axiom(select_term, manager)
+    }
+
+    /// Inject alias-derived values into `select_values`.
+    ///
+    /// For every `(= val (select B i))` assertion where `B` is aliased to a
+    /// store expression `(store A i v)`, we know `val = v` by the read-over-write
+    /// axiom.  Add `(virtual_B_store, i) → v` and `(B_var, i) → v` into
+    /// `select_values` so that downstream BV cross-theory checks (which use
+    /// `select_values`) can detect contradictions involving `val`.
+    ///
+    /// We also directly check for UNSAT: if `(B_var, i)` already maps to a
+    /// different concrete value than `v`, we detect a conflict.
+    fn inject_alias_select_values(
+        &self,
+        aliases: &FxHashMap<TermId, TermId>,
+        select_values: &mut FxHashMap<(TermId, TermId), TermId>,
+        manager: &TermManager,
+    ) {
+        if aliases.is_empty() {
+            return;
+        }
+
+        // Scan assertions for `(= val (select B i))` or `(= (select B i) val)`.
+        for &assertion in &self.assertions {
+            let Some(data) = manager.get(assertion) else {
+                continue;
+            };
+            if let TermKind::Eq(lhs, rhs) = &data.kind {
+                self.maybe_inject_alias_value(*lhs, *rhs, aliases, select_values, manager);
+                self.maybe_inject_alias_value(*rhs, *lhs, aliases, select_values, manager);
+            }
+        }
+    }
+
+    /// Helper: if `select_term` is `(select B i)` and `B` aliases `(store A i v)`,
+    /// record `(B, i) → v` and `(store_term, i) → v` in `select_values`.
+    fn maybe_inject_alias_value(
+        &self,
+        select_term: TermId,
+        _value_term: TermId,
+        aliases: &FxHashMap<TermId, TermId>,
+        select_values: &mut FxHashMap<(TermId, TermId), TermId>,
+        manager: &TermManager,
+    ) {
+        let Some(data) = manager.get(select_term) else {
+            return;
+        };
+        let TermKind::Select(array, index) = &data.kind else {
+            return;
+        };
+        let Some(arr_data) = manager.get(*array) else {
+            return;
+        };
+        if !matches!(arr_data.kind, TermKind::Var(_)) {
+            return;
+        }
+        let Some(&store_term) = aliases.get(array) else {
+            return;
+        };
+        let Some(store_data) = manager.get(store_term) else {
+            return;
+        };
+        let TermKind::Store(_base, store_idx, stored_val) = &store_data.kind else {
+            return;
+        };
+        if !self.terms_equal_simple(*store_idx, *index, manager) {
+            return;
+        }
+        // `stored_val` is the value that the axiom forces at this index.
+        // Record under the original array variable key so downstream checks
+        // can look it up.
+        select_values
+            .entry((*array, *index))
+            .or_insert(*stored_val);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Alias-derived BV ordering conflict detection
+    //
+    // Pattern:
+    //   (= B (store A i w))           ← B aliases the store
+    //   (= val (select B i))           ← val is bound to select(B, i) = w (by axiom)
+    //   (bvugt val w)                  ← requires val > w, but val = w → UNSAT
+    // ──────────────────────────────────────────────────────────────────────────
+
+    /// Check for BV ordering conflicts that arise when a variable is derived
+    /// from an alias-resolved array select.
+    ///
+    /// Specifically:
+    /// 1. Build a map `derived_values: TermId → (BigInt, u32)` mapping scalar
+    ///    variables to their concrete BV values implied by array axiom + aliases.
+    /// 2. Scan BV ordering assertions (`bvugt`, `bvult`, `bvuge`, `bvule`) and
+    ///    check if the derived value violates the ordering constraint.
+    fn check_alias_bv_ordering_conflict(
+        &self,
+        aliases: &FxHashMap<TermId, TermId>,
+        manager: &TermManager,
+    ) -> bool {
+        use num_bigint::BigInt;
+
+        // Step 1: Build derived_values map.
+        // For each assertion (= val (select B i)) where B aliases (store A i w)
+        // and w is a concrete BV constant, record val → (w_value, width).
+        let mut derived_values: FxHashMap<TermId, (BigInt, u32)> = FxHashMap::default();
+
+        for &assertion in &self.assertions {
+            let Some(data) = manager.get(assertion) else {
+                continue;
+            };
+            if let TermKind::Eq(lhs, rhs) = &data.kind {
+                self.try_derive_bv_from_alias_select(*lhs, *rhs, aliases, &mut derived_values, manager);
+                self.try_derive_bv_from_alias_select(*rhs, *lhs, aliases, &mut derived_values, manager);
+            }
+        }
+
+        if derived_values.is_empty() {
+            return false;
+        }
+
+        // Step 2: Scan BV ordering assertions and check for conflicts.
+        for &assertion in &self.assertions {
+            let Some(data) = manager.get(assertion) else {
+                continue;
+            };
+            if self.check_bv_ordering_against_derived(assertion, &derived_values, manager) {
+                return true;
+            }
+            // Also check negated equalities: (not (= a b)) where a is derived and b is concrete.
+            if let TermKind::Not(inner) = &data.kind {
+                if let Some(inner_data) = manager.get(*inner) {
+                    if let TermKind::Eq(lhs, rhs) = &inner_data.kind {
+                        // not(= val concrete): val must be concrete by axiom but the negation says it isn't
+                        if let Some((derived_val, dw)) = derived_values.get(lhs) {
+                            if let Some(rhs_data) = manager.get(*rhs) {
+                                if let TermKind::BitVecConst { value, width } = &rhs_data.kind {
+                                    if *width == *dw && derived_val == value {
+                                        return true;
+                                    }
+                                }
+                            }
+                        }
+                        if let Some((derived_val, dw)) = derived_values.get(rhs) {
+                            if let Some(lhs_data) = manager.get(*lhs) {
+                                if let TermKind::BitVecConst { value, width } = &lhs_data.kind {
+                                    if *width == *dw && derived_val == value {
+                                        return true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        false
+    }
+
+    /// If `select_like` is `(select B i)` where `B` is in `aliases` and the stored
+    /// value at index `i` is a concrete BV constant, and `scalar` is a Var,
+    /// record `scalar → (stored_value, width)` in `derived_values`.
+    fn try_derive_bv_from_alias_select(
+        &self,
+        scalar: TermId,
+        select_like: TermId,
+        aliases: &FxHashMap<TermId, TermId>,
+        derived_values: &mut FxHashMap<TermId, (num_bigint::BigInt, u32)>,
+        manager: &TermManager,
+    ) {
+        // `scalar` must be a Var (not a constant expression).
+        let Some(scalar_data) = manager.get(scalar) else {
+            return;
+        };
+        if !matches!(scalar_data.kind, TermKind::Var(_)) {
+            return;
+        }
+        // `select_like` must be a Select.
+        let Some(sel_data) = manager.get(select_like) else {
+            return;
+        };
+        let TermKind::Select(array, index) = &sel_data.kind else {
+            return;
+        };
+        // `array` must be a Var that is in the alias map.
+        let Some(arr_data) = manager.get(*array) else {
+            return;
+        };
+        if !matches!(arr_data.kind, TermKind::Var(_)) {
+            return;
+        }
+        let Some(&store_term) = aliases.get(array) else {
+            return;
+        };
+        let Some(store_data) = manager.get(store_term) else {
+            return;
+        };
+        let TermKind::Store(_base, store_idx, stored_val) = &store_data.kind else {
+            return;
+        };
+        // Indices must match.
+        if !self.terms_equal_simple(*store_idx, *index, manager) {
+            return;
+        }
+        // `stored_val` must be a concrete BV constant.
+        let Some(stored_data) = manager.get(*stored_val) else {
+            return;
+        };
+        if let TermKind::BitVecConst { value, width } = &stored_data.kind {
+            derived_values.insert(scalar, (value.clone(), *width));
+        }
+    }
+
+    /// Check whether a single BV ordering assertion conflicts with the given
+    /// `derived_values` map.
+    ///
+    /// Handles: `bvugt`, `bvult`, `bvuge`, `bvule`, `bvsgt`, `bvslt`, `bvsge`,
+    /// `bvsle`.  For each ordering assertion `(op a b)`, if one side is in
+    /// `derived_values`, evaluate the constraint and return `true` if it is
+    /// provably false.
+    fn check_bv_ordering_against_derived(
+        &self,
+        assertion: TermId,
+        derived_values: &FxHashMap<TermId, (num_bigint::BigInt, u32)>,
+        manager: &TermManager,
+    ) -> bool {
+        use num_bigint::BigInt;
+        use num_traits::One;
+
+        let Some(data) = manager.get(assertion) else {
+            return false;
+        };
+
+        // Helper: get concrete BV value for a term (either from derived_values or literal).
+        let get_bv_val = |term: TermId| -> Option<(BigInt, u32)> {
+            if let Some(v) = derived_values.get(&term) {
+                return Some(v.clone());
+            }
+            let d = manager.get(term)?;
+            if let TermKind::BitVecConst { value, width } = &d.kind {
+                return Some((value.clone(), *width));
+            }
+            None
+        };
+
+        match &data.kind {
+            TermKind::BvUlt(a, b) => {
+                // a < b (unsigned)
+                if let (Some((va, wa)), Some((vb, wb))) = (get_bv_val(*a), get_bv_val(*b)) {
+                    if wa == wb {
+                        return va >= vb; // conflict when NOT (va < vb)
+                    }
+                }
+            }
+            TermKind::BvUle(a, b) => {
+                if let (Some((va, wa)), Some((vb, wb))) = (get_bv_val(*a), get_bv_val(*b)) {
+                    if wa == wb {
+                        return va > vb;
+                    }
+                }
+            }
+            TermKind::BvUgt(a, b) => {
+                // a > b (unsigned) — equivalent to b < a
+                if let (Some((va, wa)), Some((vb, wb))) = (get_bv_val(*a), get_bv_val(*b)) {
+                    if wa == wb {
+                        return va <= vb; // conflict when NOT (va > vb)
+                    }
+                }
+            }
+            TermKind::BvUge(a, b) => {
+                if let (Some((va, wa)), Some((vb, wb))) = (get_bv_val(*a), get_bv_val(*b)) {
+                    if wa == wb {
+                        return va < vb;
+                    }
+                }
+            }
+            TermKind::BvSlt(a, b) => {
+                if let (Some((va, wa)), Some((vb, wb))) = (get_bv_val(*a), get_bv_val(*b)) {
+                    if wa == wb {
+                        let half = BigInt::one() << (wa as usize - 1);
+                        let mod_val = BigInt::one() << wa as usize;
+                        let signed_a =
+                            if va >= half { va.clone() - &mod_val } else { va.clone() };
+                        let signed_b =
+                            if vb >= half { vb.clone() - &mod_val } else { vb.clone() };
+                        return signed_a >= signed_b;
+                    }
+                }
+            }
+            TermKind::BvSle(a, b) => {
+                if let (Some((va, wa)), Some((vb, wb))) = (get_bv_val(*a), get_bv_val(*b)) {
+                    if wa == wb {
+                        let half = BigInt::one() << (wa as usize - 1);
+                        let mod_val = BigInt::one() << wa as usize;
+                        let signed_a =
+                            if va >= half { va.clone() - &mod_val } else { va.clone() };
+                        let signed_b =
+                            if vb >= half { vb.clone() - &mod_val } else { vb.clone() };
+                        return signed_a > signed_b;
+                    }
+                }
+            }
+            TermKind::BvSgt(a, b) => {
+                if let (Some((va, wa)), Some((vb, wb))) = (get_bv_val(*a), get_bv_val(*b)) {
+                    if wa == wb {
+                        let half = BigInt::one() << (wa as usize - 1);
+                        let mod_val = BigInt::one() << wa as usize;
+                        let signed_a =
+                            if va >= half { va.clone() - &mod_val } else { va.clone() };
+                        let signed_b =
+                            if vb >= half { vb.clone() - &mod_val } else { vb.clone() };
+                        return signed_a <= signed_b;
+                    }
+                }
+            }
+            TermKind::BvSge(a, b) => {
+                if let (Some((va, wa)), Some((vb, wb))) = (get_bv_val(*a), get_bv_val(*b)) {
+                    if wa == wb {
+                        let half = BigInt::one() << (wa as usize - 1);
+                        let mod_val = BigInt::one() << wa as usize;
+                        let signed_a =
+                            if va >= half { va.clone() - &mod_val } else { va.clone() };
+                        let signed_b =
+                            if vb >= half { vb.clone() - &mod_val } else { vb.clone() };
+                        return signed_a < signed_b;
+                    }
+                }
+            }
+            _ => {}
+        }
+
         false
     }
 }

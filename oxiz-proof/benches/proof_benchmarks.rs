@@ -5,6 +5,7 @@ use oxiz_proof::conversion::FormatConverter;
 use oxiz_proof::diff::{compute_similarity, diff_proofs};
 use oxiz_proof::drat::DratProof;
 use oxiz_proof::merge::{merge_proofs, slice_proof};
+use oxiz_proof::minimize::{MinimizeConfig, ProofMinimizer};
 use oxiz_proof::proof::Proof;
 use std::hint::black_box;
 
@@ -468,6 +469,42 @@ fn bench_alethe_resolution_conversion(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_proof_minimization(c: &mut Criterion) {
+    let mut group = c.benchmark_group("proof_minimization");
+
+    for size in [20_usize, 50, 100].iter() {
+        // Build a proof with a chain over unique axioms (fully connected, no true
+        // duplicates) to measure minimization overhead on already-minimal proofs.
+        let proof_template: Proof = {
+            let mut p = Proof::new();
+            let mut ids = Vec::new();
+
+            for i in 0..*size {
+                ids.push(p.add_axiom(format!("base{}", i)));
+            }
+
+            if ids.len() >= 2 {
+                let mut prev = ids[0];
+                for (i, &id) in ids.iter().enumerate().skip(1) {
+                    prev = p.add_inference("chain", vec![prev, id], format!("chain{}", i));
+                }
+            }
+            p
+        };
+
+        group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, _| {
+            let config = MinimizeConfig::default();
+            let minimizer = ProofMinimizer::new(config);
+            b.iter(|| {
+                let mut proof = proof_template.clone();
+                black_box(minimizer.minimize(&mut proof))
+            });
+        });
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_proof_construction,
@@ -488,7 +525,8 @@ criterion_group!(
     bench_proof_similarity,
     bench_drat_to_alethe_conversion,
     bench_alethe_to_lfsc_conversion,
-    bench_alethe_resolution_conversion
+    bench_alethe_resolution_conversion,
+    bench_proof_minimization
 );
 
 criterion_main!(benches);

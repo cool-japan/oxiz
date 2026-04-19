@@ -512,6 +512,7 @@ mod tests {
             expected_status: Some(ExpectedStatus::Sat),
             file_size: 100,
             category: None,
+            structural_features: None,
         };
 
         let results = vec![

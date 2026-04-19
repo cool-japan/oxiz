@@ -51,6 +51,7 @@ pub mod lean_enhanced;
 pub mod lfsc;
 pub mod merge;
 pub mod metadata;
+pub mod minimize;
 pub mod mmap;
 pub mod normalize;
 pub mod parallel;
@@ -118,6 +119,7 @@ pub use lean_enhanced::{
 pub use lfsc::{LfscDecl, LfscProof, LfscProofProducer, LfscSort, LfscTerm};
 pub use merge::{merge_proofs, slice_proof, slice_proof_multi};
 pub use metadata::{Difficulty, Priority, ProofMetadata, Strategy};
+pub use minimize::{MinimizeConfig, MinimizeResult, ProofMinimizer};
 pub use mmap::{MmapConfig, MmapProof, MmapProofStorage};
 pub use normalize::{canonicalize_conclusions, normalize_proof};
 pub use parallel::{ParallelCheckResult, ParallelConfig, ParallelProcessor, ParallelStatsComputer};

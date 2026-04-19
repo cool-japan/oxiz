@@ -300,6 +300,7 @@ impl VirtualBestSolver {
                     expected_status: None,
                     file_size: 0,
                     category: None,
+                    structural_features: None,
                 };
 
                 SingleResult::new(&meta, vbs.status, vbs.time)

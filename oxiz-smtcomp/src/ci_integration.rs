@@ -647,6 +647,7 @@ mod tests {
             expected_status: Some(ExpectedStatus::Sat),
             file_size: 100,
             category: None,
+            structural_features: None,
         };
         let mut result = SingleResult::new(&meta, status, Duration::from_millis(100));
         result.correct = correct;

@@ -424,6 +424,115 @@ fn is_numeric_literal(tok: &str) -> bool {
     tok.chars().skip(1).all(|c| c.is_ascii_digit() || c == '.')
 }
 
+/// Structural features extracted by scanning the raw SMT-LIB source text.
+///
+/// These features characterise the syntactic complexity of a benchmark without
+/// requiring a full AST walk. They are intended to support difficulty
+/// prediction, diversity-based sampling, and performance classification.
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct StructuralFeatures {
+    /// Maximum nesting depth of parentheses (proxy for term depth).
+    pub max_paren_depth: usize,
+    /// Total number of `assert` commands.
+    pub assert_count: usize,
+    /// Number of `declare-const` / `declare-fun` declarations.
+    pub decl_count: usize,
+    /// Total number of `let` binders detected.
+    pub let_count: usize,
+    /// Maximum nesting depth of `let` binders.
+    pub let_depth: usize,
+    /// Number of `forall` / `exists` binders detected.
+    pub quantifier_count: usize,
+    /// Maximum nesting depth of quantifier binders.
+    pub quantifier_depth: usize,
+    /// Estimated clause / atom count (number of `and` / `or` / `not` occurrences).
+    pub clause_count: usize,
+    /// Number of `ite` (if-then-else) terms.
+    pub ite_count: usize,
+}
+
+use serde::{Deserialize, Serialize};
+
+/// Extract structural features from raw SMT-LIB source text.
+///
+/// The extractor makes a single pass over the token stream produced by
+/// [`tokenize`] and collects the metrics that make up [`StructuralFeatures`].
+/// It does **not** perform full parsing and does not require an AST.
+#[must_use]
+pub fn extract_structural_features(source: &str) -> StructuralFeatures {
+    let mut features = StructuralFeatures::default();
+
+    let mut paren_depth: usize = 0;
+    let mut let_depth: usize = 0;
+    let mut quantifier_depth: usize = 0;
+
+    // We need a token-by-token walk to track paren depth and context.
+    let tokens = tokenize(source);
+    let mut i = 0;
+    while i < tokens.len() {
+        let tok = &tokens[i];
+        match tok.as_str() {
+            "(" => {
+                paren_depth = paren_depth.saturating_add(1);
+                if paren_depth > features.max_paren_depth {
+                    features.max_paren_depth = paren_depth;
+                }
+                // Peek at the next token to identify the construct.
+                if let Some(next) = tokens.get(i + 1) {
+                    match next.as_str() {
+                        "assert" => {
+                            features.assert_count += 1;
+                        }
+                        "declare-const" | "declare-fun" | "define-fun" | "define-const" => {
+                            features.decl_count += 1;
+                        }
+                        "let" => {
+                            features.let_count += 1;
+                            let_depth = let_depth.saturating_add(1);
+                            if let_depth > features.let_depth {
+                                features.let_depth = let_depth;
+                            }
+                        }
+                        "forall" | "exists" => {
+                            features.quantifier_count += 1;
+                            quantifier_depth = quantifier_depth.saturating_add(1);
+                            if quantifier_depth > features.quantifier_depth {
+                                features.quantifier_depth = quantifier_depth;
+                            }
+                        }
+                        "and" | "or" | "not" => {
+                            features.clause_count += 1;
+                        }
+                        "ite" => {
+                            features.ite_count += 1;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            ")" => {
+                if paren_depth > 0 {
+                    paren_depth -= 1;
+                }
+                // We approximate let/quantifier depth by tracking open parens.
+                // Since we don't know which specific paren is closing which
+                // construct, we can only approximate: when depth drops below
+                // the let/quantifier depth, we decrement those counters.
+                if let_depth > paren_depth {
+                    let_depth = paren_depth;
+                }
+                if quantifier_depth > paren_depth {
+                    quantifier_depth = paren_depth;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+
+    features
+}
+
 /// Map a [`TheoryBits`] fingerprint to the most specific standard logic name.
 ///
 /// The order of the checks matters: richer combinations must be tested

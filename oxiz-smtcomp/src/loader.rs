@@ -3,6 +3,7 @@
 //! This module provides functionality to discover and load SMT-LIB2 benchmark files
 //! organized by logic (e.g., QF_LIA, QF_BV, QF_UF).
 
+use crate::logic_detector::{StructuralFeatures, extract_structural_features};
 use lru::LruCache;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -47,6 +48,13 @@ pub struct BenchmarkMeta {
     pub file_size: u64,
     /// Category derived from directory structure
     pub category: Option<String>,
+    /// Structural features extracted from the SMT-LIB source.
+    ///
+    /// `None` when the file has not been read yet (e.g., during
+    /// path-only discovery). Populated by the loader when the file
+    /// content is available.
+    #[serde(skip)]
+    pub structural_features: Option<StructuralFeatures>,
 }
 
 /// Expected benchmark result status
@@ -345,12 +353,19 @@ impl Loader {
 
     /// Extract metadata from a benchmark file
     fn extract_metadata(&self, path: &Path, file_size: u64) -> LoaderResult<BenchmarkMeta> {
-        // Try to extract logic from directory structure first (e.g., QF_LIA/...)
-        let logic = self.extract_logic_from_path(path);
+        // Read content once for logic detection, status extraction, and structural
+        // feature extraction, to avoid re-reading the file multiple times.
+        let content = fs::read_to_string(path).ok();
+
+        let logic = self.extract_logic_from_path_with_content(path, content.as_deref());
         let category = self.extract_category_from_path(path);
 
-        // For expected status, try to extract from filename or read file header
-        let expected_status = self.extract_expected_status(path);
+        // For expected status, try to extract from filename or read file header.
+        let expected_status =
+            self.extract_expected_status_with_content(path, content.as_deref());
+
+        // Extract structural features if content is available.
+        let structural_features = content.as_deref().map(extract_structural_features);
 
         Ok(BenchmarkMeta {
             path: path.to_path_buf(),
@@ -358,11 +373,29 @@ impl Loader {
             expected_status,
             file_size,
             category,
+            structural_features,
         })
     }
 
-    /// Extract logic from path (e.g., /benchmarks/QF_LIA/sat/test.smt2 -> QF_LIA)
+    /// Extract logic from path, using pre-read content when available.
+    fn extract_logic_from_path_with_content(
+        &self,
+        path: &Path,
+        content: Option<&str>,
+    ) -> Option<String> {
+        self.extract_logic_from_path_impl(path, content)
+    }
+
+    /// Extract logic from path (e.g., /benchmarks/QF_LIA/sat/test.smt2 -> QF_LIA).
+    ///
+    /// Also used by the test helpers that call this directly on a path.
     fn extract_logic_from_path(&self, path: &Path) -> Option<String> {
+        let content = fs::read_to_string(path).ok();
+        self.extract_logic_from_path_impl(path, content.as_deref())
+    }
+
+    /// Core implementation that works with either pre-read or freshly read content.
+    fn extract_logic_from_path_impl(&self, path: &Path, content: Option<&str>) -> Option<String> {
         // Common SMT-COMP logics
         let known_logics = [
             "ALIA",
@@ -419,13 +452,13 @@ impl Loader {
         // Also try to read from file header — first the explicit
         // `(set-logic ...)` directive, then fall back to the automatic
         // theory-feature detector when no directive is present.
-        if let Ok(content) = fs::read_to_string(path) {
-            if let Some(explicit) = Self::extract_logic_from_content(&content) {
+        if let Some(src) = content {
+            if let Some(explicit) = Self::extract_logic_from_content(src) {
                 return Some(explicit);
             }
             // No explicit header — let the logic detector infer one from
             // the theory keywords present in the benchmark source.
-            let detected = crate::logic_detector::detect_logic(&content);
+            let detected = crate::logic_detector::detect_logic(src);
             // The detector never returns an empty string; treat the "ALL"
             // fallback as a real inference rather than "unknown" so
             // downstream consumers see a concrete logic name.
@@ -474,8 +507,12 @@ impl Loader {
         }
     }
 
-    /// Extract expected status from filename or content
-    fn extract_expected_status(&self, path: &Path) -> Option<ExpectedStatus> {
+    /// Extract expected status from filename or content, reusing pre-read content.
+    fn extract_expected_status_with_content(
+        &self,
+        path: &Path,
+        content: Option<&str>,
+    ) -> Option<ExpectedStatus> {
         // Check filename for hints
         if let Some(stem) = path.file_stem() {
             let name = stem.to_string_lossy().to_lowercase();
@@ -500,12 +537,18 @@ impl Loader {
             }
         }
 
-        // Check file content for status annotation
-        if let Ok(content) = fs::read_to_string(path) {
-            return Self::extract_status_from_content(&content);
+        // Check file content for status annotation using pre-read content if available.
+        if let Some(src) = content {
+            return Self::extract_status_from_content(src);
         }
 
         None
+    }
+
+    /// Extract expected status from filename or content (path-only fallback).
+    fn extract_expected_status(&self, path: &Path) -> Option<ExpectedStatus> {
+        let content = fs::read_to_string(path).ok();
+        self.extract_expected_status_with_content(path, content.as_deref())
     }
 
     /// Extract expected status from file content (SMT-LIB :status info)
@@ -766,6 +809,7 @@ mod tests {
             expected_status: None,
             file_size: size,
             category: None,
+            structural_features: None,
         }
     }
 

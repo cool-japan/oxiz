@@ -289,7 +289,19 @@ impl Solver {
             return SolverResult::Unsat;
         }
 
+        // For NIA/NRA logics: dispatch all assertions to the full polynomial
+        // solver first (NiaSolver or NlsatSolver). This gives a definitive
+        // SAT/UNSAT for most benchmark problems without the CDCL(T) loop.
+        if let Some(nl_result) = self.dispatch_nl_solver(manager) {
+            match nl_result {
+                SolverResult::Sat => return SolverResult::Sat,
+                SolverResult::Unsat => return SolverResult::Unsat,
+                SolverResult::Unknown => {}
+            }
+        }
+
         // Check nonlinear arithmetic constraints for early conflict detection
+        // (static pattern matching, complementary to the dispatch above).
         if self.check_nonlinear_constraints(manager) {
             return SolverResult::Unsat;
         }
