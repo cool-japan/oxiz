@@ -124,10 +124,10 @@ fn sweep_dir(dir: &str) -> Vec<String> {
 
     for entry in entries.flatten() {
         let entry_path = entry.path();
-        if entry_path.extension().and_then(|s| s.to_str()) == Some("smt2") {
-            if let Err(msg) = check_fixture(&entry_path) {
-                failures.push(msg);
-            }
+        if entry_path.extension().and_then(|s| s.to_str()) == Some("smt2")
+            && let Err(msg) = check_fixture(&entry_path)
+        {
+            failures.push(msg);
         }
     }
 

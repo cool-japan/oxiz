@@ -577,6 +577,260 @@ impl Ord for ScoredQuantifier {
     }
 }
 
+/// Policy for multi-trigger scoring
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScorerPolicy {
+    /// Conservative: current behavior, prefer simpler trigger sets
+    Conservative,
+    /// Ranked: score by depth, shared variables, and ground-term reachability
+    Ranked,
+}
+
+/// A trigger set (a multi-pattern: a list of terms that together cover all variables)
+#[derive(Debug, Clone)]
+pub struct TriggerSet {
+    /// The pattern terms forming this trigger set
+    pub terms: Vec<TermId>,
+    /// Syntactic depth of the deepest term in this set
+    pub max_depth: usize,
+    /// Number of distinct variables shared across terms
+    pub shared_var_count: usize,
+}
+
+impl TriggerSet {
+    /// Create a new trigger set from pattern terms
+    pub fn new(terms: Vec<TermId>) -> Self {
+        Self {
+            terms,
+            max_depth: 0,
+            shared_var_count: 0,
+        }
+    }
+
+    /// Create with precomputed metrics
+    pub fn with_metrics(terms: Vec<TermId>, max_depth: usize, shared_var_count: usize) -> Self {
+        Self {
+            terms,
+            max_depth,
+            shared_var_count,
+        }
+    }
+}
+
+/// A trigger set annotated with a ranking score
+#[derive(Debug, Clone)]
+pub struct ScoredTriggerSet {
+    /// The trigger set
+    pub triggers: TriggerSet,
+    /// Score (higher is better / higher priority)
+    pub score: f64,
+}
+
+/// Multi-trigger scorer: ranks candidate trigger sets
+#[derive(Debug, Clone)]
+pub struct MultiTriggerScorer {
+    /// Scoring policy
+    pub policy: ScorerPolicy,
+    /// Number of top candidates to return
+    pub top_k: usize,
+}
+
+impl MultiTriggerScorer {
+    /// Create a new scorer
+    pub fn new(policy: ScorerPolicy, top_k: usize) -> Self {
+        Self { policy, top_k }
+    }
+
+    /// Score a collection of trigger-set candidates and return the top-k.
+    ///
+    /// Scoring criteria (Ranked policy):
+    ///   (a) syntactic depth: deeper terms get a lower score
+    ///   (b) shared variable count: more shared variables get a higher score
+    ///   (c) ground-term reachability: trigger sets whose terms appear in
+    ///       the equality graph get a bonus
+    pub fn score_trigger_sets(
+        &self,
+        candidates: &[TriggerSet],
+        manager: &TermManager,
+    ) -> Vec<ScoredTriggerSet> {
+        if candidates.is_empty() {
+            return Vec::new();
+        }
+
+        let mut scored: Vec<ScoredTriggerSet> = candidates
+            .iter()
+            .map(|ts| {
+                let score = self.compute_score(ts, manager);
+                ScoredTriggerSet {
+                    triggers: ts.clone(),
+                    score,
+                }
+            })
+            .collect();
+
+        // Sort descending by score
+        scored.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(Ordering::Equal));
+        scored.truncate(self.top_k);
+        scored
+    }
+
+    fn compute_score(&self, ts: &TriggerSet, manager: &TermManager) -> f64 {
+        match self.policy {
+            ScorerPolicy::Conservative => {
+                // Conservative: prefer smaller trigger sets
+                1.0 / (1.0 + ts.terms.len() as f64)
+            }
+            ScorerPolicy::Ranked => {
+                self.ranked_score(ts, manager)
+            }
+        }
+    }
+
+    fn ranked_score(&self, ts: &TriggerSet, manager: &TermManager) -> f64 {
+        // (a) Depth component: deeper terms are less preferred.
+        //     depth_penalty lowers score as max_depth increases.
+        let depth = if ts.max_depth > 0 {
+            ts.max_depth
+        } else {
+            // Compute depth on the fly if not pre-set
+            ts.terms
+                .iter()
+                .map(|&t| self.term_depth(t, manager, 0, 20))
+                .max()
+                .unwrap_or(0)
+        };
+        let depth_component = 1.0 / (1.0 + depth as f64);
+
+        // (b) Shared variable component: more shared variables → higher score.
+        let shared = if ts.shared_var_count > 0 {
+            ts.shared_var_count
+        } else {
+            // Compute shared vars on the fly
+            self.count_shared_vars(&ts.terms, manager)
+        };
+        let shared_component = 1.0 + shared as f64;
+
+        // (c) Ground-term reachability: terms that are ground (no free vars) are
+        //     reachable in the E-graph and provide stronger triggering.
+        let ground_count = ts
+            .terms
+            .iter()
+            .filter(|&&t| self.is_ground(t, manager))
+            .count();
+        let ground_component = 1.0 + ground_count as f64 * 0.5;
+
+        depth_component * shared_component * ground_component
+    }
+
+    /// Compute term depth (capped at `max_depth_cap` to avoid large recursion)
+    fn term_depth(&self, term: TermId, manager: &TermManager, current: usize, cap: usize) -> usize {
+        if current >= cap {
+            return current;
+        }
+        let Some(t) = manager.get(term) else {
+            return current;
+        };
+        match &t.kind {
+            TermKind::Apply { args, .. } => args
+                .iter()
+                .map(|&a| self.term_depth(a, manager, current + 1, cap))
+                .max()
+                .unwrap_or(current),
+            TermKind::Not(a) | TermKind::Neg(a) => {
+                self.term_depth(*a, manager, current + 1, cap)
+            }
+            TermKind::And(args) | TermKind::Or(args) => args
+                .iter()
+                .map(|&a| self.term_depth(a, manager, current + 1, cap))
+                .max()
+                .unwrap_or(current),
+            TermKind::Eq(l, r) | TermKind::Lt(l, r) | TermKind::Le(l, r)
+            | TermKind::Gt(l, r) | TermKind::Ge(l, r) => {
+                let ld = self.term_depth(*l, manager, current + 1, cap);
+                let rd = self.term_depth(*r, manager, current + 1, cap);
+                ld.max(rd)
+            }
+            _ => current,
+        }
+    }
+
+    /// Count variables that appear in more than one term (shared across the trigger set)
+    fn count_shared_vars(&self, terms: &[TermId], manager: &TermManager) -> usize {
+        if terms.len() <= 1 {
+            return 0;
+        }
+        // Build per-term variable sets
+        let var_sets: Vec<FxHashSet<Spur>> = terms
+            .iter()
+            .map(|&t| self.collect_vars(t, manager))
+            .collect();
+
+        // Find variables that appear in at least 2 distinct terms
+        let mut shared_count = 0usize;
+        if let Some(first) = var_sets.first() {
+            for var in first.iter() {
+                let in_count = var_sets.iter().filter(|s| s.contains(var)).count();
+                if in_count >= 2 {
+                    shared_count += 1;
+                }
+            }
+        }
+        shared_count
+    }
+
+    fn collect_vars(&self, term: TermId, manager: &TermManager) -> FxHashSet<Spur> {
+        let mut vars = FxHashSet::default();
+        let mut visited = FxHashSet::default();
+        self.collect_vars_rec(term, manager, &mut vars, &mut visited);
+        vars
+    }
+
+    fn collect_vars_rec(
+        &self,
+        term: TermId,
+        manager: &TermManager,
+        vars: &mut FxHashSet<Spur>,
+        visited: &mut FxHashSet<TermId>,
+    ) {
+        if !visited.insert(term) {
+            return;
+        }
+        let Some(t) = manager.get(term) else {
+            return;
+        };
+        if let TermKind::Var(name) = t.kind {
+            vars.insert(name);
+            return;
+        }
+        match &t.kind {
+            TermKind::Apply { args, .. } => {
+                for &a in args.iter() {
+                    self.collect_vars_rec(a, manager, vars, visited);
+                }
+            }
+            TermKind::Not(a) | TermKind::Neg(a) => {
+                self.collect_vars_rec(*a, manager, vars, visited);
+            }
+            TermKind::And(args) | TermKind::Or(args) => {
+                for &a in args {
+                    self.collect_vars_rec(a, manager, vars, visited);
+                }
+            }
+            TermKind::Eq(l, r) | TermKind::Lt(l, r) | TermKind::Le(l, r)
+            | TermKind::Gt(l, r) | TermKind::Ge(l, r) => {
+                self.collect_vars_rec(*l, manager, vars, visited);
+                self.collect_vars_rec(*r, manager, vars, visited);
+            }
+            _ => {}
+        }
+    }
+
+    /// Return true if the term contains no free variables
+    fn is_ground(&self, term: TermId, manager: &TermManager) -> bool {
+        self.collect_vars(term, manager).is_empty()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

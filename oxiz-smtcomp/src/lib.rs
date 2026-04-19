@@ -114,6 +114,10 @@ pub mod dashboard;
 pub mod regression;
 pub mod sampling;
 
+// Optional WebSocket progress API (feature-gated)
+#[cfg(feature = "ws-progress")]
+pub mod websocket;
+
 // Re-export main types for convenience
 pub use benchmark::{
     BenchmarkError, BenchmarkResult, BenchmarkStatus, RunSummary, Runner, RunnerConfig,

@@ -91,7 +91,7 @@ impl From<&RunnerConfig> for ParallelConfig {
 }
 
 /// Progress information during parallel execution
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParallelProgress {
     /// Total number of benchmarks
     pub total: usize,

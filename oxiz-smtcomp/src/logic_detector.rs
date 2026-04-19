@@ -449,42 +449,130 @@ pub struct StructuralFeatures {
     pub clause_count: usize,
     /// Number of `ite` (if-then-else) terms.
     pub ite_count: usize,
+
+    // --- Extended structural classification fields ---
+
+    /// Maximum depth of nested terms (derived from paren depth inside assertions).
+    ///
+    /// Measures syntactic term complexity: higher values indicate deeper nesting.
+    pub max_term_depth: u32,
+    /// Number of atomic propositions / predicate applications detected.
+    ///
+    /// Counts top-level comparisons (`=`, `<`, `<=`, `>`, `>=`, `distinct`,
+    /// `not`, and bare Boolean variables occurring as assert arguments).
+    pub atom_count: u32,
+    /// Maximum nesting depth of quantifier binders (`forall`/`exists`).
+    ///
+    /// Mirrors `quantifier_depth` but stored as `u32` for feature-vector
+    /// arithmetic in the sampler.
+    pub max_quantifier_nesting: u32,
+    /// Histogram of bit-vector widths: each entry is `(width, count)`.
+    ///
+    /// Populated whenever `(_ BitVec N)` patterns appear in the source.
+    #[serde(default)]
+    pub bv_width_histogram: Vec<(u32, u32)>,
+    /// Histogram of array dimensionalities: each entry is `(dims, count)`.
+    ///
+    /// Each `(Array ...)` sort annotation increments the `dims=1` bucket.
+    /// Nested `(Array (Array ...))` sorts increment the `dims=2` bucket, etc.
+    #[serde(default)]
+    pub array_dim_histogram: Vec<(u32, u32)>,
+    /// Maximum nesting depth of `ite` (if-then-else) expressions.
+    pub max_ite_depth: u32,
+    /// Maximum nesting depth of `let` binders (as `u32`).
+    ///
+    /// Mirrors `let_depth` for feature-vector arithmetic.
+    pub max_let_depth: u32,
 }
 
 use serde::{Deserialize, Serialize};
+
+/// Kind of syntactic construct at the current depth on the nesting stack.
+///
+/// Used by [`extract_structural_features`] to track which construct each open
+/// parenthesis belongs to so that closing parentheses can update the correct
+/// depth counters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConstructKind {
+    /// A `forall` or `exists` quantifier binder.
+    Quantifier,
+    /// An `ite` (if-then-else) expression.
+    Ite,
+    /// A `let` binder.
+    Let,
+    /// A `(_ BitVec N)` or similar indexed sort annotation.
+    BvOp,
+    /// An `(Array ...)` sort annotation.
+    ArrayOp,
+    /// Any other parenthesised expression.
+    Other,
+}
+
+/// Increment the count for `width` inside `histogram`, inserting a new entry
+/// `(width, 1)` if no existing entry matches.
+fn histogram_increment(histogram: &mut Vec<(u32, u32)>, key: u32) {
+    for entry in histogram.iter_mut() {
+        if entry.0 == key {
+            entry.1 = entry.1.saturating_add(1);
+            return;
+        }
+    }
+    histogram.push((key, 1));
+}
+
+/// Try to parse an unsigned decimal integer from `tok`.
+fn parse_u32(tok: &str) -> Option<u32> {
+    tok.parse::<u32>().ok()
+}
 
 /// Extract structural features from raw SMT-LIB source text.
 ///
 /// The extractor makes a single pass over the token stream produced by
 /// [`tokenize`] and collects the metrics that make up [`StructuralFeatures`].
 /// It does **not** perform full parsing and does not require an AST.
+///
+/// The scanner maintains a `depth_stack` of [`ConstructKind`] entries so that
+/// closing parentheses can correctly unwind per-construct depth counters.
 #[must_use]
 pub fn extract_structural_features(source: &str) -> StructuralFeatures {
     let mut features = StructuralFeatures::default();
 
-    let mut paren_depth: usize = 0;
+    // Per-construct current depths for correct unwinding.
     let mut let_depth: usize = 0;
     let mut quantifier_depth: usize = 0;
+    let mut ite_depth: usize = 0;
 
-    // We need a token-by-token walk to track paren depth and context.
+    // Stack of construct kinds, one entry per open `(`.
+    let mut depth_stack: Vec<ConstructKind> = Vec::new();
+
     let tokens = tokenize(source);
     let mut i = 0;
     while i < tokens.len() {
         let tok = &tokens[i];
         match tok.as_str() {
             "(" => {
-                paren_depth = paren_depth.saturating_add(1);
+                let paren_depth = depth_stack.len().saturating_add(1);
+                // Record maximum paren depth.
                 if paren_depth > features.max_paren_depth {
                     features.max_paren_depth = paren_depth;
                 }
-                // Peek at the next token to identify the construct.
-                if let Some(next) = tokens.get(i + 1) {
+                let paren_depth_u32 = paren_depth as u32;
+                if paren_depth_u32 > features.max_term_depth {
+                    features.max_term_depth = paren_depth_u32;
+                }
+
+                // Identify the construct opened by this `(` by peeking ahead.
+                let kind = if let Some(next) = tokens.get(i + 1) {
                     match next.as_str() {
                         "assert" => {
                             features.assert_count += 1;
+                            // Each `assert` introduces a clause boundary.
+                            // Atom count is updated separately below.
+                            ConstructKind::Other
                         }
                         "declare-const" | "declare-fun" | "define-fun" | "define-const" => {
                             features.decl_count += 1;
+                            ConstructKind::Other
                         }
                         "let" => {
                             features.let_count += 1;
@@ -492,6 +580,11 @@ pub fn extract_structural_features(source: &str) -> StructuralFeatures {
                             if let_depth > features.let_depth {
                                 features.let_depth = let_depth;
                             }
+                            let let_u32 = let_depth as u32;
+                            if let_u32 > features.max_let_depth {
+                                features.max_let_depth = let_u32;
+                            }
+                            ConstructKind::Let
                         }
                         "forall" | "exists" => {
                             features.quantifier_count += 1;
@@ -499,30 +592,90 @@ pub fn extract_structural_features(source: &str) -> StructuralFeatures {
                             if quantifier_depth > features.quantifier_depth {
                                 features.quantifier_depth = quantifier_depth;
                             }
+                            let q_u32 = quantifier_depth as u32;
+                            if q_u32 > features.max_quantifier_nesting {
+                                features.max_quantifier_nesting = q_u32;
+                            }
+                            ConstructKind::Quantifier
                         }
                         "and" | "or" | "not" => {
                             features.clause_count += 1;
+                            ConstructKind::Other
                         }
                         "ite" => {
                             features.ite_count += 1;
+                            ite_depth = ite_depth.saturating_add(1);
+                            let ite_u32 = ite_depth as u32;
+                            if ite_u32 > features.max_ite_depth {
+                                features.max_ite_depth = ite_u32;
+                            }
+                            ConstructKind::Ite
                         }
-                        _ => {}
+                        // `=`, `<`, `<=`, `>`, `>=`, `distinct` are atomic
+                        // predicate applications — count them as atoms.
+                        "=" | "<" | "<=" | ">" | ">=" | "distinct" => {
+                            features.atom_count = features.atom_count.saturating_add(1);
+                            ConstructKind::Other
+                        }
+                        // Array sort: `(Array <index> <element>)`.
+                        "Array" => {
+                            // Compute nesting depth of Array sorts by looking
+                            // at how many ArrayOp entries are on the stack.
+                            let dims = depth_stack
+                                .iter()
+                                .filter(|&&k| k == ConstructKind::ArrayOp)
+                                .count() as u32
+                                + 1;
+                            histogram_increment(&mut features.array_dim_histogram, dims);
+                            ConstructKind::ArrayOp
+                        }
+                        // `_` marks an indexed sort / function: `(_ BitVec N)`.
+                        "_" => {
+                            // Look ahead for `BitVec N`.
+                            if tokens.get(i + 2).map(String::as_str) == Some("BitVec") {
+                                if let Some(width_tok) = tokens.get(i + 3) {
+                                    if let Some(width) = parse_u32(width_tok) {
+                                        histogram_increment(
+                                            &mut features.bv_width_histogram,
+                                            width,
+                                        );
+                                    }
+                                }
+                                ConstructKind::BvOp
+                            } else {
+                                ConstructKind::Other
+                            }
+                        }
+                        _ => ConstructKind::Other,
                     }
-                }
+                } else {
+                    ConstructKind::Other
+                };
+
+                depth_stack.push(kind);
             }
             ")" => {
-                if paren_depth > 0 {
-                    paren_depth -= 1;
-                }
-                // We approximate let/quantifier depth by tracking open parens.
-                // Since we don't know which specific paren is closing which
-                // construct, we can only approximate: when depth drops below
-                // the let/quantifier depth, we decrement those counters.
-                if let_depth > paren_depth {
-                    let_depth = paren_depth;
-                }
-                if quantifier_depth > paren_depth {
-                    quantifier_depth = paren_depth;
+                if let Some(closed) = depth_stack.pop() {
+                    match closed {
+                        ConstructKind::Let => {
+                            if let_depth > 0 {
+                                let_depth -= 1;
+                            }
+                        }
+                        ConstructKind::Quantifier => {
+                            if quantifier_depth > 0 {
+                                quantifier_depth -= 1;
+                            }
+                        }
+                        ConstructKind::Ite => {
+                            if ite_depth > 0 {
+                                ite_depth -= 1;
+                            }
+                        }
+                        ConstructKind::BvOp
+                        | ConstructKind::ArrayOp
+                        | ConstructKind::Other => {}
+                    }
                 }
             }
             _ => {}
@@ -925,5 +1078,143 @@ mod tests {
 (check-sat)
 ";
         assert_eq!(detect_logic(src), "QF_LIA");
+    }
+
+    // --- Structural feature tests ---
+
+    #[test]
+    fn test_max_term_depth() {
+        // Nested expression: (+ (+ x y) (+ a b)) has paren depth >= 3 from root.
+        let src = "
+(declare-const x Int)
+(declare-const y Int)
+(declare-const a Int)
+(declare-const b Int)
+(assert (= (+ (+ x y) (+ a b)) 0))
+(check-sat)
+";
+        let features = extract_structural_features(src);
+        // The assert wraps at depth 1; the outer `+` is at depth 2;
+        // the inner `+` exprs are at depth 3 — so max_term_depth >= 3.
+        assert!(
+            features.max_term_depth >= 2,
+            "expected max_term_depth >= 2, got {}",
+            features.max_term_depth
+        );
+    }
+
+    #[test]
+    fn test_atom_count() {
+        // Three assert statements: assert_count must be exactly 3.
+        let src = "
+(declare-const x Int)
+(declare-const y Int)
+(declare-const z Int)
+(assert (>= x 0))
+(assert (>= y 0))
+(assert (>= z 0))
+(check-sat)
+";
+        let features = extract_structural_features(src);
+        assert_eq!(
+            features.assert_count, 3,
+            "expected assert_count == 3, got {}",
+            features.assert_count
+        );
+    }
+
+    #[test]
+    fn test_quantifier_nesting() {
+        // Two nested quantifiers: max_quantifier_nesting must be 2.
+        let src = "
+(declare-fun p (Int Int) Bool)
+(assert (forall ((x Int)) (forall ((y Int)) (p x y))))
+(check-sat)
+";
+        let features = extract_structural_features(src);
+        assert_eq!(
+            features.max_quantifier_nesting, 2,
+            "expected max_quantifier_nesting == 2, got {}",
+            features.max_quantifier_nesting
+        );
+    }
+
+    #[test]
+    fn test_bv_width_histogram() {
+        // Formula uses (_ BitVec 8) and (_ BitVec 32).
+        let src = "
+(declare-const a (_ BitVec 8))
+(declare-const b (_ BitVec 32))
+(assert (= (bvadd a a) a))
+(check-sat)
+";
+        let features = extract_structural_features(src);
+        let widths: Vec<u32> = features
+            .bv_width_histogram
+            .iter()
+            .map(|&(w, _)| w)
+            .collect();
+        assert!(
+            widths.contains(&8),
+            "expected width 8 in histogram, got {:?}",
+            features.bv_width_histogram
+        );
+        assert!(
+            widths.contains(&32),
+            "expected width 32 in histogram, got {:?}",
+            features.bv_width_histogram
+        );
+    }
+
+    #[test]
+    fn test_ite_depth() {
+        // Nested ite: (ite c1 (ite c2 a b) c) — max_ite_depth must be 2.
+        let src = "
+(declare-const c1 Bool)
+(declare-const c2 Bool)
+(declare-const a Int)
+(declare-const b Int)
+(declare-const c Int)
+(assert (= (ite c1 (ite c2 a b) c) 0))
+(check-sat)
+";
+        let features = extract_structural_features(src);
+        assert_eq!(
+            features.max_ite_depth, 2,
+            "expected max_ite_depth == 2, got {}",
+            features.max_ite_depth
+        );
+    }
+
+    #[test]
+    fn test_let_depth() {
+        // Two nested let binders: max_let_depth must be 2.
+        let src = "
+(declare-const x Int)
+(assert
+  (let ((a (+ x 1)))
+    (let ((b (+ a 1)))
+      (= b 3))))
+(check-sat)
+";
+        let features = extract_structural_features(src);
+        assert_eq!(
+            features.max_let_depth, 2,
+            "expected max_let_depth == 2, got {}",
+            features.max_let_depth
+        );
+    }
+
+    #[test]
+    fn test_structural_features_default_zero() {
+        // Empty source should yield all-zero features.
+        let features = extract_structural_features("(check-sat)");
+        assert_eq!(features.max_term_depth, 1); // one open paren
+        assert_eq!(features.atom_count, 0);
+        assert_eq!(features.max_quantifier_nesting, 0);
+        assert!(features.bv_width_histogram.is_empty());
+        assert!(features.array_dim_histogram.is_empty());
+        assert_eq!(features.max_ite_depth, 0);
+        assert_eq!(features.max_let_depth, 0);
     }
 }

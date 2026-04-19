@@ -16,6 +16,7 @@ members = [
     "oxiz-smtcomp",
     "oxiz-py",
     "oxiz-ml",
+    "bench/regression",
 ]
 
 # Exclude oxiz-py from default build since it requires maturin for proper Python linking.
@@ -35,6 +36,7 @@ default-members = [
     "oxiz-cli",
     "oxiz-smtcomp",
     "oxiz-ml",
+    "bench/regression",
 ]
 
 [workspace.package]
@@ -115,6 +117,7 @@ tokio = "1.52"
 axum = { version = "0.8", features = ["ws"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors"] }
+tokio-tungstenite = "0.29"
 
 # WASM
 wasm-bindgen = "0.2"
@@ -129,7 +132,7 @@ pdf-writer = "0.14"
 
 # Testing
 proptest = "1.11"
-criterion = "0.8"
+criterion = { version = "0.8", features = ["html_reports"] }
 tempfile = "3.27"
 
 # Utilities

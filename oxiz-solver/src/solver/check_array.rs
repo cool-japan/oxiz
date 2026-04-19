@@ -80,6 +80,13 @@ impl Solver {
             return true;
         }
 
+        // Check: Integer ordering conflicts implied by read-over-write.
+        // This covers ALIA cases where a store forces a concrete select value
+        // that is then used under <, <=, >, >= constraints.
+        if self.check_int_ordering_conflict(&array_var_aliases, manager) {
+            return true;
+        }
+
         // Check: Read-consistency conflicts (same array, same index, different values)
         for &(existing_val, new_val) in &read_conflicts {
             if self.are_different_values(existing_val, new_val, manager) {
@@ -1379,4 +1386,106 @@ impl Solver {
 
         false
     }
+
+    /// Check whether any integer ordering assertion is contradicted by a value
+    /// forced by the array read-over-write axiom.
+    ///
+    /// This handles both direct terms like:
+    ///   (< (select (store a 0 42) 0) 5)
+    /// and alias-based forms like:
+    ///   (= a1 (store a 0 42))
+    ///   (< (select a1 0) 5)
+    fn check_int_ordering_conflict(
+        &self,
+        aliases: &FxHashMap<TermId, TermId>,
+        manager: &TermManager,
+    ) -> bool {
+        for &assertion in &self.assertions {
+            let Some(data) = manager.get(assertion) else {
+                continue;
+            };
+
+            let Some((lhs, rhs, ordering)) = (match &data.kind {
+                TermKind::Lt(lhs, rhs) => Some((*lhs, *rhs, IntOrdering::Lt)),
+                TermKind::Le(lhs, rhs) => Some((*lhs, *rhs, IntOrdering::Le)),
+                TermKind::Gt(lhs, rhs) => Some((*lhs, *rhs, IntOrdering::Gt)),
+                TermKind::Ge(lhs, rhs) => Some((*lhs, *rhs, IntOrdering::Ge)),
+                _ => None,
+            }) else {
+                continue;
+            };
+
+            let Some(lhs_val) = self.evaluate_int_expr_with_array_axiom(lhs, aliases, manager)
+            else {
+                continue;
+            };
+            let Some(rhs_val) = self.evaluate_int_expr_with_array_axiom(rhs, aliases, manager)
+            else {
+                continue;
+            };
+
+            let holds = match ordering {
+                IntOrdering::Lt => lhs_val < rhs_val,
+                IntOrdering::Le => lhs_val <= rhs_val,
+                IntOrdering::Gt => lhs_val > rhs_val,
+                IntOrdering::Ge => lhs_val >= rhs_val,
+            };
+
+            if !holds {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Evaluate an integer expression after reducing array selects through the
+    /// read-over-write axiom.
+    fn evaluate_int_expr_with_array_axiom(
+        &self,
+        term: TermId,
+        aliases: &FxHashMap<TermId, TermId>,
+        manager: &TermManager,
+    ) -> Option<num_bigint::BigInt> {
+        let term_data = manager.get(term)?;
+        match &term_data.kind {
+            TermKind::IntConst(value) => Some(value.clone()),
+            TermKind::Select(_, _) => {
+                let resolved = if aliases.is_empty() {
+                    self.evaluate_select_axiom(term, manager)
+                } else {
+                    self.evaluate_select_axiom_with_alias(term, aliases, manager)
+                        .or_else(|| self.evaluate_select_axiom(term, manager))
+                }?;
+                self.evaluate_int_expr_with_array_axiom(resolved, aliases, manager)
+            }
+            TermKind::Add(args) => {
+                let mut sum = num_bigint::BigInt::from(0);
+                for &arg in args {
+                    sum += self.evaluate_int_expr_with_array_axiom(arg, aliases, manager)?;
+                }
+                Some(sum)
+            }
+            TermKind::Sub(lhs, rhs) => Some(
+                self.evaluate_int_expr_with_array_axiom(*lhs, aliases, manager)?
+                    - self.evaluate_int_expr_with_array_axiom(*rhs, aliases, manager)?,
+            ),
+            TermKind::Mul(args) => {
+                let mut product = num_bigint::BigInt::from(1);
+                for &arg in args {
+                    product *= self.evaluate_int_expr_with_array_axiom(arg, aliases, manager)?;
+                }
+                Some(product)
+            }
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum IntOrdering {
+    Lt,
+    Le,
+    Gt,
+    Ge,
 }

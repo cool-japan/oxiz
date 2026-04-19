@@ -68,7 +68,10 @@ pub use counterexample::{
     CexGenerationResult, CounterExample, CounterExampleGenerator, RefinementStrategy,
 };
 pub use finite_model::{FiniteModel, FiniteModelFinder, SymmetryBreaker, UniverseSize};
-pub use heuristics::{InstantiationHeuristic, MBQIHeuristics, SelectionStrategy, TriggerSelection};
+pub use heuristics::{
+    InstantiationHeuristic, MBQIHeuristics, MultiTriggerScorer, ScoredTriggerSet, ScorerPolicy,
+    SelectionStrategy, TriggerSelection, TriggerSet,
+};
 pub use instantiation::{
     InstantiationContext, InstantiationEngine, InstantiationPattern, QuantifierInstantiator,
 };

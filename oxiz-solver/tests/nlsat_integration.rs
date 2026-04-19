@@ -493,15 +493,15 @@ fn test_qf_nia_z3_parity_fixtures() {
         let expected = expected_result(&path);
         let actual = run_smt2_fixture(&path);
 
-        if let Some(exp) = expected {
-            if actual != exp && !matches!(actual, SolverResult::Unknown) {
-                failures.push(format!(
-                    "{}: expected {:?}, got {:?}",
-                    path.display(),
-                    exp,
-                    actual
-                ));
-            }
+        if let Some(exp) = expected
+            && actual != exp && !matches!(actual, SolverResult::Unknown)
+        {
+            failures.push(format!(
+                "{}: expected {:?}, got {:?}",
+                path.display(),
+                exp,
+                actual
+            ));
         }
     }
 

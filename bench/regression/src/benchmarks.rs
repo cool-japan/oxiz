@@ -32,7 +32,7 @@ pub struct BenchmarkResult {
 }
 
 /// Benchmark categories
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum BenchmarkCategory {
     /// SAT solving (CDCL core performance)
     Sat,
@@ -214,7 +214,8 @@ pub fn run_theory_benchmarks() -> Vec<BenchmarkResult> {
         // x >= 5 AND x <= 10 AND y = x + 1
         solver.assert(tm.mk_ge(x, five), &mut tm);
         solver.assert(tm.mk_le(x, ten), &mut tm);
-        let x_plus_1 = tm.mk_add(vec![x, tm.mk_int(BigInt::from(1))]);
+        let one = tm.mk_int(BigInt::from(1));
+        let x_plus_1 = tm.mk_add(vec![x, one]);
         solver.assert(tm.mk_eq(y, x_plus_1), &mut tm);
 
         let _ = solver.check(&mut tm);
@@ -361,7 +362,9 @@ pub fn run_parser_benchmarks() -> Vec<BenchmarkResult> {
         9 10 1 0\n-9 10 2 0\n9 -10 3 0\n-9 -10 4 0\n";
 
     results.push(run_benchmark("parser_dimacs", BenchmarkCategory::Parser, 500, || {
-        let _ = DimacsParser::parse(dimacs_input);
+        let mut parser = DimacsParser::new();
+        let mut solver = SatSolver::new();
+        let _ = parser.parse_reader(dimacs_input.as_bytes(), &mut solver);
     }));
 
     results

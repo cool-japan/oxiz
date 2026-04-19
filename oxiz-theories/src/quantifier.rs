@@ -43,6 +43,14 @@ pub struct QuantifierConfig {
     pub max_total_instantiations: usize,
     /// Eagerness level for instantiation (0-10)
     pub eagerness: u8,
+    /// Maximum instantiation depth per quantifier.
+    ///
+    /// When a quantifier's instantiation-chain depth exceeds this bound the
+    /// solver stops expanding it further, guaranteeing termination for
+    /// transitive / recursive axioms.  A value of 0 means unbounded
+    /// (legacy behaviour).  The default of 3 matches conservative SMT
+    /// practice.
+    pub max_depth: u32,
 }
 
 impl Default for QuantifierConfig {
@@ -53,6 +61,7 @@ impl Default for QuantifierConfig {
             max_inst_per_quantifier: 100,
             max_total_instantiations: 10000,
             eagerness: 5,
+            max_depth: 3,
         }
     }
 }

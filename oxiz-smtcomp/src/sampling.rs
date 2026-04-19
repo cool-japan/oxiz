@@ -141,7 +141,7 @@ impl Sampler {
             SamplingStrategy::StratifiedByStatus => self.stratified_by_status(benchmarks),
             SamplingStrategy::StratifiedBySize => self.stratified_by_size(benchmarks),
             SamplingStrategy::Diversity => self.diversity_sample(benchmarks),
-            SamplingStrategy::DifficultyBased => self.random_sample(benchmarks), // Needs historical data
+            SamplingStrategy::DifficultyBased => self.difficulty_sample(benchmarks),
         }
     }
 
@@ -271,6 +271,148 @@ impl Sampler {
     fn diversity_sample(&mut self, benchmarks: &[BenchmarkMeta]) -> Vec<BenchmarkMeta> {
         let target = self.config.calculate_target(benchmarks.len());
 
+        // Check whether any benchmark carries structural features.
+        let has_structural = benchmarks
+            .iter()
+            .any(|b| b.structural_features.is_some());
+
+        if has_structural {
+            // Use structural feature-space distance to maximise diversity.
+            // We greedily pick the benchmark that is maximally far from the
+            // already-selected set, measuring distance in a 3-dimensional
+            // normalised feature space: (max_term_depth, atom_count,
+            // max_quantifier_nesting).
+            self.structural_diversity_sample(benchmarks, target)
+        } else {
+            self.feature_string_diversity_sample(benchmarks, target)
+        }
+    }
+
+    /// Compute a scalar feature vector for diversity scoring.
+    ///
+    /// Returns `[max_term_depth, atom_count, max_quantifier_nesting]` as
+    /// `f64` values when structural features are present; otherwise returns
+    /// a zero vector.
+    fn structural_vec(bench: &BenchmarkMeta) -> [f64; 3] {
+        if let Some(ref sf) = bench.structural_features {
+            [
+                f64::from(sf.max_term_depth),
+                f64::from(sf.atom_count),
+                f64::from(sf.max_quantifier_nesting),
+            ]
+        } else {
+            [0.0, 0.0, 0.0]
+        }
+    }
+
+    /// Euclidean distance between two 3-element feature vectors.
+    fn feature_distance(a: &[f64; 3], b: &[f64; 3]) -> f64 {
+        a.iter()
+            .zip(b.iter())
+            .map(|(x, y)| (x - y) * (x - y))
+            .sum::<f64>()
+            .sqrt()
+    }
+
+    /// Greedy max-min diversity selection using structural feature vectors.
+    ///
+    /// The algorithm is the standard "furthest-point" greedy approach:
+    /// 1. Seed the selection with a random benchmark.
+    /// 2. Repeatedly pick the benchmark that maximises its minimum distance
+    ///    to any already-selected benchmark.
+    fn structural_diversity_sample(
+        &mut self,
+        benchmarks: &[BenchmarkMeta],
+        target: usize,
+    ) -> Vec<BenchmarkMeta> {
+        if benchmarks.is_empty() || target == 0 {
+            return Vec::new();
+        }
+
+        // Pre-compute normalised feature vectors.
+        let vecs: Vec<[f64; 3]> = benchmarks.iter().map(Self::structural_vec).collect();
+
+        // Normalise each dimension to [0, 1] to avoid dominance by large-magnitude
+        // dimensions (e.g., atom_count can be thousands while quantifier_nesting is 0–5).
+        let mut max_vals = [f64::NEG_INFINITY; 3];
+        for v in &vecs {
+            for (j, &val) in v.iter().enumerate() {
+                if val > max_vals[j] {
+                    max_vals[j] = val;
+                }
+            }
+        }
+        // Avoid division by zero for degenerate dimensions.
+        let scale: [f64; 3] = [
+            if max_vals[0] > 0.0 { max_vals[0] } else { 1.0 },
+            if max_vals[1] > 0.0 { max_vals[1] } else { 1.0 },
+            if max_vals[2] > 0.0 { max_vals[2] } else { 1.0 },
+        ];
+        let norm_vecs: Vec<[f64; 3]> = vecs
+            .iter()
+            .map(|v| [v[0] / scale[0], v[1] / scale[1], v[2] / scale[2]])
+            .collect();
+
+        let n = benchmarks.len();
+        let actual_target = target.min(n);
+
+        // Track which indices have been selected.
+        let mut selected_indices: Vec<usize> = Vec::with_capacity(actual_target);
+
+        // Seed: pick a random starting benchmark.
+        let seed_idx = (self.rng.next_u64() as usize) % n;
+        selected_indices.push(seed_idx);
+
+        // For each candidate, maintain its minimum distance to any selected point.
+        let mut min_dist: Vec<f64> = (0..n)
+            .map(|j| {
+                if j == seed_idx {
+                    f64::NEG_INFINITY // already selected
+                } else {
+                    Self::feature_distance(&norm_vecs[j], &norm_vecs[seed_idx])
+                }
+            })
+            .collect();
+
+        while selected_indices.len() < actual_target {
+            // Find the candidate with the maximum minimum distance.
+            let best_idx = min_dist
+                .iter()
+                .enumerate()
+                .filter(|(idx, _)| !selected_indices.contains(idx))
+                .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+                .map(|(idx, _)| idx);
+
+            match best_idx {
+                Some(idx) => {
+                    selected_indices.push(idx);
+                    // Update min_dist for remaining candidates.
+                    for (j, d) in min_dist.iter_mut().enumerate() {
+                        if !selected_indices.contains(&j) {
+                            let dist = Self::feature_distance(&norm_vecs[j], &norm_vecs[idx]);
+                            if dist < *d {
+                                *d = dist;
+                            }
+                        }
+                    }
+                }
+                None => break,
+            }
+        }
+
+        selected_indices
+            .into_iter()
+            .map(|idx| benchmarks[idx].clone())
+            .collect()
+    }
+
+    /// Legacy diversity sampling using coarse feature strings when structural
+    /// features are not available.
+    fn feature_string_diversity_sample(
+        &mut self,
+        benchmarks: &[BenchmarkMeta],
+        target: usize,
+    ) -> Vec<BenchmarkMeta> {
         // For diversity, we want to maximize coverage of different characteristics
         // Combine logic, status, and size bucket as features
         let mut by_features: HashMap<String, Vec<&BenchmarkMeta>> = HashMap::new();
@@ -323,9 +465,75 @@ impl Sampler {
 
         result
     }
+
+    /// Difficulty-based sampling using structural complexity as a proxy.
+    ///
+    /// Benchmarks are ranked by their estimated difficulty (see
+    /// [`structural_complexity_score`]) and the `target` hardest ones are
+    /// returned.  When structural features are absent for all benchmarks the
+    /// function falls back to file-size ordering, which is a weak but
+    /// consistently available proxy.
+    fn difficulty_sample(&mut self, benchmarks: &[BenchmarkMeta]) -> Vec<BenchmarkMeta> {
+        let target = self.config.calculate_target(benchmarks.len());
+
+        let mut scored: Vec<_> = benchmarks
+            .iter()
+            .map(|b| (b, structural_complexity_score(b)))
+            .collect();
+
+        // Sort hardest first.
+        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        scored
+            .into_iter()
+            .take(target)
+            .map(|(b, _)| b.clone())
+            .collect()
+    }
+}
+
+/// Compute a structural complexity score from [`StructuralFeatures`].
+///
+/// The score is a weighted sum of key structural metrics that correlate with
+/// solver difficulty. Used as a proxy when no historical timing data is
+/// available.
+///
+/// Weights are chosen heuristically:
+/// - Term depth: heavy weight — deeply nested terms grow the search space
+///   exponentially in most theory solvers.
+/// - Atom count: moderate weight — more atoms ≈ more clauses to satisfy.
+/// - Quantifier nesting: very heavy — each quantifier level can cause
+///   instantiation storms.
+/// - ITE depth: moderate — nested conditionals branch-explode.
+/// - Let depth: light — `let` typically compresses rather than complicates.
+fn structural_complexity_score(meta: &BenchmarkMeta) -> f64 {
+    if let Some(ref sf) = meta.structural_features {
+        let depth_score = f64::from(sf.max_term_depth) * 3.0;
+        let atom_score = f64::from(sf.atom_count) * 1.5;
+        let quant_score = f64::from(sf.max_quantifier_nesting) * 10.0;
+        let ite_score = f64::from(sf.max_ite_depth) * 2.0;
+        let let_score = f64::from(sf.max_let_depth) * 0.5;
+        // BV width adds complexity proportional to the widest operand.
+        let bv_score = sf
+            .bv_width_histogram
+            .iter()
+            .map(|&(width, _count)| f64::from(width))
+            .fold(0.0_f64, f64::max)
+            / 64.0; // normalise by 64-bit width
+        depth_score + atom_score + quant_score + ite_score + let_score + bv_score
+    } else {
+        // No structural features: fall back to file-size proxy.
+        meta.file_size as f64 / 1024.0
+    }
 }
 
 /// Sample benchmarks based on historical difficulty
+///
+/// When historical timing data is available for a benchmark, it is used
+/// directly as the difficulty score. For benchmarks without timing data, the
+/// function falls back to [`structural_complexity_score`] so that uncharted
+/// benchmarks are still ordered by estimated difficulty rather than all
+/// receiving the same `f64::MAX` sentinel.
 pub fn sample_by_difficulty(
     benchmarks: &[BenchmarkMeta],
     historical_results: &[SingleResult],
@@ -339,11 +547,16 @@ pub fn sample_by_difficulty(
         .map(|r| (r.path.clone(), r.time.as_secs_f64()))
         .collect();
 
-    // Score each benchmark by difficulty
+    // Score each benchmark by difficulty.
+    // Prefer measured timing when available; fall back to structural proxy.
     let mut scored: Vec<_> = benchmarks
         .iter()
         .map(|b| {
-            let score = solve_times.get(&b.path).copied().unwrap_or(f64::MAX);
+            let score = if let Some(&t) = solve_times.get(&b.path) {
+                t
+            } else {
+                structural_complexity_score(b)
+            };
             (b, score)
         })
         .collect();
@@ -548,5 +761,110 @@ mod tests {
         assert_eq!(summary.original_count, 3);
         assert_eq!(summary.sample_count, 2);
         assert_eq!(summary.logics_covered, 2);
+    }
+
+    // --- Structural feature tests ---
+
+    use crate::logic_detector::StructuralFeatures;
+
+    fn make_meta_with_structural(
+        logic: &str,
+        max_term_depth: u32,
+        atom_count: u32,
+        max_quantifier_nesting: u32,
+    ) -> BenchmarkMeta {
+        static COUNTER2: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1000);
+        let id = COUNTER2.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+        let sf = StructuralFeatures {
+            max_term_depth,
+            atom_count,
+            max_quantifier_nesting,
+            ..StructuralFeatures::default()
+        };
+
+        BenchmarkMeta {
+            path: PathBuf::from(format!("/tmp/structural_{}.smt2", id)),
+            logic: Some(logic.to_string()),
+            expected_status: None,
+            file_size: 1000,
+            category: None,
+            structural_features: Some(sf),
+        }
+    }
+
+    /// Diversity sampling with structural features should select a set
+    /// distinct from what is selected without structural features.
+    ///
+    /// The test constructs two groups: one "shallow" group (low max_term_depth)
+    /// and one "deep" group (high max_term_depth). The structural diversity
+    /// sampler must include at least one benchmark from each extreme to
+    /// maximise the feature-space spread.
+    #[test]
+    fn test_diversity_with_structural_features_differs_from_without() {
+        // 5 shallow benchmarks: depth 1, atom_count 1, quant 0
+        let mut benchmarks: Vec<BenchmarkMeta> = (0..5)
+            .map(|_| make_meta_with_structural("QF_LIA", 1, 1, 0))
+            .collect();
+        // 5 deep benchmarks: depth 20, atom_count 100, quant 3
+        let deep: Vec<BenchmarkMeta> = (0..5)
+            .map(|_| make_meta_with_structural("QF_LIA", 20, 100, 3))
+            .collect();
+        benchmarks.extend(deep);
+
+        let config_struct = SamplingConfig::with_size(4)
+            .with_strategy(SamplingStrategy::Diversity)
+            .with_seed(1);
+        let mut sampler_struct = Sampler::new(config_struct);
+        let sample_struct = sampler_struct.sample(&benchmarks);
+
+        // The structural sampler must include at least one shallow AND one deep
+        // benchmark to demonstrate feature-space diversity.
+        let has_shallow = sample_struct
+            .iter()
+            .any(|b| b.structural_features.as_ref().map(|s| s.max_term_depth) == Some(1));
+        let has_deep = sample_struct
+            .iter()
+            .any(|b| b.structural_features.as_ref().map(|s| s.max_term_depth) == Some(20));
+
+        assert!(
+            has_shallow,
+            "structural diversity sampler should include shallow benchmarks"
+        );
+        assert!(
+            has_deep,
+            "structural diversity sampler should include deep benchmarks"
+        );
+    }
+
+    /// Difficulty sampling should rank benchmarks with higher structural
+    /// complexity scores first when `prefer_hard` is `true`.
+    #[test]
+    fn test_difficulty_sampling_with_structural_features() {
+        // 5 simple benchmarks: depth 1, no quantifiers
+        let simple: Vec<BenchmarkMeta> = (0..5)
+            .map(|_| make_meta_with_structural("QF_LIA", 1, 1, 0))
+            .collect();
+        // 5 complex benchmarks: deep nesting + quantifiers
+        let complex: Vec<BenchmarkMeta> = (0..5)
+            .map(|_| make_meta_with_structural("LIA", 10, 50, 5))
+            .collect();
+
+        let all_benchmarks: Vec<BenchmarkMeta> =
+            simple.iter().chain(complex.iter()).cloned().collect();
+
+        let selected = sample_by_difficulty(&all_benchmarks, &[], 5, true);
+
+        // All selected benchmarks should be from the complex group.
+        let all_complex = selected.iter().all(|b| {
+            b.structural_features
+                .as_ref()
+                .map(|s| s.max_quantifier_nesting > 0)
+                .unwrap_or(false)
+        });
+        assert!(
+            all_complex,
+            "difficulty sampling with prefer_hard=true should select complex benchmarks"
+        );
     }
 }

@@ -277,18 +277,58 @@ pub struct QuantifierInstantiator {
     cex_generator: CounterExampleGenerator,
     /// Deduplication cache
     dedup_cache: FxHashSet<InstantiationKey>,
+    /// Per-quantifier instantiation depth tracking.
+    ///
+    /// When a quantifier is instantiated this counter is incremented.  If the
+    /// counter reaches `max_depth` (when `max_depth > 0`) further
+    /// instantiations of that quantifier are suppressed.
+    depth_tracking: FxHashMap<TermId, u32>,
+    /// Maximum allowed instantiation depth per quantifier (0 = unlimited).
+    pub max_depth: u32,
     /// Statistics
     stats: InstantiatorStats,
 }
 
 impl QuantifierInstantiator {
-    /// Create a new instantiator
+    /// Create a new instantiator (no depth limit)
     pub fn new() -> Self {
         Self {
             cex_generator: CounterExampleGenerator::new(),
             dedup_cache: FxHashSet::default(),
+            depth_tracking: FxHashMap::default(),
+            max_depth: 0,
             stats: InstantiatorStats::default(),
         }
+    }
+
+    /// Create with a specified depth limit
+    pub fn with_max_depth(max_depth: u32) -> Self {
+        Self {
+            cex_generator: CounterExampleGenerator::new(),
+            dedup_cache: FxHashSet::default(),
+            depth_tracking: FxHashMap::default(),
+            max_depth,
+            stats: InstantiatorStats::default(),
+        }
+    }
+
+    /// Return the current depth for a quantifier (0 if not yet instantiated)
+    pub fn current_depth(&self, quantifier: TermId) -> u32 {
+        self.depth_tracking.get(&quantifier).copied().unwrap_or(0)
+    }
+
+    /// Check whether the depth limit permits another instantiation
+    fn depth_allows(&self, quantifier: TermId) -> bool {
+        if self.max_depth == 0 {
+            return true; // unlimited
+        }
+        self.current_depth(quantifier) < self.max_depth
+    }
+
+    /// Increment the depth counter for a quantifier after a successful instantiation
+    fn increment_depth(&mut self, quantifier: TermId) {
+        let entry = self.depth_tracking.entry(quantifier).or_insert(0);
+        *entry = entry.saturating_add(1);
     }
 
     /// Generate instantiations for a quantifier using model-based approach
@@ -300,6 +340,12 @@ impl QuantifierInstantiator {
     ) -> Vec<Instantiation> {
         self.stats.num_instantiation_attempts += 1;
 
+        // Depth-bound guard: skip entirely if this quantifier has already been
+        // instantiated to the maximum allowed depth.
+        if !self.depth_allows(quantifier.term) {
+            return Vec::new();
+        }
+
         let mut instantiations = Vec::new();
 
         // Generate counterexamples
@@ -307,6 +353,12 @@ impl QuantifierInstantiator {
 
         // Convert counterexamples to instantiations
         for cex in cex_result.counterexamples {
+            // Recheck depth inside the loop – a single MBQI round may produce
+            // many counterexamples but we still want to cap the total.
+            if !self.depth_allows(quantifier.term) {
+                break;
+            }
+
             // Apply substitution to get ground instance
             let ground_body = self.apply_substitution(quantifier.body, &cex.assignment, manager);
 
@@ -319,6 +371,7 @@ impl QuantifierInstantiator {
             }
 
             self.record_instantiation(&inst);
+            self.increment_depth(quantifier.term);
             instantiations.push(inst);
         }
 
@@ -334,6 +387,11 @@ impl QuantifierInstantiator {
         model: &CompletedModel,
         manager: &mut TermManager,
     ) -> Vec<Instantiation> {
+        // Depth-bound guard
+        if !self.depth_allows(quantifier.term) {
+            return Vec::new();
+        }
+
         let mut instantiations = Vec::new();
 
         // Analyze the conflict to extract relevant terms
@@ -343,6 +401,10 @@ impl QuantifierInstantiator {
         for assignment in
             self.build_assignments_from_terms(&quantifier.bound_vars, &conflict_terms, manager)
         {
+            if !self.depth_allows(quantifier.term) {
+                break;
+            }
+
             let ground_body = self.apply_substitution(quantifier.body, &assignment, manager);
 
             let inst = Instantiation::with_reason(
@@ -355,6 +417,7 @@ impl QuantifierInstantiator {
 
             if !self.is_duplicate(&inst) {
                 self.record_instantiation(&inst);
+                self.increment_depth(quantifier.term);
                 instantiations.push(inst);
             }
         }
@@ -625,9 +688,10 @@ impl QuantifierInstantiator {
         self.dedup_cache.insert(key);
     }
 
-    /// Clear deduplication cache
+    /// Clear deduplication cache and reset depth counters
     pub fn clear_cache(&mut self) {
         self.dedup_cache.clear();
+        self.depth_tracking.clear();
         self.cex_generator.clear_cache();
     }
 
