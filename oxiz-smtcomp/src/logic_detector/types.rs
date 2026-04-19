@@ -2,14 +2,13 @@
 //!
 //! 🤖 Generated with [SplitRS](https://github.com/cool-japan/splitrs)
 
-
 /// Kind of syntactic construct at the current depth on the nesting stack.
 ///
 /// Used by [`extract_structural_features`] to track which construct each open
 /// parenthesis belongs to so that closing parentheses can update the correct
 /// depth counters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ConstructKind {
+pub(crate) enum ConstructKind {
     /// A `forall` or `exists` quantifier binder.
     Quantifier,
     /// An `ite` (if-then-else) expression.
@@ -61,8 +60,15 @@ impl TheoryBits {
     /// Boolean script" from "something interesting was detected".
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        !(self.has_uf || self.has_int || self.has_real || self.has_bv || self.has_array
-            || self.has_string || self.has_fp || self.has_dt || self.has_nonlinear
+        !(self.has_uf
+            || self.has_int
+            || self.has_real
+            || self.has_bv
+            || self.has_array
+            || self.has_string
+            || self.has_fp
+            || self.has_dt
+            || self.has_nonlinear
             || self.has_quantifier)
     }
 }

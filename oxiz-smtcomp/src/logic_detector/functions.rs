@@ -54,7 +54,10 @@ fn extract_set_logic(source: &str) -> Option<String> {
     let tokens = tokenize(source);
     let mut iter = tokens.iter().take(200).peekable();
     while let Some(tok) = iter.next() {
-        if tok == "set-logic" && let Some(next) = iter.peek() && !next.is_empty() {
+        if tok == "set-logic"
+            && let Some(next) = iter.peek()
+            && !next.is_empty()
+        {
             let candidate = next.trim_end_matches(')');
             if !candidate.is_empty() && candidate != "(" && candidate != ")" {
                 return Some(candidate.to_string());
@@ -141,9 +144,12 @@ fn scan_sort_keywords(tokens: &HashSet<&str>, bits: &mut TheoryBits) {
     if tokens.contains("String") {
         bits.has_string = true;
     }
-    if tokens.contains("FloatingPoint") || tokens.contains("Float16")
-        || tokens.contains("Float32") || tokens.contains("Float64")
-        || tokens.contains("Float128") || tokens.contains("RoundingMode")
+    if tokens.contains("FloatingPoint")
+        || tokens.contains("Float16")
+        || tokens.contains("Float32")
+        || tokens.contains("Float64")
+        || tokens.contains("Float128")
+        || tokens.contains("RoundingMode")
     {
         bits.has_fp = true;
     }
@@ -174,8 +180,7 @@ fn scan_bv_keywords(tokens: &HashSet<&str>, bits: &mut TheoryBits) {
         return;
     }
     for tok in tokens {
-        if tok.starts_with("bv") && tok.len() > 2
-            && tok.chars().skip(2).all(|c| c.is_alphabetic())
+        if tok.starts_with("bv") && tok.len() > 2 && tok.chars().skip(2).all(|c| c.is_alphabetic())
         {
             bits.has_bv = true;
             return;
@@ -223,7 +228,8 @@ fn scan_quantifier_keywords(tokens: &HashSet<&str>, bits: &mut TheoryBits) {
 }
 /// Detect datatype declarations.
 fn scan_datatype_keywords(tokens: &HashSet<&str>, bits: &mut TheoryBits) {
-    if tokens.contains("declare-datatype") || tokens.contains("declare-datatypes")
+    if tokens.contains("declare-datatype")
+        || tokens.contains("declare-datatypes")
         || tokens.contains("declare-codatatype")
         || tokens.contains("declare-codatatypes")
     {
@@ -331,8 +337,8 @@ pub fn extract_structural_features(source: &str) -> StructuralFeatures {
         match tok.as_str() {
             "(" => {
                 let next = tokens.get(i + 1).map(String::as_str);
-                let max_depth = u32::try_from(depth_stack.len().saturating_add(1))
-                    .unwrap_or(u32::MAX);
+                let max_depth =
+                    u32::try_from(depth_stack.len().saturating_add(1)).unwrap_or(u32::MAX);
                 features.max_term_depth = features.max_term_depth.max(max_depth);
                 let parent = depth_stack.last().copied();
                 let kind = match next {
@@ -342,9 +348,8 @@ pub fn extract_structural_features(source: &str) -> StructuralFeatures {
                     }
                     Some("forall") | Some("exists") => {
                         quantifier_depth = quantifier_depth.saturating_add(1);
-                        features.max_quantifier_nesting = features
-                            .max_quantifier_nesting
-                            .max(quantifier_depth);
+                        features.max_quantifier_nesting =
+                            features.max_quantifier_nesting.max(quantifier_depth);
                         ConstructKind::Quantifier
                     }
                     Some("ite") => {
@@ -360,11 +365,7 @@ pub fn extract_structural_features(source: &str) -> StructuralFeatures {
                     Some("and") | Some("or") | Some("not") | Some("=>") | Some("xor") => {
                         ConstructKind::Bool
                     }
-                    Some("=")
-                    | Some("<")
-                    | Some("<=")
-                    | Some(">")
-                    | Some(">=")
+                    Some("=") | Some("<") | Some("<=") | Some(">") | Some(">=")
                     | Some("distinct") => {
                         features.atom_count = features.atom_count.saturating_add(1);
                         ConstructKind::Other
@@ -381,9 +382,7 @@ pub fn extract_structural_features(source: &str) -> StructuralFeatures {
                     }
                     Some("_") => {
                         if tokens.get(i + 2).map(String::as_str) == Some("BitVec")
-                            && let Some(width) = tokens
-                                .get(i + 3)
-                                .and_then(|tok| parse_u32(tok))
+                            && let Some(width) = tokens.get(i + 3).and_then(|tok| parse_u32(tok))
                         {
                             histogram_increment(&mut features.bv_width_histogram, width);
                         }
@@ -418,29 +417,57 @@ pub fn extract_structural_features(source: &str) -> StructuralFeatures {
         }
         i += 1;
     }
-    features.bv_width_histogram.sort_unstable_by_key(|&(width, _)| width);
-    features.array_dim_histogram.sort_unstable_by_key(|&(dims, _)| dims);
+    features
+        .bv_width_histogram
+        .sort_unstable_by_key(|&(width, _)| width);
+    features
+        .array_dim_histogram
+        .sort_unstable_by_key(|&(dims, _)| dims);
     features
 }
 /// Whether `head` should count as a predicate application in the current context.
 fn should_count_as_predicate_app(head: &str, parent: Option<ConstructKind>) -> bool {
     if !matches!(
-        parent, Some(ConstructKind::Assert | ConstructKind::Bool |
-        ConstructKind::Quantifier)
+        parent,
+        Some(ConstructKind::Assert | ConstructKind::Bool | ConstructKind::Quantifier)
     ) {
         return false;
     }
-    if head.is_empty()
-        || matches!(head, "(" | ")" | "_" | "let" | "ite" | "forall" | "exists")
-    {
+    if head.is_empty() || matches!(head, "(" | ")" | "_" | "let" | "ite" | "forall" | "exists") {
         return false;
     }
     !matches!(
-        head, "assert" | "check-sat" | "check-sat-assuming" | "declare-const" |
-        "declare-fun" | "define-const" | "define-fun" | "set-logic" | "set-info" |
-        "set-option" | "Array" | "BitVec" | "and" | "or" | "not" | "=>" | "xor" | "+" |
-        "-" | "*" | "/" | "div" | "mod" | "abs" | "to_real" | "to_int" | "select" |
-        "store" | "concat" | "extract"
+        head,
+        "assert"
+            | "check-sat"
+            | "check-sat-assuming"
+            | "declare-const"
+            | "declare-fun"
+            | "define-const"
+            | "define-fun"
+            | "set-logic"
+            | "set-info"
+            | "set-option"
+            | "Array"
+            | "BitVec"
+            | "and"
+            | "or"
+            | "not"
+            | "=>"
+            | "xor"
+            | "+"
+            | "-"
+            | "*"
+            | "/"
+            | "div"
+            | "mod"
+            | "abs"
+            | "to_real"
+            | "to_int"
+            | "select"
+            | "store"
+            | "concat"
+            | "extract"
     )
 }
 /// Map a [`TheoryBits`] fingerprint to the most specific standard logic name.
@@ -749,7 +776,7 @@ mod tests {
             has_int: true,
             ..TheoryBits::default()
         };
-        assert!(! bits.is_empty());
+        assert!(!bits.is_empty());
     }
     #[test]
     fn test_comments_do_not_confuse_scanner() {
@@ -793,7 +820,8 @@ mod tests {
 ";
         let features = extract_structural_features(src);
         assert!(
-            features.max_term_depth >= 2, "expected max_term_depth >= 2, got {}",
+            features.max_term_depth >= 2,
+            "expected max_term_depth >= 2, got {}",
             features.max_term_depth
         );
     }
@@ -810,8 +838,9 @@ mod tests {
 ";
         let features = extract_structural_features(src);
         assert_eq!(
-            features.clause_count, 3, "expected clause_count == 3, got {}", features
-            .clause_count
+            features.clause_count, 3,
+            "expected clause_count == 3, got {}",
+            features.clause_count
         );
     }
     #[test]
@@ -824,8 +853,8 @@ mod tests {
         let features = extract_structural_features(src);
         assert_eq!(
             features.max_quantifier_nesting, 2,
-            "expected max_quantifier_nesting == 2, got {}", features
-            .max_quantifier_nesting
+            "expected max_quantifier_nesting == 2, got {}",
+            features.max_quantifier_nesting
         );
     }
     #[test]
@@ -843,12 +872,14 @@ mod tests {
             .map(|&(w, _)| w)
             .collect();
         assert!(
-            widths.contains(& 8), "expected width 8 in histogram, got {:?}", features
-            .bv_width_histogram
+            widths.contains(&8),
+            "expected width 8 in histogram, got {:?}",
+            features.bv_width_histogram
         );
         assert!(
-            widths.contains(& 32), "expected width 32 in histogram, got {:?}", features
-            .bv_width_histogram
+            widths.contains(&32),
+            "expected width 32 in histogram, got {:?}",
+            features.bv_width_histogram
         );
     }
     #[test]
@@ -864,8 +895,9 @@ mod tests {
 ";
         let features = extract_structural_features(src);
         assert_eq!(
-            features.max_ite_depth, 2, "expected max_ite_depth == 2, got {}", features
-            .max_ite_depth
+            features.max_ite_depth, 2,
+            "expected max_ite_depth == 2, got {}",
+            features.max_ite_depth
         );
     }
     #[test]
@@ -880,8 +912,9 @@ mod tests {
 ";
         let features = extract_structural_features(src);
         assert_eq!(
-            features.max_let_depth, 2, "expected max_let_depth == 2, got {}", features
-            .max_let_depth
+            features.max_let_depth, 2,
+            "expected max_let_depth == 2, got {}",
+            features.max_let_depth
         );
     }
     #[test]
