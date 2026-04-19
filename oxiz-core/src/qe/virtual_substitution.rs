@@ -111,50 +111,59 @@ fn simplify_formula(term: TermId, manager: &mut TermManager) -> TermId {
                 .into_iter()
                 .map(|arg| simplify_formula(arg, manager))
                 .collect();
-            manager.mk_and(simplified)
+            let rebuilt = manager.mk_and(simplified);
+            manager.simplify(rebuilt)
         }
         TermKind::Or(args) => {
             let simplified: Vec<_> = args
                 .into_iter()
                 .map(|arg| simplify_formula(arg, manager))
                 .collect();
-            manager.mk_or(simplified)
+            let rebuilt = manager.mk_or(simplified);
+            manager.simplify(rebuilt)
         }
         TermKind::Not(arg) => {
             let arg = simplify_formula(arg, manager);
-            manager.mk_not(arg)
+            let rebuilt = manager.mk_not(arg);
+            manager.simplify(rebuilt)
         }
         TermKind::Eq(lhs, rhs) => {
             let lhs = simplify_formula(lhs, manager);
             let rhs = simplify_formula(rhs, manager);
-            manager.mk_eq(lhs, rhs)
+            let rebuilt = manager.mk_eq(lhs, rhs);
+            manager.simplify(rebuilt)
         }
         TermKind::Lt(lhs, rhs) => {
             let lhs = simplify_formula(lhs, manager);
             let rhs = simplify_formula(rhs, manager);
-            manager.mk_lt(lhs, rhs)
+            let rebuilt = manager.mk_lt(lhs, rhs);
+            manager.simplify(rebuilt)
         }
         TermKind::Le(lhs, rhs) => {
             let lhs = simplify_formula(lhs, manager);
             let rhs = simplify_formula(rhs, manager);
-            manager.mk_le(lhs, rhs)
+            let rebuilt = manager.mk_le(lhs, rhs);
+            manager.simplify(rebuilt)
         }
         TermKind::Gt(lhs, rhs) => {
             let lhs = simplify_formula(lhs, manager);
             let rhs = simplify_formula(rhs, manager);
-            manager.mk_gt(lhs, rhs)
+            let rebuilt = manager.mk_gt(lhs, rhs);
+            manager.simplify(rebuilt)
         }
         TermKind::Ge(lhs, rhs) => {
             let lhs = simplify_formula(lhs, manager);
             let rhs = simplify_formula(rhs, manager);
-            manager.mk_ge(lhs, rhs)
+            let rebuilt = manager.mk_ge(lhs, rhs);
+            manager.simplify(rebuilt)
         }
         TermKind::Add(args) => {
             let simplified: Vec<_> = args
                 .into_iter()
                 .map(|arg| simplify_formula(arg, manager))
                 .collect();
-            manager.mk_add(simplified)
+            let rebuilt = manager.mk_add(simplified);
+            manager.simplify(rebuilt)
         }
         _ => term,
     }

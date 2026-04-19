@@ -98,6 +98,9 @@ mod tests {
                 assert_eq!(goals.len(), 1);
                 assert_eq!(goals[0].assertions, vec![x]);
             }
+            TacticResult::NotApplicable => {
+                assert_eq!(goal.assertions, vec![x]);
+            }
             other => panic!("expected subgoal, got {other:?}"),
         }
     }

@@ -53,7 +53,7 @@ impl<'a> AggressiveSimplifier<'a> {
             ) => term,
             Some(TermKind::Not(arg)) => {
                 let arg = self.simplify_term_cached(arg, cache);
-                self.manager.mk_not(arg)
+                self.simplify_not(arg)
             }
             Some(TermKind::And(args)) => {
                 let args = self.simplify_terms(args, cache);
@@ -66,7 +66,13 @@ impl<'a> AggressiveSimplifier<'a> {
             Some(TermKind::Implies(lhs, rhs)) => {
                 let lhs = self.simplify_term_cached(lhs, cache);
                 let rhs = self.simplify_term_cached(rhs, cache);
-                self.manager.mk_implies(lhs, rhs)
+                self.simplify_implies(lhs, rhs)
+            }
+            Some(TermKind::Xor(lhs, rhs)) => {
+                let lhs = self.simplify_term_cached(lhs, cache);
+                let rhs = self.simplify_term_cached(rhs, cache);
+                // mk_xor already handles: Xor(a,a)→false, Xor(a,false)→a, Xor(a,true)→Not(a)
+                self.manager.mk_xor(lhs, rhs)
             }
             Some(TermKind::Eq(lhs, rhs)) => {
                 let lhs = self.simplify_term_cached(lhs, cache);
@@ -77,11 +83,8 @@ impl<'a> AggressiveSimplifier<'a> {
                 let cond = self.simplify_term_cached(cond, cache);
                 let then_branch = self.simplify_term_cached(then_branch, cache);
                 let else_branch = self.simplify_term_cached(else_branch, cache);
-                if then_branch == else_branch {
-                    then_branch
-                } else {
-                    self.manager.mk_ite(cond, then_branch, else_branch)
-                }
+                // mk_ite already handles: Ite(true,a,_)→a, Ite(false,_,b)→b, Ite(_,a,a)→a
+                self.manager.mk_ite(cond, then_branch, else_branch)
             }
             Some(TermKind::Distinct(args)) => {
                 let args = self.simplify_terms(args, cache);
@@ -132,6 +135,26 @@ impl<'a> AggressiveSimplifier<'a> {
                 let rebuilt = self.manager.mk_ge(lhs, rhs);
                 self.manager.simplify(rebuilt)
             }
+            // BV identity rules — mk_bv_* does no simplification so we handle here.
+            Some(TermKind::BvNot(arg)) => {
+                let arg = self.simplify_term_cached(arg, cache);
+                self.simplify_bv_not(arg)
+            }
+            Some(TermKind::BvAnd(lhs, rhs)) => {
+                let lhs = self.simplify_term_cached(lhs, cache);
+                let rhs = self.simplify_term_cached(rhs, cache);
+                self.simplify_bv_and(lhs, rhs)
+            }
+            Some(TermKind::BvOr(lhs, rhs)) => {
+                let lhs = self.simplify_term_cached(lhs, cache);
+                let rhs = self.simplify_term_cached(rhs, cache);
+                self.simplify_bv_or(lhs, rhs)
+            }
+            Some(TermKind::BvXor(lhs, rhs)) => {
+                let lhs = self.simplify_term_cached(lhs, cache);
+                let rhs = self.simplify_term_cached(rhs, cache);
+                self.simplify_bv_xor(lhs, rhs)
+            }
             Some(_) => self.manager.simplify(term),
         };
 
@@ -177,6 +200,48 @@ impl<'a> AggressiveSimplifier<'a> {
         }
 
         baseline
+    }
+
+    /// Simplify `Not(arg)` — mk_not already collapses Not(Not(a))→a and Not(true/false).
+    /// This method additionally applies De Morgan push-down for And-of-children
+    /// when aggressive mode is on, so downstream rules can fire on the resulting Or.
+    fn simplify_not(&mut self, arg: TermId) -> TermId {
+        // mk_not already eliminates double negation and true/false.
+        let baseline = self.manager.mk_not(arg);
+        if !self.config.aggressive {
+            return baseline;
+        }
+
+        // De Morgan: Not(And(a, b, ...)) → Or(Not(a), Not(b), ...)
+        // Apply only when there are exactly 2 children to avoid blowing up size.
+        if let Some(TermKind::And(and_args)) = self.manager.get(arg).map(|t| t.kind.clone())
+            && and_args.len() == 2
+        {
+            let not_a = self.manager.mk_not(and_args[0]);
+            let not_b = self.manager.mk_not(and_args[1]);
+            return self.manager.mk_or([not_a, not_b]);
+        }
+
+        baseline
+    }
+
+    /// Simplify `Implies(lhs, rhs)`.
+    /// mk_implies already handles: Implies(false,_)→true, Implies(true,b)→b, Implies(_,true)→true.
+    /// This method adds: Implies(a,false)→Not(a) and Implies(a,a)→true.
+    fn simplify_implies(&mut self, lhs: TermId, rhs: TermId) -> TermId {
+        // Reflexivity: a → a is always true.
+        if lhs == rhs {
+            return self.manager.mk_true();
+        }
+
+        // Implies(a, false) → Not(a); pass through simplify_not for De Morgan chaining.
+        let false_id = self.manager.mk_false();
+        if rhs == false_id {
+            return self.simplify_not(lhs);
+        }
+
+        // Delegate remaining cases (true/false antecedent, true consequent) to mk_implies.
+        self.manager.mk_implies(lhs, rhs)
     }
 
     fn simplify_eq(&mut self, lhs: TermId, rhs: TermId) -> TermId {
@@ -284,6 +349,107 @@ impl<'a> AggressiveSimplifier<'a> {
         }
     }
 
+    /// Simplify `BvNot(arg)`.
+    /// Rule: BvNot(BvNot(x)) → x.
+    fn simplify_bv_not(&mut self, arg: TermId) -> TermId {
+        if let Some(TermKind::BvNot(inner)) = self.manager.get(arg).map(|t| t.kind.clone()) {
+            return inner;
+        }
+        self.manager.mk_bv_not(arg)
+    }
+
+    /// Simplify `BvAnd(lhs, rhs)`.
+    /// Rules: BvAnd(x, 0) → 0; BvAnd(x, all_ones) → x; BvAnd(x, x) → x.
+    fn simplify_bv_and(&mut self, lhs: TermId, rhs: TermId) -> TermId {
+        // BvAnd(x, x) → x
+        if lhs == rhs {
+            return lhs;
+        }
+
+        let width = bv_width(self.manager, lhs).or_else(|| bv_width(self.manager, rhs));
+
+        if let Some(w) = width {
+            let all_ones = (BigInt::from(1_i32) << w) - 1_i32;
+            let lhs_val = bv_constant(self.manager, lhs);
+            let rhs_val = bv_constant(self.manager, rhs);
+
+            // BvAnd(0, x) → 0  /  BvAnd(x, 0) → 0
+            if lhs_val.as_ref() == Some(&BigInt::from(0_i32))
+                || rhs_val.as_ref() == Some(&BigInt::from(0_i32))
+            {
+                return self.manager.mk_bitvec(BigInt::from(0_i32), w);
+            }
+
+            // BvAnd(all_ones, x) → x  /  BvAnd(x, all_ones) → x
+            if lhs_val.as_ref() == Some(&all_ones) {
+                return rhs;
+            }
+            if rhs_val.as_ref() == Some(&all_ones) {
+                return lhs;
+            }
+        }
+
+        self.manager.mk_bv_and(lhs, rhs)
+    }
+
+    /// Simplify `BvOr(lhs, rhs)`.
+    /// Rules: BvOr(x, 0) → x; BvOr(x, all_ones) → all_ones; BvOr(x, x) → x.
+    fn simplify_bv_or(&mut self, lhs: TermId, rhs: TermId) -> TermId {
+        // BvOr(x, x) → x
+        if lhs == rhs {
+            return lhs;
+        }
+
+        let width = bv_width(self.manager, lhs).or_else(|| bv_width(self.manager, rhs));
+
+        if let Some(w) = width {
+            let all_ones = (BigInt::from(1_i32) << w) - 1_i32;
+            let lhs_val = bv_constant(self.manager, lhs);
+            let rhs_val = bv_constant(self.manager, rhs);
+
+            // BvOr(0, x) → x  /  BvOr(x, 0) → x
+            if lhs_val.as_ref() == Some(&BigInt::from(0_i32)) {
+                return rhs;
+            }
+            if rhs_val.as_ref() == Some(&BigInt::from(0_i32)) {
+                return lhs;
+            }
+
+            // BvOr(all_ones, x) → all_ones  /  BvOr(x, all_ones) → all_ones
+            if lhs_val.as_ref() == Some(&all_ones) {
+                return self.manager.mk_bitvec(all_ones, w);
+            }
+            if rhs_val.as_ref() == Some(&all_ones) {
+                return self.manager.mk_bitvec(all_ones, w);
+            }
+        }
+
+        self.manager.mk_bv_or(lhs, rhs)
+    }
+
+    /// Simplify `BvXor(lhs, rhs)`.
+    /// Rules: BvXor(x, 0) → x; BvXor(x, x) → 0.
+    fn simplify_bv_xor(&mut self, lhs: TermId, rhs: TermId) -> TermId {
+        // BvXor(x, x) → 0
+        if lhs == rhs {
+            let w = bv_width(self.manager, lhs).unwrap_or(1);
+            return self.manager.mk_bitvec(BigInt::from(0_i32), w);
+        }
+
+        let lhs_val = bv_constant(self.manager, lhs);
+        let rhs_val = bv_constant(self.manager, rhs);
+
+        // BvXor(0, x) → x  /  BvXor(x, 0) → x
+        if lhs_val.as_ref() == Some(&BigInt::from(0_i32)) {
+            return rhs;
+        }
+        if rhs_val.as_ref() == Some(&BigInt::from(0_i32)) {
+            return lhs;
+        }
+
+        self.manager.mk_bv_xor(lhs, rhs)
+    }
+
     fn try_solve_add_constant_eq(&mut self, add_side: TermId, const_side: TermId) -> Option<TermId> {
         let rhs_const = int_constant(self.manager, const_side)?;
         let add_args = match self.manager.get(add_side).map(|term| &term.kind) {
@@ -315,6 +481,20 @@ fn int_constant(manager: &TermManager, term: TermId) -> Option<BigInt> {
         Some(TermKind::IntConst(value)) => Some(value.clone()),
         _ => None,
     }
+}
+
+/// Return the constant value of a BitVecConst term, or None if it is not a constant.
+fn bv_constant(manager: &TermManager, term: TermId) -> Option<BigInt> {
+    match manager.get(term).map(|t| &t.kind) {
+        Some(TermKind::BitVecConst { value, .. }) => Some(value.clone()),
+        _ => None,
+    }
+}
+
+/// Return the bit-width of a bit-vector term's sort, or None if the sort is unknown.
+fn bv_width(manager: &TermManager, term: TermId) -> Option<u32> {
+    let sort = manager.get(term)?.sort;
+    manager.sorts.get(sort)?.bitvec_width()
 }
 
 fn without_one(args: &[TermId], needle: TermId) -> SmallVec<[TermId; 4]> {

@@ -16,12 +16,15 @@ members = [
     "oxiz-smtcomp",
     "oxiz-py",
     "oxiz-ml",
+    "oxiz-c",
     "bench/regression",
     "bench/profile",
 ]
 
 # Exclude oxiz-py from default build since it requires maturin for proper Python linking.
 # To build oxiz-py: cd oxiz-py && maturin build
+# Exclude oxiz-c from default build since it produces cdylib/staticlib artifacts that
+# require special linking; build explicitly with: cargo build -p oxiz-c
 default-members = [
     "oxiz",
     "oxiz-core",

@@ -1,4 +1,5 @@
 mod comparator;
+mod history;
 mod oxiz_runner;
 mod z3_runner;
 
@@ -226,6 +227,22 @@ fn main() -> Result<()> {
     println!("{}", "OxiZ vs Z3 Parity Testing Suite".bright_cyan().bold());
     println!("{}\n", "=".repeat(80).bright_cyan());
 
+    // Parse --export-history <dir> flag
+    let args: Vec<String> = std::env::args().collect();
+    let export_history_dir: Option<PathBuf> = {
+        let mut dir = None;
+        let mut i = 1;
+        while i < args.len() {
+            if args[i] == "--export-history" && i + 1 < args.len() {
+                dir = Some(PathBuf::from(&args[i + 1]));
+                i += 2;
+            } else {
+                i += 1;
+            }
+        }
+        dir
+    };
+
     let benchmark_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("benchmarks");
 
     if !benchmark_dir.exists() {
@@ -256,6 +273,14 @@ fn main() -> Result<()> {
 
     // Generate report
     generate_report(&results);
+
+    // Export history snapshot if requested
+    if let Some(history_dir) = export_history_dir {
+        match history::export_to_history(&results, &history_dir) {
+            Ok(path) => println!("History snapshot written: {}", path.display()),
+            Err(e) => eprintln!("Warning: failed to write history snapshot: {e}"),
+        }
+    }
 
     Ok(())
 }

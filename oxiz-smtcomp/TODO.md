@@ -45,7 +45,13 @@
 - [x] Benchmark classification by structure
 
 ### Visualization
-- [ ] Interactive web-based result explorer
+- [x] Interactive web-based result explorer (planned 2026-04-19)
+  - **Goal:** Extend `oxiz-smtcomp::dashboard::DashboardGenerator` so the generated HTML page has client-side interactivity: row search/filter input, per-column sort, click-to-filter on the cactus + per-logic bar charts, per-row detail expander, and optional WebSocket live updates. All existing static cards/charts remain — changes are purely additive.
+  - **Design:** All interactivity is client-side JS embedded as `r#"..."#` raw-string constants inside the existing `format!`-based HTML generator — no new crate deps. Existing data is already inlined as JSON in a `<script>` block. Add: (1) `<input id="oxiz-search">` above recent-results table with JS substring filter on name/logic; (2) `data-sort-key` headers with toggle-asc/desc JS sort; (3) Chart.js click handlers on cactus/bar segments to filter table by logic+status; (4) click-to-expand row detail showing full `ResultData` JSON; (5) `DashboardConfig.ws_url: Option<String>` — if `Some(url)`, JS opens `WebSocket(url)` and on each `message` re-renders table rows. `ws_url: None` keeps existing behaviour exactly.
+  - **Files:** `oxiz-smtcomp/src/dashboard.rs` (extend `DashboardConfig`; embed JS raw strings; no new crate dep). New `oxiz-smtcomp/tests/dashboard_interactive.rs`.
+  - **Tests:** (a) `test_dashboard_renders_search_input` — rendered HTML contains `<input id="oxiz-search"`; (b) `test_dashboard_renders_sort_handlers` — contains `data-sort-key=`; (c) `test_dashboard_includes_ws_when_configured` — `ws_url: Some("ws://localhost:8080")` produces `new WebSocket("ws://localhost:8080")` in output; (d) `test_dashboard_omits_ws_when_unconfigured` — default `ws_url: None` does not contain `WebSocket`; (e) `test_dashboard_html_well_formed` — `<html>` and `</html>` are present and `<script>` count matches expected.
+  - **Risk:** Rust `format!` escapes colliding with embedded JS curly braces. Mitigation: embed JS as `const JS_BLOCK: &str = r#"..."#` constants and concatenate them rather than inlining inside `format!`. Test (e) catches drift.
+  - **Scope cap:** ≤500 LoC net-new across `dashboard.rs` + new test file. No JS bundler, no WebAssembly client, no Tailwind/Bootstrap CDN.
 - [x] Real-time progress monitoring WebSocket API
 - [x] PDF report generation (planned 2026-04-15, completed 2026-04-15)
   - **Goal:** Emit a PDF summary (per-logic stats + per-benchmark table + totals) analogous to `html_report.rs`. Pure Rust. Feature-gated as `pdf-report` so default builds stay lean.

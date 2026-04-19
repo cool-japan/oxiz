@@ -113,6 +113,13 @@ jobs:
           echo "Performance regression detected!"
           exit 1
 
+      - name: "Geomean gate (Z3 parity \u22641.2x)"
+        if: always()
+        run: |
+          cargo run -p bench-regression --release -- \
+            --check-geomean --max 1.2 \
+            --history-dir bench/regression/history
+
   benchmark-criterion:
     name: Criterion Benchmarks
     runs-on: ubuntu-latest

@@ -229,6 +229,14 @@ impl<'a> CtxSolverSimplifyTactic<'a> {
             }
         }
 
+        // Dead-branch ITE elimination post-pass (context = all sibling assertions)
+        let ite_rewritten = eliminate_dead_ite_branches(&current_assertions, self.manager);
+        let ite_changed = ite_rewritten != current_assertions;
+        if ite_changed {
+            current_assertions = ite_rewritten;
+            changed = true;
+        }
+
         if !changed {
             return Ok(TacticResult::NotApplicable);
         }
@@ -327,6 +335,74 @@ fn evaluate_condition(
     }
 }
 
+/// Eliminate dead ITE branches using the set of sibling assertions as context.
+///
+/// For each assertion in `assertions`, recursively rewrites any ITE sub-term
+/// whose condition (or its negation) is already in the context set, replacing
+/// the ITE by the live branch.  Returns a new assertion list; if no change
+/// occurred the returned `Vec` will be equal (by value) to the input slice.
+fn eliminate_dead_ite_branches(
+    assertions: &[TermId],
+    manager: &mut TermManager,
+) -> Vec<TermId> {
+    let ctx: FxHashSet<TermId> = assertions.iter().copied().collect();
+    assertions
+        .iter()
+        .map(|&term_id| rewrite_ite_in_context(term_id, &ctx, 0, manager))
+        .collect()
+}
+
+/// Recursively rewrite ITE nodes within `term_id` using `ctx` as the set of
+/// known-true assertions.  `depth` prevents unbounded recursion.
+fn rewrite_ite_in_context(
+    term_id: TermId,
+    ctx: &FxHashSet<TermId>,
+    depth: usize,
+    manager: &mut TermManager,
+) -> TermId {
+    // Hard cap — safe to return original (sound: we just don't simplify deeper)
+    if depth > 32 {
+        return term_id;
+    }
+
+    let kind = match manager.get(term_id) {
+        Some(t) => t.kind.clone(),
+        None => return term_id,
+    };
+
+    match kind {
+        TermKind::Ite(cond, then_branch, else_branch) => {
+            let not_cond = manager.mk_not(cond);
+            if ctx.contains(&cond) {
+                // Condition is known true — take then-branch
+                rewrite_ite_in_context(then_branch, ctx, depth + 1, manager)
+            } else if ctx.contains(&not_cond) {
+                // Condition is known false — take else-branch
+                rewrite_ite_in_context(else_branch, ctx, depth + 1, manager)
+            } else {
+                // Descend into branches with augmented, non-overlapping contexts
+                let mut ctx_then = ctx.clone();
+                ctx_then.insert(cond);
+                let new_then =
+                    rewrite_ite_in_context(then_branch, &ctx_then, depth + 1, manager);
+
+                let mut ctx_else = ctx.clone();
+                ctx_else.insert(not_cond);
+                let new_else =
+                    rewrite_ite_in_context(else_branch, &ctx_else, depth + 1, manager);
+
+                if new_then == then_branch && new_else == else_branch {
+                    term_id // no structural change
+                } else {
+                    manager.mk_ite(cond, new_then, new_else)
+                }
+            }
+        }
+        // Non-ITE terms: no rewrite at this level
+        _ => term_id,
+    }
+}
+
 fn assignment_fingerprint(assignments: &FxHashMap<TermId, bool>) -> u64 {
     let mut pairs: Vec<(u32, bool)> = assignments.iter().map(|(k, v)| (k.0, *v)).collect();
     pairs.sort_unstable_by_key(|(term_id, _)| *term_id);
@@ -365,5 +441,165 @@ mod tests {
             }
             other => panic!("expected rewritten implication, got {other:?}"),
         }
+    }
+
+    // ── EP-3: dead-branch ITE elimination tests ──────────────────────────────
+
+    /// Goal: [cond, If(cond, foo, bar)] → ITE replaced by `foo` because
+    /// `cond` is present in the sibling-assertion context.
+    #[test]
+    fn test_ite_eliminates_when_cond_in_context() {
+        let mut manager = TermManager::new();
+        let bool_sort = manager.sorts.bool_sort;
+        let cond = manager.mk_var("cond", bool_sort);
+        let foo = manager.mk_var("foo", bool_sort);
+        let bar = manager.mk_var("bar", bool_sort);
+        let ite = manager.mk_ite(cond, foo, bar);
+
+        let goal = Goal::new(vec![cond, ite]);
+        let mut tactic = CtxSolverSimplifyTactic::new(&mut manager);
+        let result = tactic.apply_mut(&goal).expect("tactic should not error");
+
+        // The ITE should be eliminated to `foo`; `cond` (true) filters out
+        // or remains, but either way `bar` must not appear in the assertions.
+        match result {
+            TacticResult::SubGoals(goals) => {
+                assert_eq!(goals.len(), 1);
+                for &a in &goals[0].assertions {
+                    assert_ne!(a, bar, "dead branch `bar` should have been eliminated");
+                }
+                assert!(
+                    goals[0].assertions.contains(&foo),
+                    "live branch `foo` should remain"
+                );
+            }
+            TacticResult::Solved(SolveResult::Sat) => {
+                // All assertions collapsed to true — also acceptable
+            }
+            other => panic!("unexpected result: {other:?}"),
+        }
+    }
+
+    /// Goal: [Not(cond), If(cond, foo, bar)] → ITE replaced by `bar` because
+    /// `Not(cond)` means the condition is known false.
+    #[test]
+    fn test_ite_eliminates_when_neg_cond_in_context() {
+        let mut manager = TermManager::new();
+        let bool_sort = manager.sorts.bool_sort;
+        let cond = manager.mk_var("cond2", bool_sort);
+        let foo = manager.mk_var("foo2", bool_sort);
+        let bar = manager.mk_var("bar2", bool_sort);
+        let not_cond = manager.mk_not(cond);
+        let ite = manager.mk_ite(cond, foo, bar);
+
+        let goal = Goal::new(vec![not_cond, ite]);
+        let mut tactic = CtxSolverSimplifyTactic::new(&mut manager);
+        let result = tactic.apply_mut(&goal).expect("tactic should not error");
+
+        match result {
+            TacticResult::SubGoals(goals) => {
+                assert_eq!(goals.len(), 1);
+                for &a in &goals[0].assertions {
+                    assert_ne!(a, foo, "dead branch `foo` should have been eliminated");
+                }
+                assert!(
+                    goals[0].assertions.contains(&bar),
+                    "live branch `bar` should remain"
+                );
+            }
+            TacticResult::Solved(SolveResult::Sat) => {}
+            other => panic!("unexpected result: {other:?}"),
+        }
+    }
+
+    /// Goal: [a, If(a, If(b, p, q), r)]
+    /// Outer ITE is eliminated (a is in context) giving If(b, p, q).
+    /// The inner ITE is NOT eliminated because `b` is not in the root context.
+    #[test]
+    fn test_ite_descends_with_augmented_ctx() {
+        let mut manager = TermManager::new();
+        let bool_sort = manager.sorts.bool_sort;
+        let a = manager.mk_var("a3", bool_sort);
+        let b = manager.mk_var("b3", bool_sort);
+        let p = manager.mk_var("p3", bool_sort);
+        let q = manager.mk_var("q3", bool_sort);
+        let r = manager.mk_var("r3", bool_sort);
+
+        let inner_ite = manager.mk_ite(b, p, q);
+        let outer_ite = manager.mk_ite(a, inner_ite, r);
+
+        let goal = Goal::new(vec![a, outer_ite]);
+        let mut tactic = CtxSolverSimplifyTactic::new(&mut manager);
+        let result = tactic.apply_mut(&goal).expect("tactic should not error");
+
+        // After eliminating outer ITE, we should get `inner_ite` (= If(b,p,q))
+        // in the assertions, and `r` should not be present.
+        match result {
+            TacticResult::SubGoals(goals) => {
+                assert_eq!(goals.len(), 1);
+                for &assertion in &goals[0].assertions {
+                    assert_ne!(assertion, r, "`r` is dead and must not appear");
+                }
+                // inner_ite should be in the assertions (b not in root ctx)
+                assert!(
+                    goals[0].assertions.contains(&inner_ite),
+                    "inner ITE If(b,p,q) should remain intact"
+                );
+            }
+            TacticResult::Solved(SolveResult::Sat) => {}
+            other => panic!("unexpected result: {other:?}"),
+        }
+    }
+
+    /// Construct a 35-deep nested ITE chain and run the tactic.
+    /// The test asserts the tactic completes without panicking or looping.
+    #[test]
+    fn test_ite_recursion_depth_cap() {
+        let mut manager = TermManager::new();
+        let bool_sort = manager.sorts.bool_sort;
+
+        // Build: ITE(c, ITE(c, ITE(c, ... (35 deep) ..., base), base), base)
+        let cond = manager.mk_var("deep_cond", bool_sort);
+        let base = manager.mk_var("deep_base", bool_sort);
+        let mut term = base;
+        for _ in 0..35 {
+            term = manager.mk_ite(cond, term, base);
+        }
+
+        let goal = Goal::new(vec![cond, term]);
+        let mut tactic = CtxSolverSimplifyTactic::new(&mut manager);
+        // Must not panic or loop; result value is unconstrained
+        let result = tactic.apply_mut(&goal);
+        assert!(
+            result.is_ok(),
+            "tactic must not error on deep ITE: {result:?}"
+        );
+    }
+
+    /// Running `apply_mut` on a goal that resolves to `Solved(Unsat)` must
+    /// preserve that status even after the ITE post-pass runs.  Also verifies
+    /// the tactic does not accidentally flip statuses when no ITEs are present.
+    #[test]
+    fn test_apply_mut_status_preserved() {
+        let mut manager = TermManager::new();
+        let int_sort = manager.sorts.int_sort;
+
+        // x = 5, x < 3  →  contradiction  →  Unsat
+        // (This already resolves to Unsat without any ITEs, so the post-pass
+        //  must leave the result intact.)
+        let x = manager.mk_var("x_ep3", int_sort);
+        let five = manager.mk_int(5);
+        let three = manager.mk_int(3);
+        let eq = manager.mk_eq(x, five);
+        let lt = manager.mk_lt(x, three);
+
+        let goal = Goal::new(vec![eq, lt]);
+        let mut tactic = CtxSolverSimplifyTactic::new(&mut manager);
+        let result = tactic.apply_mut(&goal).expect("tactic should not error");
+
+        assert!(
+            matches!(result, TacticResult::Solved(SolveResult::Unsat)),
+            "expected Unsat status preserved, got {result:?}"
+        );
     }
 }

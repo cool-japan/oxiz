@@ -349,7 +349,22 @@ impl ProofRecorder {
     pub fn flush(&mut self) {
         while let Some(step) = self.queue.pop_front() {
             match step {
-                RecordedStep::Axiom { .. } | RecordedStep::Inference { .. } => self.record_step(step),
+                RecordedStep::Axiom {
+                    clause_id,
+                    conclusion,
+                } => {
+                    self.builder.record_axiom(clause_id, conclusion);
+                }
+                RecordedStep::Inference {
+                    clause_id,
+                    rule,
+                    premises,
+                    conclusion,
+                    args,
+                } => {
+                    self.builder
+                        .record_inference_with_args(clause_id, rule, &premises, args, conclusion);
+                }
             }
         }
     }

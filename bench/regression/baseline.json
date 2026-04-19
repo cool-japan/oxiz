@@ -1,66 +1,66 @@
 {
-  "version": "0.1.3",
-  "timestamp": "2026-01-17T00:00:00Z",
+  "version": "0.2.1",
+  "timestamp": "unix:1776635434",
   "benchmarks": {
+    "theory_bool_arith": {
+      "avg_time_us": 9.975124999999998,
+      "category": "Theory"
+    },
     "sat_3sat_small": {
-      "avg_time_us": 50.0,
+      "avg_time_us": 6.374209999999997,
       "category": "Sat"
     },
-    "sat_3sat_medium": {
-      "avg_time_us": 200.0,
+    "parser_medium": {
+      "avg_time_us": 101.20044,
+      "category": "Parser"
+    },
+    "sat_unsat_pigeonhole": {
+      "avg_time_us": 6.61875,
       "category": "Sat"
     },
     "sat_unit_propagation": {
-      "avg_time_us": 30.0,
+      "avg_time_us": 91.12634000000001,
       "category": "Sat"
     },
-    "sat_unsat_pigeonhole": {
-      "avg_time_us": 150.0,
+    "parser_nested": {
+      "avg_time_us": 181.97043500000007,
+      "category": "Parser"
+    },
+    "theory_lia_unsat": {
+      "avg_time_us": 5.6958666666666655,
+      "category": "Theory"
+    },
+    "parser_dimacs": {
+      "avg_time_us": 13.538999999999998,
+      "category": "Parser"
+    },
+    "theory_lia_medium": {
+      "avg_time_us": 25.420733333333327,
+      "category": "Theory"
+    },
+    "sat_3sat_medium": {
+      "avg_time_us": 28.28004,
       "category": "Sat"
     },
     "theory_lia_simple": {
-      "avg_time_us": 100.0,
+      "avg_time_us": 10.512540000000001,
       "category": "Theory"
-    },
-    "theory_lia_medium": {
-      "avg_time_us": 250.0,
-      "category": "Theory"
-    },
-    "theory_bool_arith": {
-      "avg_time_us": 120.0,
-      "category": "Theory"
-    },
-    "theory_lia_unsat": {
-      "avg_time_us": 80.0,
-      "category": "Theory"
-    },
-    "parser_simple": {
-      "avg_time_us": 15.0,
-      "category": "Parser"
-    },
-    "parser_medium": {
-      "avg_time_us": 40.0,
-      "category": "Parser"
-    },
-    "parser_nested": {
-      "avg_time_us": 20.0,
-      "category": "Parser"
-    },
-    "parser_dimacs": {
-      "avg_time_us": 10.0,
-      "category": "Parser"
     },
     "maxsat_simple": {
-      "avg_time_us": 300.0,
+      "avg_time_us": 12.98748,
       "category": "MaxSat"
     },
     "maxsat_weighted": {
-      "avg_time_us": 400.0,
+      "avg_time_us": 181.67093333333335,
       "category": "MaxSat"
     },
     "maxsat_partial": {
-      "avg_time_us": 500.0,
+      "avg_time_us": 23.879133333333336,
       "category": "MaxSat"
+    },
+    "parser_simple": {
+      "avg_time_us": 4.100399999999999,
+      "category": "Parser"
     }
   }
 }

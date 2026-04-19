@@ -167,3 +167,83 @@ fn bump_activity(
         _ => {}
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use oxiz_core::ast::TermManager;
+    use oxiz_core::tactic::Goal;
+
+    fn make_manager_with_bool_vars(count: usize) -> (TermManager, Vec<TermId>) {
+        let mut manager = TermManager::new();
+        let bool_sort = manager.sorts.bool_sort;
+        let vars: Vec<TermId> = (0..count)
+            .map(|i| manager.mk_var(&format!("b{i}"), bool_sort))
+            .collect();
+        (manager, vars)
+    }
+
+    /// Applying CubeImproveTactic to a goal with Boolean vars should produce
+    /// at least 2 sub-goals, each containing more assertions than the original.
+    #[test]
+    fn test_cube_improve_tactic_emits_subgoals_per_cube() {
+        let (mut manager, vars) = make_manager_with_bool_vars(4);
+        // Build a goal with all four vars as direct assertions
+        let goal = Goal::new(vars.clone());
+        let original_len = goal.assertions.len();
+
+        let mut tactic = CubeImproveTactic::new(&mut manager);
+        let result = tactic.apply_mut(&goal).expect("tactic application failed");
+
+        match result {
+            TacticResult::SubGoals(subgoals) => {
+                assert!(
+                    subgoals.len() >= 2,
+                    "expected at least 2 sub-goals, got {}",
+                    subgoals.len()
+                );
+                for (i, sg) in subgoals.iter().enumerate() {
+                    assert!(
+                        sg.assertions.len() > original_len,
+                        "subgoal {} has {} assertions, expected more than original {}",
+                        i,
+                        sg.assertions.len(),
+                        original_len
+                    );
+                }
+            }
+            other => panic!("expected SubGoals, got {other:?}"),
+        }
+    }
+
+    /// The precision field of the original goal should be propagated to all sub-goals.
+    #[test]
+    fn test_cube_improve_precision_preserved() {
+        use oxiz_core::tactic::Precision;
+
+        let (mut manager, vars) = make_manager_with_bool_vars(4);
+        let goal = Goal {
+            assertions: vars.clone(),
+            precision: Precision::Over,
+        };
+
+        let mut tactic = CubeImproveTactic::new(&mut manager);
+        let result = tactic.apply_mut(&goal).expect("tactic application failed");
+
+        match result {
+            TacticResult::SubGoals(subgoals) => {
+                assert!(!subgoals.is_empty());
+                for (i, sg) in subgoals.iter().enumerate() {
+                    assert_eq!(
+                        sg.precision,
+                        Precision::Over,
+                        "subgoal {} precision should be Over, got {:?}",
+                        i,
+                        sg.precision
+                    );
+                }
+            }
+            other => panic!("expected SubGoals, got {other:?}"),
+        }
+    }
+}

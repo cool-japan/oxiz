@@ -144,6 +144,14 @@ pub struct Config {
     pub markdown: bool,
     /// Whether to compare benchmark timings with Z3
     pub compare_z3: bool,
+    /// Check the geomean ratio from history snapshots and exit
+    pub check_geomean: bool,
+    /// Maximum allowed geomean ratio (default: 1.2)
+    pub check_geomean_max: f64,
+    /// Directory containing history snapshots for geomean gate
+    pub history_dir: PathBuf,
+    /// Whether this is a --refresh-baseline invocation (implies update_baseline)
+    pub refresh_baseline: bool,
 }
 
 /// Output format for the report
@@ -167,6 +175,10 @@ impl Default for Config {
             categories: None,
             markdown: false,
             compare_z3: false,
+            check_geomean: false,
+            check_geomean_max: 1.2,
+            history_dir: PathBuf::from("history"),
+            refresh_baseline: false,
         }
     }
 }
@@ -587,6 +599,16 @@ fn print_z3_report(report: &Z3ComparisonReport) {
         );
     }
 
+    if let Some(geomean) = report.geomean_ratio {
+        eprintln!("  geomean ratio: {:.3}x", geomean);
+    }
+    if let Some(p50) = report.p50_ratio {
+        eprintln!("  p50 ratio:     {:.3}x", p50);
+    }
+    if let Some(p95) = report.p95_ratio {
+        eprintln!("  p95 ratio:     {:.3}x", p95);
+    }
+
     eprintln!(
         "Z3 parity target (<= 1.2x): {}",
         if report.within_target { "met" } else { "not met" }
@@ -630,6 +652,27 @@ fn parse_args() -> Result<Config> {
             "--compare-z3" => {
                 config.compare_z3 = true;
             }
+            "--refresh-baseline" => {
+                config.update_baseline = true;
+                config.refresh_baseline = true;
+            }
+            "--check-geomean" => {
+                config.check_geomean = true;
+            }
+            "--max" => {
+                i += 1;
+                if i < args.len() {
+                    config.check_geomean_max = args[i]
+                        .parse()
+                        .with_context(|| format!("Invalid --max value: {}", args[i]))?;
+                }
+            }
+            "--history-dir" => {
+                i += 1;
+                if i < args.len() {
+                    config.history_dir = PathBuf::from(&args[i]);
+                }
+            }
             "--help" | "-h" => {
                 print_help();
                 std::process::exit(0);
@@ -648,18 +691,125 @@ fn print_help() {
     println!("Usage: regression [OPTIONS]");
     println!();
     println!("Options:");
-    println!("  -b, --baseline <FILE>   Path to baseline file (default: baseline.json)");
-    println!("  -t, --threshold <PCT>   Regression threshold percentage (default: 10)");
-    println!("  -u, --update            Update baseline with current results");
-    println!("      --json              Output in JSON format");
-    println!("      --github            Output with GitHub Actions annotations");
-    println!("      --markdown          Write regression_comment.md in Markdown format");
-    println!("      --compare-z3        Compare eligible benchmarks against z3");
-    println!("  -h, --help              Print help information");
+    println!("  -b, --baseline <FILE>       Path to baseline file (default: baseline.json)");
+    println!("  -t, --threshold <PCT>       Regression threshold percentage (default: 10)");
+    println!("  -u, --update                Update baseline with current results");
+    println!("      --refresh-baseline      Refresh baseline (implies --update); marks a deliberate refresh");
+    println!("      --json                  Output in JSON format");
+    println!("      --github                Output with GitHub Actions annotations");
+    println!("      --markdown              Write regression_comment.md in Markdown format");
+    println!("      --compare-z3            Compare eligible benchmarks against z3");
+    println!("      --check-geomean         Read latest history snapshot and check geomean ratio");
+    println!("      --max <RATIO>           Maximum allowed geomean ratio for --check-geomean (default: 1.2)");
+    println!("      --history-dir <DIR>     Directory containing history snapshots (default: history)");
+    println!("  -h, --help                  Print help information");
+}
+
+/// Minimal structs for parsing geomean data from history snapshot files.
+#[derive(Deserialize, Default)]
+struct HistorySummaryField {
+    #[serde(default)]
+    geomean_ratio: Option<f64>,
+    #[serde(default)]
+    count: usize,
+}
+
+#[derive(Deserialize)]
+struct HistoryFile {
+    summary: HistorySummaryField,
+}
+
+/// Run the `--check-geomean` mode: find the newest history snapshot, parse geomean, and exit.
+fn run_check_geomean(config: &Config) -> Result<()> {
+    let history_dir = if config.history_dir.is_absolute() {
+        config.history_dir.clone()
+    } else {
+        let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
+            .map(PathBuf::from)
+            .or_else(|_| std::env::current_dir())
+            .with_context(|| "current working directory should be available")?;
+        manifest_dir.join(&config.history_dir)
+    };
+
+    if !history_dir.exists() {
+        eprintln!("Geomean gate: no history data, skipping (soft-gate pass)");
+        std::process::exit(0);
+    }
+
+    let json_files: Vec<_> = fs::read_dir(&history_dir)
+        .with_context(|| format!("Failed to read history dir: {}", history_dir.display()))?
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("json") {
+                Some(path)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if json_files.is_empty() {
+        eprintln!("Geomean gate: no history data, skipping (soft-gate pass)");
+        std::process::exit(0);
+    }
+
+    // Find newest file by modified time
+    let newest = json_files
+        .iter()
+        .filter_map(|path| {
+            let modified = fs::metadata(path).ok()?.modified().ok()?;
+            Some((modified, path))
+        })
+        .max_by_key(|(modified, _)| *modified)
+        .map(|(_, path)| path.clone());
+
+    let newest_path = match newest {
+        Some(p) => p,
+        None => {
+            eprintln!("Geomean gate: no history data, skipping (soft-gate pass)");
+            std::process::exit(0);
+        }
+    };
+
+    let content = fs::read_to_string(&newest_path)
+        .with_context(|| format!("Failed to read history snapshot: {}", newest_path.display()))?;
+
+    let history: HistoryFile = serde_json::from_str(&content)
+        .with_context(|| format!("Failed to parse history snapshot: {}", newest_path.display()))?;
+
+    let summary = history.summary;
+
+    if summary.count == 0 {
+        eprintln!("Geomean gate: no Z3 comparison data in snapshot, skipping (soft-gate pass)");
+        std::process::exit(0);
+    }
+
+    let geomean = match summary.geomean_ratio {
+        Some(g) => g,
+        None => {
+            eprintln!("Geomean gate: no Z3 comparison data in snapshot, skipping (soft-gate pass)");
+            std::process::exit(0);
+        }
+    };
+
+    let max = config.check_geomean_max;
+    if geomean > max {
+        eprintln!("Geomean gate FAILED: {geomean:.4} > {max:.4} (Z3 parity target)");
+        std::process::exit(1);
+    }
+
+    eprintln!("Geomean gate PASSED: {geomean:.4} <= {max:.4}");
+    std::process::exit(0);
 }
 
 fn main() -> Result<()> {
     let config = parse_args()?;
+
+    // Short-circuit: --check-geomean reads history snapshots and exits
+    if config.check_geomean {
+        return run_check_geomean(&config);
+    }
 
     // Determine baseline path relative to executable or current dir
     let baseline_path = if config.baseline_path.is_relative() {

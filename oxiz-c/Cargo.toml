@@ -1,0 +1,25 @@
+[package]
+name = "oxiz-c"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "C API for OxiZ SMT solver (Phase 1: context/solver lifecycle)"
+keywords = ["smt", "solver", "ffi", "c-api", "bindings"]
+categories = ["algorithms", "science", "api-bindings"]
+publish = false
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["cdylib", "staticlib", "rlib"]
+doc = false
+
+[dependencies]
+oxiz-solver = { workspace = true, features = ["std"] }
+oxiz-core = { workspace = true, features = ["std"] }
+
+[build-dependencies]
+cbindgen = "0.29"
