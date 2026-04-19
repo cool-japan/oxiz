@@ -154,7 +154,10 @@ mod tests {
         ];
         let summary = summarize_ratios(&entries);
         let geomean = summary.geomean_ratio.expect("geomean should be Some");
-        assert!((geomean - 2.0).abs() < 1e-9, "geomean([1,2,4]) should be 2.0, got {geomean}");
+        assert!(
+            (geomean - 2.0).abs() < 1e-9,
+            "geomean([1,2,4]) should be 2.0, got {geomean}"
+        );
     }
 
     #[test]
@@ -169,7 +172,10 @@ mod tests {
         // geomean = exp((ln(1) + ln(4)) / 2) = exp(ln(4)/2) = 2.0
         let geomean = summary.geomean_ratio.expect("geomean should be Some");
         assert_eq!(summary.count, 2, "count should only include Some entries");
-        assert!((geomean - 2.0).abs() < 1e-9, "geomean([1,4]) should be 2.0, got {geomean}");
+        assert!(
+            (geomean - 2.0).abs() < 1e-9,
+            "geomean([1,4]) should be 2.0, got {geomean}"
+        );
     }
 
     #[test]
@@ -184,8 +190,14 @@ mod tests {
         let summary = summarize_ratios(&entries);
         let p50 = summary.p50_ratio.expect("p50 should be Some");
         let p95 = summary.p95_ratio.expect("p95 should be Some");
-        assert!((p50 - 3.0).abs() < f64::EPSILON, "p50 should be index 2 (3.0) for 5 items, got {p50}");
-        assert!(p95 >= 50.0, "p95 should be >= 50.0 (near the 100.0 outlier), got {p95}");
+        assert!(
+            (p50 - 3.0).abs() < f64::EPSILON,
+            "p50 should be index 2 (3.0) for 5 items, got {p50}"
+        );
+        assert!(
+            p95 >= 50.0,
+            "p95 should be >= 50.0 (near the 100.0 outlier), got {p95}"
+        );
     }
 
     #[test]
@@ -205,22 +217,34 @@ mod tests {
         let summary = summarize_ratios(&entries);
         let geomean = summary.geomean_ratio.expect("geomean should be Some");
         let within_target = geomean <= 1.2;
-        assert!(within_target, "geomean {geomean:.4} should be <= 1.2 (single outlier should not fail gate)");
+        assert!(
+            within_target,
+            "geomean {geomean:.4} should be <= 1.2 (single outlier should not fail gate)"
+        );
         // Also verify the report from an empty compare uses true (no z3 data)
-        assert!(report.within_target, "empty compare_with_z3 should return within_target=true");
+        assert!(
+            report.within_target,
+            "empty compare_with_z3 should return within_target=true"
+        );
     }
 
     #[test]
     fn test_within_target_true_when_count_zero() {
-        let entries = vec![
-            make_entry("a", None),
-            make_entry("b", None),
-        ];
+        let entries = vec![make_entry("a", None), make_entry("b", None)];
         let summary = summarize_ratios(&entries);
-        assert_eq!(summary.count, 0, "count should be 0 when all ratios are None");
-        assert!(summary.geomean_ratio.is_none(), "geomean should be None when count is 0");
+        assert_eq!(
+            summary.count, 0,
+            "count should be 0 when all ratios are None"
+        );
+        assert!(
+            summary.geomean_ratio.is_none(),
+            "geomean should be None when count is 0"
+        );
         // within_target = geomean_ratio.map(|g| g <= 1.2).unwrap_or(true) = true
         let within_target = summary.geomean_ratio.map(|g| g <= 1.2).unwrap_or(true);
-        assert!(within_target, "within_target should be true when count=0 (no Z3 data)");
+        assert!(
+            within_target,
+            "within_target should be true when count=0 (no Z3 data)"
+        );
     }
 }

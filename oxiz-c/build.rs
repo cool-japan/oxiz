@@ -7,19 +7,16 @@ fn main() {
                 return;
             }
         };
-        let config = cbindgen::Config::from_file(
-            std::path::Path::new(&crate_dir).join("cbindgen.toml"),
-        )
-        .unwrap_or_default();
+        let config =
+            cbindgen::Config::from_file(std::path::Path::new(&crate_dir).join("cbindgen.toml"))
+                .unwrap_or_default();
         match cbindgen::Builder::new()
             .with_crate(&crate_dir)
             .with_config(config)
             .generate()
         {
             Ok(bindings) => {
-                bindings.write_to_file(
-                    std::path::Path::new(&crate_dir).join("include/oxiz.h"),
-                );
+                bindings.write_to_file(std::path::Path::new(&crate_dir).join("include/oxiz.h"));
             }
             Err(e) => {
                 eprintln!("oxiz-c build: cbindgen failed: {e}");

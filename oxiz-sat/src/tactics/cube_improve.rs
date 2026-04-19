@@ -114,8 +114,11 @@ fn collect_activity(
     assertions: &[TermId],
     vars: &[TermId],
 ) -> HashMap<Var, f64> {
-    let var_to_index: std::collections::HashMap<TermId, usize> =
-        vars.iter().enumerate().map(|(idx, &var)| (var, idx)).collect();
+    let var_to_index: std::collections::HashMap<TermId, usize> = vars
+        .iter()
+        .enumerate()
+        .map(|(idx, &var)| (var, idx))
+        .collect();
     let mut activity = HashMap::new();
 
     for &assertion in assertions {

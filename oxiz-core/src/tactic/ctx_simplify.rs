@@ -341,10 +341,7 @@ fn evaluate_condition(
 /// whose condition (or its negation) is already in the context set, replacing
 /// the ITE by the live branch.  Returns a new assertion list; if no change
 /// occurred the returned `Vec` will be equal (by value) to the input slice.
-fn eliminate_dead_ite_branches(
-    assertions: &[TermId],
-    manager: &mut TermManager,
-) -> Vec<TermId> {
+fn eliminate_dead_ite_branches(assertions: &[TermId], manager: &mut TermManager) -> Vec<TermId> {
     let ctx: FxHashSet<TermId> = assertions.iter().copied().collect();
     assertions
         .iter()
@@ -383,13 +380,11 @@ fn rewrite_ite_in_context(
                 // Descend into branches with augmented, non-overlapping contexts
                 let mut ctx_then = ctx.clone();
                 ctx_then.insert(cond);
-                let new_then =
-                    rewrite_ite_in_context(then_branch, &ctx_then, depth + 1, manager);
+                let new_then = rewrite_ite_in_context(then_branch, &ctx_then, depth + 1, manager);
 
                 let mut ctx_else = ctx.clone();
                 ctx_else.insert(not_cond);
-                let new_else =
-                    rewrite_ite_in_context(else_branch, &ctx_else, depth + 1, manager);
+                let new_else = rewrite_ite_in_context(else_branch, &ctx_else, depth + 1, manager);
 
                 if new_then == then_branch && new_else == else_branch {
                     term_id // no structural change
@@ -431,7 +426,9 @@ mod tests {
         let goal = Goal::new(vec![guarded]);
 
         let mut tactic = CtxSolverSimplifyTactic::new(&mut manager);
-        let result = tactic.apply_mut(&goal).expect("test operation should succeed");
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
 
         match result {
             TacticResult::SubGoals(goals) => {

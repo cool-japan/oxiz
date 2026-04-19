@@ -1,18 +1,18 @@
 use bench_profile::{parser_script, run_script, sat_propagation_script, theory_check_script};
 use criterion::{Criterion, criterion_group, criterion_main};
 use num_rational::Rational64;
+use oxiz_core::RewriteContext;
 use oxiz_core::ast::{EGraph, ENode, ENodeKind, TermId, TermManager};
 use oxiz_core::profiling::{ProfilingCategory, ProfilingStats};
 use oxiz_core::rewrite::{CombinedRewriter, Rewriter};
-use oxiz_core::RewriteContext;
 use oxiz_proof::ProofRecorder;
 use oxiz_sat::{Lit, Solver as SatSolver};
 use oxiz_solver::combination::coordinator::{SatResult, TheoryCoordinator, TheoryId, TheorySolver};
+use oxiz_theories::Theory;
 use oxiz_theories::arithmetic::{LinExpr, Simplex};
 use oxiz_theories::array::ArraySolver;
 use oxiz_theories::bv::{Constraint as BvConstraint, Interval, WordLevelPropagator};
 use oxiz_theories::string::{ConstraintAutomaton, Dfa};
-use oxiz_theories::Theory;
 use std::hint::black_box;
 
 fn print_snapshot(category: ProfilingCategory) {

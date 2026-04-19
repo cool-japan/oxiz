@@ -1,10 +1,10 @@
 //! EUF Theory Solver
 
-use core::mem;
 use super::union_find::UnionFind;
 #[allow(unused_imports)]
 use crate::prelude::*;
 use crate::theory::{Theory, TheoryId, TheoryResult};
+use core::mem;
 use oxiz_core::ast::TermId;
 use oxiz_core::error::Result;
 use smallvec::SmallVec;

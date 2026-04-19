@@ -44,12 +44,12 @@ impl<'a> AggressiveSimplifier<'a> {
             None
             | Some(
                 TermKind::True
-                    | TermKind::False
-                    | TermKind::IntConst(_)
-                    | TermKind::RealConst(_)
-                    | TermKind::BitVecConst { .. }
-                    | TermKind::StringLit(_)
-                    | TermKind::Var(_),
+                | TermKind::False
+                | TermKind::IntConst(_)
+                | TermKind::RealConst(_)
+                | TermKind::BitVecConst { .. }
+                | TermKind::StringLit(_)
+                | TermKind::Var(_),
             ) => term,
             Some(TermKind::Not(arg)) => {
                 let arg = self.simplify_term_cached(arg, cache);
@@ -450,7 +450,11 @@ impl<'a> AggressiveSimplifier<'a> {
         self.manager.mk_bv_xor(lhs, rhs)
     }
 
-    fn try_solve_add_constant_eq(&mut self, add_side: TermId, const_side: TermId) -> Option<TermId> {
+    fn try_solve_add_constant_eq(
+        &mut self,
+        add_side: TermId,
+        const_side: TermId,
+    ) -> Option<TermId> {
         let rhs_const = int_constant(self.manager, const_side)?;
         let add_args = match self.manager.get(add_side).map(|term| &term.kind) {
             Some(TermKind::Add(args)) => args.clone(),
@@ -523,10 +527,8 @@ mod tests {
         let x = manager.mk_var("x", manager.sorts.int_sort);
         let ite = manager.mk_ite(cond, x, x);
 
-        let mut simplifier = AggressiveSimplifier::new(
-            &mut manager,
-            SimplificationConfig { aggressive: true },
-        );
+        let mut simplifier =
+            AggressiveSimplifier::new(&mut manager, SimplificationConfig { aggressive: true });
         let simplified = simplifier.simplify_term(ite);
 
         assert_eq!(simplified, x);

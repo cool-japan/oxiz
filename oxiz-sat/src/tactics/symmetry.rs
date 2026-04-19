@@ -142,7 +142,9 @@ mod tests {
 
         let goal = Goal::new(vec![clause]);
         let mut tactic = SymmetryBreakTactic::new(&mut manager);
-        let result = tactic.apply_mut(&goal).expect("test operation should succeed");
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
 
         match result {
             TacticResult::SubGoals(goals) => {
@@ -191,7 +193,9 @@ mod tests {
                     goals[0].assertions.len()
                 );
             }
-            other => panic!("expected SubGoals from a fully-symmetric 3-var formula, got {other:?}"),
+            other => {
+                panic!("expected SubGoals from a fully-symmetric 3-var formula, got {other:?}")
+            }
         }
     }
 
@@ -209,9 +213,9 @@ mod tests {
         let c = manager.mk_var("c2", bool_sort);
 
         // clause sizes 1, 2, 3 → every variable sees a unique set of sizes
-        let c1 = a;                              // {a}  ← var a appears in size-1 clause
-        let c2 = manager.mk_or([a, b]);          // {a,b} ← size-2 clause
-        let c3 = manager.mk_or([a, b, c]);       // {a,b,c} ← size-3 clause
+        let c1 = a; // {a}  ← var a appears in size-1 clause
+        let c2 = manager.mk_or([a, b]); // {a,b} ← size-2 clause
+        let c3 = manager.mk_or([a, b, c]); // {a,b,c} ← size-3 clause
 
         let goal = Goal::new(vec![c1, c2, c3]);
         let mut tactic = SymmetryBreakTactic::new(&mut manager);
@@ -296,9 +300,9 @@ mod tests {
                 assert_eq!(goals.len(), 1, "expected exactly one sub-goal");
                 goals[0].assertions.len()
             }
-            other => panic!(
-                "expected SubGoals from a fully-symmetric 3-var formula, got {other:?}"
-            ),
+            other => {
+                panic!("expected SubGoals from a fully-symmetric 3-var formula, got {other:?}")
+            }
         };
 
         assert!(

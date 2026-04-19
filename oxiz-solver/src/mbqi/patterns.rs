@@ -83,7 +83,10 @@ impl PatternCoverScorer {
             return Vec::new();
         }
 
-        let total_shapes = egraph_ground_terms.iter().cloned().collect::<FxHashSet<_>>();
+        let total_shapes = egraph_ground_terms
+            .iter()
+            .cloned()
+            .collect::<FxHashSet<_>>();
         if total_shapes.is_empty() {
             return candidate_patterns
                 .iter()
@@ -565,7 +568,8 @@ impl MultiPatternCoordinator {
 
     /// Add a pattern set
     pub fn add_pattern_set(&mut self, patterns: Vec<Pattern>, manager: &TermManager) {
-        self.pattern_sets.push(PatternSet::from_patterns(patterns, manager));
+        self.pattern_sets
+            .push(PatternSet::from_patterns(patterns, manager));
     }
 
     /// Find matches for all pattern sets

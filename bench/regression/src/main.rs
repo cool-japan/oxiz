@@ -567,8 +567,9 @@ fn prepare_z3_inputs(results: &[BenchmarkResult]) -> Result<(TempDir, HashMap<St
     for result in results {
         if let Some(contents) = benchmark_smt2_source(&result.name) {
             let path = temp_dir.path().join(format!("{}.smt2", result.name));
-            fs::write(&path, contents)
-                .with_context(|| format!("Failed to write temporary SMT2 file: {}", path.display()))?;
+            fs::write(&path, contents).with_context(|| {
+                format!("Failed to write temporary SMT2 file: {}", path.display())
+            })?;
             paths.insert(result.name.clone(), path);
         }
     }
@@ -611,7 +612,11 @@ fn print_z3_report(report: &Z3ComparisonReport) {
 
     eprintln!(
         "Z3 parity target (<= 1.2x): {}",
-        if report.within_target { "met" } else { "not met" }
+        if report.within_target {
+            "met"
+        } else {
+            "not met"
+        }
     );
 }
 
@@ -694,14 +699,20 @@ fn print_help() {
     println!("  -b, --baseline <FILE>       Path to baseline file (default: baseline.json)");
     println!("  -t, --threshold <PCT>       Regression threshold percentage (default: 10)");
     println!("  -u, --update                Update baseline with current results");
-    println!("      --refresh-baseline      Refresh baseline (implies --update); marks a deliberate refresh");
+    println!(
+        "      --refresh-baseline      Refresh baseline (implies --update); marks a deliberate refresh"
+    );
     println!("      --json                  Output in JSON format");
     println!("      --github                Output with GitHub Actions annotations");
     println!("      --markdown              Write regression_comment.md in Markdown format");
     println!("      --compare-z3            Compare eligible benchmarks against z3");
     println!("      --check-geomean         Read latest history snapshot and check geomean ratio");
-    println!("      --max <RATIO>           Maximum allowed geomean ratio for --check-geomean (default: 1.2)");
-    println!("      --history-dir <DIR>     Directory containing history snapshots (default: history)");
+    println!(
+        "      --max <RATIO>           Maximum allowed geomean ratio for --check-geomean (default: 1.2)"
+    );
+    println!(
+        "      --history-dir <DIR>     Directory containing history snapshots (default: history)"
+    );
     println!("  -h, --help                  Print help information");
 }
 
@@ -775,8 +786,12 @@ fn run_check_geomean(config: &Config) -> Result<()> {
     let content = fs::read_to_string(&newest_path)
         .with_context(|| format!("Failed to read history snapshot: {}", newest_path.display()))?;
 
-    let history: HistoryFile = serde_json::from_str(&content)
-        .with_context(|| format!("Failed to parse history snapshot: {}", newest_path.display()))?;
+    let history: HistoryFile = serde_json::from_str(&content).with_context(|| {
+        format!(
+            "Failed to parse history snapshot: {}",
+            newest_path.display()
+        )
+    })?;
 
     let summary = history.summary;
 

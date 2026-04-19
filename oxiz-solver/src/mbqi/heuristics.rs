@@ -12,8 +12,8 @@ use core::cmp::Ordering;
 use oxiz_core::ast::{TermId, TermKind, TermManager};
 use oxiz_core::interner::Spur;
 
-use super::{ConflictScores, QuantifiedFormula, QuantifierId};
 use super::model_completion::CompletedModel;
+use super::{ConflictScores, QuantifiedFormula, QuantifierId};
 
 /// Overall MBQI heuristics configuration
 #[derive(Debug, Clone)]

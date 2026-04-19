@@ -159,8 +159,12 @@ pub fn render_perf_dashboard(history_dir: &Path, output_dir: &Path) -> Result<()
     );
 
     let output_path = output_dir.join("index.html");
-    fs::write(&output_path, html)
-        .with_context(|| format!("Failed to write perf dashboard HTML: {}", output_path.display()))?;
+    fs::write(&output_path, html).with_context(|| {
+        format!(
+            "Failed to write perf dashboard HTML: {}",
+            output_path.display()
+        )
+    })?;
     Ok(())
 }
 

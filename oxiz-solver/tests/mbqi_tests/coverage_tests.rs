@@ -16,7 +16,11 @@ fn pattern_cover_scorer_orders_by_coverage() {
     let scorer = PatternCoverScorer;
     let ranked = scorer.score_cover(
         &[set0, set1, set2],
-        &[TermShape::IntConst, TermShape::StrictIneq, TermShape::Apply { arity: 1 }],
+        &[
+            TermShape::IntConst,
+            TermShape::StrictIneq,
+            TermShape::Apply { arity: 1 },
+        ],
     );
 
     assert_eq!(ranked[0].0, 1);

@@ -56,7 +56,8 @@ impl<'a> BmcEngine<'a> {
                 TermKind::Var(name) => {
                     let source = self.manager.resolve_str(name);
                     let (base, target_step) = next_state_name(source, step);
-                    self.manager.mk_var(&format!("{base}@{target_step}"), node.sort)
+                    self.manager
+                        .mk_var(&format!("{base}@{target_step}"), node.sort)
                 }
                 TermKind::Not(arg) => {
                     let arg = self.rename_term_cached(arg, step, cache);
@@ -213,7 +214,9 @@ mod tests {
         let goal = Goal::new(vec![init, trans, property]);
 
         let mut tactic = BmcUnrollTactic::with_depth(&mut manager, 2);
-        let result = tactic.apply_mut(&goal).expect("test operation should succeed");
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
 
         match result {
             TacticResult::SubGoals(goals) => {
@@ -245,7 +248,9 @@ mod tests {
         let goal = Goal::new(vec![init, trans, property]);
 
         let mut tactic = BmcUnrollTactic::with_depth(&mut manager, 1);
-        let result = tactic.apply_mut(&goal).expect("tactic should apply on 3-assertion goal");
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("tactic should apply on 3-assertion goal");
 
         let TacticResult::SubGoals(goals) = result else {
             panic!("expected SubGoals, not NotApplicable or Solved");
@@ -267,14 +272,20 @@ mod tests {
         };
         match &node.kind {
             TermKind::Var(sym) => manager.resolve_str(*sym).contains(needle),
-            TermKind::Eq(a, b) | TermKind::Le(a, b) | TermKind::Lt(a, b)
-            | TermKind::Ge(a, b) | TermKind::Gt(a, b) | TermKind::Sub(a, b)
+            TermKind::Eq(a, b)
+            | TermKind::Le(a, b)
+            | TermKind::Lt(a, b)
+            | TermKind::Ge(a, b)
+            | TermKind::Gt(a, b)
+            | TermKind::Sub(a, b)
             | TermKind::Implies(a, b) => {
                 find_var_name_in_term(manager, *a, needle)
                     || find_var_name_in_term(manager, *b, needle)
             }
             TermKind::Not(a) => find_var_name_in_term(manager, *a, needle),
-            TermKind::And(args) | TermKind::Or(args) | TermKind::Add(args)
+            TermKind::And(args)
+            | TermKind::Or(args)
+            | TermKind::Add(args)
             | TermKind::Mul(args) => args
                 .iter()
                 .any(|&a| find_var_name_in_term(manager, a, needle)),
@@ -338,6 +349,9 @@ mod tests {
     fn test_bmc_unroll_from_option_depth() {
         let mut manager = TermManager::new();
         let tactic = BmcUnrollTactic::from_option(&mut manager, Some("8"));
-        assert_eq!(tactic.depth, 8, "depth should be parsed from the option string");
+        assert_eq!(
+            tactic.depth, 8,
+            "depth should be parsed from the option string"
+        );
     }
 }

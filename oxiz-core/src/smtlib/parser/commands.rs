@@ -4,10 +4,10 @@ use super::super::lexer::TokenKind;
 use super::{Command, Parser};
 use crate::ast::{RoundingMode, TermId};
 use crate::error::{OxizError, Result};
-#[cfg(feature = "profiling")]
-use crate::profiling::{ProfilingCategory, ScopedTimer};
 #[allow(unused_imports)]
 use crate::prelude::*;
+#[cfg(feature = "profiling")]
+use crate::profiling::{ProfilingCategory, ScopedTimer};
 
 impl<'a> Parser<'a> {
     /// Expect an opening parenthesis '('

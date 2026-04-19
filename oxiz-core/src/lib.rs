@@ -86,8 +86,8 @@ pub mod lockfree;
 #[cfg(feature = "profiling")]
 pub mod profiling;
 pub mod rewrite;
-pub mod sort;
 pub mod simplification;
+pub mod sort;
 pub mod theories;
 pub mod traits;
 pub mod unsat_core;
@@ -134,8 +134,8 @@ pub use error_utils::{
     validate_arity_range, validate_max_arity, validate_min_arity,
 };
 pub use literal::{Lit, Var};
-pub use sort::{DataTypeConstructor, Sort, SortId, SortKind};
 pub use simplification::{AggressiveSimplifier, SimplificationConfig};
+pub use sort::{DataTypeConstructor, Sort, SortId, SortKind};
 pub use unsat_core::{UnsatCore, UnsatCoreBuilder, UnsatCoreStrategy};
 
 // Rewrite exports

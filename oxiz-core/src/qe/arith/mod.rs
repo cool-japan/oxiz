@@ -3,9 +3,9 @@
 //! This module implements quantifier elimination procedures for linear
 //! arithmetic over integers and reals.
 
+use crate::ast::{TermId, TermKind, TermManager};
 #[allow(unused_imports)]
 use crate::prelude::*;
-use crate::ast::{TermId, TermKind, TermManager};
 
 pub mod cooper;
 pub mod ferrante_rackoff;

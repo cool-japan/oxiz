@@ -234,16 +234,19 @@ impl CubeGenerator {
         } else {
             cube.literals
                 .iter()
-                .map(|lit| variable_scores.get(lit.var().index()).copied().unwrap_or(0.0))
+                .map(|lit| {
+                    variable_scores
+                        .get(lit.var().index())
+                        .copied()
+                        .unwrap_or(0.0)
+                })
                 .sum::<f64>()
                 .max(avg_activity_sum)
         };
 
         let extra_depth = (activity_sum / avg_activity_sum).log2().max(0.0);
         let guided_depth = self.config.max_depth as f64 + extra_depth;
-        guided_depth
-            .ceil()
-            .max(self.config.min_cube_size as f64) as usize
+        guided_depth.ceil().max(self.config.min_cube_size as f64) as usize
     }
 
     /// Selects the best variable to split on based on the strategy.
@@ -594,7 +597,10 @@ mod tests {
         let scores = vec![1.0_f64; num_vars];
         let cubes = generator.generate(&scores);
 
-        assert!(!cubes.is_empty(), "expected at least one cube with uniform activity");
+        assert!(
+            !cubes.is_empty(),
+            "expected at least one cube with uniform activity"
+        );
         // With uniform activity, extra_depth = log2(k * avg / avg) where k = cube.len()
         // Since each cube literal has activity = avg, sum = k * avg, ratio = k, extra = log2(k)
         // However for depth=1 cubes: k=1, extra=0; for depth=5 cubes: k=5, log2(5)≈2.32

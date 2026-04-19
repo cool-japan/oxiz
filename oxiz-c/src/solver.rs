@@ -133,10 +133,7 @@ pub unsafe extern "C" fn oxiz_solver_assert_smtlib2(
 ///
 /// `0` on success (result written to `*sat_out`), or an `OxizError` code.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn oxiz_solver_check(
-    solver: *mut OxizSolver,
-    sat_out: *mut c_int,
-) -> c_int {
+pub unsafe extern "C" fn oxiz_solver_check(solver: *mut OxizSolver, sat_out: *mut c_int) -> c_int {
     if solver.is_null() || sat_out.is_null() {
         return OxizError::NullPointer.as_c_int();
     }

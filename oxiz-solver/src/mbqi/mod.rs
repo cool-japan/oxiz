@@ -53,8 +53,8 @@ use oxiz_core::interner::Spur;
 use oxiz_core::sort::SortId;
 use smallvec::SmallVec;
 
-pub mod counterexample;
 pub mod conflict_driven;
+pub mod counterexample;
 pub mod finite_model;
 pub mod heuristics;
 pub mod instantiation;
@@ -65,10 +65,10 @@ pub mod model_completion;
 pub mod patterns;
 
 // Re-export key types
+pub use conflict_driven::{ConflictDrivenInstantiator, ConflictScores};
 pub use counterexample::{
     CexGenerationResult, CounterExample, CounterExampleGenerator, RefinementStrategy,
 };
-pub use conflict_driven::{ConflictDrivenInstantiator, ConflictScores};
 pub use finite_model::{FiniteModel, FiniteModelFinder, SymmetryBreaker, UniverseSize};
 pub use heuristics::{
     InstantiationHeuristic, MBQIBudget, MBQIHeuristics, MultiTriggerScorer, ScoredTriggerSet,

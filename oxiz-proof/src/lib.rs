@@ -128,6 +128,8 @@ pub use parallel::{ParallelCheckResult, ParallelConfig, ParallelProcessor, Paral
 pub use pattern::{LemmaPattern, PatternExtractor, PatternStructure};
 pub use pcc::{CodeLocation, PccBuilder, ProofCarryingCode, SafetyProperty, VerificationCondition};
 pub use proof::{Proof, ProofNode, ProofNodeId, ProofStats, ProofStep};
+#[cfg(feature = "arena")]
+pub use recorder::ArenaProofStepId;
 pub use recorder::Recorder;
 pub use rules::{
     Clause, CnfValidator, Literal, ResolutionValidator, RuleValidation, TheoryLemmaValidator,
@@ -147,8 +149,6 @@ pub use theory::{
     ArithProofRecorder, ArrayProofRecorder, EufProofRecorder, ProofTerm, TheoryProof,
     TheoryProofProducer, TheoryRule, TheoryStep, TheoryStepId,
 };
-#[cfg(feature = "arena")]
-pub use recorder::ArenaProofStepId;
 pub use theory_combination::{
     CombinationStep, NelsonOppenCertificate, TheoryId as CombinationTheoryId,
 };

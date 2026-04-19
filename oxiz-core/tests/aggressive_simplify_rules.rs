@@ -49,7 +49,10 @@ fn test_de_morgan_not_and_pushdown() {
         simplifier.simplify_term(not_and)
     };
 
-    assert_eq!(result, expected, "Not(And(a,b)) should reduce to Or(Not(a),Not(b))");
+    assert_eq!(
+        result, expected,
+        "Not(And(a,b)) should reduce to Or(Not(a),Not(b))"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -72,7 +75,10 @@ fn test_implies_a_false_reduces_to_not_a() {
         simplifier.simplify_term(implies_af)
     };
 
-    assert_eq!(result, expected_not_a, "Implies(a, false) should reduce to Not(a)");
+    assert_eq!(
+        result, expected_not_a,
+        "Implies(a, false) should reduce to Not(a)"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -270,7 +276,10 @@ fn test_integration_boolean_heavy_goal() {
     };
 
     assert_eq!(r2, true_id, "Implies(a,a) should be true");
-    assert_eq!(r1, expected_or, "Implies(And(a,b),false) should reduce to Or(Not(a),Not(b))");
+    assert_eq!(
+        r1, expected_or,
+        "Implies(And(a,b),false) should reduce to Or(Not(a),Not(b))"
+    );
 }
 
 // ---------------------------------------------------------------------------

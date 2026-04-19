@@ -40,7 +40,10 @@ fn assert_smt(solver: *mut OxizSolver, smt: &str) {
     let mut bytes = smt.as_bytes().to_vec();
     bytes.push(0u8);
     let rc = unsafe { oxiz_solver_assert_smtlib2(solver, bytes.as_ptr() as *const _) };
-    assert_eq!(rc, 0, "oxiz_solver_assert_smtlib2 failed with {rc} for: {smt}");
+    assert_eq!(
+        rc, 0,
+        "oxiz_solver_assert_smtlib2 failed with {rc} for: {smt}"
+    );
 }
 
 /// Call check-sat through the C ABI and return the raw sat_out value.

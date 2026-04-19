@@ -10,9 +10,9 @@
 
 use oxiz_core::TermManager;
 use oxiz_core::tactic::Goal;
-use oxiz_spacer::chc::{ChcSystem, PredicateApp};
+use oxiz_spacer::BmcUnrollTactic;
 use oxiz_spacer::bmc::{Bmc, BmcConfig, BmcResult};
-use oxiz_spacer::{BmcUnrollTactic};
+use oxiz_spacer::chc::{ChcSystem, PredicateApp};
 
 /// Build a minimal "x starts at 0 and increments" transition system as both
 /// a flat `Goal` (for the tactic) and a `ChcSystem` (for the Bmc solver).
@@ -79,18 +79,16 @@ fn test_bmc_unroll_feeds_bmc_engine() {
 
     // Init rule: xv = 0 => Inv(xv)
     let init_constraint = terms.mk_eq(xv, zero2);
-    system.add_init_rule(
-        [("xv".to_string(), int_sort)],
-        init_constraint,
-        inv,
-        [xv],
-    );
+    system.add_init_rule([("xv".to_string(), int_sort)], init_constraint, inv, [xv]);
 
     // Transition rule: Inv(xv) /\ xv_next = xv + 1 => Inv(xv_next)
     let xv_plus_one = terms.mk_add([xv, one2]);
     let trans_constraint = terms.mk_eq(xv_next, xv_plus_one);
     system.add_transition_rule(
-        [("xv".to_string(), int_sort), ("xv_next".to_string(), int_sort)],
+        [
+            ("xv".to_string(), int_sort),
+            ("xv_next".to_string(), int_sort),
+        ],
         [PredicateApp::new(inv, [xv])],
         trans_constraint,
         inv,

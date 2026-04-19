@@ -24,7 +24,11 @@ pub fn eliminate_quantifier_vs(
 
     let mut witnesses = Vec::new();
     witnesses.push(negative_infinity(var, manager));
-    witnesses.extend(lower_bounds.into_iter().map(|bound| epsilon_shift(bound, var, manager)));
+    witnesses.extend(
+        lower_bounds
+            .into_iter()
+            .map(|bound| epsilon_shift(bound, var, manager)),
+    );
     witnesses.extend(equalities);
 
     if witnesses.is_empty() {
@@ -81,7 +85,9 @@ fn collect_candidates(
 }
 
 fn negative_infinity(var: VariableId, manager: &mut TermManager) -> TermId {
-    let sort = manager.get(var).map_or(manager.sorts.int_sort, |term| term.sort);
+    let sort = manager
+        .get(var)
+        .map_or(manager.sorts.int_sort, |term| term.sort);
     if sort == manager.sorts.real_sort {
         manager.mk_real(Rational64::new(-1_000_000, 1))
     } else {
@@ -90,7 +96,9 @@ fn negative_infinity(var: VariableId, manager: &mut TermManager) -> TermId {
 }
 
 fn epsilon_shift(bound: TermId, var: VariableId, manager: &mut TermManager) -> TermId {
-    let sort = manager.get(var).map_or(manager.sorts.int_sort, |term| term.sort);
+    let sort = manager
+        .get(var)
+        .map_or(manager.sorts.int_sort, |term| term.sort);
     if sort == manager.sorts.real_sort {
         let epsilon = manager.mk_real(Rational64::new(1, 2));
         manager.mk_add([bound, epsilon])

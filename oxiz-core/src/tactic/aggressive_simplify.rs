@@ -91,7 +91,9 @@ mod tests {
 
         let goal = Goal::new(vec![ite]);
         let mut tactic = AggressiveSimplifyTactic::new(&mut manager);
-        let result = tactic.apply_mut(&goal).expect("test operation should succeed");
+        let result = tactic
+            .apply_mut(&goal)
+            .expect("test operation should succeed");
 
         match result {
             TacticResult::SubGoals(goals) => {

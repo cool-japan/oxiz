@@ -11,10 +11,10 @@
 
 #[allow(unused_imports)]
 use crate::prelude::*;
-#[cfg(feature = "profiling")]
-use oxiz_core::profiling::{ProfilingCategory, ScopedTimer};
 #[cfg(feature = "std")]
 use oxiz_core::TermId as ProofTermId;
+#[cfg(feature = "profiling")]
+use oxiz_core::profiling::{ProfilingCategory, ScopedTimer};
 #[cfg(feature = "std")]
 use oxiz_proof::{CombinationStep, CombinationTheoryId, NelsonOppenCertificate, ProofNodeId};
 
@@ -550,10 +550,8 @@ impl TheoryCoordinator {
     #[cfg(feature = "std")]
     fn build_certificate_from_log(&self) -> Option<NelsonOppenCertificate> {
         let last_eq = self.propagated_equalities_log.last()?;
-        let mut certificate = NelsonOppenCertificate::new(
-            self.to_proof_theory_id(last_eq.source),
-            ProofNodeId(0),
-        );
+        let mut certificate =
+            NelsonOppenCertificate::new(self.to_proof_theory_id(last_eq.source), ProofNodeId(0));
 
         for eq in &self.propagated_equalities_log {
             let lhs = Self::to_proof_term_id(eq.lhs)?;

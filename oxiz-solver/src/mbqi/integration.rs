@@ -16,8 +16,8 @@ use smallvec::SmallVec;
 #[cfg(feature = "std")]
 use std::time::{Duration, Instant};
 
-use super::counterexample::CounterExampleGenerator;
 use super::conflict_driven::ConflictScores;
+use super::counterexample::CounterExampleGenerator;
 use super::finite_model::FiniteModelFinder;
 use super::heuristics::MBQIBudget;
 use super::instantiation::InstantiationEngine;

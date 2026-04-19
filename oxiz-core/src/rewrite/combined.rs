@@ -31,10 +31,10 @@ use super::{
     StringRewriter, UfRewriter,
 };
 use crate::ast::{TermId, TermKind, TermManager};
-#[cfg(feature = "profiling")]
-use crate::profiling::{ProfilingCategory, ScopedTimer};
 #[allow(unused_imports)]
 use crate::prelude::*;
+#[cfg(feature = "profiling")]
+use crate::profiling::{ProfilingCategory, ScopedTimer};
 
 /// Configuration for combined rewriting
 #[derive(Debug, Clone)]

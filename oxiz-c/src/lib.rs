@@ -33,8 +33,7 @@ pub mod solver;
 use std::ffi::c_char;
 
 /// NUL-terminated version string bytes.
-static VERSION_BYTES: &[u8] =
-    concat!(env!("CARGO_PKG_VERSION"), "\0").as_bytes();
+static VERSION_BYTES: &[u8] = concat!(env!("CARGO_PKG_VERSION"), "\0").as_bytes();
 
 /// Return the OxiZ C API version string.
 ///
