@@ -1341,21 +1341,10 @@ impl Solver {
                     }
                 }
             }
-            TermKind::BvUgt(a, b) => {
-                // a > b (unsigned) — equivalent to b < a
-                if let (Some((va, wa)), Some((vb, wb))) = (get_bv_val(*a), get_bv_val(*b)) {
-                    if wa == wb {
-                        return va <= vb; // conflict when NOT (va > vb)
-                    }
-                }
-            }
-            TermKind::BvUge(a, b) => {
-                if let (Some((va, wa)), Some((vb, wb))) = (get_bv_val(*a), get_bv_val(*b)) {
-                    if wa == wb {
-                        return va < vb;
-                    }
-                }
-            }
+            // BvUgt(a, b) ≡ BvUlt(b, a): conflict when !(b < a) i.e. a <= b.
+            // BvUge(a, b) ≡ BvUle(b, a): conflict when !(b <= a) i.e. a < b.
+            // These are handled by the BvUlt/BvUle arms above with swapped args.
+            // No separate BvUgt/BvUge variants exist in TermKind.
             TermKind::BvSlt(a, b) => {
                 if let (Some((va, wa)), Some((vb, wb))) = (get_bv_val(*a), get_bv_val(*b)) {
                     if wa == wb {
@@ -1382,32 +1371,9 @@ impl Solver {
                     }
                 }
             }
-            TermKind::BvSgt(a, b) => {
-                if let (Some((va, wa)), Some((vb, wb))) = (get_bv_val(*a), get_bv_val(*b)) {
-                    if wa == wb {
-                        let half = BigInt::one() << (wa as usize - 1);
-                        let mod_val = BigInt::one() << wa as usize;
-                        let signed_a =
-                            if va >= half { va.clone() - &mod_val } else { va.clone() };
-                        let signed_b =
-                            if vb >= half { vb.clone() - &mod_val } else { vb.clone() };
-                        return signed_a <= signed_b;
-                    }
-                }
-            }
-            TermKind::BvSge(a, b) => {
-                if let (Some((va, wa)), Some((vb, wb))) = (get_bv_val(*a), get_bv_val(*b)) {
-                    if wa == wb {
-                        let half = BigInt::one() << (wa as usize - 1);
-                        let mod_val = BigInt::one() << wa as usize;
-                        let signed_a =
-                            if va >= half { va.clone() - &mod_val } else { va.clone() };
-                        let signed_b =
-                            if vb >= half { vb.clone() - &mod_val } else { vb.clone() };
-                        return signed_a < signed_b;
-                    }
-                }
-            }
+            // BvSgt(a, b) ≡ BvSlt(b, a): handled by BvSlt with swapped args.
+            // BvSge(a, b) ≡ BvSle(b, a): handled by BvSle with swapped args.
+            // No separate BvSgt/BvSge variants exist in TermKind.
             _ => {}
         }
 

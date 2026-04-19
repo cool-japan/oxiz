@@ -439,6 +439,7 @@ mod tests {
             expected_status: status,
             file_size: size,
             category: None,
+            structural_features: None,
         }
     }
 

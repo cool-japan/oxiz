@@ -451,6 +451,7 @@ mod tests {
             expected_status: expected,
             file_size: size,
             category: None,
+            structural_features: None,
         }
     }
 

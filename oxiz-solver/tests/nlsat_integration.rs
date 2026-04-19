@@ -371,18 +371,19 @@ fn test_nia_push_pop_backtrack() {
 // Fixture-based tests: bench/extended_theories/QF_NIA_ext/
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Run a single SMT2 fixture and verify the expected result.
+/// Run a single SMT2 fixture and return the solver result string.
 fn run_smt2_fixture(path: &std::path::Path) -> SolverResult {
     let source = std::fs::read_to_string(path)
         .unwrap_or_else(|e| panic!("Failed to read {:?}: {}", path, e));
     let mut ctx = Context::new();
-    let commands = ctx.execute_script(&source);
-    match commands {
-        Ok(results) => {
-            // Find the last check-sat result
-            for r in results.iter().rev() {
-                match r {
-                    oxiz_solver::CommandResult::CheckSat(res) => return *res,
+    match ctx.execute_script(&source) {
+        Ok(outputs) => {
+            // The last output line is from (check-sat)
+            for line in outputs.iter().rev() {
+                match line.trim() {
+                    "sat" => return SolverResult::Sat,
+                    "unsat" => return SolverResult::Unsat,
+                    "unknown" => return SolverResult::Unknown,
                     _ => {}
                 }
             }

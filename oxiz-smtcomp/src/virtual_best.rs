@@ -402,6 +402,7 @@ mod tests {
             expected_status: Some(ExpectedStatus::Sat),
             file_size: 100,
             category: None,
+            structural_features: None,
         };
         SingleResult::new(&meta, status, Duration::from_millis(time_ms))
     }
