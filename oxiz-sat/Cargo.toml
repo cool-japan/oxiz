@@ -12,6 +12,7 @@ categories = ["algorithms"]
 [features]
 default = ["std"]
 std = ["rayon", "tracing", "rustc-hash/std", "oxiz-core/std"]
+profiling = ["std", "oxiz-core/profiling"]
 # Enable verbose debug output in conflict analysis
 analyze-debug = []
 # GPU acceleration backends (placeholder for future implementation)
@@ -31,6 +32,7 @@ libm.workspace = true
 
 [dev-dependencies]
 proptest = { workspace = true }
+serde_json = { workspace = true }
 
 # Profile-Guided Optimization (PGO) Configuration
 #

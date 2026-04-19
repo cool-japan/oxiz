@@ -12,6 +12,8 @@
 use crate::ast::{TermId, TermKind, TermManager};
 #[allow(unused_imports)]
 use crate::prelude::*;
+#[cfg(feature = "profiling")]
+use crate::profiling::{ProfilingCategory, ScopedTimer};
 
 /// E-class ID representing an equivalence class of terms
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -177,6 +179,8 @@ impl EGraph {
 
     /// Merge two e-classes
     pub fn merge(&mut self, id1: EClassId, id2: EClassId) -> EClassId {
+        #[cfg(feature = "profiling")]
+        let _timer = ScopedTimer::new(ProfilingCategory::EGraphMerge);
         let root1 = self.find(id1);
         let root2 = self.find(id2);
 

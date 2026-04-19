@@ -139,19 +139,27 @@ OxiZ is not just a Z3 port - it surpasses Z3 in critical areas:
 - [x] Lazy evaluation strategies
 - [x] Clause pool for SAT solver (5 size-based buckets)
 
-- [ ] Profile remaining hot paths (10 items)
-  - [ ] SAT solver clause propagation
-  - [ ] Theory solver check() methods
-  - [ ] E-graph merge operations
-  - [ ] Simplex pivot operations
-  - [ ] BV constraint propagation
-  - [ ] String solver automata operations
-  - [ ] Array extensionality checks
-  - [ ] Proof generation overhead
-  - [ ] Parser performance
-  - [ ] Cache miss analysis
+- [x] Profile remaining hot paths (10 items) (planned 2026-04-19)
+  - **Goal:** Reproducible profiling harness covering 10 named hot paths; snapshot `docs/PROFILING_REPORT.md` names worst offenders; each path gets a `ScopedTimer` pair for CI-measurable cost.
+  - **Design:** Extend `oxiz-sat/src/profiling.rs::ProfilingCategory` with 10 categories (SatPropagation, TheoryCheck, EGraphMerge, SimplexPivot, BvPropagation, StringAutomata, ArrayExtensionality, ProofGeneration, Parser, CacheMiss); wire at call sites; new `bench/profile/` crate; extend `scripts/flamegraph.sh` with `--category`; emit `docs/PROFILING_REPORT.md`.
+  - **Files:** `oxiz-sat/src/profiling.rs`, 10 instrumented call sites across crates, new `bench/profile/{Cargo.toml,benches/profile_benchmarks.rs,src/lib.rs}`, `scripts/flamegraph.sh`, new `docs/PROFILING_REPORT.md`, root `Cargo.toml` workspace member.
+  - **Tests:** new `oxiz-sat/tests/profiling_pass.rs` — each category records ≥1 sample; JSON summary is parseable.
+  - [x] SAT solver clause propagation
+  - [x] Theory solver check() methods
+  - [x] E-graph merge operations
+  - [x] Simplex pivot operations
+  - [x] BV constraint propagation
+  - [x] String solver automata operations
+  - [x] Array extensionality checks
+  - [x] Proof generation overhead
+  - [x] Parser performance
+  - [x] Cache miss analysis
 
-- [ ] Additional performance improvements (6 items)
+- [~] Additional performance improvements (5 of 6 sub-items; JIT deferred) (planned 2026-04-19)
+  - **Goal:** Five concrete allocation-reduction fixes: in-place watchlist updates, SmallVec for EClass::nodes, incremental theory cache, cache-friendly Clause layout, allocation-free EUF propagation.
+  - **Design:** (1) `oxiz-sat/src/cdcl/propagation.rs` — swap_remove+clear vs Vec::clone; (2) `SmallVec<[Term;4]>` for `oxiz-core/src/egraph/eclass.rs::EClass::nodes`; (3) memo `(theory_id, level)→propagation set` in coordinator.rs; (4) hot-field-first struct layout in `oxiz-sat/src/clause.rs`; (5) per-solver reuse buffer in `oxiz-theories/src/euf/solver.rs`.
+  - **Files:** `oxiz-sat/src/cdcl/propagation.rs`, `oxiz-core/src/egraph/eclass.rs`, `oxiz-solver/src/combination/coordinator.rs`, `oxiz-sat/src/clause.rs`, `oxiz-theories/src/euf/solver.rs`.
+  - **Tests:** new `oxiz-sat/tests/allocation_reduction.rs` with dhat-heap counts; per-fix unit tests.
   - [ ] Reduce allocations further (in-place updates)
   - [ ] Better data structure choices (profiling-driven)
   - [ ] Incremental computation caching
@@ -160,9 +168,9 @@ OxiZ is not just a Z3 port - it surpasses Z3 in critical areas:
   - [ ] Allocation-free theory propagation paths
 
 - [x] Performance regression testing (3 items)
-  - [ ] CI/CD integration for performance tracking
-  - [ ] Automated benchmark comparison vs Z3
-  - [ ] Performance dashboard
+  - [~] CI/CD integration for performance tracking (planned 2026-04-19)
+  - [~] Automated benchmark comparison vs Z3 (planned 2026-04-19)
+  - [~] Performance dashboard (planned 2026-04-19)
 
 **Target**: Within 1.2x of Z3 performance by v0.3.0
 
@@ -177,7 +185,7 @@ OxiZ is not just a Z3 port - it surpasses Z3 in critical areas:
   - [x] AUFLIRA - Arrays + UF + LIA + LRA
   - [x] Improve quantifier instantiation heuristics
 
-- [ ] Combined theories (3 items)
+- [x] Combined theories (3 items)
   - [x] QF_AUFBV - Arrays + UF + BV (validation needed)
   - [x] QF_ALIA - Arrays + LIA
   - [x] QF_ABV - Arrays + BV
@@ -188,23 +196,35 @@ OxiZ is not just a Z3 port - it surpasses Z3 in critical areas:
 
 ### Medium Priority: Advanced Features
 
-- [ ] Enhanced preprocessing (5 items)
+- [~] Enhanced preprocessing (5 items) (planned 2026-04-19)
+  - **Goal:** Five tactics: `bmc-unroll` (spacer/bmc wrapper), `aggressive-simplify` (new rewrite rules), `ctx-dep-rewrite` polish (dead-branch elimination in ITEs), `symmetry-break` (lex-leader constraints), `cube-improve` (VSIDS-depth-aware cubes).
+  - **Design:** new `oxiz-spacer/src/tactics/bmc_unroll.rs`; extend `oxiz-core/src/simplification/mod.rs`; polish `ctx_solver_simplify.rs`; new `oxiz-sat/src/tactics/symmetry.rs`; extend `oxiz-sat/src/cube.rs::CubeGenerator`.
+  - **Files:** `oxiz-spacer/src/tactics/bmc_unroll.rs` (new), `oxiz-spacer/src/lib.rs`, `oxiz-core/src/simplification/mod.rs`, `oxiz-core/src/tactic/ctx_solver_simplify.rs`, `oxiz-sat/src/tactics/symmetry.rs` (new), `oxiz-sat/src/cube.rs`, `oxiz-core/src/tactic/registry.rs`.
+  - **Tests:** per-tactic unit test (rewrite shape) + integration test (apply tactic, status preserved).
   - [ ] Bounded model checking tactics
   - [ ] More aggressive simplification
   - [ ] Context-dependent rewriting
   - [ ] Symmetry breaking
   - [ ] Cube generation improvements
 
-- [ ] Better quantifier handling (4 items)
+- [~] Better quantifier handling (4 items) (planned 2026-04-19)
+  - **Goal:** (a) PatternCoverScorer (greedy set cover), (b) conflict_score VSIDS for quantifiers in conflict_driven.rs, (c) virtual-substitution QE (Loos–Weispfenning), (d) per-quantifier instantiation budget in MBQI.
+  - **Design:** extend `patterns.rs` with `PatternCoverScorer`; extend `conflict_driven.rs` with `conflict_score: HashMap<QuantifierId,u32>`; new `oxiz-core/src/qe/virtual_substitution.rs`; add `MBQIBudget::per_quantifier` to `heuristics.rs`.
+  - **Files:** `oxiz-solver/src/mbqi/patterns.rs`, `oxiz-solver/src/mbqi/conflict_driven.rs`, `oxiz-core/src/qe/arith.rs`, `oxiz-core/src/qe/virtual_substitution.rs` (new), `oxiz-core/src/qe/mod.rs`, `oxiz-solver/src/mbqi/heuristics.rs`, `oxiz-solver/src/mbqi/mod.rs`.
+  - **Tests:** pattern-cover, conflict-priority, VS, budget enforcement unit tests.
   - [ ] Pattern-based instantiation improvements
   - [ ] Conflict-driven instantiation
   - [ ] Quantifier elimination enhancements
   - [ ] MBQI performance tuning
 
-- [ ] Proof system enhancements (3 items)
-  - [ ] Optimized proof generation (reduce overhead)
-  - [ ] Proof minimization
-  - [ ] Better theory combination proofs
+- [~] Proof system enhancements (3 items) (planned 2026-04-19)
+  - [~] Optimized proof generation (reduce overhead) (planned 2026-04-19)
+  - [x] Proof minimization
+  - [~] Better theory combination proofs (planned 2026-04-19)
+  - **Goal:** (a) bumpalo arena for ProofStep allocation in recorder.rs; (b) structured Nelson–Oppen combination certificate in new theory_combination.rs.
+  - **Design:** `oxiz-proof/src/recorder.rs` — steps arena (ArenaIdx<ProofStep>); new `oxiz-proof/src/theory_combination.rs` — NelsonOppenCertificate with interface-equality chain.
+  - **Files:** `oxiz-proof/src/recorder.rs`, `oxiz-proof/src/lib.rs`, `oxiz-proof/src/theory_combination.rs` (new), `oxiz-solver/src/combination/coordinator.rs`.
+  - **Tests:** arena proof passes checker; new `oxiz-proof/tests/theory_combination_proof.rs` — 3-step EUF+LIA certificate passes ProofChecker.
 
 ### Medium Priority: User Experience (Complete)
 
@@ -229,10 +249,10 @@ OxiZ is not just a Z3 port - it surpasses Z3 in critical areas:
 ### Low Priority: Ecosystem Integration
 
 - [ ] Language bindings (4 items)
-  - [ ] Improve Python bindings (oxiz-py enhancements)
+  - [~] Improve Python bindings (oxiz-py enhancements) (planned 2026-04-19)
   - [ ] JavaScript/TypeScript bindings (via WASM)
   - [ ] Java bindings (via JNI or native)
-  - [ ] C API for compatibility
+  - [~] C API for compatibility (planned 2026-04-19)
 
 - [ ] Tool integration (3 items)
   - [ ] SMT-COMP 2026 participation
@@ -451,10 +471,10 @@ oxiz-core (foundation)
 
 ### v0.3.0 (Target: June 2026)
 **Focus: Performance Parity and SMT-COMP**
-- [ ] Performance parity with Z3 (within 1.2x)
+- [~] Performance parity with Z3 (within 1.2x) (planned 2026-04-19)
 - [x] Quantified logic support (UFLIA, UFLRA, AUFLIA)
-- [ ] Combined theory validation (QF_AUFBV, QF_ALIA, QF_ABV)
-- [ ] Enhanced preprocessing tactics
+- [x] Combined theory validation (QF_AUFBV, QF_ALIA, QF_ABV)
+- [~] Enhanced preprocessing tactics (planned 2026-04-19)
 - [x] Performance regression CI pipeline
 - [ ] SMT-COMP 2026 entry preparation
 
@@ -538,3 +558,14 @@ oxiz-core (foundation)
 **Tests**: 6,155 passing (16 skipped) | **LoC**: 393,292 total / 312,495 code | **Files**: 931 | **Clippy**: 0 warnings
 **Next Milestone**: v0.3.0 - Performance Parity + SMT-COMP (Target: June 2026)
 **Long-term Goal**: v1.0.0 - Industry-Ready SMT Solver (Target: Q4 2026)
+
+---
+
+## Proposed follow-ups
+
+- **JIT-style specialization** (root TODO.md:158) — defer to v0.4.0 (oversized: requires IR + codegen layer).
+- **JS/TS bindings via WASM** (root TODO.md:233) — defer until `oxiz-wasm` npm publish is authorized.
+- **Java bindings** (root TODO.md:234) — oversized (new `oxiz-jni` subcrate + JNI surface); scope separately.
+- **SMT-COMP 2026 participation** (root TODO.md:238) — gated on SMT-COMP submission portal (opens ~May 2026).
+- **Symbolic execution tool integration** (root TODO.md:239) — vague; re-scope after user selects target (KLEE/angr/S2E).
+- **Verification framework integration** (root TODO.md:240) — vague; re-scope after user selects target (Frama-C/CBMC/SeaHorn).

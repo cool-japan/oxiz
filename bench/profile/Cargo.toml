@@ -1,0 +1,20 @@
+[package]
+name = "bench-profile"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+num-rational = { workspace = true, default-features = false, features = ["num-bigint"] }
+oxiz-core = { workspace = true, default-features = false, features = ["profiling"] }
+oxiz-proof = { workspace = true, features = ["profiling"] }
+oxiz-sat = { workspace = true, default-features = false, features = ["profiling"] }
+oxiz-solver = { workspace = true, default-features = false, features = ["profiling"] }
+oxiz-theories = { workspace = true, default-features = false, features = ["profiling"] }
+rustc-hash = { workspace = true }
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "profile_benchmarks"
+harness = false

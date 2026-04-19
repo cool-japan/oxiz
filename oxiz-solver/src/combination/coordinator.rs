@@ -11,6 +11,8 @@
 
 #[allow(unused_imports)]
 use crate::prelude::*;
+#[cfg(feature = "profiling")]
+use oxiz_core::profiling::{ProfilingCategory, ScopedTimer};
 
 /// Placeholder term identifier
 pub type TermId = usize;
@@ -166,6 +168,8 @@ impl TheoryCoordinator {
 
     /// Check satisfiability with theory combination
     pub fn check_sat(&mut self) -> Result<SatResult, String> {
+        #[cfg(feature = "profiling")]
+        let _timer = ScopedTimer::new(ProfilingCategory::TheoryCheck);
         self.stats.check_sat_calls += 1;
 
         // Phase 1: Check individual theories

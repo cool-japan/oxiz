@@ -8,6 +8,8 @@ use crate::prelude::*;
 use crate::theory::{EqualityNotification, Theory, TheoryCombination, TheoryId, TheoryResult};
 use oxiz_core::ast::TermId;
 use oxiz_core::error::Result;
+#[cfg(feature = "profiling")]
+use oxiz_core::profiling::{ProfilingCategory, ScopedTimer};
 
 /// Represents a select operation: select(array, index)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -463,6 +465,8 @@ impl Theory for ArraySolver {
     }
 
     fn check(&mut self) -> Result<TheoryResult> {
+        #[cfg(feature = "profiling")]
+        let _timer = ScopedTimer::new(ProfilingCategory::ArrayExtensionality);
         // Process any pending lemmas first
         let lemma_result = self.process_lemmas()?;
         if !matches!(lemma_result, TheoryResult::Sat) {

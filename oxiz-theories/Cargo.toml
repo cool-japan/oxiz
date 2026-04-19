@@ -41,6 +41,7 @@ std = [
     "num-traits/std",
     "rustc-hash/std",
 ]
+profiling = ["std", "oxiz-core/profiling", "oxiz-sat/profiling"]
 
 [dev-dependencies]
 proptest = { workspace = true }

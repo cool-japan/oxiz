@@ -2,6 +2,8 @@
 
 use super::*;
 use smallvec::SmallVec;
+#[cfg(feature = "profiling")]
+use crate::profiling::{ProfilingCategory, ScopedTimer};
 
 impl Solver {
     /// Unit propagation using two-watched literals
@@ -12,6 +14,8 @@ impl Solver {
     /// watch list without touching the clause database, which is the most
     /// expensive part of propagation.
     pub(super) fn propagate(&mut self) -> Option<ClauseId> {
+        #[cfg(feature = "profiling")]
+        let _timer = ScopedTimer::new(ProfilingCategory::SatPropagation);
         while let Some(lit) = self.trail.next_to_propagate() {
             self.stats.propagations += 1;
 

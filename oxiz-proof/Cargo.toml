@@ -26,6 +26,7 @@ serde = { version = "1.0", features = ["derive"], optional = true }
 default = []
 sat-integration = ["oxiz-sat"]
 serde = ["dep:serde", "smallvec/serde"]
+profiling = ["oxiz-core/profiling"]
 
 [dev-dependencies]
 proptest.workspace = true

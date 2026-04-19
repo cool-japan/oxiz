@@ -46,7 +46,7 @@
 
 ### Visualization
 - [ ] Interactive web-based result explorer
-- [ ] Real-time progress monitoring WebSocket API
+- [x] Real-time progress monitoring WebSocket API
 - [x] PDF report generation (planned 2026-04-15, completed 2026-04-15)
   - **Goal:** Emit a PDF summary (per-logic stats + per-benchmark table + totals) analogous to `html_report.rs`. Pure Rust. Feature-gated as `pdf-report` so default builds stay lean.
   - **Design:** New `oxiz-smtcomp/src/pdf_report.rs` mirroring the `HtmlReport` API (`PdfReport::from_runs(...)` → `write(path)`). Use a latest Pure Rust PDF crate; subagent picks (`printpdf` or `pdf-writer`) after checking crates.io latest versions. Simple tabular layout, default font only.
@@ -56,7 +56,7 @@
 
 ### Integration
 - [ ] SMT-LIB 3.0 support when available
-- [ ] Integration with other benchmark suites (SV-COMP, etc.)
+- [x] Integration with other benchmark suites (SV-COMP, etc.)
 - [x] Docker container generation for reproducible runs (planned 2026-04-15, completed 2026-04-15)
   - **Goal:** Provide a reproducible Docker image for `smtcomp2026` runs. Builder stage compiles `--release --bin smtcomp2026`; runtime stage is a slim image with only the binary and a mount point for benchmark dirs.
   - **Design:** Multi-stage Dockerfile at `oxiz-smtcomp/Dockerfile`. `.dockerignore` excludes target/, .git/. Entrypoint script at `oxiz-smtcomp/docker/entrypoint.sh` forwards args to the binary. Rust toolchain version pinned via build arg (default: current stable).

@@ -146,8 +146,8 @@ mod gpu;
 pub mod parallel;
 #[cfg(feature = "std")]
 mod portfolio;
-#[cfg(feature = "std")]
-mod profiling;
+#[cfg(feature = "profiling")]
+pub mod profiling;
 #[cfg(feature = "std")]
 mod proof;
 #[cfg(feature = "std")]
@@ -260,8 +260,10 @@ pub use parallel::{
 };
 #[cfg(feature = "std")]
 pub use portfolio::{PortfolioConfig, PortfolioResult, PortfolioSolver, PortfolioStats};
-#[cfg(feature = "std")]
-pub use profiling::{AutoTimer, PerformanceMetrics, Profiler, ScopedTimer};
+#[cfg(feature = "profiling")]
+pub use profiling::{
+    ProfilingCategory, ProfilingCategorySnapshot, ProfilingSnapshot, ProfilingStats, ScopedTimer,
+};
 #[cfg(feature = "std")]
 pub use proof::{DratProof, LratProof, ProofTrimmer};
 #[cfg(feature = "std")]

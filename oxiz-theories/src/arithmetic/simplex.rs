@@ -6,6 +6,8 @@ use crate::config::{PivotingRule, SimplexConfig};
 use crate::prelude::*;
 use num_rational::Rational64;
 use num_traits::{One, Signed, Zero};
+#[cfg(feature = "profiling")]
+use oxiz_core::profiling::{ProfilingCategory, ScopedTimer};
 use smallvec::SmallVec;
 
 /// Variable index
@@ -910,6 +912,8 @@ impl Simplex {
 
     /// Perform a pivot operation
     fn pivot(&mut self, basic_var: VarId, nonbasic_var: VarId) {
+        #[cfg(feature = "profiling")]
+        let _timer = ScopedTimer::new(ProfilingCategory::SimplexPivot);
         let expr = self
             .tableau
             .remove(&basic_var)

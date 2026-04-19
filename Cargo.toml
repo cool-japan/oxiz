@@ -17,6 +17,7 @@ members = [
     "oxiz-py",
     "oxiz-ml",
     "bench/regression",
+    "bench/profile",
 ]
 
 # Exclude oxiz-py from default build since it requires maturin for proper Python linking.
@@ -37,6 +38,7 @@ default-members = [
     "oxiz-smtcomp",
     "oxiz-ml",
     "bench/regression",
+    "bench/profile",
 ]
 
 [workspace.package]
