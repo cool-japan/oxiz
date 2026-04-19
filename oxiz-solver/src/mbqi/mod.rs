@@ -54,6 +54,7 @@ use oxiz_core::sort::SortId;
 use smallvec::SmallVec;
 
 pub mod counterexample;
+pub mod conflict_driven;
 pub mod finite_model;
 pub mod heuristics;
 pub mod instantiation;
@@ -67,10 +68,11 @@ pub mod patterns;
 pub use counterexample::{
     CexGenerationResult, CounterExample, CounterExampleGenerator, RefinementStrategy,
 };
+pub use conflict_driven::{ConflictDrivenInstantiator, ConflictScores};
 pub use finite_model::{FiniteModel, FiniteModelFinder, SymmetryBreaker, UniverseSize};
 pub use heuristics::{
-    InstantiationHeuristic, MBQIHeuristics, MultiTriggerScorer, ScoredTriggerSet, ScorerPolicy,
-    SelectionStrategy, TriggerSelection, TriggerSet,
+    InstantiationHeuristic, MBQIBudget, MBQIHeuristics, MultiTriggerScorer, ScoredTriggerSet,
+    ScorerPolicy, SelectionStrategy, TriggerSelection, TriggerSet,
 };
 pub use instantiation::{
     InstantiationContext, InstantiationEngine, InstantiationPattern, QuantifierInstantiator,
@@ -80,6 +82,25 @@ pub use lazy_instantiation::{LazyInstantiator, LazyStrategy, MatchingContext};
 pub use model_completion::{
     MacroSolver, ModelCompleter, ModelFixer, ProjectionFunction, UninterpretedSortHandler,
 };
+pub use patterns::{Pattern, PatternCoverScorer, PatternSet, PatternStrategy, TermShape};
+
+/// Quantifier identifier used by MBQI components.
+pub type QuantifierId = TermId;
+
+/// Per-quantifier configuration shared across MBQI helpers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct QuantifierConfig {
+    /// Strategy used for choosing patterns.
+    pub pattern_strategy: PatternStrategy,
+}
+
+impl Default for QuantifierConfig {
+    fn default() -> Self {
+        Self {
+            pattern_strategy: PatternStrategy::GreedyCover,
+        }
+    }
+}
 
 /// A quantified formula tracked by MBQI
 #[derive(Debug, Clone)]

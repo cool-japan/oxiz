@@ -87,6 +87,7 @@ pub mod lockfree;
 pub mod profiling;
 pub mod rewrite;
 pub mod sort;
+pub mod simplification;
 pub mod theories;
 pub mod traits;
 pub mod unsat_core;
@@ -134,6 +135,7 @@ pub use error_utils::{
 };
 pub use literal::{Lit, Var};
 pub use sort::{DataTypeConstructor, Sort, SortId, SortKind};
+pub use simplification::{AggressiveSimplifier, SimplificationConfig};
 pub use unsat_core::{UnsatCore, UnsatCoreBuilder, UnsatCoreStrategy};
 
 // Rewrite exports

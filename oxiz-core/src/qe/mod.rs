@@ -29,10 +29,12 @@ use crate::prelude::*;
 mod mbi;
 mod qe_lite;
 mod term_graph;
+pub mod virtual_substitution;
 
 pub use mbi::{MbiConfig, MbiInterpolant, MbiSolver, MbiStats};
 pub use qe_lite::{QeLiteConfig, QeLiteResult, QeLiteSolver, QeLiteStats};
 pub use term_graph::{TermGraph, TermGraphConfig, TermGraphStats, TermNode, TermNodeKind};
+pub use virtual_substitution::{Formula, VariableId, eliminate_quantifier_vs};
 
 // Phase 2 enhancements
 pub mod arith;

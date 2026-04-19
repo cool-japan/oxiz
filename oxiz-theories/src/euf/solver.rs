@@ -1,5 +1,6 @@
 //! EUF Theory Solver
 
+use core::mem;
 use super::union_find::UnionFind;
 #[allow(unused_imports)]
 use crate::prelude::*;
@@ -123,6 +124,8 @@ pub struct EufSolver {
     proof_forest: Vec<Vec<MergeEdge>>,
     /// Function properties for dynamic arity support
     function_properties: FxHashMap<u32, FunctionProperties>,
+    /// Reused queue for newly discovered propagations during congruence closure.
+    propagation_buf: Vec<(u32, u32, TermId)>,
 }
 
 /// State to save for push/pop
@@ -154,6 +157,7 @@ impl EufSolver {
             context_stack: Vec::new(),
             proof_forest: Vec::new(),
             function_properties: FxHashMap::default(),
+            propagation_buf: Vec::new(),
         }
     }
 
@@ -292,6 +296,9 @@ impl EufSolver {
     /// - Batch signature updates (collects all updates, applies at once)
     /// - Fingerprint pre-filter (cheap u64 comparison before full signature match)
     fn propagate(&mut self) -> Result<()> {
+        let mut propagation_buf = mem::take(&mut self.propagation_buf);
+        propagation_buf.clear();
+
         while let Some((a, b, reason)) = self.pending.pop() {
             let root_a = self.uf.find(a);
             let root_b = self.uf.find(b);
@@ -327,7 +334,7 @@ impl EufSolver {
             // to the sig_table in a single batch to avoid repeated hash lookups.
             let mut sig_updates: SmallVec<[SigUpdateEntry; 16]> = SmallVec::new();
             // Collect congruence merges to enqueue
-            let mut congruence_merges: SmallVec<[(u32, u32); 8]> = SmallVec::new();
+            propagation_buf.clear();
 
             for i in 0..use_len {
                 let user = self.use_list[other_root as usize][i];
@@ -373,7 +380,7 @@ impl EufSolver {
                             },
                         });
 
-                        congruence_merges.push((user, existing));
+                        propagation_buf.push((user, existing, TermId::new(0)));
                     }
                 } else {
                     // No congruence match; batch the signature update for later.
@@ -391,8 +398,8 @@ impl EufSolver {
             }
 
             // Enqueue congruence merges
-            for (user, existing) in congruence_merges {
-                self.pending.push((user, existing, TermId::new(0)));
+            for (user, existing, term) in propagation_buf.drain(..) {
+                self.pending.push((user, existing, term));
             }
 
             // Merge use lists: extend new_root's use-list with other_root's entries
@@ -403,6 +410,9 @@ impl EufSolver {
             }
             self.use_list[new_root as usize].extend(other_uses);
         }
+
+        propagation_buf.clear();
+        self.propagation_buf = propagation_buf;
 
         Ok(())
     }

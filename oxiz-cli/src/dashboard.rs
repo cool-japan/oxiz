@@ -5,6 +5,9 @@
 
 #![allow(dead_code)]
 
+#[path = "dashboard/perf.rs"]
+pub mod perf;
+
 use axum::{
     Router,
     extract::{

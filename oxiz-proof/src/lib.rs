@@ -58,12 +58,14 @@ pub mod parallel;
 pub mod pattern;
 pub mod pcc;
 pub mod proof;
+pub mod recorder;
 pub mod rules;
 pub mod sat_integration;
 pub mod simplify;
 pub mod streaming;
 pub mod template;
 pub mod theory;
+pub mod theory_combination;
 pub mod unsat_core;
 pub mod validation;
 pub mod visualization;
@@ -126,6 +128,7 @@ pub use parallel::{ParallelCheckResult, ParallelConfig, ParallelProcessor, Paral
 pub use pattern::{LemmaPattern, PatternExtractor, PatternStructure};
 pub use pcc::{CodeLocation, PccBuilder, ProofCarryingCode, SafetyProperty, VerificationCondition};
 pub use proof::{Proof, ProofNode, ProofNodeId, ProofStats, ProofStep};
+pub use recorder::Recorder;
 pub use rules::{
     Clause, CnfValidator, Literal, ResolutionValidator, RuleValidation, TheoryLemmaValidator,
     UnitPropagationValidator,
@@ -143,6 +146,11 @@ pub use template::{ProofTemplate, TemplateIdentifier, TemplateStep};
 pub use theory::{
     ArithProofRecorder, ArrayProofRecorder, EufProofRecorder, ProofTerm, TheoryProof,
     TheoryProofProducer, TheoryRule, TheoryStep, TheoryStepId,
+};
+#[cfg(feature = "arena")]
+pub use recorder::ArenaProofStepId;
+pub use theory_combination::{
+    CombinationStep, NelsonOppenCertificate, TheoryId as CombinationTheoryId,
 };
 pub use unsat_core::{UnsatCore, extract_minimal_unsat_core, extract_unsat_core, get_core_labels};
 pub use validation::{FormatValidator, ValidationError, ValidationResult};

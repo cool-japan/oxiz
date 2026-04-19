@@ -12,7 +12,7 @@ use core::cmp::Ordering;
 use oxiz_core::ast::{TermId, TermKind, TermManager};
 use oxiz_core::interner::Spur;
 
-use super::QuantifiedFormula;
+use super::{ConflictScores, QuantifiedFormula, QuantifierId};
 use super::model_completion::CompletedModel;
 
 /// Overall MBQI heuristics configuration
@@ -138,6 +138,83 @@ pub enum ResourceAllocation {
     Aggressive,
     /// Adaptive (adjust based on progress)
     Adaptive,
+}
+
+/// Budget for MBQI instantiations.
+#[derive(Debug, Clone)]
+pub struct MBQIBudget {
+    /// Total budget available for a round.
+    pub global_budget: u32,
+    /// Per-quantifier slices of the total budget.
+    pub per_quantifier: FxHashMap<QuantifierId, u32>,
+    /// Remaining global budget after consumption.
+    pub remaining_global: u32,
+}
+
+impl MBQIBudget {
+    /// Create a fresh budget.
+    pub fn new(global_budget: u32) -> Self {
+        Self {
+            global_budget,
+            per_quantifier: FxHashMap::default(),
+            remaining_global: global_budget,
+        }
+    }
+
+    /// Distribute the remaining budget across quantifiers, weighted by conflict scores.
+    pub fn carve_per_quantifier(
+        &mut self,
+        quantifiers: &[QuantifierId],
+        conflict_scores: Option<&ConflictScores>,
+    ) {
+        self.per_quantifier.clear();
+        self.remaining_global = self.global_budget;
+
+        if quantifiers.is_empty() || self.global_budget == 0 {
+            return;
+        }
+
+        let total_weight: u64 = quantifiers
+            .iter()
+            .map(|qid| {
+                conflict_scores
+                    .and_then(|scores| scores.score(*qid))
+                    .map_or(1_u64, |score| score as u64 + 1)
+            })
+            .sum();
+
+        let mut assigned = 0_u32;
+        for (index, &qid) in quantifiers.iter().enumerate() {
+            let weight = conflict_scores
+                .and_then(|scores| scores.score(qid))
+                .map_or(1_u64, |score| score as u64 + 1);
+            let mut share = ((self.global_budget as u64 * weight) / total_weight) as u32;
+            if share == 0 {
+                share = 1;
+            }
+            if index + 1 == quantifiers.len() {
+                share = self.global_budget.saturating_sub(assigned);
+            }
+            assigned = assigned.saturating_add(share);
+            self.per_quantifier.insert(qid, share);
+        }
+    }
+
+    /// Consume part of the budget for one quantifier.
+    pub fn consume(&mut self, qid: QuantifierId, amount: u32) -> bool {
+        if amount == 0 {
+            return true;
+        }
+        let Some(remaining_for_q) = self.per_quantifier.get_mut(&qid) else {
+            return false;
+        };
+        if *remaining_for_q < amount || self.remaining_global < amount {
+            return false;
+        }
+        *remaining_for_q -= amount;
+        self.remaining_global -= amount;
+        true
+    }
 }
 
 /// Instantiation heuristic scorer

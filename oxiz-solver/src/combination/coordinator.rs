@@ -13,6 +13,10 @@
 use crate::prelude::*;
 #[cfg(feature = "profiling")]
 use oxiz_core::profiling::{ProfilingCategory, ScopedTimer};
+#[cfg(feature = "std")]
+use oxiz_core::TermId as ProofTermId;
+#[cfg(feature = "std")]
+use oxiz_proof::{CombinationStep, CombinationTheoryId, NelsonOppenCertificate, ProofNodeId};
 
 /// Placeholder term identifier
 pub type TermId = usize;
@@ -107,6 +111,8 @@ pub struct CoordinatorConfig {
     pub max_combination_rounds: usize,
     /// Enable conflict minimization across theories
     pub minimize_conflicts: bool,
+    /// Enable theory-combination proof certificates.
+    pub proof_mode: bool,
 }
 
 impl Default for CoordinatorConfig {
@@ -115,6 +121,7 @@ impl Default for CoordinatorConfig {
             eager_combination: false,
             max_combination_rounds: 10,
             minimize_conflicts: true,
+            proof_mode: false,
         }
     }
 }
@@ -129,6 +136,13 @@ pub struct TheoryCoordinator {
     shared_terms: FxHashMap<TermId, SharedTerm>,
     /// Pending equality propagations
     pending_equalities: VecDeque<EqualityProp>,
+    /// Memoized implied equalities by theory and decision level.
+    theory_propagation_cache: FxHashMap<(TheoryId, u32), Vec<EqualityProp>>,
+    /// Equality propagation history for proof certificates.
+    propagated_equalities_log: Vec<EqualityProp>,
+    /// Last generated theory-combination certificate.
+    #[cfg(feature = "std")]
+    last_certificate: Option<NelsonOppenCertificate>,
     /// Current decision level
     current_level: usize,
 }
@@ -142,6 +156,10 @@ impl TheoryCoordinator {
             theories: FxHashMap::default(),
             shared_terms: FxHashMap::default(),
             pending_equalities: VecDeque::new(),
+            theory_propagation_cache: FxHashMap::default(),
+            propagated_equalities_log: Vec::new(),
+            #[cfg(feature = "std")]
+            last_certificate: None,
             current_level: 0,
         }
     }
@@ -156,6 +174,7 @@ impl TheoryCoordinator {
     pub fn assert_formula(&mut self, formula: TermId, theory: TheoryId) -> Result<(), String> {
         if let Some(solver) = self.theories.get_mut(&theory) {
             solver.assert_formula(formula)?;
+            self.clear_from_level(self.current_level as u32);
 
             // Identify shared terms
             self.identify_shared_terms(formula)?;
@@ -179,6 +198,7 @@ impl TheoryCoordinator {
             match result {
                 SatResult::Unsat => {
                     self.stats.theory_conflicts += 1;
+                    self.maybe_record_certificate_from_log();
                     return Ok(SatResult::Unsat);
                 }
                 SatResult::Unknown => {
@@ -213,18 +233,13 @@ impl TheoryCoordinator {
             // Collect implied equalities from all theories
             let mut new_equalities = Vec::new();
 
-            for (theory_id, solver) in &self.theories {
-                let equalities = solver.get_implied_equalities();
+            for theory_id in self.theories.keys().copied().collect::<Vec<_>>() {
+                let equalities = self.cached_theory_propagation(theory_id)?;
 
-                for (lhs, rhs) in equalities {
+                for eq in equalities {
                     // Only propagate equalities between shared terms
-                    if self.is_shared_term(lhs) || self.is_shared_term(rhs) {
-                        new_equalities.push(EqualityProp {
-                            lhs,
-                            rhs,
-                            source: *theory_id,
-                            explanation: vec![],
-                        });
+                    if self.is_shared_term(eq.lhs) || self.is_shared_term(eq.rhs) {
+                        new_equalities.push(eq);
                     }
                 }
             }
@@ -244,6 +259,7 @@ impl TheoryCoordinator {
                 match solver.check_sat()? {
                     SatResult::Unsat => {
                         self.stats.theory_conflicts += 1;
+                        self.maybe_record_certificate_from_log();
                         return Ok(SatResult::Unsat);
                     }
                     SatResult::Unknown => {
@@ -266,6 +282,7 @@ impl TheoryCoordinator {
                 match solver.check_sat()? {
                     SatResult::Unsat => {
                         self.stats.theory_conflicts += 1;
+                        self.maybe_record_certificate_from_log();
                         return Ok(SatResult::Unsat);
                     }
                     SatResult::Unknown => {
@@ -282,6 +299,7 @@ impl TheoryCoordinator {
     /// Propagate an equality to all relevant theories
     fn propagate_equality(&mut self, eq: EqualityProp) -> Result<(), String> {
         self.stats.equalities_propagated += 1;
+        let logged_eq = eq.clone();
 
         // Update equivalence classes
         self.merge_equivalence_classes(eq.lhs, eq.rhs)?;
@@ -296,6 +314,9 @@ impl TheoryCoordinator {
                 solver.notify_equality(eq.lhs, eq.rhs)?;
             }
         }
+
+        self.clear_from_level(self.current_level as u32);
+        self.propagated_equalities_log.push(logged_eq);
 
         Ok(())
     }
@@ -394,6 +415,12 @@ impl TheoryCoordinator {
 
         // Clear pending equalities
         self.pending_equalities.clear();
+        self.clear_above_level(level as u32);
+        self.propagated_equalities_log.clear();
+        #[cfg(feature = "std")]
+        {
+            self.last_certificate = None;
+        }
 
         Ok(())
     }
@@ -455,9 +482,110 @@ impl TheoryCoordinator {
         self.current_level
     }
 
+    /// Get the last generated theory-combination proof certificate.
+    #[cfg(feature = "std")]
+    pub fn proof_certificate(&self) -> Option<&NelsonOppenCertificate> {
+        self.last_certificate.as_ref()
+    }
+
     /// Increment decision level
     pub fn increment_level(&mut self) {
         self.current_level += 1;
+    }
+
+    fn maybe_record_certificate_from_log(&mut self) {
+        #[cfg(feature = "std")]
+        {
+            if !self.config.proof_mode {
+                return;
+            }
+
+            self.last_certificate = self.build_certificate_from_log();
+        }
+    }
+
+    fn cached_theory_propagation(
+        &mut self,
+        theory_id: TheoryId,
+    ) -> Result<Vec<EqualityProp>, String> {
+        let level = self.current_level as u32;
+        let key = (theory_id, level);
+
+        if let Some(cached) = self.theory_propagation_cache.get(&key) {
+            return Ok(cached.clone());
+        }
+
+        let solver = self
+            .theories
+            .get(&theory_id)
+            .ok_or_else(|| format!("Theory {:?} not registered", theory_id))?;
+
+        let propagated: Vec<EqualityProp> = solver
+            .get_implied_equalities()
+            .into_iter()
+            .map(|(lhs, rhs)| EqualityProp {
+                lhs,
+                rhs,
+                source: theory_id,
+                explanation: vec![],
+            })
+            .collect();
+
+        self.theory_propagation_cache
+            .insert(key, propagated.clone());
+
+        Ok(propagated)
+    }
+
+    fn clear_above_level(&mut self, level: u32) {
+        self.theory_propagation_cache
+            .retain(|(_, cached_level), _| *cached_level <= level);
+    }
+
+    fn clear_from_level(&mut self, level: u32) {
+        self.theory_propagation_cache
+            .retain(|(_, cached_level), _| *cached_level < level);
+    }
+
+    #[cfg(feature = "std")]
+    fn build_certificate_from_log(&self) -> Option<NelsonOppenCertificate> {
+        let last_eq = self.propagated_equalities_log.last()?;
+        let mut certificate = NelsonOppenCertificate::new(
+            self.to_proof_theory_id(last_eq.source),
+            ProofNodeId(0),
+        );
+
+        for eq in &self.propagated_equalities_log {
+            let lhs = Self::to_proof_term_id(eq.lhs)?;
+            let rhs = Self::to_proof_term_id(eq.rhs)?;
+            certificate.add_step(CombinationStep {
+                theory: self.to_proof_theory_id(eq.source),
+                propagated_equalities: vec![(lhs, rhs)],
+                justification: Vec::new(),
+            });
+        }
+
+        Some(certificate)
+    }
+
+    #[cfg(feature = "std")]
+    fn to_proof_term_id(term: TermId) -> Option<ProofTermId> {
+        let raw = u32::try_from(term).ok()?;
+        Some(ProofTermId::new(raw))
+    }
+
+    #[cfg(feature = "std")]
+    const fn to_proof_theory_id(&self, theory: TheoryId) -> CombinationTheoryId {
+        let raw = match theory {
+            TheoryId::Core => 0,
+            TheoryId::Arithmetic => 1,
+            TheoryId::BitVector => 2,
+            TheoryId::Array => 3,
+            TheoryId::Datatype => 4,
+            TheoryId::String => 5,
+            TheoryId::Uninterpreted => 6,
+        };
+        CombinationTheoryId(raw)
     }
 }
 
@@ -469,6 +597,7 @@ mod tests {
     struct MockTheory {
         id: TheoryId,
         sat_result: SatResult,
+        implied_equalities: Vec<(TermId, TermId)>,
     }
 
     impl TheorySolver for MockTheory {
@@ -497,7 +626,7 @@ mod tests {
         }
 
         fn get_implied_equalities(&self) -> Vec<(TermId, TermId)> {
-            vec![]
+            self.implied_equalities.clone()
         }
 
         fn notify_equality(&mut self, _lhs: TermId, _rhs: TermId) -> Result<(), String> {
@@ -520,6 +649,7 @@ mod tests {
         let mock_theory = MockTheory {
             id: TheoryId::Arithmetic,
             sat_result: SatResult::Sat,
+            implied_equalities: Vec::new(),
         };
 
         coordinator.register_theory(Box::new(mock_theory));
@@ -534,6 +664,7 @@ mod tests {
         let mock_theory = MockTheory {
             id: TheoryId::Arithmetic,
             sat_result: SatResult::Sat,
+            implied_equalities: Vec::new(),
         };
 
         coordinator.register_theory(Box::new(mock_theory));
@@ -593,6 +724,7 @@ mod tests {
         let mock_theory = MockTheory {
             id: TheoryId::Arithmetic,
             sat_result: SatResult::Sat,
+            implied_equalities: Vec::new(),
         };
 
         coordinator.register_theory(Box::new(mock_theory));
@@ -615,6 +747,7 @@ mod tests {
         let mock_theory = MockTheory {
             id: TheoryId::Arithmetic,
             sat_result: SatResult::Sat,
+            implied_equalities: Vec::new(),
         };
 
         coordinator.register_theory(Box::new(mock_theory));
@@ -634,5 +767,39 @@ mod tests {
         let minimized = coordinator.minimize_conflict(conflict);
 
         assert_eq!(minimized, vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn test_theory_propagation_cache_clears_on_backtrack() {
+        let mut coordinator = TheoryCoordinator::new(CoordinatorConfig::default());
+        coordinator.register_theory(Box::new(MockTheory {
+            id: TheoryId::Arithmetic,
+            sat_result: SatResult::Sat,
+            implied_equalities: vec![(1, 2)],
+        }));
+
+        assert_eq!(
+            coordinator
+                .cached_theory_propagation(TheoryId::Arithmetic)
+                .expect("initial cache fill should succeed")
+                .len(),
+            1
+        );
+        assert_eq!(coordinator.theory_propagation_cache.len(), 1);
+
+        coordinator.increment_level();
+        assert_eq!(
+            coordinator
+                .cached_theory_propagation(TheoryId::Arithmetic)
+                .expect("level-one cache fill should succeed")
+                .len(),
+            1
+        );
+        assert_eq!(coordinator.theory_propagation_cache.len(), 2);
+
+        coordinator
+            .backtrack(0)
+            .expect("backtrack should clear higher-level cache entries");
+        assert_eq!(coordinator.theory_propagation_cache.len(), 1);
     }
 }

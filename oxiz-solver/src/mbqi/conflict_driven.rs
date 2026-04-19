@@ -21,7 +21,7 @@ use oxiz_core::sort::SortId;
 use smallvec::SmallVec;
 
 use super::model_completion::CompletedModel;
-use super::{Instantiation, InstantiationReason, QuantifiedFormula};
+use super::{Instantiation, InstantiationReason, QuantifiedFormula, QuantifierId};
 
 /// Configuration for conflict-driven instantiation
 #[derive(Debug, Clone)]
@@ -128,6 +128,52 @@ pub struct ConflictAnalysis {
     pub related_quantifiers: Vec<TermId>,
 }
 
+/// VSIDS-style conflict activity scores for quantifiers.
+#[derive(Debug, Clone)]
+pub struct ConflictScores {
+    /// Integer activity score by quantifier.
+    pub scores: HashMap<QuantifierId, u32>,
+    /// Multiplicative decay factor applied on restart.
+    pub decay_factor: f64,
+}
+
+impl ConflictScores {
+    /// Create a new score table.
+    pub fn new(decay_factor: f64) -> Self {
+        Self {
+            scores: HashMap::new(),
+            decay_factor,
+        }
+    }
+
+    /// Record a conflict for one quantifier.
+    pub fn record_conflict(&mut self, qid: QuantifierId) {
+        let entry = self.scores.entry(qid).or_insert(0);
+        *entry = entry.saturating_add(1);
+    }
+
+    /// Apply decay to all scores on restart.
+    pub fn decay_on_restart(&mut self) {
+        for score in self.scores.values_mut() {
+            *score = ((*score as f64) * self.decay_factor).round() as u32;
+        }
+    }
+
+    /// Return quantifiers in descending priority order.
+    pub fn priority_order(&self) -> Vec<QuantifierId> {
+        let mut ordered: Vec<_> = self.scores.iter().map(|(&qid, &score)| (qid, score)).collect();
+        ordered.sort_by(|(lhs_qid, lhs_score), (rhs_qid, rhs_score)| {
+            rhs_score.cmp(lhs_score).then_with(|| lhs_qid.cmp(rhs_qid))
+        });
+        ordered.into_iter().map(|(qid, _)| qid).collect()
+    }
+
+    /// Read one score.
+    pub fn score(&self, qid: QuantifierId) -> Option<u32> {
+        self.scores.get(&qid).copied()
+    }
+}
+
 /// Conflict-driven quantifier instantiation engine
 #[derive(Debug)]
 pub struct ConflictDrivenInstantiator {
@@ -141,6 +187,8 @@ pub struct ConflictDrivenInstantiator {
     dedup: FxHashMap<(TermId, Vec<(Spur, TermId)>), usize>,
     /// Current generation counter
     generation: u32,
+    /// Quantifier conflict activity
+    conflict_scores: ConflictScores,
     /// Statistics
     stats: CDQIStats,
 }
@@ -165,12 +213,14 @@ pub struct CDQIStats {
 impl ConflictDrivenInstantiator {
     /// Create a new conflict-driven instantiator
     pub fn new(config: CDQIConfig) -> Self {
+        let relevance_decay = config.relevance_decay;
         Self {
             config,
             tracked_instances: Vec::new(),
             quantifier_index: FxHashMap::default(),
             dedup: FxHashMap::default(),
             generation: 0,
+            conflict_scores: ConflictScores::new(relevance_decay),
             stats: CDQIStats::default(),
         }
     }
@@ -199,6 +249,9 @@ impl ConflictDrivenInstantiator {
 
         // Step 1: Analyze the conflict
         let analysis = self.extract_conflict_info(conflict_clause, quantifiers, manager);
+        for &qid in &analysis.related_quantifiers {
+            self.conflict_scores.record_conflict(qid);
+        }
 
         // Step 2: Bump relevance of existing instances that match
         self.bump_matching_instances(&analysis);
@@ -214,6 +267,16 @@ impl ConflictDrivenInstantiator {
         self.prune_low_relevance();
 
         new_instances
+    }
+
+    /// Apply restart-style decay to quantifier conflict activity.
+    pub fn decay_on_restart(&mut self) {
+        self.conflict_scores.decay_on_restart();
+    }
+
+    /// Access the quantifier conflict scores.
+    pub fn conflict_scores(&self) -> &ConflictScores {
+        &self.conflict_scores
     }
 
     /// Extract information from a conflict clause

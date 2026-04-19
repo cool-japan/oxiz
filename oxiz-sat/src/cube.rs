@@ -1,4 +1,4 @@
-use crate::literal::Lit;
+use crate::literal::{Lit, Var};
 /// Cube-and-Conquer: Advanced parallel SAT solving via search space partitioning.
 ///
 /// This module implements the Cube-and-Conquer technique, which partitions the search
@@ -107,6 +107,8 @@ pub struct CubeConfig {
     pub strategy: CubeSplittingStrategy,
     /// Enable adaptive depth adjustment
     pub adaptive_depth: bool,
+    /// Use VSIDS-style activity to adapt per-branch cube depth.
+    pub vsids_guided: bool,
 }
 
 impl Default for CubeConfig {
@@ -118,6 +120,7 @@ impl Default for CubeConfig {
             max_cube_size: 15,
             strategy: CubeSplittingStrategy::Lookahead,
             adaptive_depth: true,
+            vsids_guided: false,
         }
     }
 }
@@ -164,10 +167,30 @@ impl CubeGenerator {
         core::mem::take(&mut self.cubes)
     }
 
+    /// Generates cubes using VSIDS activity scores keyed by solver variables.
+    pub fn generate_vsids_guided(&self, activity_scores: &HashMap<Var, f64>) -> Vec<Cube> {
+        let mut ordered_scores = vec![0.0; self.num_vars];
+        for (&var, &score) in activity_scores {
+            if var.index() < ordered_scores.len() {
+                ordered_scores[var.index()] = score;
+            }
+        }
+
+        let mut generator = Self::new(
+            self.num_vars,
+            CubeConfig {
+                vsids_guided: true,
+                ..self.config.clone()
+            },
+        );
+        generator.generate(&ordered_scores)
+    }
+
     /// Recursively splits a cube into smaller cubes.
     fn split_recursive(&mut self, cube: Cube, variable_scores: &[f64]) {
         // Stop if we've reached max depth or target number of cubes
-        if cube.depth >= self.config.max_depth || self.cubes.len() >= self.config.target_cubes {
+        let depth_limit = self.depth_limit_for_cube(&cube, variable_scores);
+        if cube.depth >= depth_limit || self.cubes.len() >= self.config.target_cubes {
             if cube.len() >= self.config.min_cube_size && cube.is_consistent() {
                 self.cubes.push(cube);
             }
@@ -192,6 +215,35 @@ impl CubeGenerator {
                 self.cubes.push(cube);
             }
         }
+    }
+
+    fn depth_limit_for_cube(&self, cube: &Cube, variable_scores: &[f64]) -> usize {
+        if !self.config.vsids_guided {
+            return self.config.max_depth;
+        }
+
+        let avg_activity_sum = if variable_scores.is_empty() {
+            1.0
+        } else {
+            let total: f64 = variable_scores.iter().copied().sum();
+            (total / variable_scores.len() as f64).max(1.0)
+        };
+
+        let activity_sum = if cube.literals.is_empty() {
+            avg_activity_sum
+        } else {
+            cube.literals
+                .iter()
+                .map(|lit| variable_scores.get(lit.var().index()).copied().unwrap_or(0.0))
+                .sum::<f64>()
+                .max(avg_activity_sum)
+        };
+
+        let extra_depth = (activity_sum / avg_activity_sum).log2().max(0.0);
+        let guided_depth = self.config.max_depth as f64 + extra_depth;
+        guided_depth
+            .ceil()
+            .max(self.config.min_cube_size as f64) as usize
     }
 
     /// Selects the best variable to split on based on the strategy.
@@ -383,6 +435,7 @@ mod tests {
         assert_eq!(config.max_depth, 10);
         assert_eq!(config.target_cubes, 100);
         assert!(config.adaptive_depth);
+        assert!(!config.vsids_guided);
     }
 
     #[test]
@@ -403,6 +456,7 @@ mod tests {
             max_cube_size: 5,
             strategy: CubeSplittingStrategy::Activity,
             adaptive_depth: false,
+            vsids_guided: false,
         };
         let mut generator = CubeGenerator::new(5, config);
         let scores = vec![1.0, 0.9, 0.8, 0.7, 0.6];
@@ -463,6 +517,7 @@ mod tests {
                 min_cube_size: 1,
                 max_cube_size: 5,
                 adaptive_depth: false,
+                vsids_guided: false,
             };
 
             let mut generator = CubeGenerator::new(3, config);
@@ -482,6 +537,7 @@ mod tests {
             max_cube_size: 10,
             strategy: CubeSplittingStrategy::Activity,
             adaptive_depth: true,
+            vsids_guided: false,
         };
 
         let mut generator = CubeGenerator::new(3, config);
@@ -490,5 +546,29 @@ mod tests {
 
         // Adaptive depth should increase max_depth if needed
         assert!(generator.config().max_depth >= 2);
+    }
+
+    #[test]
+    fn test_cube_improve_vsids_guided() {
+        let config = CubeConfig {
+            max_depth: 2,
+            target_cubes: 8,
+            min_cube_size: 1,
+            max_cube_size: 6,
+            strategy: CubeSplittingStrategy::Activity,
+            adaptive_depth: false,
+            vsids_guided: true,
+        };
+
+        let generator = CubeGenerator::new(4, config);
+        let activity = HashMap::from([
+            (Var::new(0), 4.0),
+            (Var::new(1), 2.0),
+            (Var::new(2), 1.0),
+            (Var::new(3), 0.5),
+        ]);
+
+        let cubes = generator.generate_vsids_guided(&activity);
+        assert!(!cubes.is_empty());
     }
 }

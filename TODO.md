@@ -155,22 +155,22 @@ OxiZ is not just a Z3 port - it surpasses Z3 in critical areas:
   - [x] Parser performance
   - [x] Cache miss analysis
 
-- [~] Additional performance improvements (5 of 6 sub-items; JIT deferred) (planned 2026-04-19)
+- [x] Additional performance improvements (5 of 6 sub-items; JIT deferred) (planned 2026-04-19)
   - **Goal:** Five concrete allocation-reduction fixes: in-place watchlist updates, SmallVec for EClass::nodes, incremental theory cache, cache-friendly Clause layout, allocation-free EUF propagation.
   - **Design:** (1) `oxiz-sat/src/cdcl/propagation.rs` — swap_remove+clear vs Vec::clone; (2) `SmallVec<[Term;4]>` for `oxiz-core/src/egraph/eclass.rs::EClass::nodes`; (3) memo `(theory_id, level)→propagation set` in coordinator.rs; (4) hot-field-first struct layout in `oxiz-sat/src/clause.rs`; (5) per-solver reuse buffer in `oxiz-theories/src/euf/solver.rs`.
   - **Files:** `oxiz-sat/src/cdcl/propagation.rs`, `oxiz-core/src/egraph/eclass.rs`, `oxiz-solver/src/combination/coordinator.rs`, `oxiz-sat/src/clause.rs`, `oxiz-theories/src/euf/solver.rs`.
   - **Tests:** new `oxiz-sat/tests/allocation_reduction.rs` with dhat-heap counts; per-fix unit tests.
-  - [ ] Reduce allocations further (in-place updates)
-  - [ ] Better data structure choices (profiling-driven)
-  - [ ] Incremental computation caching
+  - [x] Reduce allocations further (in-place updates)
+  - [x] Better data structure choices (profiling-driven)
+  - [x] Incremental computation caching
   - [ ] JIT-style specialization for hot theory operations
-  - [ ] Memory layout optimization
-  - [ ] Allocation-free theory propagation paths
+  - [x] Memory layout optimization
+  - [x] Allocation-free theory propagation paths
 
 - [x] Performance regression testing (3 items)
-  - [~] CI/CD integration for performance tracking (planned 2026-04-19)
-  - [~] Automated benchmark comparison vs Z3 (planned 2026-04-19)
-  - [~] Performance dashboard (planned 2026-04-19)
+  - [x] CI/CD integration for performance tracking (planned 2026-04-19)
+  - [x] Automated benchmark comparison vs Z3 (planned 2026-04-19)
+  - [x] Performance dashboard (planned 2026-04-19)
 
 **Target**: Within 1.2x of Z3 performance by v0.3.0
 
@@ -217,10 +217,10 @@ OxiZ is not just a Z3 port - it surpasses Z3 in critical areas:
   - [ ] Quantifier elimination enhancements
   - [ ] MBQI performance tuning
 
-- [~] Proof system enhancements (3 items) (planned 2026-04-19)
-  - [~] Optimized proof generation (reduce overhead) (planned 2026-04-19)
+- [x] Proof system enhancements (3 items) (planned 2026-04-19)
+  - [x] Optimized proof generation (reduce overhead) (planned 2026-04-19)
   - [x] Proof minimization
-  - [~] Better theory combination proofs (planned 2026-04-19)
+  - [x] Better theory combination proofs (planned 2026-04-19)
   - **Goal:** (a) bumpalo arena for ProofStep allocation in recorder.rs; (b) structured Nelson–Oppen combination certificate in new theory_combination.rs.
   - **Design:** `oxiz-proof/src/recorder.rs` — steps arena (ArenaIdx<ProofStep>); new `oxiz-proof/src/theory_combination.rs` — NelsonOppenCertificate with interface-equality chain.
   - **Files:** `oxiz-proof/src/recorder.rs`, `oxiz-proof/src/lib.rs`, `oxiz-proof/src/theory_combination.rs` (new), `oxiz-solver/src/combination/coordinator.rs`.

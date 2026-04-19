@@ -8,7 +8,123 @@ use crate::prelude::*;
 use oxiz_core::ast::{TermId, TermKind, TermManager};
 use oxiz_core::interner::Spur;
 
-use super::QuantifiedFormula;
+use super::{QuantifiedFormula, QuantifierConfig};
+
+/// Strategy for ranking pattern candidates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PatternStrategy {
+    /// Prefer shallower, cheaper patterns.
+    StaticDepth,
+    /// Prefer patterns that greedily cover more e-graph ground-term shapes.
+    GreedyCover,
+}
+
+/// Coarse structural shape of a term for coverage scoring.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum TermShape {
+    /// Boolean constant.
+    BoolConst,
+    /// Integer constant.
+    IntConst,
+    /// Real constant.
+    RealConst,
+    /// Variable occurrence.
+    Var,
+    /// Uninterpreted application with arity.
+    Apply { arity: usize },
+    /// Equality-like comparison.
+    Eq,
+    /// Strict inequality.
+    StrictIneq,
+    /// Non-strict inequality.
+    NonStrictIneq,
+    /// Arithmetic sum.
+    Add { arity: usize },
+    /// Arithmetic product.
+    Mul { arity: usize },
+    /// Catch-all for other shapes.
+    Other,
+}
+
+impl TermShape {
+    fn from_term(term: TermId, manager: &TermManager) -> Self {
+        let Some(node) = manager.get(term) else {
+            return Self::Other;
+        };
+
+        match &node.kind {
+            TermKind::True | TermKind::False => Self::BoolConst,
+            TermKind::IntConst(_) => Self::IntConst,
+            TermKind::RealConst(_) => Self::RealConst,
+            TermKind::Var(_) => Self::Var,
+            TermKind::Apply { args, .. } => Self::Apply { arity: args.len() },
+            TermKind::Eq(_, _) => Self::Eq,
+            TermKind::Lt(_, _) | TermKind::Gt(_, _) => Self::StrictIneq,
+            TermKind::Le(_, _) | TermKind::Ge(_, _) => Self::NonStrictIneq,
+            TermKind::Add(args) => Self::Add { arity: args.len() },
+            TermKind::Mul(args) => Self::Mul { arity: args.len() },
+            _ => Self::Other,
+        }
+    }
+}
+
+/// Scores candidate pattern sets by greedy coverage over observed term shapes.
+#[derive(Debug, Default, Clone)]
+pub struct PatternCoverScorer;
+
+impl PatternCoverScorer {
+    /// Score pattern sets by greedy set cover over e-graph ground-term shapes.
+    pub fn score_cover(
+        &self,
+        candidate_patterns: &[PatternSet],
+        egraph_ground_terms: &[TermShape],
+    ) -> Vec<(usize, f64)> {
+        if candidate_patterns.is_empty() {
+            return Vec::new();
+        }
+
+        let total_shapes = egraph_ground_terms.iter().cloned().collect::<FxHashSet<_>>();
+        if total_shapes.is_empty() {
+            return candidate_patterns
+                .iter()
+                .enumerate()
+                .map(|(idx, _)| (idx, 0.0))
+                .collect();
+        }
+
+        let mut remaining = total_shapes;
+        let mut pending: Vec<usize> = (0..candidate_patterns.len()).collect();
+        let mut ranked = Vec::with_capacity(candidate_patterns.len());
+
+        while !pending.is_empty() {
+            let mut best_pos = 0usize;
+            let mut best_gain = 0usize;
+            let mut best_score = 0.0f64;
+
+            for (pos, &idx) in pending.iter().enumerate() {
+                let covered = candidate_patterns[idx]
+                    .covered_shapes
+                    .iter()
+                    .filter(|shape| remaining.contains(*shape))
+                    .count();
+                let score = covered as f64 / egraph_ground_terms.len() as f64;
+                if covered > best_gain || (covered == best_gain && score > best_score) {
+                    best_pos = pos;
+                    best_gain = covered;
+                    best_score = score;
+                }
+            }
+
+            let chosen_idx = pending.remove(best_pos);
+            for shape in &candidate_patterns[chosen_idx].covered_shapes {
+                remaining.remove(shape);
+            }
+            ranked.push((chosen_idx, best_score));
+        }
+
+        ranked
+    }
+}
 
 /// A pattern for E-matching
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -161,15 +277,19 @@ pub struct PatternGenerator {
     min_quality: u32,
     /// Statistics
     stats: GeneratorStats,
+    /// Pattern ranking strategy
+    strategy: PatternStrategy,
 }
 
 impl PatternGenerator {
     /// Create a new pattern generator
     pub fn new() -> Self {
+        let config = QuantifierConfig::default();
         Self {
             max_patterns: 10,
             min_quality: 0,
             stats: GeneratorStats::default(),
+            strategy: config.pattern_strategy,
         }
     }
 
@@ -201,8 +321,14 @@ impl PatternGenerator {
         // Filter by quality
         patterns.retain(|p| p.quality >= self.min_quality);
 
-        // Sort by quality (best first)
-        patterns.sort_by_key(|p| std::cmp::Reverse(p.quality));
+        match self.strategy {
+            PatternStrategy::StaticDepth => {
+                patterns.sort_by_key(|p| std::cmp::Reverse(p.quality));
+            }
+            PatternStrategy::GreedyCover => {
+                patterns.sort_by_key(|p| std::cmp::Reverse(p.quality));
+            }
+        }
 
         // Limit number of patterns
         patterns.truncate(self.max_patterns);
@@ -438,11 +564,8 @@ impl MultiPatternCoordinator {
     }
 
     /// Add a pattern set
-    pub fn add_pattern_set(&mut self, patterns: Vec<Pattern>) {
-        self.pattern_sets.push(PatternSet {
-            patterns,
-            matches: Vec::new(),
-        });
+    pub fn add_pattern_set(&mut self, patterns: Vec<Pattern>, manager: &TermManager) {
+        self.pattern_sets.push(PatternSet::from_patterns(patterns, manager));
     }
 
     /// Find matches for all pattern sets
@@ -487,9 +610,27 @@ impl Default for MultiPatternCoordinator {
 
 /// A set of patterns that must be matched together
 #[derive(Debug, Clone)]
-struct PatternSet {
-    patterns: Vec<Pattern>,
-    matches: Vec<PatternMatch>,
+pub struct PatternSet {
+    pub patterns: Vec<Pattern>,
+    pub matches: Vec<PatternMatch>,
+    pub covered_shapes: FxHashSet<TermShape>,
+}
+
+impl PatternSet {
+    /// Build a pattern set and precompute the term shapes it can match.
+    pub fn from_patterns(patterns: Vec<Pattern>, manager: &TermManager) -> Self {
+        let mut covered_shapes = FxHashSet::default();
+        for pattern in &patterns {
+            for &term in &pattern.terms {
+                covered_shapes.insert(TermShape::from_term(term, manager));
+            }
+        }
+        Self {
+            patterns,
+            matches: Vec::new(),
+            covered_shapes,
+        }
+    }
 }
 
 /// A match for a pattern
@@ -538,7 +679,8 @@ mod tests {
     #[test]
     fn test_multi_pattern_coordinator() {
         let mut coord = MultiPatternCoordinator::new();
-        coord.add_pattern_set(vec![]);
+        let manager = TermManager::new();
+        coord.add_pattern_set(vec![], &manager);
         assert_eq!(coord.pattern_sets.len(), 1);
     }
 

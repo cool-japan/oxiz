@@ -18,6 +18,7 @@ doc = false
 oxiz-core = { workspace = true, features = ["std"] }
 oxiz-solver = { workspace = true, features = ["std"] }
 oxiz-proof = { workspace = true }
+oxiz-smtcomp = { workspace = true }
 clap = { workspace = true }
 clap_complete = { workspace = true }
 tracing = { workspace = true, features = ["std"] }

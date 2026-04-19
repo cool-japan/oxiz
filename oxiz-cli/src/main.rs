@@ -41,6 +41,37 @@ use format::{
 use interactive::run_interactive;
 use processor::{run_files, run_stdin, run_watch};
 
+#[derive(Parser, Debug)]
+struct PerfDashboardRenderArgs {
+    /// Directory containing performance regression history JSON files
+    #[arg(long, value_name = "DIR")]
+    perf: PathBuf,
+    /// Output directory for the rendered static dashboard
+    #[arg(long, value_name = "DIR")]
+    output: PathBuf,
+}
+
+fn maybe_handle_dashboard_render_command() -> anyhow::Result<bool> {
+    let raw_args = std::env::args_os().collect::<Vec<_>>();
+    let Some(command) = raw_args.get(1).and_then(|arg| arg.to_str()) else {
+        return Ok(false);
+    };
+    let Some(subcommand) = raw_args.get(2).and_then(|arg| arg.to_str()) else {
+        return Ok(false);
+    };
+
+    if command != "dashboard" || subcommand != "render" {
+        return Ok(false);
+    }
+
+    let parse_args = std::iter::once(raw_args[0].clone())
+        .chain(raw_args.into_iter().skip(3))
+        .collect::<Vec<_>>();
+    let args = PerfDashboardRenderArgs::try_parse_from(parse_args)?;
+    dashboard::perf::render_perf_dashboard(&args.perf, &args.output)?;
+    Ok(true)
+}
+
 /// Configuration file structure
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct CliConfig {
@@ -533,6 +564,15 @@ enum InputFormat {
 
 #[tokio::main]
 async fn main() {
+    match maybe_handle_dashboard_render_command() {
+        Ok(true) => return,
+        Ok(false) => {}
+        Err(error) => {
+            eprintln!("Dashboard render error: {error}");
+            std::process::exit(1);
+        }
+    }
+
     let mut args = Args::parse();
 
     // Handle completion generation

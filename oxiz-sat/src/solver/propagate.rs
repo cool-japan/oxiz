@@ -1,18 +1,14 @@
 //! Unit propagation (BCP) and binary implication graph
 
 use super::*;
-use smallvec::SmallVec;
 #[cfg(feature = "profiling")]
 use crate::profiling::{ProfilingCategory, ScopedTimer};
 
 impl Solver {
     /// Unit propagation using two-watched literals
     ///
-    /// Uses SIMD-friendly batch blocker pre-filtering: before entering the
-    /// fine-grained per-watcher loop, we check blockers in chunks of 8.
-    /// Watchers whose blockers are satisfied are fast-tracked back into the
-    /// watch list without touching the clause database, which is the most
-    /// expensive part of propagation.
+    /// Updates the current watch list in place so propagation does not rebuild
+    /// the list through repeated pushes into a freshly emptied buffer.
     pub(super) fn propagate(&mut self) -> Option<ClauseId> {
         #[cfg(feature = "profiling")]
         let _timer = ScopedTimer::new(ProfilingCategory::SatPropagation);
@@ -20,8 +16,9 @@ impl Solver {
             self.stats.propagations += 1;
 
             // First, propagate binary implications (faster)
-            let binary_implications = self.binary_graph.get(lit).to_vec();
-            for &(implied_lit, clause_id) in &binary_implications {
+            let binary_len = self.binary_graph.get(lit).len();
+            for idx in 0..binary_len {
+                let (implied_lit, clause_id) = self.binary_graph.get(lit)[idx];
                 let value = self.trail.lit_value(implied_lit);
                 if value.is_false() {
                     // Conflict in binary clause
@@ -37,63 +34,25 @@ impl Solver {
                 }
             }
 
-            // Get watches for the negation of the propagated literal
-            let watches = core::mem::take(self.watches.get_mut(lit));
-
-            // === SIMD-friendly blocker pre-filter ===
-            // Process watchers in chunks of 8. For each chunk, check blockers
-            // in a tight loop that LLVM can auto-vectorize. Watchers whose
-            // blockers are already satisfied are immediately pushed back to
-            // the watch list (skipping the expensive clause database lookup).
-            // Non-satisfied watchers are collected for detailed processing.
-            const SIMD_CHUNK: usize = 8;
-            let mut needs_processing: SmallVec<[usize; 64]> = SmallVec::new();
-
-            // Batch blocker check in SIMD-friendly chunks
-            let mut chunk_start = 0;
-            while chunk_start + SIMD_CHUNK <= watches.len() {
-                // Tight loop over chunk for auto-vectorization of blocker checks
-                let mut satisfied_mask: [bool; SIMD_CHUNK] = [false; SIMD_CHUNK];
-                for k in 0..SIMD_CHUNK {
-                    satisfied_mask[k] = self
-                        .trail
-                        .lit_value(watches[chunk_start + k].blocker)
-                        .is_true();
-                }
-
-                // Dispatch based on mask
-                for (k, &satisfied) in satisfied_mask.iter().enumerate() {
-                    let idx = chunk_start + k;
-                    if satisfied {
-                        // Blocker is satisfied - fast path: push back directly
-                        self.watches.get_mut(lit).push(watches[idx]);
-                    } else {
-                        // Needs detailed processing
-                        needs_processing.push(idx);
-                    }
-                }
-                chunk_start += SIMD_CHUNK;
-            }
-
-            // Handle remaining watchers (< SIMD_CHUNK) with scalar blocker check
-            for idx in chunk_start..watches.len() {
-                if self.trail.lit_value(watches[idx].blocker).is_true() {
-                    self.watches.get_mut(lit).push(watches[idx]);
-                } else {
-                    needs_processing.push(idx);
-                }
-            }
-
-            // === Detailed processing for non-satisfied watchers ===
+            // Take the current watch list, mutate it in place, then move it
+            // back once propagation for this literal is finished.
+            let mut watches = core::mem::take(self.watches.get_mut(lit));
             let mut conflict_found: Option<ClauseId> = None;
+            let mut watch_idx = 0;
 
-            for (proc_idx, &wi) in needs_processing.iter().enumerate() {
-                let watcher = watches[wi];
+            while watch_idx < watches.len() {
+                let watcher = watches[watch_idx];
+
+                if self.trail.lit_value(watcher.blocker).is_true() {
+                    watch_idx += 1;
+                    continue;
+                }
 
                 let clause = match self.clauses.get_mut(watcher.clause) {
                     Some(c) if !c.deleted => c,
                     _ => {
-                        // Deleted clause - skip, don't re-add to watch list
+                        // Deleted clause - remove its watcher in place.
+                        watches.swap_remove(watch_idx);
                         continue;
                     }
                 };
@@ -106,10 +65,8 @@ impl Solver {
                 // If first watch is true, clause is satisfied
                 let first = clause.lits[0];
                 if self.trail.lit_value(first).is_true() {
-                    // Update blocker to the satisfied literal
-                    self.watches
-                        .get_mut(lit)
-                        .push(Watcher::new(watcher.clause, first));
+                    watches[watch_idx] = Watcher::new(watcher.clause, first);
+                    watch_idx += 1;
                     continue;
                 }
 
@@ -121,6 +78,7 @@ impl Solver {
                         clause.swap(1, j);
                         self.watches
                             .add(clause.lits[1].negate(), Watcher::new(watcher.clause, first));
+                        watches.swap_remove(watch_idx);
                         found = true;
                         break;
                     }
@@ -131,15 +89,9 @@ impl Solver {
                 }
 
                 // No new watch found - clause is unit or conflicting
-                self.watches
-                    .get_mut(lit)
-                    .push(Watcher::new(watcher.clause, first));
+                watches[watch_idx] = Watcher::new(watcher.clause, first);
 
                 if self.trail.lit_value(first).is_false() {
-                    // Conflict - push remaining unprocessed watchers back
-                    for &remaining_wi in &needs_processing[(proc_idx + 1)..] {
-                        self.watches.get_mut(lit).push(watches[remaining_wi]);
-                    }
                     conflict_found = Some(watcher.clause);
                     break;
                 } else {
@@ -150,8 +102,12 @@ impl Solver {
                     if self.config.enable_lazy_hyper_binary {
                         self.check_hyper_binary_resolution(lit, first, watcher.clause);
                     }
+
+                    watch_idx += 1;
                 }
             }
+
+            *self.watches.get_mut(lit) = watches;
 
             if let Some(conflict) = conflict_found {
                 return Some(conflict);

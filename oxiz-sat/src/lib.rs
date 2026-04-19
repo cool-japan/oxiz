@@ -119,6 +119,8 @@ mod solver;
 mod stabilization;
 mod subsumption;
 mod symmetry;
+#[cfg(feature = "std")]
+pub mod tactics;
 mod target_phase;
 mod trail;
 mod trail_saving;
@@ -222,6 +224,8 @@ pub use symmetry::{
     AutomorphismDetector, MatrixSymmetry, Permutation, SymmetryBreaker, SymmetryBreakingMethod,
     SymmetryGroup,
 };
+#[cfg(feature = "std")]
+pub use tactics::{CubeImproveTactic, SymmetryBreakTactic};
 pub use target_phase::{PhaseMode, TargetPhaseSelector, TargetPhaseStats};
 pub use trail::{Reason, Trail};
 pub use trail_saving::{SavedTrail, TrailSavingManager, TrailSavingStats};
