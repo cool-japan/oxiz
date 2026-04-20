@@ -287,14 +287,6 @@ OxiZ is not just a Z3 port - it surpasses Z3 in critical areas:
   - **Risk:** maturin unavailable. Mitigation: .py and .md files land regardless; test run is skipped.
   - **Scope cap:** ≤700 LoC net-new. ≤3 new PyO3 wrappers × ≤50 LoC each if needed.
   - [ ] JavaScript/TypeScript bindings (via WASM)
-  - [ ] Java bindings (via JNI or native)
-  - [x] C API for compatibility (planned 2026-04-19)
-  - **Goal:** Phase 1 only — create minimal `oxiz-c` workspace crate (excluded from default-members) with 12 `extern "C"` functions: context/solver lifecycle, assert-smtlib2, check-sat, push/pop, model-as-string, string free. cbindgen for header. Rust-side FFI smoke tests.
-  - **Design:** `crate-type = ["cdylib", "staticlib"]`. Opaque handles: `OxizContext`, `OxizSolver`, `OxizModelString`. Error codes: `OxizError { Ok=0, NullPointer, InvalidUtf8, ParseError, SolverError, Unimplemented, OutOfMemory }`. Null-check all pointers (no unwrap). Header generated only under `OXIZ_C_GEN_HEADER=1` env var to reduce build noise. Pure Rust (cbindgen is `[build-dependencies]` only).
-  - **Files:** new `oxiz-c/` with `Cargo.toml`, `src/{lib,error,context,solver,model}.rs`, `cbindgen.toml`, `build.rs`, `include/` (header), `tests/ffi_smoke.rs`. Root `Cargo.toml`: add `oxiz-c` to `members`, exclude from `default-members`.
-  - **Tests:** `ffi_smoke.rs` — Rust-side `extern "C"` calls, 3 scenarios: (a) version/error strings; (b) full assert→check→sat lifecycle; (c) push/pop unsat-recovery.
-  - **Risk:** cbindgen header churn on every build. Mitigation: `OXIZ_C_GEN_HEADER` env-var gate.
-  - **Scope cap (HARD):** ≤1000 LoC total. No term-handle ABI, tactic ABI, model-eval ABI, or callbacks — Phase 2+ only.
 
 - [ ] Tool integration (3 items)
   - [ ] SMT-COMP 2026 participation
@@ -613,7 +605,6 @@ oxiz-core (foundation)
 
 - **JIT-style specialization** (root TODO.md:158) — defer to v0.4.0 (oversized: requires IR + codegen layer).
 - **JS/TS bindings via WASM** (root TODO.md:233) — defer until `oxiz-wasm` npm publish is authorized.
-- **Java bindings** (root TODO.md:234) — oversized (new `oxiz-jni` subcrate + JNI surface); scope separately.
 - **SMT-COMP 2026 participation** (root TODO.md:238) — gated on SMT-COMP submission portal (opens ~May 2026).
 - **Symbolic execution tool integration** (root TODO.md:239) — vague; re-scope after user selects target (KLEE/angr/S2E).
 - **Verification framework integration** (root TODO.md:240) — vague; re-scope after user selects target (Frama-C/CBMC/SeaHorn).

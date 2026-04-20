@@ -1,5 +1,0 @@
-language = "C"
-include_guard = "OXIZ_H"
-tab_width = 4
-documentation_style = "c99"
-include_version = true
