@@ -4,7 +4,7 @@ Machine learning-guided heuristics for the OxiZ SMT solver, providing adaptive b
 
 | Metric | Value |
 |:-------|:------|
-| Version | 0.2.0 |
+| Version | 0.2.1 |
 | Status | Alpha |
 | Release Date | 2026-04-04 |
 | Source Files | 27 |

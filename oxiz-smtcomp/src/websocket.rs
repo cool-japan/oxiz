@@ -1,7 +1,7 @@
 //! WebSocket-based real-time progress monitoring for parallel benchmark runs.
 //!
 //! This module provides a lightweight WebSocket server that broadcasts
-//! [`ParallelProgress`] events as JSON to all connected clients.
+//! `ParallelProgress` events as JSON to all connected clients.
 //!
 //! # Feature Gate
 //!

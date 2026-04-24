@@ -19,5 +19,5 @@ pub use incremental::{
     ENode, TheoryPropagator,
 };
 pub use proof::{Conflict, ProofForest, ProofManager, ProofStep};
-pub use solver::{ENodeFingerprint, EufSolver};
+pub use solver::{ENodeFingerprint, EufSolver, FunctionProperties};
 pub use union_find::UnionFind;

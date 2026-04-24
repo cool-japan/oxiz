@@ -10,7 +10,7 @@
 //! further processing.
 //!
 //! The production [`oxiz_spacer::Bmc`] solver (in `oxiz_spacer::bmc`) is
-//! completely distinct: it operates on a full [`oxiz_spacer::chc::ChcSystem`],
+//! completely distinct: it operates on a full [`crate::chc::ChcSystem`],
 //! runs CHC/PDR-based model checking internally, and returns a
 //! [`oxiz_spacer::bmc::BmcResult`].  Use `BmcUnrollTactic` for tactic pipeline
 //! preprocessing, and `Bmc` for end-to-end model-checking queries.

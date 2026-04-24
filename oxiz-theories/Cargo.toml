@@ -50,3 +50,7 @@ criterion = { workspace = true }
 [[bench]]
 name = "simplex_benchmarks"
 harness = false
+
+[[bench]]
+name = "euf_benchmarks"
+harness = false

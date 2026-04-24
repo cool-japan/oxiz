@@ -2,7 +2,7 @@
 
 Main CDCL(T) SMT solver orchestration for OxiZ.
 
-**Version**: 0.2.0 | **Status**: Stable | **Tests**: 505 passing (1 skipped) | **LoC**: 39,327 (76 files) | **Public API**: 1,371 items
+**Version**: 0.2.1 | **Status**: Stable | **Tests**: 602 passing (1 skipped) | **LoC**: 39,327 (76 files) | **Public API**: 1,371 items
 
 ## Overview
 

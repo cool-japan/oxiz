@@ -514,7 +514,7 @@ fn structural_complexity_score(meta: &BenchmarkMeta) -> f64 {
 ///
 /// When historical timing data is available for a benchmark, it is used
 /// directly as the difficulty score. For benchmarks without timing data, the
-/// function falls back to [`structural_complexity_score`] so that uncharted
+/// function falls back to `structural_complexity_score` so that uncharted
 /// benchmarks are still ordered by estimated difficulty rather than all
 /// receiving the same `f64::MAX` sentinel.
 pub fn sample_by_difficulty(

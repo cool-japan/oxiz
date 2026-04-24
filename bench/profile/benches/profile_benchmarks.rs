@@ -2,7 +2,7 @@ use bench_profile::{parser_script, run_script, sat_propagation_script, theory_ch
 use criterion::{Criterion, criterion_group, criterion_main};
 use num_rational::Rational64;
 use oxiz_core::RewriteContext;
-use oxiz_core::ast::{EGraph, ENode, ENodeKind, TermId, TermManager};
+use oxiz_core::ast::{TermId, TermManager};
 use oxiz_core::profiling::{ProfilingCategory, ProfilingStats};
 use oxiz_core::rewrite::{CombinedRewriter, Rewriter};
 use oxiz_proof::ProofRecorder;
@@ -12,6 +12,7 @@ use oxiz_theories::Theory;
 use oxiz_theories::arithmetic::{LinExpr, Simplex};
 use oxiz_theories::array::ArraySolver;
 use oxiz_theories::bv::{Constraint as BvConstraint, Interval, WordLevelPropagator};
+use oxiz_theories::euf::{EufSolver, FunctionProperties};
 use oxiz_theories::string::{ConstraintAutomaton, Dfa};
 use std::hint::black_box;
 
@@ -97,16 +98,61 @@ fn bench_egraph_merge(c: &mut Criterion) {
     let mut group = c.benchmark_group(ProfilingCategory::EGraphMerge.as_str());
     group.bench_function("merge", |b| {
         b.iter(|| {
-            let mut egraph = EGraph::new();
-            let lhs = egraph.add(ENode {
-                kind: ENodeKind::Var("x".to_string()),
-                children: Vec::new(),
-            });
-            let rhs = egraph.add(ENode {
-                kind: ENodeKind::Var("y".to_string()),
-                children: Vec::new(),
-            });
-            black_box(egraph.merge(lhs, rhs))
+            // Exercise the production EufSolver on a realistic congruence-closure workload:
+            //   - 10 leaf terms: x_0..x_4 and y_0..y_4
+            //   - Function symbol 0 (f, commutative): 5 binary apps f(x_i, y_i)
+            //   - Function symbol 1 (g, plain): 5 unary apps g(x_i) and 5 unary apps g(y_i)
+            //   - Merge x_i = y_i for i in 0..5; congruence must derive g(x_i) = g(y_i)
+            //   - black_box the equality checks so the optimizer cannot elide the work
+            let mut solver = EufSolver::new();
+
+            // Register f as commutative so canonicalize_args fires (exercises hot path).
+            solver.register_function(
+                0,
+                FunctionProperties {
+                    associative: false,
+                    commutative: true,
+                    has_identity: false,
+                },
+            );
+            // g (symbol 1) has no special properties.
+
+            const N: u32 = 5;
+
+            // Intern leaf terms: x_i => TermId 1..=5, y_i => TermId 6..=10
+            let mut xs = [0u32; N as usize];
+            let mut ys = [0u32; N as usize];
+            for i in 0..N {
+                xs[i as usize] = solver.intern(TermId::new(1 + i));
+                ys[i as usize] = solver.intern(TermId::new(1 + N + i));
+            }
+
+            // Intern app terms:
+            //   f(x_i, y_i): TermId 11..=15
+            //   g(x_i):      TermId 16..=20
+            //   g(y_i):      TermId 21..=25
+            let mut gxs = [0u32; N as usize];
+            let mut gys = [0u32; N as usize];
+            for i in 0..N {
+                let _fxy =
+                    solver.intern_app(TermId::new(11 + i), 0, [xs[i as usize], ys[i as usize]]);
+                gxs[i as usize] = solver.intern_app(TermId::new(16 + i), 1, [xs[i as usize]]);
+                gys[i as usize] = solver.intern_app(TermId::new(21 + i), 1, [ys[i as usize]]);
+            }
+
+            // Merge x_i = y_i; congruence closure must derive g(x_i) = g(y_i).
+            for i in 0..N {
+                solver
+                    .merge(xs[i as usize], ys[i as usize], TermId::new(100 + i))
+                    .expect("euf merge");
+            }
+
+            // Observe congruence results so the optimizer cannot elide the work.
+            let mut all_equal = true;
+            for i in 0..N {
+                all_equal &= solver.are_equal(gxs[i as usize], gys[i as usize]);
+            }
+            black_box(all_equal)
         });
     });
     group.finish();

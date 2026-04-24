@@ -9,8 +9,23 @@ use oxiz_core::ast::TermId;
 use oxiz_core::error::Result;
 use smallvec::SmallVec;
 
-/// Signature update entry: (signature, node_id, fingerprint)
-type SigUpdateEntry = ((u32, SmallVec<[u32; 4]>), u32, ENodeFingerprint);
+/// Signature update entry used in batched congruence-closure updates.
+#[derive(Debug)]
+struct SigUpdateEntry {
+    func: u32,
+    args: SmallVec<[u32; 4]>,
+    node: u32,
+    fp: ENodeFingerprint,
+}
+
+/// Records an insertion into sig_table or fingerprint_table for undo on pop().
+#[derive(Debug, Clone)]
+enum SigTrailEntry {
+    /// Inserted key into sig_table; undo removes this key.
+    InsertedSig { key: (u32, SmallVec<[u32; 4]>) },
+    /// Pushed node_idx into fingerprint_table[fp]; undo removes it from the bucket.
+    InsertedFingerprint { fp: ENodeFingerprint, node_idx: u32 },
+}
 
 /// Function properties for dynamic arity support
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -54,15 +69,57 @@ impl ENodeFingerprint {
 /// A term node in the E-graph
 #[derive(Debug, Clone)]
 struct ENode {
-    /// The original term
-    #[allow(dead_code)]
-    term: TermId,
-    /// Function symbol (for function applications)
-    func: Option<u32>,
+    /// Function symbol index; `u32::MAX` (= `ENode::NO_FUNC`) means leaf (no application).
+    /// Placed first so that the hot `func` discriminant is at offset 0 of the struct.
+    func: u32,
+    /// 64-bit fingerprint for fast congruence pre-filtering.
+    /// Placed second (after the 4-byte func + 4-byte implicit pad) so it aligns to 8 bytes
+    /// without additional padding waste.
+    fingerprint: ENodeFingerprint,
     /// Arguments (indices into nodes)
     args: SmallVec<[u32; 4]>,
-    /// 64-bit fingerprint for fast congruence pre-filtering
-    fingerprint: ENodeFingerprint,
+    /// The original term
+    term: TermId,
+}
+
+impl ENode {
+    /// Sentinel value meaning "no function symbol" (leaf node).
+    const NO_FUNC: u32 = u32::MAX;
+
+    /// Create a leaf node (no function application).
+    fn leaf(term: TermId) -> Self {
+        ENode {
+            func: Self::NO_FUNC,
+            fingerprint: ENodeFingerprint::default(),
+            args: SmallVec::new(),
+            term,
+        }
+    }
+
+    /// Create a function application node.
+    fn app(
+        func: u32,
+        args: SmallVec<[u32; 4]>,
+        fingerprint: ENodeFingerprint,
+        term: TermId,
+    ) -> Self {
+        debug_assert!(
+            func != Self::NO_FUNC,
+            "func must not be u32::MAX (reserved sentinel)"
+        );
+        ENode {
+            func,
+            fingerprint,
+            args,
+            term,
+        }
+    }
+
+    /// Returns true if this node is a function application (not a leaf).
+    #[inline]
+    fn is_app(&self) -> bool {
+        self.func != Self::NO_FUNC
+    }
 }
 
 /// Disequality constraint
@@ -120,12 +177,24 @@ pub struct EufSolver {
     fingerprint_table: FxHashMap<ENodeFingerprint, SmallVec<[u32; 4]>>,
     /// Context stack for push/pop
     context_stack: Vec<ContextState>,
-    /// Proof forest: for each node, edges to explain equalities
-    proof_forest: Vec<Vec<MergeEdge>>,
+    /// Proof forest: for each node, edges to explain equalities.
+    /// SmallVec<[MergeEdge; 4]> avoids heap allocation for nodes with ≤4 proof edges,
+    /// which covers the vast majority of E-graph nodes in practice.
+    proof_forest: Vec<SmallVec<[MergeEdge; 4]>>,
     /// Function properties for dynamic arity support
     function_properties: FxHashMap<u32, FunctionProperties>,
     /// Reused queue for newly discovered propagations during congruence closure.
     propagation_buf: Vec<(u32, u32, TermId)>,
+    /// Undo trail for sig_table and fingerprint_table insertions.
+    sig_trail: Vec<SigTrailEntry>,
+    /// Scope checkpoints into sig_trail, parallel to uf.trail_limits.
+    sig_trail_limits: Vec<usize>,
+    /// Reusable BFS queue for explain_equality — avoids per-call VecDeque allocation.
+    explain_queue: crate::prelude::VecDeque<u32>,
+    /// Reusable visited flags for explain_equality — resized to proof_forest.len() and cleared at entry.
+    explain_visited: Vec<bool>,
+    /// Reusable parent-pointer table for explain_equality — parallel to explain_visited.
+    explain_parent: Vec<Option<(u32, usize)>>,
 }
 
 /// State to save for push/pop
@@ -158,6 +227,11 @@ impl EufSolver {
             proof_forest: Vec::new(),
             function_properties: FxHashMap::default(),
             propagation_buf: Vec::new(),
+            sig_trail: Vec::new(),
+            sig_trail_limits: Vec::new(),
+            explain_queue: crate::prelude::VecDeque::new(),
+            explain_visited: Vec::new(),
+            explain_parent: Vec::new(),
         }
     }
 
@@ -177,6 +251,16 @@ impl EufSolver {
     /// Canonicalize arguments for commutative functions
     fn canonicalize_args(&mut self, func: u32, args: &[u32]) -> SmallVec<[u32; 4]> {
         let props = self.get_function_props(func);
+        self.canonicalize_args_with_props(&props, args)
+    }
+
+    /// Canonicalize arguments given pre-fetched function properties.
+    /// Used in hot paths to hoist the `get_function_props` hashmap lookup out of inner loops.
+    fn canonicalize_args_with_props(
+        &mut self,
+        props: &FunctionProperties,
+        args: &[u32],
+    ) -> SmallVec<[u32; 4]> {
         let mut canonical: SmallVec<[u32; 4]> = args.iter().map(|&a| self.uf.find(a)).collect();
 
         // For commutative functions, sort arguments by their canonical representative
@@ -185,6 +269,26 @@ impl EufSolver {
         }
 
         canonical
+    }
+
+    /// Canonicalize arguments into a caller-owned buffer to avoid per-call allocation.
+    /// Clears `buf` first, then pushes the canonical representative of each arg.
+    /// For commutative functions the results are sorted in-place.
+    ///
+    /// This is the allocation-free variant used in the hot inner loop of `propagate`.
+    fn canonicalize_args_with_props_into(
+        &mut self,
+        props: &FunctionProperties,
+        args: &[u32],
+        buf: &mut SmallVec<[u32; 4]>,
+    ) {
+        buf.clear();
+        for &a in args {
+            buf.push(self.uf.find(a));
+        }
+        if props.commutative {
+            buf.sort_unstable();
+        }
     }
 
     /// Flatten associative function applications
@@ -200,7 +304,7 @@ impl EufSolver {
         for &arg in args {
             let arg_node = &self.nodes[arg as usize];
             // If the argument is an application of the same function, flatten it
-            if arg_node.func == Some(func) {
+            if arg_node.is_app() && arg_node.func == func {
                 flattened.extend(arg_node.args.iter().copied());
             } else {
                 flattened.push(arg);
@@ -211,26 +315,23 @@ impl EufSolver {
     }
 
     /// Intern a term, returning its node index
+    #[inline]
     pub fn intern(&mut self, term: TermId) -> u32 {
         if let Some(&idx) = self.term_to_node.get(&term) {
             return idx;
         }
 
         let idx = self.nodes.len() as u32;
-        self.nodes.push(ENode {
-            term,
-            func: None,
-            args: SmallVec::new(),
-            fingerprint: ENodeFingerprint::default(),
-        });
+        self.nodes.push(ENode::leaf(term));
         self.uf.add();
         self.use_list.push(SmallVec::new());
-        self.proof_forest.push(Vec::new());
+        self.proof_forest.push(SmallVec::new());
         self.term_to_node.insert(term, idx);
         idx
     }
 
     /// Intern a function application
+    #[inline]
     pub fn intern_app(
         &mut self,
         term: TermId,
@@ -259,15 +360,11 @@ impl EufSolver {
         }
 
         let idx = self.nodes.len() as u32;
-        self.nodes.push(ENode {
-            term,
-            func: Some(func),
-            args: flattened_args.clone(),
-            fingerprint: fp,
-        });
+        self.nodes
+            .push(ENode::app(func, flattened_args.clone(), fp, term));
         self.uf.add();
         self.use_list.push(SmallVec::new());
-        self.proof_forest.push(Vec::new());
+        self.proof_forest.push(SmallVec::new());
         self.term_to_node.insert(term, idx);
 
         // Add to use lists
@@ -275,16 +372,28 @@ impl EufSolver {
             self.use_list[arg as usize].push(idx);
         }
 
-        // Add to signature table
+        // Add to signature table. When inside a push scope, record the insertion
+        // in the undo trail so pop() can remove it without rebuilding the table.
+        // `canonical_args` is moved (no extra clone needed).
+        if !self.sig_trail_limits.is_empty() {
+            self.sig_trail.push(SigTrailEntry::InsertedSig {
+                key: (func, canonical_args),
+            });
+        }
         self.sig_table.insert(sig, idx);
 
         // Add to fingerprint table for fast congruence pre-filtering
         self.fingerprint_table.entry(fp).or_default().push(idx);
+        if !self.sig_trail_limits.is_empty() {
+            self.sig_trail
+                .push(SigTrailEntry::InsertedFingerprint { fp, node_idx: idx });
+        }
 
         idx
     }
 
     /// Merge two equivalence classes
+    #[inline]
     pub fn merge(&mut self, a: u32, b: u32, reason: TermId) -> Result<()> {
         self.pending.push((a, b, reason));
         self.propagate()?;
@@ -336,15 +445,22 @@ impl EufSolver {
             // Collect congruence merges to enqueue
             propagation_buf.clear();
 
+            // --- Change A: Reusable canonicalization buffer ---
+            // Declared once outside the loop so the SmallVec's heap backing (if it
+            // ever spills past the inline capacity of 4) is allocated at most once
+            // per merge event rather than once per use-list entry.
+            let mut canon_buf: SmallVec<[u32; 4]> = SmallVec::new();
+
             for i in 0..use_len {
                 let user = self.use_list[other_root as usize][i];
                 if (user as usize) >= self.nodes.len() {
                     continue; // stale use-list entry — node was not allocated
                 }
-                let func = match self.nodes[user as usize].func {
-                    Some(f) => f,
-                    None => continue,
-                };
+                let node_func_val = self.nodes[user as usize].func;
+                if node_func_val == ENode::NO_FUNC {
+                    continue;
+                }
+                let func = node_func_val;
 
                 // Read args by index to avoid cloning the SmallVec
                 let args_len = self.nodes[user as usize].args.len();
@@ -353,15 +469,35 @@ impl EufSolver {
                     args_copy.push(self.nodes[user as usize].args[j]);
                 }
 
-                // Canonicalize arguments (handles commutativity and finds canonical reps)
-                let canonical_args = self.canonicalize_args(func, &args_copy);
+                // Fetch function properties once per use-list entry (per unique func),
+                // then pass to canonicalize_args_with_props_into to avoid repeated lookups.
+                let props = self.get_function_props(func);
+
+                // Canonicalize arguments into the reusable buffer (avoids per-iteration alloc).
+                self.canonicalize_args_with_props_into(&props, &args_copy, &mut canon_buf);
 
                 // --- Optimization 3: Fingerprint pre-filter ---
                 // Compute the new fingerprint for the updated canonical args
-                let new_fp = ENodeFingerprint::compute(func, &canonical_args);
+                let new_fp = ENodeFingerprint::compute(func, &canon_buf);
+
+                // Fast-exit guard before costly sig_table.get:
+                // `sig_table.get` hashes over (u32, SmallVec) which is expensive.
+                // If no entry with this fingerprint exists in fingerprint_table, skip
+                // the sig lookup — but still update sig_updates and the node fingerprint
+                // so the invariant (fingerprint_table tracks all live fps) is maintained.
+                if !self.fingerprint_table.contains_key(&new_fp) {
+                    sig_updates.push(SigUpdateEntry {
+                        func,
+                        args: canon_buf.clone(),
+                        node: user,
+                        fp: new_fp,
+                    });
+                    self.nodes[user as usize].fingerprint = new_fp;
+                    continue;
+                }
 
                 // Check signature table for congruence match
-                let sig = (func, canonical_args.clone());
+                let sig = (func, canon_buf.clone());
                 if let Some(&existing) = self.sig_table.get(&sig) {
                     if !self.uf.same(user, existing) {
                         // Congruence detected: record proof edges
@@ -384,17 +520,43 @@ impl EufSolver {
                     }
                 } else {
                     // No congruence match; batch the signature update for later.
-                    sig_updates.push((sig, user, new_fp));
+                    // We must clone canon_buf here because it is reused on the next iteration.
+                    sig_updates.push(SigUpdateEntry {
+                        func,
+                        args: canon_buf.clone(),
+                        node: user,
+                        fp: new_fp,
+                    });
                 }
 
                 // Update the node's fingerprint
                 self.nodes[user as usize].fingerprint = new_fp;
             }
 
-            // Apply batched signature updates
-            for (sig, node_id, fp) in sig_updates {
-                self.sig_table.insert(sig, node_id);
-                self.fingerprint_table.entry(fp).or_default().push(node_id);
+            // Apply batched signature updates. When inside a push scope, record
+            // each insertion into the trail so pop() can undo them without rebuild.
+            // The guard is hoisted above the clone to avoid unnecessary SmallVec
+            // allocations on non-incremental workloads (no active push scope).
+            let in_scope = !self.sig_trail_limits.is_empty();
+            for entry in sig_updates {
+                let SigUpdateEntry {
+                    func,
+                    args,
+                    node,
+                    fp,
+                } = entry;
+                if in_scope {
+                    // Clone before consuming args in the insert call.
+                    self.sig_trail.push(SigTrailEntry::InsertedSig {
+                        key: (func, args.clone()),
+                    });
+                }
+                self.sig_table.insert((func, args), node);
+                self.fingerprint_table.entry(fp).or_default().push(node);
+                if in_scope {
+                    self.sig_trail
+                        .push(SigTrailEntry::InsertedFingerprint { fp, node_idx: node });
+                }
             }
 
             // Enqueue congruence merges
@@ -428,24 +590,36 @@ impl EufSolver {
 
     /// Check for conflicts
     pub fn check_conflicts(&mut self) -> Option<Vec<TermId>> {
-        for diseq in &self.diseqs {
-            if self.uf.same(diseq.lhs, diseq.rhs) {
-                // Conflict: a = b but we have a != b
-                // Generate an explanation for why a = b
-                let mut explanation = self.explain_equality(diseq.lhs, diseq.rhs);
-                // Add the disequality reason
-                if !explanation.contains(&diseq.reason) {
-                    explanation.push(diseq.reason);
-                }
-                return Some(explanation);
-            }
+        // First find the conflicting disequality by index so that we can drop
+        // the shared borrow on `self.diseqs` before calling `explain_equality`
+        // (which needs `&mut self`).
+        let conflict_idx = self
+            .diseqs
+            .iter()
+            .position(|d| self.uf.same(d.lhs, d.rhs))?;
+
+        let (lhs, rhs, reason) = {
+            let d = &self.diseqs[conflict_idx];
+            (d.lhs, d.rhs, d.reason)
+        };
+
+        // Borrow of self.diseqs is fully released here.
+        let mut explanation = self.explain_equality(lhs, rhs);
+        if !explanation.contains(&reason) {
+            explanation.push(reason);
         }
-        None
+        Some(explanation)
     }
 
-    /// Explain why two nodes are equal
-    /// Uses BFS through the proof forest to find a path
-    fn explain_equality(&self, a: u32, b: u32) -> Vec<TermId> {
+    /// Explain why two nodes are equal.
+    ///
+    /// Uses BFS through the proof forest to find a path from `a` to `b`.
+    /// Reusable buffers (`explain_queue`, `explain_visited`, `explain_parent`) are
+    /// moved out of `self` via `mem::take` at entry and restored at exit so that
+    /// recursive calls (for congruence sub-explanations) each work on a fresh,
+    /// independently sized set of buffers without re-allocating from the heap once
+    /// the buffers are warm.
+    fn explain_equality(&mut self, a: u32, b: u32) -> Vec<TermId> {
         if a == b {
             return Vec::new();
         }
@@ -455,11 +629,21 @@ impl EufSolver {
         if (a as usize) >= n || (b as usize) >= n {
             return Vec::new();
         }
-        let mut visited = vec![false; n];
-        let mut parent = vec![None; n];
+
+        // Take reusable buffers out of self so recursive calls (for congruence
+        // sub-explanations) do not conflict with the current borrow.
+        let mut queue = mem::take(&mut self.explain_queue);
+        let mut visited = mem::take(&mut self.explain_visited);
+        let mut parent = mem::take(&mut self.explain_parent);
+
+        // Reset / resize in-place — existing heap capacity is retained.
+        queue.clear();
+        visited.clear();
+        visited.resize(n, false);
+        parent.clear();
+        parent.resize(n, None);
 
         // BFS to find path from a to b
-        let mut queue = crate::prelude::VecDeque::new();
         queue.push_back(a);
         visited[a as usize] = true;
 
@@ -484,29 +668,47 @@ impl EufSolver {
         }
 
         if !found {
+            // Restore buffers before returning so they are available for the next call.
+            self.explain_queue = queue;
+            self.explain_visited = visited;
+            self.explain_parent = parent;
             return Vec::new();
         }
 
+        // Collect the (prev, edge_idx) pairs from the parent chain into a local
+        // Vec before dropping the parent borrow — this lets us recursively call
+        // explain_equality below without conflicting with `parent`.
+        let mut path: Vec<(u32, usize)> = Vec::new();
+        let mut current = b;
+        while let Some((prev, edge_idx)) = parent[current as usize] {
+            path.push((prev, edge_idx));
+            current = prev;
+        }
+
+        // Restore buffers now — recursive calls may reuse them safely.
+        self.explain_queue = queue;
+        self.explain_visited = visited;
+        self.explain_parent = parent;
+
         // Reconstruct path and collect reasons
         let mut reasons = Vec::new();
-        let mut current = b;
 
-        while let Some((prev, edge_idx)) = parent[current as usize] {
-            let edge = &self.proof_forest[prev as usize][edge_idx];
+        for (prev, edge_idx) in path {
+            let reason = self.proof_forest[prev as usize][edge_idx].reason.clone();
 
-            match &edge.reason {
+            match reason {
                 MergeReason::Assertion(term_id) => {
-                    if term_id.raw() != 0 && !reasons.contains(term_id) {
-                        reasons.push(*term_id);
+                    if term_id.raw() != 0 && !reasons.contains(&term_id) {
+                        reasons.push(term_id);
                     }
                 }
                 MergeReason::Congruence { term1, term2 } => {
                     // For congruence, we need to explain why the arguments are equal
-                    let node1 = &self.nodes[*term1 as usize];
-                    let node2 = &self.nodes[*term2 as usize];
+                    let args1: SmallVec<[u32; 4]> = self.nodes[term1 as usize].args.clone();
+                    let args2: SmallVec<[u32; 4]> = self.nodes[term2 as usize].args.clone();
 
                     // Recursively explain argument equalities
-                    for (&arg1, &arg2) in node1.args.iter().zip(node2.args.iter()) {
+                    for (&arg1, &arg2) in args1.iter().zip(args2.iter()) {
                         if arg1 != arg2 && self.uf.same_no_compress(arg1, arg2) {
                             let arg_reasons = self.explain_equality(arg1, arg2);
                             for r in arg_reasons {
@@ -518,29 +720,31 @@ impl EufSolver {
                     }
                 }
             }
-
-            current = prev;
         }
 
         reasons
     }
 
     /// Check if two terms are equivalent
+    #[inline]
     pub fn are_equal(&mut self, a: u32, b: u32) -> bool {
         self.uf.same(a, b)
     }
 
     /// Get the representative of a term
+    #[inline]
     pub fn find(&mut self, a: u32) -> u32 {
         self.uf.find(a)
     }
 
     /// Get the representative of a term without path compression (immutable)
+    #[inline]
     pub fn find_immutable(&self, a: u32) -> u32 {
         self.uf.find_no_compress(a)
     }
 
     /// Check equivalence without mutation (immutable)
+    #[inline]
     pub fn are_equal_immutable(&self, a: u32, b: u32) -> bool {
         self.uf.same_no_compress(a, b)
     }
@@ -557,13 +761,15 @@ impl EufSolver {
 
     /// Get the function symbol of a node (if it is a function application)
     pub fn node_func(&self, idx: u32) -> Option<u32> {
-        self.nodes.get(idx as usize).and_then(|n| n.func)
+        self.nodes
+            .get(idx as usize)
+            .and_then(|n| if n.is_app() { Some(n.func) } else { None })
     }
 
     /// Get the arguments of a node (if it is a function application)
     pub fn node_args(&self, idx: u32) -> Option<&SmallVec<[u32; 4]>> {
         let node = self.nodes.get(idx as usize)?;
-        if node.func.is_some() {
+        if node.is_app() {
             Some(&node.args)
         } else {
             None
@@ -580,7 +786,7 @@ impl EufSolver {
     pub fn apps_by_func(&self, func_id: u32) -> Vec<u32> {
         let mut result = Vec::new();
         for (idx, node) in self.nodes.iter().enumerate() {
-            if node.func == Some(func_id) {
+            if node.is_app() && node.func == func_id {
                 result.push(idx as u32);
             }
         }
@@ -610,17 +816,23 @@ impl EufSolver {
         use rustc_hash::FxHashSet;
         let mut funcs = FxHashSet::default();
         for node in &self.nodes {
-            if let Some(func) = node.func {
-                funcs.insert(func);
+            if node.is_app() {
+                funcs.insert(node.func);
             }
         }
         funcs.into_iter().collect()
     }
 
-    /// Get a reference to the fingerprint table (for testing/debugging)
+    /// Get the fingerprint table size (for testing/debugging)
     #[cfg(test)]
     fn fingerprint_table_len(&self) -> usize {
         self.fingerprint_table.len()
+    }
+
+    /// Get the sig table size (for testing/debugging)
+    #[cfg(test)]
+    fn sig_table_len(&self) -> usize {
+        self.sig_table.len()
     }
 }
 
@@ -666,6 +878,8 @@ impl Theory for EufSolver {
             num_diseqs: self.diseqs.len(),
         });
         self.uf.push();
+        // Record sig_trail checkpoint, mirroring uf.trail_limits.push(...)
+        self.sig_trail_limits.push(self.sig_trail.len());
     }
 
     fn pop(&mut self) {
@@ -684,22 +898,28 @@ impl Theory for EufSolver {
             self.term_to_node
                 .retain(|_term, &mut idx| (idx as usize) < num_nodes);
 
-            // Rebuild signature table and fingerprint table for remaining nodes
-            self.sig_table.clear();
-            self.fingerprint_table.clear();
-            for (idx, node) in self.nodes.iter().enumerate() {
-                if let Some(func) = node.func {
-                    let canonical_args: SmallVec<[u32; 4]> = node
-                        .args
-                        .iter()
-                        .map(|&a| self.uf.find_no_compress(a))
-                        .collect();
-                    let fp = ENodeFingerprint::compute(func, &canonical_args);
-                    self.sig_table.insert((func, canonical_args), idx as u32);
-                    self.fingerprint_table
-                        .entry(fp)
-                        .or_default()
-                        .push(idx as u32);
+            // Rewind sig_trail to the saved limit, undoing all sig/fp insertions
+            // made since the matching push().  Mirrors UnionFind::pop() exactly.
+            if let Some(sig_limit) = self.sig_trail_limits.pop() {
+                while self.sig_trail.len() > sig_limit {
+                    if let Some(entry) = self.sig_trail.pop() {
+                        match entry {
+                            SigTrailEntry::InsertedSig { key } => {
+                                self.sig_table.remove(&key);
+                            }
+                            SigTrailEntry::InsertedFingerprint { fp, node_idx } => {
+                                if let Some(bucket) = self.fingerprint_table.get_mut(&fp) {
+                                    // Remove in LIFO order: the last push is the first to undo.
+                                    if let Some(pos) = bucket.iter().rposition(|&n| n == node_idx) {
+                                        bucket.swap_remove(pos);
+                                    }
+                                    if bucket.is_empty() {
+                                        self.fingerprint_table.remove(&fp);
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -717,6 +937,8 @@ impl Theory for EufSolver {
         self.context_stack.clear();
         self.proof_forest.clear();
         self.function_properties.clear();
+        self.sig_trail.clear();
+        self.sig_trail_limits.clear();
     }
 }
 
@@ -1073,5 +1295,206 @@ mod tests {
         solver.reset();
 
         assert_eq!(solver.fingerprint_table_len(), 0);
+    }
+
+    /// Test that the fingerprint pre-filter does not cause false negatives:
+    /// - Merging unrelated args must NOT produce spurious congruence merges.
+    /// - Merging the right args MUST still produce congruence merges.
+    #[test]
+    fn test_fingerprint_prefilter_short_circuits() {
+        let mut solver = EufSolver::new();
+        let a = solver.intern(TermId::new(1));
+        let b = solver.intern(TermId::new(2));
+        let c = solver.intern(TermId::new(3));
+        let f_sym = 100u32;
+        let fa = solver.intern_app(TermId::new(10), f_sym, [a]);
+        let fb = solver.intern_app(TermId::new(11), f_sym, [b]);
+
+        // Merge a = c (NOT a = b)
+        solver.merge(a, c, TermId::new(20)).unwrap_or(());
+        // f(a) and f(b) should NOT be merged (root(a) != root(b))
+        assert!(
+            !solver.are_equal(fa, fb),
+            "f(a) and f(b) should not be merged without a=b"
+        );
+
+        // Now merge a = b (so root(a) == root(b))
+        solver.merge(a, b, TermId::new(21)).unwrap_or(());
+        // After a=b, congruence should derive f(a)=f(b)
+        assert!(
+            solver.are_equal(fa, fb),
+            "f(a) and f(b) should be merged after a=b"
+        );
+    }
+
+    /// Test the critical invariant: multi-step merges that route through an
+    /// intermediate shared root must still produce congruence.
+    /// This catches the bug where Change A's `continue` skips the fingerprint-table
+    /// update, leaving the invariant broken for subsequent merges.
+    #[test]
+    fn test_fingerprint_prefilter_invariant_multi_merge() {
+        let mut solver = EufSolver::new();
+        let a = solver.intern(TermId::new(1));
+        let b = solver.intern(TermId::new(2));
+        let c = solver.intern(TermId::new(3));
+        let f_sym = 200u32;
+        let fa = solver.intern_app(TermId::new(10), f_sym, [a]);
+        let fb = solver.intern_app(TermId::new(11), f_sym, [b]);
+
+        // merge(a, c): fa re-canonicalizes to f([c]); new fp may not be in table yet.
+        // The pre-filter must still update fingerprint_table so the next step works.
+        solver.merge(a, c, TermId::new(20)).unwrap_or(());
+        assert!(
+            !solver.are_equal(fa, fb),
+            "f(a) and f(b) should not be merged yet"
+        );
+
+        // merge(b, c): fb re-canonicalizes to f([c]); fp IS now in table; congruence fires.
+        solver.merge(b, c, TermId::new(21)).unwrap_or(());
+        assert!(
+            solver.are_equal(fa, fb),
+            "f(a) and f(b) should be merged after a=c and b=c (both share root c)"
+        );
+    }
+
+    /// Verify that using the reusable canon_buf (Change A) does not corrupt results
+    /// when two different intern_app calls with different arities share the same solver.
+    /// The buffer is cleared and refilled each iteration, so results must remain correct
+    /// even across applications with different argument lists.
+    #[test]
+    fn test_canonicalize_buf_is_reused() {
+        let mut solver = EufSolver::new();
+
+        let a = solver.intern(TermId::new(1));
+        let b = solver.intern(TermId::new(2));
+        let c = solver.intern(TermId::new(3));
+
+        let f_sym = 300u32;
+
+        // Two applications with different argument sets
+        let fab = solver.intern_app(TermId::new(10), f_sym, [a, b]);
+        let fbc = solver.intern_app(TermId::new(11), f_sym, [b, c]);
+
+        // Neither should be equal to each other initially
+        assert!(!solver.are_equal(fab, fbc));
+
+        // Merging a = b triggers propagate, which exercises the reused canon_buf
+        // on use-list entries for both f(a,b) and f(b,c).
+        solver.merge(a, b, TermId::new(50)).unwrap_or(());
+
+        // f(a,b) has canonical args [root(a), root(b)] = [r, r]; if root(b) = root(c) differs
+        // they must still be distinct.
+        assert!(!solver.are_equal(fab, fbc));
+
+        // Now merge b = c so the solver exercises propagate again with the same buf
+        solver.merge(b, c, TermId::new(51)).unwrap_or(());
+
+        // After a=b and b=c, a=b=c.  f(a,b) canonical = [root, root], f(b,c) = [root, root]
+        // so congruence must unify them.
+        assert!(
+            solver.are_equal(fab, fbc),
+            "f(a,b) and f(b,c) must be equal once a=b=c"
+        );
+    }
+
+    /// Verify that the incremental sig_trail correctly restores sig_table and
+    /// fingerprint_table to exactly the pre-push state, matching what a full
+    /// rebuild would have produced.
+    #[test]
+    fn test_incremental_sig_trail_matches_rebuild() {
+        use crate::theory::Theory;
+
+        let mut solver = EufSolver::new();
+        let a = solver.intern(TermId::new(1));
+        let b = solver.intern(TermId::new(2));
+        let f_sym = 100u32;
+        let fa = solver.intern_app(TermId::new(10), f_sym, [a]);
+        // Capture state BEFORE push
+        let sig_before = solver.sig_table_len();
+        let fp_before = solver.fingerprint_table_len();
+
+        solver.push();
+        let c = solver.intern(TermId::new(3));
+        let fc = solver.intern_app(TermId::new(11), f_sym, [c]);
+        solver.merge(a, c, TermId::new(20)).expect("merge a=c");
+        // Now pop — should restore to pre-push state
+        solver.pop();
+
+        let sig_after = solver.sig_table_len();
+        let fp_after = solver.fingerprint_table_len();
+        assert_eq!(
+            sig_before, sig_after,
+            "sig_table size should match pre-push state after pop"
+        );
+        assert_eq!(
+            fp_before, fp_after,
+            "fingerprint_table size should match pre-push state after pop"
+        );
+        // The merge done during the push scope must be undone
+        assert!(
+            !solver.are_equal(fa, fc),
+            "terms merged during push scope should not be equal after pop"
+        );
+        let _ = (b, fc);
+    }
+
+    /// Verify that a 3-level push/pop stack completely rewinds all sig/fp state.
+    #[test]
+    fn test_push_pop_stack_depth_3() {
+        use crate::theory::Theory;
+
+        let mut solver = EufSolver::new();
+        let f = 100u32;
+        let a = solver.intern(TermId::new(1));
+
+        // Level 1
+        solver.push();
+        let b = solver.intern(TermId::new(2));
+        let fab = solver.intern_app(TermId::new(10), f, [a, b]);
+
+        // Level 2
+        solver.push();
+        let c = solver.intern(TermId::new(3));
+        let fbc = solver.intern_app(TermId::new(11), f, [b, c]);
+        solver.merge(a, b, TermId::new(20)).expect("merge a=b");
+
+        // Level 3
+        solver.push();
+        let d = solver.intern(TermId::new(4));
+        solver.merge(b, c, TermId::new(21)).expect("merge b=c");
+
+        // Pop all three levels
+        solver.pop(); // back to level 2 state
+        solver.pop(); // back to level 1 state
+        solver.pop(); // back to initial state
+
+        // After all pops, no merges should remain
+        assert!(
+            !solver.are_equal(a, b),
+            "a and b should not be equal after full pop"
+        );
+        let _ = (fab, fbc, c, d);
+    }
+
+    #[test]
+    fn test_enode_size_regression() {
+        // Guards against ENode growing larger than expected.
+        // ENode fields: func (4B), fingerprint (8B), args (SmallVec=32B), term (4B)
+        // With alignment padding the size should be ≤ 56 bytes.
+        let size = std::mem::size_of::<ENode>();
+        assert!(size <= 56, "ENode size should be ≤56 bytes, got {}", size);
+    }
+
+    #[test]
+    fn test_leaf_constructor_uses_sentinel() {
+        let t = TermId::from(42u32);
+        let node = ENode::leaf(t);
+        assert!(!node.is_app(), "leaf node should not be an app");
+        assert_eq!(
+            node.func,
+            ENode::NO_FUNC,
+            "leaf node func should be NO_FUNC sentinel"
+        );
+        assert!(node.args.is_empty(), "leaf node should have no args");
     }
 }

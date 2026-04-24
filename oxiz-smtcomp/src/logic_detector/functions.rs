@@ -26,7 +26,7 @@ pub fn detect_logic(smtlib_source: &str) -> String {
 ///
 /// Returns a [`TheoryBits`] recording which theories the scanner found
 /// evidence for. The scanner is a single-pass tokenizer over the already-
-/// tokenized source (see [`tokenize`]); it does not attempt full parsing and
+/// tokenized source (see `tokenize`); it does not attempt full parsing and
 /// is intentionally tolerant of non-standard extensions.
 #[must_use]
 pub fn detect_theory_bits(smtlib_source: &str) -> TheoryBits {
@@ -318,10 +318,10 @@ fn parse_u32(tok: &str) -> Option<u32> {
 /// Extract structural features from raw SMT-LIB source text.
 ///
 /// The extractor makes a single pass over the token stream produced by
-/// [`tokenize`] and collects the metrics that make up [`StructuralFeatures`].
+/// `tokenize` and collects the metrics that make up [`StructuralFeatures`].
 /// It does **not** perform full parsing and does not require an AST.
 ///
-/// The scanner maintains a `depth_stack` of [`ConstructKind`] entries so that
+/// The scanner maintains a `depth_stack` of `ConstructKind` entries so that
 /// closing parentheses can correctly unwind per-construct depth counters.
 #[must_use]
 pub fn extract_structural_features(source: &str) -> StructuralFeatures {

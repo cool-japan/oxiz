@@ -4,7 +4,7 @@ Property Directed Reachability (PDR/IC3) engine for OxiZ - Horn clause solving.
 
 | Metric | Value |
 |:-------|:------|
-| Version | 0.2.0 |
+| Version | 0.2.1 |
 | Status | Stable |
 | Tests | 135 passing (6 skipped) |
 | Rust LoC | 14,417 (24 files) |

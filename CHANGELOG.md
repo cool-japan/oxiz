@@ -5,6 +5,21 @@ All notable changes to OxiZ will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-04-24
+
+### Performance
+- EUF (congruence closure) optimizations: reusable allocation buffers reduce per-call heap allocations
+- Incremental `sig_table`/`fingerprint_table` trail enables O(k) `pop()` instead of full rebuild
+- ENode struct layout reordered with sentinel optimization for improved cache behavior
+- `explain_equality` reusable buffers eliminate per-call heap allocations on proof paths
+
+### Added
+- Production-path EUF criterion benchmarks (`oxiz-theories/benches/euf_benchmarks.rs`)
+- Redirected `bench_egraph_merge` profile bench to production `EufSolver`
+
+### Fixed
+- Broken rustdoc intra-doc links in `oxiz-smtcomp` and `oxiz-spacer`
+
 ## [0.2.0] - 2026-04-04
 
 ### Added

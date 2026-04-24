@@ -1,6 +1,6 @@
 # OxiZ TODO
 
-Last Updated: 2026-04-04
+Last Updated: 2026-04-24
 
 Reference: Z3 codebase at `../z3/` for algorithms and implementation strategies.
 
@@ -37,25 +37,25 @@ OxiZ has achieved **100% correctness parity with Z3** across all 88 benchmark te
 | High | 15 | 0 | 100% |
 | Medium | 17 | 0 | 100% |
 | Low | 9 | 0 | 100% |
-| Post-Parity: Performance | 9 | 19 | 32% |
+| Post-Parity: Performance | 14 | 14 | 50% |
 | Post-Parity: UX | 3 | 0 | 100% |
 | Post-Parity: Debugging | 4 | 0 | 100% |
 | Post-Parity: Docs | 5 | 0 | 100% |
 | Post-Parity: Theories | 0 | 10 | 0% |
 | Post-Parity: Advanced | 0 | 12 | 0% |
 | Post-Parity: Ecosystem | 0 | 7 | 0% |
-| **Total** | **87** | **48** | **64%** |
+| **Total** | **92** | **43** | **68%** |
 
 ---
 
-## Current Statistics (v0.2.0 - April 4, 2026)
+## Current Statistics (v0.2.1 - April 24, 2026)
 
-- **Rust Lines of Code**: 393,292 total (312,495 code lines)
-- **Rust Files**: 931
-- **Unit Tests**: 6,155 passing (16 skipped, 0 failures)
+- **Rust Lines of Code**: 406,502 total (323,732 code lines)
+- **Rust Files**: 978
+- **Unit Tests**: 6,368 passing (16 skipped, 0 failures)
 - **Z3 Parity**: **100.0% (88/88)**
 - **Perfect Logics**: **8/8 tested**
-- **Workspace Crates**: 16 (15 Rust + 1 TypeScript)
+- **Workspace Crates**: 17 (16 Rust crates + 1 TypeScript)
 - **todo!/unimplemented! macros**: 0 (all 15 Rust crates)
 - **Clippy Warnings**: 0
 - **Largest File**: 1,892 lines (all files under 2,000 lines)
@@ -163,7 +163,18 @@ OxiZ is not just a Z3 port - it surpasses Z3 in critical areas:
   - [x] Reduce allocations further (in-place updates)
   - [x] Better data structure choices (profiling-driven)
   - [x] Incremental computation caching
-  - [ ] JIT-style specialization for hot theory operations
+  - [~] JIT-style specialization for hot theory operations
+  - **Scope-box (2026-04-24):** Pure-Rust EUF data-layout + allocation-reduction + incremental-backtrack pass. Items 1–5 completed; parent umbrella (JIT/codegen layer) deferred to v0.4.0.
+  - [x] EUF production-path benchmarks + regression baseline (2026-04-24)
+    - Added `oxiz-theories/benches/euf_benchmarks.rs` with 5 criterion workloads driving `EufSolver` directly; 5 baseline entries added to `bench/regression/baseline.json`.
+  - [x] EUF cheap-wins bundle: fingerprint pre-filter + `#[inline]` cross-crate + hoist `get_function_props` (2026-04-24)
+    - Activated dead fingerprint pre-filter in `propagate`; added `#[inline]` to 7 cross-crate wrappers; hoisted `get_function_props` out of inner loop. Bench deltas: intern_leaf −24%, intern_app −16%, merge_congruence −10%, merge_injective −22%.
+  - [x] EUF allocation reduction in `propagate` (2026-04-24)
+    - Reusable canonicalize buffer (out-param), proof_forest changed to `Vec<SmallVec<[MergeEdge; 4]>>`, `SigUpdateEntry` flat struct. Bench 3 −6.7%, bench 4 −6.7%, bench 5 −8.2%.
+  - [x] EUF incremental sig_table + fingerprint_table undo trail (2026-04-24)
+    - Replaced O(|nodes|) rebuild-on-pop with per-insertion `SigTrailEntry` trail + `sig_trail_limits`. Trail guarded by `is_empty()` check so non-incremental workloads see zero overhead. Miri clean; 6366/6366 tests pass.
+  - [x] EUF `ENode` layout reorder + `func: u32` sentinel (2026-04-24)
+    - Reordered fields to put hot fields (`func`, `fingerprint`) first; replaced `Option<u32>` with `u32` + `NO_FUNC = u32::MAX` sentinel. Added `ENode::leaf()` / `ENode::app()` constructors. `test_enode_size_regression` confirms ≤56B.
   - [x] Memory layout optimization
   - [x] Allocation-free theory propagation paths
 
@@ -530,6 +541,14 @@ oxiz-core (foundation)
 
 ## Recent Achievements
 
+### April 24, 2026 - Statistics Update (v0.2.1)
+
+- **Rust Files**: 931 -> 978
+- **Code Lines (tokei)**: 323,732 code lines out of 406,502 total Rust lines
+- **Tests**: 6,368 passing (16 skipped, 0 failures)
+- **Workspace Crates**: 17 (16 Rust crates + 1 TypeScript)
+- **EUF Performance**: 5 allocation-reduction and data-layout improvements landed (fingerprint pre-filter, inline hints, incremental sig_table undo trail, ENode layout reorder, reusable canonicalize buffer)
+
 ### April 4, 2026 - Statistics Update
 
 - **Rust Files**: 911+ -> 931
@@ -594,8 +613,8 @@ oxiz-core (foundation)
 ---
 
 **Status**: Production Ready
-**Current Version**: v0.2.0
-**Tests**: 6,155 passing (16 skipped) | **LoC**: 393,292 total / 312,495 code | **Files**: 931 | **Clippy**: 0 warnings
+**Current Version**: v0.2.1
+**Tests**: 6,368 passing (16 skipped) | **LoC**: 406,502 total / 323,732 code | **Files**: 978 | **Clippy**: 0 warnings
 **Next Milestone**: v0.3.0 - Performance Parity + SMT-COMP (Target: June 2026)
 **Long-term Goal**: v1.0.0 - Industry-Ready SMT Solver (Target: Q4 2026)
 

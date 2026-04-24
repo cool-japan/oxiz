@@ -61,6 +61,26 @@
     "parser_simple": {
       "avg_time_us": 4.100399999999999,
       "category": "Parser"
+    },
+    "euf_intern_leaf_chain": {
+      "avg_time_us": 528.91,
+      "category": "Theory"
+    },
+    "euf_intern_app_tree": {
+      "avg_time_us": 1267.1,
+      "category": "Theory"
+    },
+    "euf_merge_congruence_chain": {
+      "avg_time_us": 71.436,
+      "category": "Theory"
+    },
+    "euf_merge_injective": {
+      "avg_time_us": 81.267,
+      "category": "Theory"
+    },
+    "euf_push_pop_cycle": {
+      "avg_time_us": 77.0,
+      "category": "Theory"
     }
   }
 }
