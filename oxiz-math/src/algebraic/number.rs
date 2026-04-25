@@ -15,9 +15,9 @@
 //! - "Algorithms in Real Algebraic Geometry" (Basu et al., 2006)
 //! - Z3's `math/polynomial/algebraic_numbers.h`
 
+use crate::polynomial::root_counting::Polynomial;
 #[allow(unused_imports)]
 use crate::prelude::*;
-use crate::polynomial::root_counting::Polynomial;
 use core::cmp::Ordering;
 use core::fmt;
 use num_bigint::BigInt;
@@ -318,8 +318,9 @@ fn build_sturm_sequence(poly: &Polynomial) -> Vec<Polynomial> {
         let n = seq.len();
         let last = &seq[n - 1];
 
-        // Terminate when the last polynomial is zero.
-        if last.degree() == 0 && last.coeffs.first().is_none_or(Zero::is_zero) {
+        // Terminate when the tail is degree-0 (zero or non-zero constant): any polynomial
+        // mod a constant is 0, so the next negated remainder would be 0 anyway.
+        if last.degree() == 0 {
             break;
         }
 
@@ -454,8 +455,8 @@ mod tests {
     fn test_refine() {
         // x^2 - 2, root in [1, 2]
         let poly = Polynomial::new(vec![rat(-2), rat(0), rat(1)]);
-        let mut alg = AlgebraicNumber::new(poly, rat(1), rat(2))
-            .expect("test operation should succeed");
+        let mut alg =
+            AlgebraicNumber::new(poly, rat(1), rat(2)).expect("test operation should succeed");
 
         let initial_width = alg.interval_width();
         alg.refine();

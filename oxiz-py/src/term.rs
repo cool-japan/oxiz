@@ -876,16 +876,10 @@ pub(crate) fn parse_sort_name(
                 ))
             })?;
             let eb: u32 = inner[..comma].trim().parse().map_err(|_| {
-                PyValueError::new_err(format!(
-                    "Invalid exponent width in sort '{}'",
-                    sort_name
-                ))
+                PyValueError::new_err(format!("Invalid exponent width in sort '{}'", sort_name))
             })?;
             let sb: u32 = inner[comma + 1..].trim().parse().map_err(|_| {
-                PyValueError::new_err(format!(
-                    "Invalid significand width in sort '{}'",
-                    sort_name
-                ))
+                PyValueError::new_err(format!("Invalid significand width in sort '{}'", sort_name))
             })?;
             Ok(tm.sorts.float_sort(eb, sb))
         }

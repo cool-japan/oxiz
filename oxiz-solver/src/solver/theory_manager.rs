@@ -787,8 +787,7 @@ impl<'a> TheoryManager<'a> {
                             if let Ok(TheoryCheckResultEnum::Unsat(conflict_terms)) =
                                 self.bv.check()
                             {
-                                let conflict_lits =
-                                    self.terms_to_conflict_clause(&conflict_terms);
+                                let conflict_lits = self.terms_to_conflict_clause(&conflict_terms);
                                 return TheoryCheckResult::Conflict(conflict_lits);
                             }
                         }

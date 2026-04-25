@@ -14,9 +14,9 @@
 //! - "Algorithms in Real Algebraic Geometry" (Basu et al., 2006)
 //! - Z3's `math/polynomial/algebraic_numbers.cpp`
 
+use crate::polynomial::root_counting::Polynomial;
 #[allow(unused_imports)]
 use crate::prelude::*;
-use crate::polynomial::root_counting::Polynomial;
 use num_bigint::BigInt;
 use num_rational::BigRational;
 use num_traits::{Signed, Zero};
@@ -135,8 +135,7 @@ impl RootIsolator {
     /// Isolate all real roots of the polynomial.
     pub fn isolate_roots(&mut self) -> Vec<IsolatingInterval> {
         // Handle trivial cases: zero polynomial or non-zero constant
-        let is_zero = self.poly.degree() == 0
-            && self.poly.coeffs.first().is_none_or(Zero::is_zero);
+        let is_zero = self.poly.degree() == 0 && self.poly.coeffs.first().is_none_or(Zero::is_zero);
         if is_zero || self.poly.degree() == 0 {
             return Vec::new();
         }
@@ -164,8 +163,9 @@ impl RootIsolator {
             }
 
             let last = &seq[len - 1];
-            // Stop if last polynomial is zero
-            if last.degree() == 0 && last.coeffs.first().is_none_or(Zero::is_zero) {
+            // Stop when the tail is degree-0 (zero or non-zero constant): any polynomial
+            // mod a constant is 0, so the next negated remainder would be 0 anyway.
+            if last.degree() == 0 {
                 break;
             }
 
@@ -328,8 +328,7 @@ impl RootIsolator {
                 // Try Newton first, fall back to bisection if not contracting fast enough
                 let newton_result = self.refine_newton(interval);
                 if newton_result.width()
-                    < interval.width()
-                        * BigRational::new(BigInt::from(9), BigInt::from(10))
+                    < interval.width() * BigRational::new(BigInt::from(9), BigInt::from(10))
                 {
                     newton_result
                 } else {
@@ -383,19 +382,9 @@ impl RootIsolator {
             }
 
             if sign_new != interval.sign_lower {
-                IsolatingInterval::new(
-                    interval.lower.clone(),
-                    x_new,
-                    interval.sign_lower,
-                    sign_new,
-                )
+                IsolatingInterval::new(interval.lower.clone(), x_new, interval.sign_lower, sign_new)
             } else {
-                IsolatingInterval::new(
-                    x_new,
-                    interval.upper.clone(),
-                    sign_new,
-                    interval.sign_upper,
-                )
+                IsolatingInterval::new(x_new, interval.upper.clone(), sign_new, interval.sign_upper)
             }
         } else {
             // Newton step escaped the interval - use bisection

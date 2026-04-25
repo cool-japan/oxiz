@@ -24,11 +24,10 @@ pub use buchberger_enhanced::{
 };
 
 pub use f4::{
-    CriticalPair as F4CriticalPair, F4Algorithm, F4Config, F4Stats,
-    Monomial as F4Monomial, Polynomial as F4Polynomial, Term as F4Term,
+    CriticalPair as F4CriticalPair, F4Algorithm, F4Config, F4Stats, Monomial as F4Monomial,
+    Polynomial as F4Polynomial, Term as F4Term,
 };
 
 pub use syzygy::{
-    BuchbergerCriteria, CriticalPair as SyzygyCriticalPair, Syzygy,
-    SyzygyComputer, SyzygyStats,
+    BuchbergerCriteria, CriticalPair as SyzygyCriticalPair, Syzygy, SyzygyComputer, SyzygyStats,
 };

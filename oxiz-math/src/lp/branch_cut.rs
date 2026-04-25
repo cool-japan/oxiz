@@ -291,10 +291,7 @@ impl BranchCutSolver {
 
                     if self.is_integer_feasible(&solution) {
                         // Found an integer-feasible solution; update incumbent if better.
-                        let improve = self
-                            .best_value
-                            .as_ref()
-                            .is_none_or(|bv| obj_value < *bv);
+                        let improve = self.best_value.as_ref().is_none_or(|bv| obj_value < *bv);
                         if improve {
                             self.best_value = Some(obj_value.clone());
                             self.best_solution = Some(solution.clone());
@@ -305,8 +302,7 @@ impl BranchCutSolver {
                     }
 
                     // Select the most-infeasible fractional integer variable to branch on.
-                    let Some((branch_var, branch_val)) =
-                        self.select_branch_variable(&solution)
+                    let Some((branch_var, branch_val)) = self.select_branch_variable(&solution)
                     else {
                         continue;
                     };

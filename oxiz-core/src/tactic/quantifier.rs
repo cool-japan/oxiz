@@ -432,8 +432,7 @@ impl PatternMatcher {
                         }
                     }
                 }
-            }
-            else if pattern.triggers.len() > 1 {
+            } else if pattern.triggers.len() > 1 {
                 // Multi-trigger: all trigger patterns must match simultaneously.
                 // Compute the cross-product of per-trigger substitutions, keeping
                 // only consistent ones (same variable maps to the same term in all).

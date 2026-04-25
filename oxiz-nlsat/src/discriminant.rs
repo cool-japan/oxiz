@@ -143,12 +143,9 @@ impl DiscriminantAnalyzer {
         let m = dp.degree(var) as usize;
 
         // Collect coefficients: poly_coeffs[i] = coeff of x^i in poly (BigRational)
-        let poly_coeffs: Vec<BigRational> = (0..=n)
-            .map(|k| poly.univ_coeff(var, k as u32))
-            .collect();
-        let dp_coeffs: Vec<BigRational> = (0..=m)
-            .map(|k| dp.univ_coeff(var, k as u32))
-            .collect();
+        let poly_coeffs: Vec<BigRational> =
+            (0..=n).map(|k| poly.univ_coeff(var, k as u32)).collect();
+        let dp_coeffs: Vec<BigRational> = (0..=m).map(|k| dp.univ_coeff(var, k as u32)).collect();
 
         // Sylvester matrix is (n + m) x (n + m)
         let size = n + m;
@@ -177,7 +174,11 @@ impl DiscriminantAnalyzer {
             return BigRational::zero();
         }
 
-        let sign: i64 = if (n * (n - 1) / 2).is_multiple_of(2) { 1 } else { -1 };
+        let sign: i64 = if (n * (n - 1) / 2).is_multiple_of(2) {
+            1
+        } else {
+            -1
+        };
         resultant / lc * BigRational::new(BigInt::from(sign), BigInt::one())
     }
 

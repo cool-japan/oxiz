@@ -744,8 +744,8 @@ impl NarySetOp {
                 && let SetOp::Binary { op, lhs, rhs, .. } = &ops[idx]
             {
                 // Only absorb if the op kind is the same AND it is associative
-                let absorb = *op == root_op
-                    && matches!(root_op, SetBinOp::Union | SetBinOp::Intersection);
+                let absorb =
+                    *op == root_op && matches!(root_op, SetBinOp::Union | SetBinOp::Intersection);
                 if absorb {
                     collect_leaves(*lhs, root_op, ops, result_to_idx, leaves);
                     collect_leaves(*rhs, root_op, ops, result_to_idx, leaves);

@@ -3,9 +3,9 @@
 //! Provides fundamental Galois theory operations needed for understanding
 //! polynomial splitting fields and solvability by radicals.
 
+use super::field_extension::ExtensionId;
 #[allow(unused_imports)]
 use crate::prelude::*;
-use super::field_extension::ExtensionId;
 use num_rational::BigRational;
 use num_traits::{One, Zero};
 
@@ -70,7 +70,11 @@ impl GaloisGroup {
 
         let mut composed_perm = vec![0; sigma_j.root_permutation.len()];
         for (idx, &target) in sigma_j.root_permutation.iter().enumerate() {
-            composed_perm[idx] = sigma_i.root_permutation.get(target).copied().unwrap_or(target);
+            composed_perm[idx] = sigma_i
+                .root_permutation
+                .get(target)
+                .copied()
+                .unwrap_or(target);
         }
 
         // Find or create this automorphism

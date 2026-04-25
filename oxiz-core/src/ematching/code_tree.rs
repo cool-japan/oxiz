@@ -571,10 +571,9 @@ impl CodeTreeBuilder {
         while let Some(instr) = tree.instructions.get(idx) {
             let next_opt = instr.next;
             if let Some(next_idx) = next_opt {
-                if let (Some(cur), Some(nxt)) = (
-                    tree.instructions.get(idx),
-                    tree.instructions.get(next_idx),
-                ) {
+                if let (Some(cur), Some(nxt)) =
+                    (tree.instructions.get(idx), tree.instructions.get(next_idx))
+                {
                     // Two consecutive Compare instructions with the same expected
                     // discriminant: the second is redundant.
                     if let (
@@ -663,7 +662,6 @@ impl CodeTreeBuilder {
             }
         }
     }
-
 }
 
 impl Default for CodeTreeBuilder {

@@ -73,9 +73,6 @@ pub use chrono_bt::{
     BacktrackDecision, ChronoBacktracker, ChronoConfig, ChronoStats, ConflictAnalysisResult,
 };
 pub use clause_tiers::{ClauseTier, ClauseTierConfig, ClauseTierManager, ClauseTierStats};
-pub use oxiz_math::lp::cutting_planes::{
-    CutType, CuttingPlane, CuttingPlaneConfig, CuttingPlaneGenerator, CuttingPlaneStats,
-};
 pub use discriminant::{DiscriminantAnalyzer, DiscriminantSign, DiscriminantStats, RootInfo};
 pub use eval_cache::{CachedSign, EvalCache, EvalCacheConfig, EvalCacheStats, SignPattern};
 pub use grobner_preprocess::{
@@ -89,6 +86,9 @@ pub use monotonicity::{
     MonotonicityAnalyzer, MonotonicityDirection, MonotonicityInfo, MonotonicityStats,
 };
 pub use nia::{BranchingStrategy, NiaConfig, NiaSolver, NiaStats, VarType};
+pub use oxiz_math::lp::cutting_planes::{
+    CutType, CuttingPlane, CuttingPlaneConfig, CuttingPlaneGenerator, CuttingPlaneStats,
+};
 pub use portfolio::{PortfolioConfig, PortfolioResult, PortfolioSolver, PortfolioStats};
 pub use proof::{
     CadOperation, Proof, ProofBuilder, ProofError, ProofId, ProofMetadata, ProofRule, ProofStats,

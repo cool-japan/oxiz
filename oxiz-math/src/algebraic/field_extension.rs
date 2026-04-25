@@ -75,7 +75,11 @@ impl FieldExtension {
         while result.len() > self.degree && !result.last().is_none_or(|c| c.is_zero()) {
             let deg_diff = result.len() - self.minimal_poly.len();
             let lead_coeff = result.last().cloned().expect("checked non-empty");
-            let min_lead = self.minimal_poly.last().cloned().expect("checked non-empty");
+            let min_lead = self
+                .minimal_poly
+                .last()
+                .cloned()
+                .expect("checked non-empty");
 
             let quotient_coeff = &lead_coeff / &min_lead;
 
@@ -107,9 +111,10 @@ impl FieldExtension {
         // Check cache first
         let key = (a.len(), b.len());
         if let Some(cached) = self.mult_table.get(&key)
-            && (a == cached || b == cached) {
-                // Simple case, use cache if applicable
-            }
+            && (a == cached || b == cached)
+        {
+            // Simple case, use cache if applicable
+        }
 
         // Polynomial multiplication
         let mut product = vec![BigRational::zero(); a.len() + b.len() - 1];
@@ -212,7 +217,11 @@ impl FieldExtension {
     }
 
     /// Polynomial division: returns (quotient, remainder).
-    fn poly_div(&self, a: &[BigRational], b: &[BigRational]) -> (Vec<BigRational>, Vec<BigRational>) {
+    fn poly_div(
+        &self,
+        a: &[BigRational],
+        b: &[BigRational],
+    ) -> (Vec<BigRational>, Vec<BigRational>) {
         if b.is_empty() || b.iter().all(|c| c.is_zero()) {
             return (vec![BigRational::zero()], a.to_vec());
         }
@@ -372,14 +381,15 @@ impl FieldElement {
 
     /// Get the rational part (constant term).
     pub fn rational_part(&self) -> BigRational {
-        self.coeffs.first().cloned().unwrap_or_else(BigRational::zero)
+        self.coeffs
+            .first()
+            .cloned()
+            .unwrap_or_else(BigRational::zero)
     }
 
     /// Get the degree of the element (highest non-zero coefficient index).
     pub fn degree(&self) -> usize {
-        self.coeffs.iter()
-            .rposition(|c| !c.is_zero())
-            .unwrap_or(0)
+        self.coeffs.iter().rposition(|c| !c.is_zero()).unwrap_or(0)
     }
 }
 
@@ -543,6 +553,8 @@ mod tests {
 
         // Check: (1 + √2) * inv = 1
         let product = ext.multiply(&a, &inv);
-        assert!(product.len() == 1 || (product.len() > 1 && product[1..].iter().all(|c| c.is_zero())));
+        assert!(
+            product.len() == 1 || (product.len() > 1 && product[1..].iter().all(|c| c.is_zero()))
+        );
     }
 }

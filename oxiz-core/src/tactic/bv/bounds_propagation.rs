@@ -4,9 +4,9 @@
 //! This implements a classic abstract interpretation over the domain of
 //! unsigned intervals `[lo, hi]` ⊆ `[0, 2^width - 1]`.
 
+use crate::ast::{TermId, TermKind, TermManager};
 #[allow(unused_imports)]
 use crate::prelude::*;
-use crate::ast::{TermId, TermKind, TermManager};
 use num_bigint::{BigInt, BigUint, Sign};
 use num_traits::{One, Zero};
 
@@ -63,7 +63,10 @@ pub struct BvBoundsPropagation {
 impl BvBoundsPropagation {
     /// Create a fresh instance.
     pub fn new() -> Self {
-        Self { bounds: FxHashMap::default(), stats: BvBoundsStats::default() }
+        Self {
+            bounds: FxHashMap::default(),
+            stats: BvBoundsStats::default(),
+        }
     }
 
     /// Apply bounds propagation to `formula`, returning a (possibly simpler)
@@ -93,7 +96,9 @@ impl BvBoundsPropagation {
         }
 
         self.stats.bounds_computed += 1;
-        let term = tm.get(tid).ok_or_else(|| format!("term {:?} not found", tid))?;
+        let term = tm
+            .get(tid)
+            .ok_or_else(|| format!("term {:?} not found", tid))?;
 
         let interval = match &term.kind {
             // ── Constants ─────────────────────────────────────────────────
@@ -102,7 +107,11 @@ impl BvBoundsPropagation {
                 let mask = mask_for(w);
                 // `value` is stored as `BigInt`; convert to unsigned bit-pattern.
                 let raw = bigint_to_unsigned(value) & mask;
-                BvInterval { lower: raw.clone(), upper: raw, width: w }
+                BvInterval {
+                    lower: raw.clone(),
+                    upper: raw,
+                    width: w,
+                }
             }
 
             // ── Variables (unconstrained) ──────────────────────────────────
@@ -206,12 +215,20 @@ impl Default for BvBoundsPropagation {
 
 /// Return the all-ones mask `2^width - 1`.
 fn mask_for(width: usize) -> BigUint {
-    if width == 0 { BigUint::zero() } else { (BigUint::one() << width) - BigUint::one() }
+    if width == 0 {
+        BigUint::zero()
+    } else {
+        (BigUint::one() << width) - BigUint::one()
+    }
 }
 
 /// Full unsigned range `[0, 2^width - 1]`.
 fn full_range(width: usize) -> BvInterval {
-    BvInterval { lower: BigUint::zero(), upper: mask_for(width), width }
+    BvInterval {
+        lower: BigUint::zero(),
+        upper: mask_for(width),
+        width,
+    }
 }
 
 /// Convert a signed `BigInt` to its two's-complement unsigned magnitude.
@@ -294,9 +311,21 @@ fn bv_or(a: &BvInterval, b: &BvInterval) -> BvInterval {
 fn bv_not(a: &BvInterval) -> BvInterval {
     let mask = mask_for(a.width);
     // By invariant hi ≤ mask, so no underflow.
-    let new_lo = if a.upper <= mask { &mask - &a.upper } else { BigUint::zero() };
-    let new_hi = if a.lower <= mask { &mask - &a.lower } else { BigUint::zero() };
-    BvInterval { lower: new_lo, upper: new_hi, width: a.width }
+    let new_lo = if a.upper <= mask {
+        &mask - &a.upper
+    } else {
+        BigUint::zero()
+    };
+    let new_hi = if a.lower <= mask {
+        &mask - &a.lower
+    } else {
+        BigUint::zero()
+    };
+    BvInterval {
+        lower: new_lo,
+        upper: new_hi,
+        width: a.width,
+    }
 }
 
 /// Unsigned left shift.  Larger shift gives a larger (potentially wrapped) result.
@@ -306,10 +335,22 @@ fn bv_shl(value: &BvInterval, shift: &BvInterval) -> BvInterval {
     let sh_lo = shift.lower.to_u32_digits().first().copied().unwrap_or(0) as usize;
     let sh_hi = shift.upper.to_u32_digits().first().copied().unwrap_or(0) as usize;
 
-    let lower = if sh_lo >= w { BigUint::zero() } else { (&value.lower << sh_lo) & &mask };
-    let upper = if sh_hi >= w { BigUint::zero() } else { (&value.upper << sh_hi) & &mask };
+    let lower = if sh_lo >= w {
+        BigUint::zero()
+    } else {
+        (&value.lower << sh_lo) & &mask
+    };
+    let upper = if sh_hi >= w {
+        BigUint::zero()
+    } else {
+        (&value.upper << sh_hi) & &mask
+    };
 
-    BvInterval { lower, upper, width: w }
+    BvInterval {
+        lower,
+        upper,
+        width: w,
+    }
 }
 
 /// Unsigned logical right shift.  Larger shift gives a smaller result.
@@ -319,11 +360,23 @@ fn bv_lshr(value: &BvInterval, shift: &BvInterval) -> BvInterval {
     let sh_hi = shift.upper.to_u32_digits().first().copied().unwrap_or(0) as usize;
 
     // Minimum result uses the largest shift on the smallest value.
-    let lower = if sh_hi >= w { BigUint::zero() } else { &value.lower >> sh_hi };
+    let lower = if sh_hi >= w {
+        BigUint::zero()
+    } else {
+        &value.lower >> sh_hi
+    };
     // Maximum result uses the smallest shift on the largest value.
-    let upper = if sh_lo >= w { BigUint::zero() } else { &value.upper >> sh_lo };
+    let upper = if sh_lo >= w {
+        BigUint::zero()
+    } else {
+        &value.upper >> sh_lo
+    };
 
-    BvInterval { lower, upper, width: w }
+    BvInterval {
+        lower,
+        upper,
+        width: w,
+    }
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -341,8 +394,16 @@ mod tests {
 
     #[test]
     fn test_bv_add_no_overflow() {
-        let a = BvInterval { lower: BigUint::from(5u32), upper: BigUint::from(10u32), width: 8 };
-        let b = BvInterval { lower: BigUint::from(2u32), upper: BigUint::from(4u32), width: 8 };
+        let a = BvInterval {
+            lower: BigUint::from(5u32),
+            upper: BigUint::from(10u32),
+            width: 8,
+        };
+        let b = BvInterval {
+            lower: BigUint::from(2u32),
+            upper: BigUint::from(4u32),
+            width: 8,
+        };
         let r = bv_add(&a, &b);
         assert_eq!(r.lower, BigUint::from(7u32));
         assert_eq!(r.upper, BigUint::from(14u32));
@@ -352,7 +413,11 @@ mod tests {
     #[test]
     fn test_bv_not_zero() {
         // width=8, mask=0xFF; NOT [0, 0] = [0xFF, 0xFF]
-        let a = BvInterval { lower: BigUint::zero(), upper: BigUint::zero(), width: 8 };
+        let a = BvInterval {
+            lower: BigUint::zero(),
+            upper: BigUint::zero(),
+            width: 8,
+        };
         let r = bv_not(&a);
         assert_eq!(r.lower, BigUint::from(0xFFu32));
         assert_eq!(r.upper, BigUint::from(0xFFu32));
@@ -360,8 +425,16 @@ mod tests {
 
     #[test]
     fn test_bv_and_upper() {
-        let a = BvInterval { lower: BigUint::zero(), upper: BigUint::from(10u32), width: 8 };
-        let b = BvInterval { lower: BigUint::zero(), upper: BigUint::from(6u32), width: 8 };
+        let a = BvInterval {
+            lower: BigUint::zero(),
+            upper: BigUint::from(10u32),
+            width: 8,
+        };
+        let b = BvInterval {
+            lower: BigUint::zero(),
+            upper: BigUint::from(6u32),
+            width: 8,
+        };
         let r = bv_and(&a, &b);
         assert_eq!(r.upper, BigUint::from(6u32));
     }

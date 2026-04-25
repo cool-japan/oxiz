@@ -700,8 +700,7 @@ impl SetSolver {
                 Ok(var)
             }
             SetExpr::Universal => {
-                let var =
-                    self.new_set_var(&format!("univ_{}", self.vars.len()), SetSort::IntSet);
+                let var = self.new_set_var(&format!("univ_{}", self.vars.len()), SetSort::IntSet);
                 if let Some(v) = self.get_var_mut(var) {
                     v.is_universal = true;
                 }
@@ -709,8 +708,7 @@ impl SetSolver {
             }
             SetExpr::Singleton(elem) => {
                 let elem_val = *elem;
-                let var =
-                    self.new_set_var(&format!("sing_{}", self.vars.len()), SetSort::IntSet);
+                let var = self.new_set_var(&format!("sing_{}", self.vars.len()), SetSort::IntSet);
                 // Cardinality exactly 1
                 if let Some(v) = self.get_var_mut(var) {
                     v.add_must_member(elem_val);
@@ -738,10 +736,8 @@ impl SetSolver {
             SetExpr::Intersection(lhs_expr, rhs_expr) => {
                 let lhs_expr = *lhs_expr.clone();
                 let rhs_expr = *rhs_expr.clone();
-                let aux = self.new_set_var(
-                    &format!("aux_inter_{}", self.vars.len()),
-                    SetSort::IntSet,
-                );
+                let aux =
+                    self.new_set_var(&format!("aux_inter_{}", self.vars.len()), SetSort::IntSet);
                 let lhs_var = self.extract_var(&lhs_expr)?;
                 let rhs_var = self.extract_var(&rhs_expr)?;
                 // aux ⊆ lhs  and  aux ⊆ rhs
@@ -769,10 +765,8 @@ impl SetSolver {
             SetExpr::Difference(lhs_expr, rhs_expr) => {
                 let lhs_expr = *lhs_expr.clone();
                 let rhs_expr = *rhs_expr.clone();
-                let aux = self.new_set_var(
-                    &format!("aux_diff_{}", self.vars.len()),
-                    SetSort::IntSet,
-                );
+                let aux =
+                    self.new_set_var(&format!("aux_diff_{}", self.vars.len()), SetSort::IntSet);
                 let lhs_var = self.extract_var(&lhs_expr)?;
                 let rhs_var = self.extract_var(&rhs_expr)?;
                 // aux ⊆ lhs
@@ -808,10 +802,8 @@ impl SetSolver {
             }
             SetExpr::Complement(inner_expr) => {
                 let inner_expr = *inner_expr.clone();
-                let aux = self.new_set_var(
-                    &format!("aux_compl_{}", self.vars.len()),
-                    SetSort::IntSet,
-                );
+                let aux =
+                    self.new_set_var(&format!("aux_compl_{}", self.vars.len()), SetSort::IntSet);
                 let inner_var = self.extract_var(&inner_expr)?;
                 // x ∈ inner ⟹ x ∉ aux
                 let inner_must: Vec<u32> = self
@@ -840,10 +832,8 @@ impl SetSolver {
                 // Comprehension bodies require a full formula evaluator which is
                 // outside the scope of the constraint-propagation layer.  Create
                 // an unconstrained auxiliary variable as a sound over-approximation.
-                let var = self.new_set_var(
-                    &format!("aux_comp_{}", self.vars.len()),
-                    SetSort::IntSet,
-                );
+                let var =
+                    self.new_set_var(&format!("aux_comp_{}", self.vars.len()), SetSort::IntSet);
                 Ok(var)
             }
         }
@@ -1178,9 +1168,15 @@ impl TheoryCombination for SetSolver {
             .get_var(rhs_var)
             .map(|v| v.must_not_members.clone())
             .unwrap_or_default();
-        let lhs_lower = self.get_var(lhs_var).and_then(|v| v.card_bounds.0).unwrap_or(0);
+        let lhs_lower = self
+            .get_var(lhs_var)
+            .and_then(|v| v.card_bounds.0)
+            .unwrap_or(0);
         let lhs_upper = self.get_var(lhs_var).and_then(|v| v.card_bounds.1);
-        let rhs_lower = self.get_var(rhs_var).and_then(|v| v.card_bounds.0).unwrap_or(0);
+        let rhs_lower = self
+            .get_var(rhs_var)
+            .and_then(|v| v.card_bounds.0)
+            .unwrap_or(0);
         let rhs_upper = self.get_var(rhs_var).and_then(|v| v.card_bounds.1);
 
         // Conflict check: any element in one's must-members and the other's must-not-members

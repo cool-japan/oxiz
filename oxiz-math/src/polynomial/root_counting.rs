@@ -88,7 +88,17 @@ impl Polynomial {
         let divisor_deg = other.degree();
         let divisor_lead = &other.coeffs[divisor_deg];
 
-        while rem.degree() >= divisor_deg && !rem.coeffs.is_empty() {
+        loop {
+            // Terminate when rem is the zero polynomial or degree drops below divisor.
+            // degree() returns 0 for both the zero polynomial and non-zero constants, so we
+            // must check for zero explicitly to avoid an infinite loop when divisor_deg == 0.
+            if rem.coeffs.len() == 1 && rem.coeffs[0].is_zero() {
+                break;
+            }
+            if rem.degree() < divisor_deg || rem.coeffs.is_empty() {
+                break;
+            }
+
             let rem_deg = rem.degree();
             let rem_lead = &rem.coeffs[rem_deg];
             let factor = rem_lead / divisor_lead;
@@ -188,6 +198,11 @@ impl RootCounter {
 
         loop {
             let n = seq.len();
+            // A degree-0 tail (zero or non-zero constant) means the sequence is complete.
+            // Any polynomial mod a constant is 0, so the next remainder would be 0.
+            if seq[n - 1].degree() == 0 {
+                break;
+            }
             let remainder = seq[n - 2].remainder(&seq[n - 1]);
 
             // Negate remainder (Sturm sequence convention)

@@ -254,10 +254,11 @@ impl BoundPropagator {
 
         // If the entire interval is above 0, i.e. lower bound > 0, then p ≤ 0 is infeasible.
         if let Some(ref lb) = poly_interval.lower
-            && lb > &BigRational::zero() {
-                self.num_conflicts += 1;
-                return false;
-            }
+            && lb > &BigRational::zero()
+        {
+            self.num_conflicts += 1;
+            return false;
+        }
 
         // Attempt linear-variable bound tightening.
         // For each variable `v` that appears at degree exactly 1 in the polynomial:
@@ -287,12 +288,13 @@ impl BoundPropagator {
                     }
                 }
             } else if a.is_negative()
-                && let Some(ref rest_ub) = rest_interval.upper {
-                    let new_lower = (-rest_ub.clone()) / a.clone();
-                    if !self.tighten_lower(var, new_lower) {
-                        return false;
-                    }
+                && let Some(ref rest_ub) = rest_interval.upper
+            {
+                let new_lower = (-rest_ub.clone()) / a.clone();
+                if !self.tighten_lower(var, new_lower) {
+                    return false;
                 }
+            }
         }
 
         true
