@@ -78,12 +78,12 @@ This crate supports the SMT-COMP benchmark format:
 |:-------|:------|
 | Version | 0.2.1 |
 | Status | Alpha |
-| Tests | 104 passing |
+| Tests | 170 passing |
 | Rust LoC | 10,853 (20 files) |
 | Public API items | 370 |
 | `todo!`/`unimplemented!` | 0 |
 
-*Last updated: 2026-04-04*
+*Last updated: 2026-04-25*
 
 ## License
 

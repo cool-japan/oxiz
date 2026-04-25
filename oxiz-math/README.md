@@ -32,7 +32,7 @@ use oxiz_math::interval::Interval;
 
 | Metric | Value |
 |:-------|:------|
-| Tests | 586 passing |
+| Tests | 611 passing |
 | Rust LoC | 30,748 (60 files) |
 | Public API items | 1,036 |
 | `todo!`/`unimplemented!` | 0 |

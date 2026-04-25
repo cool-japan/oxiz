@@ -1,6 +1,6 @@
 # OxiZ TODO
 
-Last Updated: 2026-04-24
+Last Updated: 2026-04-25
 
 ---
 
@@ -46,11 +46,11 @@ OxiZ has achieved **100% correctness parity with Z3** across all 88 benchmark te
 
 ---
 
-## Current Statistics (v0.2.1 - April 24, 2026)
+## Current Statistics (v0.2.1 - April 25, 2026)
 
-- **Rust Lines of Code**: 406,502 total (323,732 code lines)
+- **Rust Lines of Code**: 442,034 total (408,320 code lines)
 - **Rust Files**: 978
-- **Unit Tests**: 6,368 passing (16 skipped, 0 failures)
+- **Unit Tests**: 6,415 passing (0 failures)
 - **Z3 Parity**: **100.0% (88/88)**
 - **Perfect Logics**: **8/8 tested**
 - **Workspace Crates**: 17 (16 Rust crates + 1 TypeScript)
@@ -539,6 +539,13 @@ oxiz-core (foundation)
 
 ## Recent Achievements
 
+### April 25, 2026 - Statistics Update (v0.2.1)
+
+- **Code Lines (tokei)**: 408,320 code lines out of 442,034 total lines across 1,182 files
+- **Tests**: 6,415 passing (0 failures)
+- **Stubs**: 0 unimplemented!()/todo!() remaining
+- **Key additions**: Set theory CDCL(T) interface wired; Sylvester matrix discriminant (degree≥4 fix); Hong's projection leading-coefficient fix; NIA cutting planes re-enabled; normalize_bounds tactic enabled; PyO3 quantifier/string(13)/FP(21) wrappers; dynamic subsumption periodic_check; multi-trigger E-matching; clause learning literal minimization; branch-and-bound loop; BV signed comparison
+
 ### April 24, 2026 - Statistics Update (v0.2.1)
 
 - **Rust Files**: 931 -> 978
@@ -612,7 +619,7 @@ oxiz-core (foundation)
 
 **Status**: Production Ready
 **Current Version**: v0.2.1
-**Tests**: 6,368 passing (16 skipped) | **LoC**: 406,502 total / 323,732 code | **Files**: 978 | **Clippy**: 0 warnings
+**Tests**: 6,415 passing | **LoC**: 442,034 total / 408,320 code | **Files**: 978 | **Clippy**: 0 warnings
 **Next Milestone**: v0.3.0 - Performance Parity + SMT-COMP (Target: June 2026)
 **Long-term Goal**: v1.0.0 - Industry-Ready SMT Solver (Target: Q4 2026)
 

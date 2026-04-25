@@ -57,7 +57,8 @@ println!("{}", proof.to_alethe());
 |:-------|:------|
 | Version | 0.2.1 |
 | Status | Stable |
-| Release Date | 2026-04-04 |
+| Release Date | 2026-04-25 |
+| Tests | 563 passing |
 | Rust LoC | 25,818 (52 files) |
 | Public API items | 804 |
 

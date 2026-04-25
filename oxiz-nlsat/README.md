@@ -46,7 +46,7 @@ This crate implements the NLSAT algorithm for solving non-linear real arithmetic
 |:-------|:------|
 | Version | 0.2.1 |
 | Status | Stable |
-| Tests | 363 passing (4 skipped) |
+| Tests | 375 passing |
 | Rust LoC | 21,551 (42 files) |
 | Public API items | 722 |
 | `todo!`/`unimplemented!` | 0 |

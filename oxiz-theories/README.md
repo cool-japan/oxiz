@@ -96,7 +96,7 @@ let result = solver.check()?;
 | Version | 0.2.1 |
 | Status | Stable |
 | Tests | 1,337 passing |
-| Release Date | 2026-04-04 |
+| Release Date | 2026-04-25 |
 | Rust LoC | 72,028 (123 files) |
 | Public API items | 2,609 |
 

@@ -16,8 +16,8 @@ OxiZ is a high-performance Satisfiability Modulo Theories (SMT) solver written e
 
 OxiZ is under active development with core theories at production quality:
 
-- **Pure Rust Implementation**: 323,732 lines of production Rust code
-- **Unit Tests**: 6,368 tests passing (100% pass rate)
+- **Pure Rust Implementation**: 408,320 lines of production Rust code
+- **Unit Tests**: 6,415 tests passing (100% pass rate)
 - **Z3 Parity**: 100.0% accuracy across 88 benchmarks (8/8 logics at 100%) ✅
 - **Production Ready**: All core theory solvers validated against Z3
 
@@ -132,9 +132,9 @@ This milestone validates OxiZ as a production-ready SMT solver implementation in
 
 | Metric | Value |
 |--------|-------|
-| Rust Lines of Code | 323,732 |
-| Total Lines (with docs) | 406,502 |
-| Total Tests | 6,368 passing |
+| Rust Lines of Code | 408,320 |
+| Total Lines (with docs) | 442,034 |
+| Total Tests | 6,415 passing |
 | Z3 Parity | **100.0% (88/88)** ✅ |
 | Perfect Logics | **8/8 tested (QF_LIA, QF_LRA, QF_NIA, QF_S, QF_BV, QF_FP, QF_DT, QF_A)** |
 | Crates | 17 |

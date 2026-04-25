@@ -106,7 +106,7 @@ The solver is optimized for:
 | Source files | 81 |
 | Public API items | 1,185 |
 
-*Last updated: 2026-04-04*
+*Last updated: 2026-04-25*
 
 ## License
 
