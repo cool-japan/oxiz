@@ -119,6 +119,8 @@ mod solver;
 mod stabilization;
 mod subsumption;
 mod symmetry;
+#[cfg(feature = "std")]
+pub mod tactics;
 mod target_phase;
 mod trail;
 mod trail_saving;
@@ -146,8 +148,8 @@ mod gpu;
 pub mod parallel;
 #[cfg(feature = "std")]
 mod portfolio;
-#[cfg(feature = "std")]
-mod profiling;
+#[cfg(feature = "profiling")]
+pub mod profiling;
 #[cfg(feature = "std")]
 mod proof;
 #[cfg(feature = "std")]
@@ -222,6 +224,8 @@ pub use symmetry::{
     AutomorphismDetector, MatrixSymmetry, Permutation, SymmetryBreaker, SymmetryBreakingMethod,
     SymmetryGroup,
 };
+#[cfg(feature = "std")]
+pub use tactics::{CubeImproveTactic, SymmetryBreakTactic};
 pub use target_phase::{PhaseMode, TargetPhaseSelector, TargetPhaseStats};
 pub use trail::{Reason, Trail};
 pub use trail_saving::{SavedTrail, TrailSavingManager, TrailSavingStats};
@@ -260,8 +264,10 @@ pub use parallel::{
 };
 #[cfg(feature = "std")]
 pub use portfolio::{PortfolioConfig, PortfolioResult, PortfolioSolver, PortfolioStats};
-#[cfg(feature = "std")]
-pub use profiling::{AutoTimer, PerformanceMetrics, Profiler, ScopedTimer};
+#[cfg(feature = "profiling")]
+pub use profiling::{
+    ProfilingCategory, ProfilingCategorySnapshot, ProfilingSnapshot, ProfilingStats, ScopedTimer,
+};
 #[cfg(feature = "std")]
 pub use proof::{DratProof, LratProof, ProofTrimmer};
 #[cfg(feature = "std")]

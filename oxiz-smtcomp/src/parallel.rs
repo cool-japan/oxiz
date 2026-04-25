@@ -91,7 +91,7 @@ impl From<&RunnerConfig> for ParallelConfig {
 }
 
 /// Progress information during parallel execution
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParallelProgress {
     /// Total number of benchmarks
     pub total: usize,
@@ -405,6 +405,7 @@ mod tests {
                 expected_status: Some(ExpectedStatus::Sat),
                 file_size: content.len() as u64,
                 category: None,
+                structural_features: None,
             },
             content: content.to_string(),
         }

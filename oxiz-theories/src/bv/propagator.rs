@@ -6,6 +6,8 @@
 #[allow(unused_imports)]
 use crate::prelude::*;
 use oxiz_core::ast::TermId;
+#[cfg(feature = "profiling")]
+use oxiz_core::profiling::{ProfilingCategory, ScopedTimer};
 
 /// Propagation error indicating a conflict
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -499,6 +501,8 @@ impl WordLevelPropagator {
 
     /// Propagate all constraints until fixpoint
     pub fn propagate(&mut self) -> Result<(), PropagationError> {
+        #[cfg(feature = "profiling")]
+        let _timer = ScopedTimer::new(ProfilingCategory::BvPropagation);
         while let Some(term) = self.queue.pop() {
             for constraint in &self.constraints.clone() {
                 self.propagate_constraint(constraint, term)?;

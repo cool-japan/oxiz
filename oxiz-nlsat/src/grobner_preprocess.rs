@@ -230,13 +230,37 @@ impl GroebnerPreprocessor {
     }
 
     /// Compute Gröbner basis with timeout.
+    ///
+    /// Spawns a background thread to run Buchberger's algorithm and waits for up
+    /// to `config.timeout_ms` milliseconds.  If the computation does not finish
+    /// in time we return `None`, which the caller treats as `PreprocessResult::Skipped`.
+    ///
+    /// Note: Rust has no thread-cancellation primitive, so the worker thread
+    /// continues to completion in the background.  This is acceptable because
+    /// the input is already size-bounded by `max_poly_count` / `max_degree`
+    /// checks performed before this call.
     fn compute_grobner_with_timeout(&self, polys: &[Polynomial]) -> Option<Vec<Polynomial>> {
-        // For now, directly call grobner_basis
-        // TODO: Implement proper timeout mechanism using channels or async
-        let gb = grobner_basis(polys);
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let polys_clone = polys.to_vec();
+        let max_poly_count = self.config.max_poly_count;
+        let timeout = Duration::from_millis(self.config.timeout_ms);
+
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let gb = grobner_basis(&polys_clone);
+            // Ignore send error — receiver may have already timed out.
+            let _ = tx.send(gb);
+        });
+
+        let gb = match rx.recv_timeout(timeout) {
+            Ok(result) => result,
+            Err(_) => return None, // Timeout — skip preprocessing.
+        };
 
         // Check if result is too large
-        if gb.len() > self.config.max_poly_count * 2 {
+        if gb.len() > max_poly_count * 2 {
             return None; // Basis exploded, skip
         }
 

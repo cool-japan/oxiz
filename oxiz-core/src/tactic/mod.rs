@@ -20,6 +20,7 @@ pub mod bv;
 
 // Refactored modules
 mod ackermann;
+mod aggressive_simplify;
 mod bitblast;
 mod combinators;
 mod core;
@@ -36,6 +37,7 @@ pub use core::{Goal, Precision, SolveResult, Tactic, TacticResult};
 
 // Re-export tactics
 pub use ackermann::{AckermannizeTactic, StatelessAckermannizeTactic};
+pub use aggressive_simplify::{AggressiveSimplifyTactic, StatelessAggressiveSimplifyTactic};
 pub use bitblast::{BitBlastTactic, StatelessBitBlastTactic};
 pub use combinators::{OrElseTactic, ParallelTactic, RepeatTactic, ThenTactic, TimeoutTactic};
 pub use ctx_simplify::{CtxSolverSimplifyTactic, StatelessCtxSolverSimplifyTactic};

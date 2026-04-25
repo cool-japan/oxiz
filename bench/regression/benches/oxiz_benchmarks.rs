@@ -5,12 +5,14 @@
 //! cargo bench
 //! ```
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use num_bigint::BigInt;
 use oxiz_core::ast::TermManager;
 use oxiz_core::smtlib::parse_script;
 use oxiz_sat::{DimacsParser, Lit, Solver as SatSolver, Var};
 use oxiz_solver::Solver;
+use std::hint::black_box;
+use std::io::Cursor;
 
 /// Benchmark SAT solver with 3-SAT instances of varying sizes
 fn bench_sat_3sat(c: &mut Criterion) {
@@ -34,9 +36,21 @@ fn bench_sat_3sat(c: &mut Criterion) {
                         let v1 = Var::new((i % num_vars) as u32);
                         let v2 = Var::new(((i * 7 + 3) % num_vars) as u32);
                         let v3 = Var::new(((i * 13 + 7) % num_vars) as u32);
-                        let l1 = if i % 2 == 0 { Lit::pos(v1) } else { Lit::neg(v1) };
-                        let l2 = if i % 3 == 0 { Lit::pos(v2) } else { Lit::neg(v2) };
-                        let l3 = if i % 5 == 0 { Lit::pos(v3) } else { Lit::neg(v3) };
+                        let l1 = if i % 2 == 0 {
+                            Lit::pos(v1)
+                        } else {
+                            Lit::neg(v1)
+                        };
+                        let l2 = if i % 3 == 0 {
+                            Lit::pos(v2)
+                        } else {
+                            Lit::neg(v2)
+                        };
+                        let l3 = if i % 5 == 0 {
+                            Lit::pos(v3)
+                        } else {
+                            Lit::neg(v3)
+                        };
                         solver.add_clause([l1, l2, l3]);
                     }
 
@@ -85,10 +99,11 @@ fn bench_theory_lia(c: &mut Criterion) {
             let y = tm.mk_var("y", tm.sorts.int_sort);
             let five = tm.mk_int(BigInt::from(5));
             let ten = tm.mk_int(BigInt::from(10));
+            let one = tm.mk_int(BigInt::from(1));
 
             solver.assert(tm.mk_ge(x, five), &mut tm);
             solver.assert(tm.mk_le(x, ten), &mut tm);
-            let x_plus_1 = tm.mk_add(vec![x, tm.mk_int(BigInt::from(1))]);
+            let x_plus_1 = tm.mk_add(vec![x, one]);
             solver.assert(tm.mk_eq(y, x_plus_1), &mut tm);
 
             black_box(solver.check(&mut tm))
@@ -156,7 +171,9 @@ fn bench_dimacs_parser(c: &mut Criterion) {
 
     c.bench_function("parser_dimacs", |b| {
         b.iter(|| {
-            black_box(DimacsParser::parse(dimacs_input))
+            let mut parser = DimacsParser::new();
+            let mut solver = SatSolver::new();
+            black_box(parser.parse_reader(Cursor::new(dimacs_input), &mut solver))
         });
     });
 }

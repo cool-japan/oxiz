@@ -430,6 +430,7 @@ mod tests {
                 expected_status: Some(ExpectedStatus::Sat),
                 file_size: content.len() as u64,
                 category: None,
+                structural_features: None,
             },
             content: content.to_string(),
         }

@@ -51,18 +51,21 @@ pub mod lean_enhanced;
 pub mod lfsc;
 pub mod merge;
 pub mod metadata;
+pub mod minimize;
 pub mod mmap;
 pub mod normalize;
 pub mod parallel;
 pub mod pattern;
 pub mod pcc;
 pub mod proof;
+pub mod recorder;
 pub mod rules;
 pub mod sat_integration;
 pub mod simplify;
 pub mod streaming;
 pub mod template;
 pub mod theory;
+pub mod theory_combination;
 pub mod unsat_core;
 pub mod validation;
 pub mod visualization;
@@ -118,12 +121,16 @@ pub use lean_enhanced::{
 pub use lfsc::{LfscDecl, LfscProof, LfscProofProducer, LfscSort, LfscTerm};
 pub use merge::{merge_proofs, slice_proof, slice_proof_multi};
 pub use metadata::{Difficulty, Priority, ProofMetadata, Strategy};
+pub use minimize::{MinimizeConfig, MinimizeResult, ProofMinimizer};
 pub use mmap::{MmapConfig, MmapProof, MmapProofStorage};
 pub use normalize::{canonicalize_conclusions, normalize_proof};
 pub use parallel::{ParallelCheckResult, ParallelConfig, ParallelProcessor, ParallelStatsComputer};
 pub use pattern::{LemmaPattern, PatternExtractor, PatternStructure};
 pub use pcc::{CodeLocation, PccBuilder, ProofCarryingCode, SafetyProperty, VerificationCondition};
 pub use proof::{Proof, ProofNode, ProofNodeId, ProofStats, ProofStep};
+#[cfg(feature = "arena")]
+pub use recorder::ArenaProofStepId;
+pub use recorder::Recorder;
 pub use rules::{
     Clause, CnfValidator, Literal, ResolutionValidator, RuleValidation, TheoryLemmaValidator,
     UnitPropagationValidator,
@@ -141,6 +148,9 @@ pub use template::{ProofTemplate, TemplateIdentifier, TemplateStep};
 pub use theory::{
     ArithProofRecorder, ArrayProofRecorder, EufProofRecorder, ProofTerm, TheoryProof,
     TheoryProofProducer, TheoryRule, TheoryStep, TheoryStepId,
+};
+pub use theory_combination::{
+    CombinationStep, NelsonOppenCertificate, TheoryId as CombinationTheoryId,
 };
 pub use unsat_core::{UnsatCore, extract_minimal_unsat_core, extract_unsat_core, get_core_labels};
 pub use validation::{FormatValidator, ValidationError, ValidationResult};

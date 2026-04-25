@@ -3,9 +3,9 @@
 //! Provides fundamental Galois theory operations needed for understanding
 //! polynomial splitting fields and solvability by radicals.
 
+use super::field_extension::ExtensionId;
 #[allow(unused_imports)]
 use crate::prelude::*;
-use super::field_extension::{FieldExtension, FieldExtensionManager, ExtensionId};
 use num_rational::BigRational;
 use num_traits::{One, Zero};
 
@@ -70,7 +70,11 @@ impl GaloisGroup {
 
         let mut composed_perm = vec![0; sigma_j.root_permutation.len()];
         for (idx, &target) in sigma_j.root_permutation.iter().enumerate() {
-            composed_perm[idx] = sigma_i.root_permutation.get(target).copied().unwrap_or(target);
+            composed_perm[idx] = sigma_i
+                .root_permutation
+                .get(target)
+                .copied()
+                .unwrap_or(target);
         }
 
         // Find or create this automorphism
@@ -330,7 +334,7 @@ impl Discriminant {
         let resultant = Self::resultant(poly, &derivative)?;
 
         let n = poly.len() - 1;
-        let sign_factor = if (n * (n - 1) / 2) % 2 == 0 {
+        let sign_factor = if (n * (n - 1) / 2).is_multiple_of(2) {
             BigRational::one()
         } else {
             -BigRational::one()
@@ -414,7 +418,7 @@ impl Discriminant {
                 -BigRational::one()
             };
 
-            det = det + sign * &matrix[0][j] * minor_det;
+            det += sign * &matrix[0][j] * minor_det;
         }
 
         Some(det)

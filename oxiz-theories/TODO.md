@@ -56,6 +56,14 @@ All theory solvers in oxiz-theories have achieved **100% correctness parity with
 
 ---
 
+## EUF Perf Scope-Box (2026-04-24)
+
+- [x] Criterion bench harness for `EufSolver` (5 workloads; baseline captured in `bench/regression/baseline.json`)
+- [x] Fingerprint pre-filter activated + 7 `#[inline]` cross-crate wrappers + `get_function_props` hoisted (intern_leaf −24%, intern_app −16%)
+- [x] Allocation reduction in `propagate`: reusable canonicalize buffer, `SmallVec`-backed proof_forest, flat `SigUpdateEntry`
+- [x] Incremental undo trail for `sig_table` + `fingerprint_table` (O(|nodes|) rebuild-on-pop eliminated)
+- [x] `ENode` layout reorder + `func: u32` sentinel (`NO_FUNC = u32::MAX`); `ENode::leaf()` / `ENode::app()` constructors added
+
 ## EUF Solver
 
 - [x] Proof generation for congruence closure

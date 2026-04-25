@@ -7,13 +7,7 @@ use std::process::Command;
 
 /// Get the path to the oxiz binary
 fn oxiz_bin() -> PathBuf {
-    let mut path = env::current_exe().expect("Failed to get current executable path");
-    path.pop(); // Remove test executable name
-    if path.ends_with("deps") {
-        path.pop(); // Remove deps directory
-    }
-    path.push("oxiz");
-    path
+    PathBuf::from(env!("CARGO_BIN_EXE_oxiz"))
 }
 
 /// Create a temporary SMT2 file for testing

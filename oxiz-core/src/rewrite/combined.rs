@@ -33,6 +33,8 @@ use super::{
 use crate::ast::{TermId, TermKind, TermManager};
 #[allow(unused_imports)]
 use crate::prelude::*;
+#[cfg(feature = "profiling")]
+use crate::profiling::{ProfilingCategory, ScopedTimer};
 
 /// Configuration for combined rewriting
 #[derive(Debug, Clone)]
@@ -208,6 +210,8 @@ impl CombinedRewriter {
             self.stats.cache_hits += 1;
             Some(cached)
         } else {
+            #[cfg(feature = "profiling")]
+            let _timer = ScopedTimer::new(ProfilingCategory::CacheMiss);
             self.stats.cache_misses += 1;
             None
         }

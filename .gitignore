@@ -23,6 +23,10 @@ Thumbs.db
 # Claude
 .claude/
 
+# Python
+__pycache__/
+*.py[cod]
+
 # Debug
 *.log
 

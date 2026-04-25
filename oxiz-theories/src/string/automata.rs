@@ -9,6 +9,8 @@
 /// State ID
 #[allow(unused_imports)]
 use crate::prelude::*;
+#[cfg(feature = "profiling")]
+use oxiz_core::profiling::{ProfilingCategory, ScopedTimer};
 /// State identifier for automata.
 pub type StateId = u32;
 
@@ -755,6 +757,8 @@ impl ConstraintAutomaton {
 
     /// Check if a string satisfies all constraints
     pub fn accepts(&self, s: &str) -> bool {
+        #[cfg(feature = "profiling")]
+        let _timer = ScopedTimer::new(ProfilingCategory::StringAutomata);
         // Check length
         if let Some((min, max)) = &self.length_bounds {
             if s.len() < *min {

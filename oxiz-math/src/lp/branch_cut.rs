@@ -18,7 +18,7 @@ use super::dual_simplex::{DualSimplexResult, DualSimplexSolver as DualSimplex};
 use crate::prelude::*;
 use core::cmp::Ordering;
 use num_rational::BigRational;
-use num_traits::{Signed, Zero};
+use num_traits::{Signed, ToPrimitive, Zero};
 
 /// Variable identifier.
 pub type VarId = usize;
@@ -247,13 +247,107 @@ impl BranchCutSolver {
                 continue;
             }
 
-            // TODO: Solve LP at this node with updated bounds
-            // For now, just branch
+            // Solve the LP relaxation at this node with updated variable bounds.
+            let mut node_solver = root_solver.clone();
 
-            // Select branching variable
-            if let Some((_var, _value)) = self.select_branch_variable(&FxHashMap::default()) {
-                // TODO: Create child nodes
-                // For now, just return
+            // Inject tightened bounds as additional constraints:
+            // lower bound: x_i >= lb  =>  -x_i <= -lb
+            // upper bound: x_i <= ub  =>   x_i <=  ub
+            for (&var_id, (lb, ub)) in &node.bounds {
+                // Encode lb <= x_i: add constraint  x_i >= lb  as  -x_i <= -lb
+                let n_vars = root_solver.num_vars();
+                let mut lb_row = vec![BigRational::zero(); n_vars];
+                if var_id < n_vars {
+                    lb_row[var_id] = BigRational::from_integer((-1).into());
+                }
+                node_solver.add_constraint(lb_row, -lb.clone());
+
+                // Encode x_i <= ub
+                let mut ub_row = vec![BigRational::zero(); n_vars];
+                if var_id < n_vars {
+                    ub_row[var_id] = BigRational::from_integer(1.into());
+                }
+                node_solver.add_constraint(ub_row, ub.clone());
+            }
+
+            let lp_result = node_solver.solve();
+            self.stats.lp_solves += 1;
+
+            match lp_result {
+                DualSimplexResult::Infeasible => {
+                    // This branch is infeasible — prune.
+                    continue;
+                }
+                DualSimplexResult::Optimal => {
+                    let solution = node_solver.get_solution();
+                    let obj_value = node_solver.get_objective_value();
+
+                    // Prune if LP bound is already worse than the best known integer solution.
+                    if let Some(ref best) = self.best_value
+                        && obj_value >= *best
+                    {
+                        continue;
+                    }
+
+                    if self.is_integer_feasible(&solution) {
+                        // Found an integer-feasible solution; update incumbent if better.
+                        let improve = self.best_value.as_ref().is_none_or(|bv| obj_value < *bv);
+                        if improve {
+                            self.best_value = Some(obj_value.clone());
+                            self.best_solution = Some(solution.clone());
+                            self.stats.best_integer_value =
+                                Some(obj_value.to_f64().unwrap_or(f64::INFINITY));
+                        }
+                        continue; // No further branching needed for this node.
+                    }
+
+                    // Select the most-infeasible fractional integer variable to branch on.
+                    let Some((branch_var, branch_val)) = self.select_branch_variable(&solution)
+                    else {
+                        continue;
+                    };
+
+                    let floor_val = branch_val.floor();
+                    let ceil_val = floor_val.clone() + BigRational::from_integer(1.into());
+
+                    // Left child: x_i <= floor(val)
+                    let mut left_bounds = node.bounds.clone();
+                    {
+                        let entry = left_bounds
+                            .entry(branch_var)
+                            .or_insert_with(|| (BigRational::zero(), floor_val.clone()));
+                        entry.1 = entry.1.clone().min(floor_val);
+                    }
+                    let left_node = BranchNode {
+                        id: self.next_node_id,
+                        lp_bound: obj_value.clone(),
+                        bounds: left_bounds,
+                        depth: node.depth + 1,
+                    };
+                    self.next_node_id += 1;
+                    self.nodes.push(left_node);
+
+                    // Right child: x_i >= ceil(val)
+                    let mut right_bounds = node.bounds.clone();
+                    {
+                        let entry = right_bounds
+                            .entry(branch_var)
+                            .or_insert_with(|| (ceil_val.clone(), BigRational::zero()));
+                        entry.0 = entry.0.clone().max(ceil_val);
+                    }
+                    let right_node = BranchNode {
+                        id: self.next_node_id,
+                        lp_bound: obj_value,
+                        bounds: right_bounds,
+                        depth: node.depth + 1,
+                    };
+                    self.next_node_id += 1;
+                    self.nodes.push(right_node);
+                }
+                _ => {
+                    // Unbounded or unknown — skip this node.
+                    continue;
+                }
             }
         }
 

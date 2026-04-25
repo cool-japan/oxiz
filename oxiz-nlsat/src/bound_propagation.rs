@@ -12,8 +12,8 @@
 //! Reference: Z3's bound propagation in theory solvers
 
 use num_rational::BigRational;
-use num_traits::{Signed, Zero};
-use oxiz_math::polynomial::{Polynomial, Var};
+use num_traits::{One, Signed, Zero};
+use oxiz_math::polynomial::{Monomial, Polynomial, Var};
 use rustc_hash::FxHashMap;
 use std::fmt;
 
@@ -218,20 +218,164 @@ impl BoundPropagator {
         }
     }
 
-    /// Propagate bounds through a polynomial constraint p ≤ 0 (heuristic).
+    /// Propagate bounds through a polynomial constraint p ≤ 0.
     ///
-    /// This is a simplified heuristic propagation for non-linear constraints.
+    /// Uses interval arithmetic to:
+    /// 1. Detect infeasibility: if the interval of p is entirely above 0, return `false`.
+    /// 2. Tighten bounds on degree-1 variables: for a term `a·v + rest(others) ≤ 0`,
+    ///    compute the interval of `rest` and derive a new bound for `v`.
+    ///
+    /// For monomials containing variables with no recorded bounds (unbounded), their
+    /// interval contribution is treated as `(-∞, +∞)`, which prevents conflict
+    /// detection but is always sound.  Returns `false` only when a definitive
+    /// contradiction is found; returns `true` otherwise (no-conflict / tightened).
     #[allow(dead_code)]
-    pub fn propagate_polynomial(&mut self, _poly: &Polynomial) -> bool {
-        // For non-linear polynomials, we use heuristic propagation
-        // This is a simplified version - full implementation would analyze
-        // polynomial structure and use interval arithmetic
-
+    pub fn propagate_polynomial(&mut self, poly: &Polynomial) -> bool {
         self.num_propagations += 1;
 
-        // Placeholder: always return true (no conflict)
-        // TODO: Implement actual polynomial bound propagation
+        // If the polynomial is identically zero, the constraint 0 ≤ 0 is trivially satisfied.
+        if poly.is_zero() {
+            return true;
+        }
+
+        // If the polynomial is a non-zero constant (e.g. 5), the constraint is c ≤ 0.
+        // It is infeasible iff c > 0.
+        if poly.is_constant() {
+            let c = poly.constant_value();
+            if c > BigRational::zero() {
+                self.num_conflicts += 1;
+                return false;
+            }
+            return true;
+        }
+
+        // Compute the interval of the whole polynomial via interval arithmetic.
+        let poly_interval = self.eval_polynomial_interval(poly);
+
+        // If the entire interval is above 0, i.e. lower bound > 0, then p ≤ 0 is infeasible.
+        if let Some(ref lb) = poly_interval.lower
+            && lb > &BigRational::zero()
+        {
+            self.num_conflicts += 1;
+            return false;
+        }
+
+        // Attempt linear-variable bound tightening.
+        // For each variable `v` that appears at degree exactly 1 in the polynomial:
+        //   isolate its contribution as  a·v + rest(others) ≤ 0
+        //   then derive a bound on v from the interval of rest(others).
+        let poly_terms = poly.terms();
+        for term in poly_terms {
+            let vps = term.monomial.vars();
+            // Only handle the linear-in-one-variable case: exactly one VarPower with power == 1.
+            if vps.len() != 1 || vps[0].power != 1 {
+                continue;
+            }
+            let var = vps[0].var;
+            let a = &term.coeff;
+
+            // Build the rest interval: sum intervals of all other terms.
+            let rest_interval = self.eval_polynomial_interval_except(poly, var, 1);
+
+            // Derive a bound on v.
+            //   a > 0:  a·v ≤ -rest_lower  →  v ≤ (-rest_lower)/a  (upper bound)
+            //   a < 0:  a·v ≤ -rest_upper  →  v ≥ (-rest_upper)/a  (sign flips)
+            if a.is_positive() {
+                if let Some(ref rest_lb) = rest_interval.lower {
+                    let new_upper = (-rest_lb.clone()) / a.clone();
+                    if !self.tighten_upper(var, new_upper) {
+                        return false;
+                    }
+                }
+            } else if a.is_negative()
+                && let Some(ref rest_ub) = rest_interval.upper
+            {
+                let new_lower = (-rest_ub.clone()) / a.clone();
+                if !self.tighten_lower(var, new_lower) {
+                    return false;
+                }
+            }
+        }
+
         true
+    }
+
+    /// Evaluate the interval of a polynomial given current variable bounds.
+    ///
+    /// Uses interval arithmetic: sums the intervals of each monomial.
+    fn eval_polynomial_interval(&self, poly: &Polynomial) -> Interval {
+        let mut sum = Interval::point(BigRational::zero());
+        for term in poly.terms() {
+            let monomial_interval = self.eval_monomial_interval(&term.monomial, &term.coeff);
+            sum = interval_add(&sum, &monomial_interval);
+        }
+        sum
+    }
+
+    /// Evaluate the interval of the polynomial, excluding the term for `skip_var^skip_power`.
+    fn eval_polynomial_interval_except(
+        &self,
+        poly: &Polynomial,
+        skip_var: Var,
+        skip_power: u32,
+    ) -> Interval {
+        let mut sum = Interval::point(BigRational::zero());
+        for term in poly.terms() {
+            let vps = term.monomial.vars();
+            if vps.len() == 1 && vps[0].var == skip_var && vps[0].power == skip_power {
+                continue;
+            }
+            let monomial_interval = self.eval_monomial_interval(&term.monomial, &term.coeff);
+            sum = interval_add(&sum, &monomial_interval);
+        }
+        sum
+    }
+
+    /// Evaluate the interval of a single monomial `coeff · ∏ vᵢ^pᵢ`.
+    fn eval_monomial_interval(&self, monomial: &Monomial, coeff: &BigRational) -> Interval {
+        let mut interval = Interval::point(coeff.clone());
+        for vp in monomial.vars() {
+            let var_interval = self.eval_var_power_interval(vp.var, vp.power);
+            interval = interval_mul(&interval, &var_interval);
+        }
+        interval
+    }
+
+    /// Compute the interval of `v^p` from the variable's current bounds.
+    ///
+    /// For power 0 returns [1, 1].  For power 1 returns the variable's interval.
+    /// For higher powers uses monotonicity / sign analysis.  Unbounded → unbounded.
+    fn eval_var_power_interval(&self, var: Var, power: u32) -> Interval {
+        if power == 0 {
+            return Interval::point(BigRational::one());
+        }
+        let var_bounds = self.get_bounds(var);
+        if power == 1 {
+            return var_bounds;
+        }
+        let (lb, ub) = match (var_bounds.lower, var_bounds.upper) {
+            (Some(l), Some(u)) => (l, u),
+            _ => return Interval::unbounded(),
+        };
+        let lb_p = rational_pow(&lb, power);
+        let ub_p = rational_pow(&ub, power);
+        if power.is_multiple_of(2) {
+            let zero = BigRational::zero();
+            if lb <= zero && zero <= ub {
+                // Interval straddles 0: even power minimum is 0.
+                let hi = lb_p.max(ub_p);
+                Interval::new(Some(zero), Some(hi))
+            } else {
+                let lo = lb_p.clone().min(ub_p.clone());
+                let hi = lb_p.max(ub_p);
+                Interval::new(Some(lo), Some(hi))
+            }
+        } else {
+            // Odd power: monotonically increasing.
+            let lo = lb_p.clone().min(ub_p.clone());
+            let hi = lb_p.max(ub_p);
+            Interval::new(Some(lo), Some(hi))
+        }
     }
 
     /// Clear all bounds.
@@ -259,6 +403,71 @@ impl Default for BoundPropagator {
     fn default() -> Self {
         Self::new()
     }
+}
+
+// ---------------------------------------------------------------------------
+// Interval arithmetic helpers (module-private)
+// ---------------------------------------------------------------------------
+
+/// Add two intervals: [a, b] + [c, d] = [a+c, b+d].
+fn interval_add(lhs: &Interval, rhs: &Interval) -> Interval {
+    let lower = match (&lhs.lower, &rhs.lower) {
+        (Some(l1), Some(l2)) => Some(l1.clone() + l2.clone()),
+        _ => None,
+    };
+    let upper = match (&lhs.upper, &rhs.upper) {
+        (Some(u1), Some(u2)) => Some(u1.clone() + u2.clone()),
+        _ => None,
+    };
+    Interval::new(lower, upper)
+}
+
+/// Multiply two intervals via the four-corner method.
+///
+/// [a, b] × [c, d] = [min(ac, ad, bc, bd), max(ac, ad, bc, bd)]
+///
+/// If either interval is unbounded, the result is unbounded (safe over-approximation).
+fn interval_mul(lhs: &Interval, rhs: &Interval) -> Interval {
+    match (&lhs.lower, &lhs.upper, &rhs.lower, &rhs.upper) {
+        (Some(l1), Some(u1), Some(l2), Some(u2)) => {
+            let corners = [
+                l1.clone() * l2.clone(),
+                l1.clone() * u2.clone(),
+                u1.clone() * l2.clone(),
+                u1.clone() * u2.clone(),
+            ];
+            let lo = corners
+                .iter()
+                .min_by(|a, b| a.cmp(b))
+                .cloned()
+                .unwrap_or_else(BigRational::zero);
+            let hi = corners
+                .iter()
+                .max_by(|a, b| a.cmp(b))
+                .cloned()
+                .unwrap_or_else(BigRational::zero);
+            Interval::new(Some(lo), Some(hi))
+        }
+        _ => Interval::unbounded(),
+    }
+}
+
+/// Compute `base^exp` for a `BigRational` base and `u32` exponent using fast exponentiation.
+fn rational_pow(base: &BigRational, exp: u32) -> BigRational {
+    if exp == 0 {
+        return BigRational::one();
+    }
+    let mut result = BigRational::one();
+    let mut b = base.clone();
+    let mut e = exp;
+    while e > 0 {
+        if e & 1 == 1 {
+            result *= b.clone();
+        }
+        b = b.clone() * b;
+        e >>= 1;
+    }
+    result
 }
 
 #[cfg(test)]
@@ -395,5 +604,74 @@ mod tests {
         propagator.set_bounds(0, Interval::new(Some(rat(0)), Some(rat(10))));
         propagator.clear();
         assert_eq!(propagator.bounds.len(), 0);
+    }
+
+    // -----------------------------------------------------------------------
+    // Tests for propagate_polynomial
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_propagate_polynomial_zero_poly_no_conflict() {
+        // 0 ≤ 0 is always satisfiable.
+        let mut propagator = BoundPropagator::new();
+        let zero = Polynomial::zero();
+        assert!(propagator.propagate_polynomial(&zero));
+    }
+
+    #[test]
+    fn test_propagate_polynomial_positive_constant_conflict() {
+        // 5 ≤ 0 is infeasible.
+        let mut propagator = BoundPropagator::new();
+        let five = Polynomial::constant(BigRational::from_integer(BigInt::from(5)));
+        assert!(!propagator.propagate_polynomial(&five));
+        assert_eq!(propagator.num_conflicts, 1);
+    }
+
+    #[test]
+    fn test_propagate_polynomial_negative_constant_no_conflict() {
+        // -3 ≤ 0 is always satisfied.
+        let mut propagator = BoundPropagator::new();
+        let neg_three = Polynomial::constant(BigRational::from_integer(BigInt::from(-3)));
+        assert!(propagator.propagate_polynomial(&neg_three));
+        assert_eq!(propagator.num_conflicts, 0);
+    }
+
+    #[test]
+    fn test_propagate_polynomial_linear_tightens_upper_bound() {
+        // Constraint: x + 3 ≤ 0  →  x ≤ -3.
+        // With no prior bounds, after propagation x should have upper bound -3.
+        // rest_interval for x is [3, 3] (the constant part),
+        // so new_upper = (-3) / 1 = -3.
+        let mut propagator = BoundPropagator::new();
+        let x_poly = Polynomial::from_var(0);
+        let three_poly = Polynomial::constant(BigRational::from_integer(BigInt::from(3)));
+        let poly = Polynomial::add(&x_poly, &three_poly);
+
+        let ok = propagator.propagate_polynomial(&poly);
+        assert!(ok);
+        let bounds = propagator.get_bounds(0);
+        assert_eq!(
+            bounds.upper,
+            Some(BigRational::from_integer(BigInt::from(-3)))
+        );
+    }
+
+    #[test]
+    fn test_propagate_polynomial_fully_bounded_infeasible() {
+        // Constraint: x ≤ 0 with x bounded to [5, 10].
+        // x's interval is [5, 10], polynomial interval lower = 5 > 0 → conflict.
+        let mut propagator = BoundPropagator::new();
+        propagator.set_bounds(0, Interval::new(Some(rat(5)), Some(rat(10))));
+        let x_poly = Polynomial::from_var(0);
+        assert!(!propagator.propagate_polynomial(&x_poly));
+        assert!(propagator.num_conflicts > 0);
+    }
+
+    #[test]
+    fn test_propagate_polynomial_unbounded_var_no_false_conflict() {
+        // x ≤ 0 with x unbounded: we cannot determine infeasibility, return true.
+        let mut propagator = BoundPropagator::new();
+        let x_poly = Polynomial::from_var(0);
+        assert!(propagator.propagate_polynomial(&x_poly));
     }
 }

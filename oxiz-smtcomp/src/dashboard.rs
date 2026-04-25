@@ -43,6 +43,10 @@ pub struct DashboardConfig {
     pub max_detail_rows: usize,
     /// Theme (light/dark)
     pub theme: String,
+    /// Optional WebSocket URL for live updates (e.g. "ws://localhost:8080")
+    /// When `Some`, the dashboard JS will open a WebSocket connection and
+    /// re-render the table on every incoming message.
+    pub ws_url: Option<String>,
 }
 
 impl Default for DashboardConfig {
@@ -55,6 +59,7 @@ impl Default for DashboardConfig {
             show_logic_breakdown: true,
             max_detail_rows: 500,
             theme: "light".to_string(),
+            ws_url: None,
         }
     }
 }
@@ -195,6 +200,182 @@ impl DashboardData {
     }
 }
 
+/// Additional CSS for interactive elements
+const CSS_INTERACTIVE: &str = r#"
+        .search-bar { margin-bottom: 1rem; }
+        .search-bar input {
+            width: 100%;
+            padding: 0.5rem 1rem;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-size: 0.95rem;
+            background: var(--bg-color);
+            color: var(--text-color);
+        }
+        th[data-sort-key] { cursor: pointer; user-select: none; }
+        th[data-sort-key]:hover { opacity: 1; }
+        th[data-sort-key] .sort-indicator { margin-left: 0.35rem; font-size: 0.75rem; }
+        tr.detail-row td { background: var(--card-bg); padding: 0; border-bottom: 2px solid var(--border-color); }
+        tr.detail-row pre {
+            margin: 0;
+            padding: 0.75rem 1.5rem;
+            font-size: 0.8rem;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .chart-filter-hint { font-size: 0.8rem; opacity: 0.6; margin-top: 0.3rem; }
+"#;
+
+/// JavaScript for search/filter, sortable columns, detail expander, and chart click-to-filter.
+/// All curly braces in this block are literal JS — NOT Rust format! placeholders.
+const JS_INTERACTIVE: &str = r#"
+<script>
+(function() {
+    // ---- Search / filter ----
+    var searchInput = document.getElementById('oxiz-search');
+    function applyFilter(query, logicFilter, statusFilter) {
+        var q = (query || '').toLowerCase();
+        var rows = document.querySelectorAll('#resultsTable tbody tr.data-row');
+        rows.forEach(function(tr) {
+            var name = (tr.dataset.name || '').toLowerCase();
+            var logic = (tr.dataset.logic || '').toLowerCase();
+            var status = (tr.dataset.status || '').toLowerCase();
+            var matchSearch = !q || name.indexOf(q) !== -1 || logic.indexOf(q) !== -1;
+            var matchLogic = !logicFilter || logic === logicFilter.toLowerCase();
+            var matchStatus = !statusFilter || status === statusFilter.toLowerCase();
+            // detail rows are handled separately
+            tr.style.display = (matchSearch && matchLogic && matchStatus) ? '' : 'none';
+            // collapse any open detail row when parent is hidden
+            var next = tr.nextElementSibling;
+            if (next && next.classList.contains('detail-row')) {
+                if (tr.style.display === 'none') next.style.display = 'none';
+            }
+        });
+    }
+
+    var activeLogicFilter = '';
+    var activeStatusFilter = '';
+    if (searchInput) {
+        searchInput.addEventListener('input', function() {
+            applyFilter(this.value, activeLogicFilter, activeStatusFilter);
+        });
+    }
+
+    // ---- Sortable columns ----
+    var sortState = { key: null, asc: true };
+    document.querySelectorAll('th[data-sort-key]').forEach(function(th) {
+        var indicator = document.createElement('span');
+        indicator.className = 'sort-indicator';
+        th.appendChild(indicator);
+        th.addEventListener('click', function() {
+            var key = this.dataset.sortKey;
+            if (sortState.key === key) {
+                sortState.asc = !sortState.asc;
+            } else {
+                sortState.key = key;
+                sortState.asc = true;
+            }
+            document.querySelectorAll('th[data-sort-key] .sort-indicator').forEach(function(s) { s.textContent = ''; });
+            indicator.textContent = sortState.asc ? ' \u25b2' : ' \u25bc';
+            sortTableBy(key, sortState.asc);
+        });
+    });
+
+    function sortTableBy(key, asc) {
+        var tbody = document.querySelector('#resultsTable tbody');
+        var rows = Array.from(tbody.querySelectorAll('tr.data-row'));
+        rows.sort(function(a, b) {
+            var va = a.dataset[key] || '';
+            var vb = b.dataset[key] || '';
+            var fa = parseFloat(va);
+            var fb = parseFloat(vb);
+            if (!isNaN(fa) && !isNaN(fb)) return asc ? fa - fb : fb - fa;
+            return asc ? va.localeCompare(vb) : vb.localeCompare(va);
+        });
+        // Re-insert in new order, keeping detail rows adjacent
+        rows.forEach(function(row) {
+            tbody.appendChild(row);
+            var next = row.nextElementSibling;
+            if (next && next.classList.contains('detail-row')) tbody.appendChild(next);
+        });
+    }
+
+    // ---- Row detail expander ----
+    document.querySelector('#resultsTable tbody').addEventListener('click', function(e) {
+        var tr = e.target.closest('tr.data-row');
+        if (!tr) return;
+        var idx = parseInt(tr.dataset.idx, 10);
+        var existingDetail = tr.nextElementSibling;
+        if (existingDetail && existingDetail.classList.contains('detail-row')) {
+            existingDetail.style.display = existingDetail.style.display === 'none' ? '' : 'none';
+            return;
+        }
+        var detailRow = document.createElement('tr');
+        detailRow.className = 'detail-row';
+        var td = document.createElement('td');
+        td.colSpan = 5;
+        var pre = document.createElement('pre');
+        pre.textContent = JSON.stringify(data.recent_results[idx], null, 2);
+        td.appendChild(pre);
+        detailRow.appendChild(td);
+        tr.insertAdjacentElement('afterend', detailRow);
+    });
+
+    // ---- Chart click-to-filter helpers ----
+    window.oxizSetLogicFilter = function(logic) {
+        activeLogicFilter = (activeLogicFilter === logic) ? '' : logic;
+        var q = searchInput ? searchInput.value : '';
+        applyFilter(q, activeLogicFilter, activeStatusFilter);
+    };
+    window.oxizSetStatusFilter = function(status) {
+        activeStatusFilter = (activeStatusFilter === status) ? '' : status;
+        var q = searchInput ? searchInput.value : '';
+        applyFilter(q, activeLogicFilter, activeStatusFilter);
+    };
+})();
+</script>
+"#;
+
+/// JavaScript template for WebSocket live-update. The placeholder __OXIZ_WS_URL__ is replaced
+/// with the actual URL at generation time so that Rust format! braces are not involved.
+const JS_WS_TEMPLATE: &str = r#"
+<script>
+(function() {
+    var ws = new WebSocket("__OXIZ_WS_URL__");
+    ws.onmessage = function(event) {
+        var incoming;
+        try { incoming = JSON.parse(event.data); } catch(e) { return; }
+        if (!Array.isArray(incoming)) return;
+        // Refresh the table with incoming results
+        var tbody = document.querySelector('#resultsTable tbody');
+        tbody.innerHTML = '';
+        incoming.forEach(function(r, idx) {
+            var tr = document.createElement('tr');
+            tr.className = 'data-row';
+            tr.dataset.idx = idx;
+            tr.dataset.name = r.name || '';
+            tr.dataset.logic = r.logic || '';
+            tr.dataset.status = r.status || '';
+            tr.dataset.time = r.time_secs != null ? r.time_secs : '';
+            var statusClass = 'status-' + r.status;
+            var correctBadge = r.correct === true ? '<span class="badge badge-success">OK</span>' :
+                               r.correct === false ? '<span class="badge badge-danger">WRONG</span>' : '-';
+            tr.innerHTML = '<td>' + r.name + '</td><td>' + (r.logic || '-') + '</td>' +
+                           '<td class="' + statusClass + '">' + r.status + '</td>' +
+                           '<td>' + (r.time_secs != null ? r.time_secs.toFixed(3) : '-') + 's</td>' +
+                           '<td>' + correctBadge + '</td>';
+            tbody.appendChild(tr);
+        });
+        // Also refresh stat cards if summary provided
+        if (incoming.length > 0) {
+            document.getElementById('total').textContent = incoming.length;
+        }
+    };
+    ws.onerror = function() { console.warn('OxiZ dashboard WebSocket error'); };
+})();
+</script>
+"#;
+
 /// Dashboard generator
 pub struct DashboardGenerator {
     config: DashboardConfig,
@@ -245,7 +426,8 @@ impl DashboardGenerator {
             String::new()
         };
 
-        Ok(format!(
+        // Build the main HTML body via format! (existing JS inside uses {{ }} escaping)
+        let mut html = format!(
             r##"<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -299,7 +481,7 @@ impl DashboardGenerator {
         .badge-danger {{ background: var(--danger-color); color: white; }}
         .progress-bar {{ height: 8px; background: var(--border-color); border-radius: 4px; overflow: hidden; }}
         .progress-fill {{ height: 100%; background: var(--success-color); transition: width 0.5s; }}
-        footer {{ text-align: center; padding: 2rem; opacity: 0.6; }}
+        footer {{ text-align: center; padding: 2rem; opacity: 0.6; }}{css_interactive}
     </style>
 </head>
 <body>
@@ -337,6 +519,7 @@ impl DashboardGenerator {
             </div>
             <div class="card">
                 <h2>Results by Logic</h2>
+                <p class="chart-filter-hint">Click a bar segment to filter the table by logic/status</p>
                 <div class="chart-container">
                     <canvas id="logicChart"></canvas>
                 </div>
@@ -345,13 +528,16 @@ impl DashboardGenerator {
 
         <div class="card">
             <h2>Recent Results</h2>
+            <div class="search-bar">
+                <input id="oxiz-search" type="text" placeholder="Filter by name or logic...">
+            </div>
             <table id="resultsTable">
                 <thead>
                     <tr>
-                        <th>Benchmark</th>
-                        <th>Logic</th>
-                        <th>Status</th>
-                        <th>Time</th>
+                        <th data-sort-key="name">Benchmark</th>
+                        <th data-sort-key="logic">Logic</th>
+                        <th data-sort-key="status">Status</th>
+                        <th data-sort-key="time">Time</th>
                         <th>Correct</th>
                     </tr>
                 </thead>
@@ -412,35 +598,63 @@ impl DashboardGenerator {
         options: {{
             responsive: true,
             maintainAspectRatio: false,
+            onClick: function(evt, elements) {{
+                if (elements && elements.length > 0 && window.oxizSetLogicFilter) {{
+                    var el = elements[0];
+                    var logicName = logics[el.index] ? logics[el.index].logic : '';
+                    var datasetLabels = ['sat', 'unsat', 'timeout'];
+                    var statusName = datasetLabels[el.datasetIndex] || '';
+                    if (logicName) window.oxizSetLogicFilter(logicName);
+                    if (statusName) window.oxizSetStatusFilter(statusName);
+                }}
+            }},
             scales: {{ x: {{ stacked: true }}, y: {{ stacked: true }} }}
         }}
     }});
 
     // Results table
     const tbody = document.querySelector('#resultsTable tbody');
-    data.recent_results.forEach(r => {{
+    data.recent_results.forEach(function(r, idx) {{
         const tr = document.createElement('tr');
+        tr.className = 'data-row';
+        tr.dataset.idx = idx;
+        tr.dataset.name = r.name || '';
+        tr.dataset.logic = r.logic || '';
+        tr.dataset.status = r.status || '';
+        tr.dataset.time = r.time_secs != null ? r.time_secs : '';
         const statusClass = 'status-' + r.status;
         const correctBadge = r.correct === true ? '<span class="badge badge-success">OK</span>' :
                             r.correct === false ? '<span class="badge badge-danger">WRONG</span>' : '-';
-        tr.innerHTML = `
-            <td>${{r.name}}</td>
-            <td>${{r.logic || '-'}}</td>
-            <td class="${{statusClass}}">${{r.status}}</td>
-            <td>${{r.time_secs.toFixed(3)}}s</td>
-            <td>${{correctBadge}}</td>
-        `;
+        tr.innerHTML =
+            '<td>' + r.name + '</td>' +
+            '<td>' + (r.logic || '-') + '</td>' +
+            '<td class="' + statusClass + '">' + r.status + '</td>' +
+            '<td>' + (r.time_secs != null ? r.time_secs.toFixed(3) : '-') + 's</td>' +
+            '<td>' + correctBadge + '</td>';
         tbody.appendChild(tr);
     }});
     </script>
-</body>
-</html>
 "##,
             title = self.config.title,
             refresh_meta = refresh_meta,
             theme_vars = theme_vars,
             data_json = data_json,
-        ))
+            css_interactive = CSS_INTERACTIVE,
+        );
+
+        // Append interactive JS block (concatenated, not inside format! to avoid brace conflicts)
+        html.push_str(JS_INTERACTIVE);
+
+        // Conditionally append WebSocket JS block
+        if let Some(ref url) = self.config.ws_url {
+            let ws_js = JS_WS_TEMPLATE.replace("__OXIZ_WS_URL__", url);
+            html.push_str(&ws_js);
+        }
+
+        // Close body/html
+        html.push_str("</body>\n</html>\n");
+
+        Ok(html)
     }
 
     /// Write dashboard to file
@@ -489,6 +703,7 @@ mod tests {
             expected_status: Some(ExpectedStatus::Sat),
             file_size: 100,
             category: None,
+            structural_features: None,
         };
         SingleResult::new(&meta, status, Duration::from_millis(time_ms))
     }

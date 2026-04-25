@@ -16,6 +16,8 @@ members = [
     "oxiz-smtcomp",
     "oxiz-py",
     "oxiz-ml",
+    "bench/regression",
+    "bench/profile",
 ]
 
 # Exclude oxiz-py from default build since it requires maturin for proper Python linking.
@@ -35,10 +37,12 @@ default-members = [
     "oxiz-cli",
     "oxiz-smtcomp",
     "oxiz-ml",
+    "bench/regression",
+    "bench/profile",
 ]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 authors = ["COOLJAPAN OU (Team KitaSan)"]
 license = "Apache-2.0"
@@ -58,34 +62,34 @@ collapsible_if = "allow"
 
 [workspace.dependencies]
 # Meta crate
-oxiz = { version = "0.2.0", path = "oxiz" }
+oxiz = { version = "0.2.1", path = "oxiz" }
 
 # Core crates (default-features = false so downstream can control std)
-oxiz-core = { version = "0.2.0", path = "oxiz-core", default-features = false }
-oxiz-math = { version = "0.2.0", path = "oxiz-math", default-features = false }
-oxiz-sat = { version = "0.2.0", path = "oxiz-sat", default-features = false }
-oxiz-nlsat = { version = "0.2.0", path = "oxiz-nlsat" }
-oxiz-theories = { version = "0.2.0", path = "oxiz-theories", default-features = false }
-oxiz-solver = { version = "0.2.0", path = "oxiz-solver", default-features = false }
-oxiz-opt = { version = "0.2.0", path = "oxiz-opt" }
-oxiz-spacer = { version = "0.2.0", path = "oxiz-spacer" }
-oxiz-proof = { version = "0.2.0", path = "oxiz-proof" }
-oxiz-smtcomp = { version = "0.2.0", path = "oxiz-smtcomp" }
-oxiz-ml = { version = "0.2.0", path = "oxiz-ml" }
+oxiz-core = { version = "0.2.1", path = "oxiz-core", default-features = false }
+oxiz-math = { version = "0.2.1", path = "oxiz-math", default-features = false }
+oxiz-sat = { version = "0.2.1", path = "oxiz-sat", default-features = false }
+oxiz-nlsat = { version = "0.2.1", path = "oxiz-nlsat" }
+oxiz-theories = { version = "0.2.1", path = "oxiz-theories", default-features = false }
+oxiz-solver = { version = "0.2.1", path = "oxiz-solver", default-features = false }
+oxiz-opt = { version = "0.2.1", path = "oxiz-opt" }
+oxiz-spacer = { version = "0.2.1", path = "oxiz-spacer" }
+oxiz-proof = { version = "0.2.1", path = "oxiz-proof" }
+oxiz-smtcomp = { version = "0.2.1", path = "oxiz-smtcomp" }
+oxiz-ml = { version = "0.2.1", path = "oxiz-ml" }
 
 # Memory & Interning
 bumpalo = "3.20"
-indexmap = { version = "2.13", default-features = false }
+indexmap = { version = "2.14", default-features = false }
 lasso = "0.7"
 
 # Parsing
-winnow = "0.7"
+winnow = "1.0"
 
 # E-graph / Rewriting
 egg = "0.11"
 
 # Parallelism
-rayon = "1.11"
+rayon = "1.12"
 num_cpus = "1.17"
 
 # Logging & Tracing
@@ -99,7 +103,7 @@ anyhow = "1.0"
 # CLI
 clap = { version = "4.6", features = ["derive", "cargo"] }
 clap_complete = "4.6"
-rustyline = "17.0"
+rustyline = "18.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
@@ -108,30 +112,37 @@ indicatif = "0.18"
 walkdir = "2.5"
 globset = "0.4"
 notify = "8.2"
-sysinfo = "0.36"
+sysinfo = "0.38"
 dirs = "6.0"
 tower-lsp = "0.20"
-tokio = "1.51"
+tokio = "1.52"
 axum = { version = "0.8", features = ["ws"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors"] }
+tokio-tungstenite = "0.29"
+futures-util = "0.3"
 
 # WASM
 wasm-bindgen = "0.2"
 js-sys = "0.3"
 
 # Compression (OxiARC - Pure Rust)
-oxiarc-deflate = "0.2.6"
-oxiarc-brotli = "0.2.6"
+oxiarc-deflate = "0.2.7"
+oxiarc-brotli = "0.2.7"
+
+# PDF (Pure Rust)
+pdf-writer = "0.14"
 
 # Testing
 proptest = "1.11"
-criterion = "0.7"
+criterion = { version = "0.8", features = ["html_reports"] }
+tempfile = "3.27"
 
 # Utilities
-smallvec = { version = "1.15", features = ["serde"] }
+smallvec = { version = "1.15", features = ["serde", "union"] }
 rustc-hash = { version = "2.1", default-features = false }
-hashbrown = "0.15"
+hashbrown = "0.17"
+lru = "0.17"
 num-rational = { version = "0.4", default-features = false }
 num-bigint = { version = "0.4", default-features = false }
 num-traits = { version = "0.2", default-features = false }
@@ -139,7 +150,7 @@ num-integer = { version = "0.1", default-features = false }
 libm = "0.2"
 portable-atomic = { version = "1.13", default-features = false, features = ["critical-section"] }
 portable-atomic-util = { version = "0.2", default-features = false, features = ["alloc"] }
-rand = "0.9"
+rand = "0.10"
 
 [profile.release]
 opt-level = "z"

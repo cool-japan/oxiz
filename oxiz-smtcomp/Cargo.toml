@@ -12,17 +12,31 @@ categories = ["development-tools::testing"]
 [lints]
 workspace = true
 
+[features]
+default = []
+pdf-report = ["dep:pdf-writer"]
+ws-progress = ["dep:tokio", "dep:axum", "dep:tower-http"]
+
 [dependencies]
 oxiz-core = { workspace = true, features = ["std"] }
 oxiz-solver = { workspace = true, features = ["std"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde_yaml = { workspace = true }
 walkdir = { workspace = true }
 thiserror = { workspace = true, features = ["std"] }
 tracing = { workspace = true, features = ["std"] }
 rayon = { workspace = true }
 rand = { workspace = true }
+lru = { workspace = true }
+pdf-writer = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true, features = ["rt-multi-thread", "macros", "net", "sync"] }
+axum = { workspace = true, optional = true }
+tower-http = { workspace = true, optional = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
-tempfile = "3.27"
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio-tungstenite = { workspace = true }
+futures-util.workspace = true

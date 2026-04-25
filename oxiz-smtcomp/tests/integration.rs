@@ -30,6 +30,7 @@ fn make_meta(name: &str, logic: &str, expected: Option<ExpectedStatus>) -> Bench
         expected_status: expected,
         file_size: 100,
         category: None,
+        structural_features: None,
     }
 }
 

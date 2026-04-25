@@ -85,6 +85,42 @@ impl<'a> Parser<'a> {
                 if let Some(&sort) = self.constants.get(s) {
                     return Ok(self.manager.mk_var(s, sort));
                 }
+                // Z3-compatible shortcut: the SMT-LIB 2 grammar does not treat
+                // `-3` or `-3.0` as a numeric literal (they parse as symbols
+                // because `-` is a valid symbol char), but Z3 accepts them as
+                // negative numbers.  If the symbol matches the pattern of a
+                // negative numeral or decimal and has not been bound to
+                // anything else, interpret it as such — otherwise arithmetic
+                // constraints like `(* -3.0 x)` silently become nonsense
+                // boolean-sorted variables.
+                if let Some(rest) = s.strip_prefix('-')
+                    && !rest.is_empty()
+                    && rest.chars().next().is_some_and(|c| c.is_ascii_digit())
+                {
+                    if let Some(dot_idx) = rest.find('.') {
+                        let (int_part, frac_part) = rest.split_at(dot_idx);
+                        let frac_part = &frac_part[1..];
+                        if int_part.chars().all(|c| c.is_ascii_digit())
+                            && !frac_part.is_empty()
+                            && frac_part.chars().all(|c| c.is_ascii_digit())
+                        {
+                            let rational =
+                                super::parse_decimal_to_rational(rest).map_err(|_| {
+                                    OxizError::ParseError {
+                                        position: self.lexer.position(),
+                                        message: format!("invalid negative decimal: {s}"),
+                                    }
+                                })?;
+                            return Ok(self.manager.mk_real(-rational));
+                        }
+                    } else if rest.chars().all(|c| c.is_ascii_digit()) {
+                        let value: BigInt = rest.parse().map_err(|_| OxizError::ParseError {
+                            position: self.lexer.position(),
+                            message: format!("invalid negative numeral: {s}"),
+                        })?;
+                        return Ok(self.manager.mk_int(-value));
+                    }
+                }
                 // Default to boolean variable
                 let sort = self.manager.sorts.bool_sort;
                 Ok(self.manager.mk_var(s, sort))

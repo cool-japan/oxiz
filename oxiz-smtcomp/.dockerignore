@@ -1,0 +1,17 @@
+# Keep the Docker build context lean. Note: when building from the repo
+# root (`docker build -f oxiz-smtcomp/Dockerfile .`), Docker uses the
+# repo-root /.dockerignore — this file is checked in alongside the
+# Dockerfile for discoverability and as a fallback build context.
+target/
+**/target/
+.git/
+.github/
+**/*.pdf
+**/*.log
+**/node_modules/
+**/__pycache__/
+**/*.pyc
+oxiz-wasm/pkg/
+oxiz-wasm/target/
+bench/logs/
+**/.DS_Store

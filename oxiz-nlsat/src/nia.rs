@@ -14,13 +14,13 @@
 //! - Z3's NIA solver in `nlsat/nlsat_solver.cpp`
 //! - Branch-and-bound for mixed integer non-linear programming (MINLP)
 
-// TODO: Update to use new cutting_planes API from oxiz_math::lp
-// use oxiz_math::lp::cutting_planes::CuttingPlaneGenerator;
 use crate::solver::{Model, NlsatSolver, SolverResult};
 use crate::types::AtomKind;
 use num_rational::BigRational;
 use num_traits::{One, ToPrimitive};
+use oxiz_math::lp::cutting_planes::CuttingPlaneGenerator;
 use oxiz_math::polynomial::{Polynomial, Var};
+use rustc_hash::FxHashSet;
 use std::collections::HashSet;
 
 /// Integer variable type specification.
@@ -95,7 +95,6 @@ pub struct NiaSolver {
     config: NiaConfig,
     /// Statistics.
     stats: NiaStats,
-    // TODO: Re-enable cutting plane generator after updating to new cutting_planes API from oxiz_math::lp
 }
 
 /// Statistics for NIA solver.
@@ -124,8 +123,6 @@ impl NiaSolver {
             var_types: Vec::new(),
             config,
             stats: NiaStats::default(),
-            // TODO: Re-enable after updating to new cutting_planes API
-            // cut_generator: CuttingPlaneGenerator::new(),
         }
     }
 
@@ -235,6 +232,13 @@ impl NiaSolver {
                             // Found an integer solution!
                             self.stats.integer_solutions += 1;
                             return SolverResult::Sat;
+                        }
+
+                        // If cutting planes are enabled, attempt to cut off the
+                        // fractional LP solution before branching. A Gomory cut
+                        // tightens the relaxation and can prune many branches.
+                        if self.config.enable_cutting_planes {
+                            let _ = self.add_cutting_plane(&model);
                         }
 
                         // Solution is not integer - need to branch
@@ -416,52 +420,83 @@ impl NiaSolver {
         &self.stats
     }
 
-    /// Add a cutting plane to eliminate the current fractional solution.
+    /// Add Gomory cutting planes to eliminate the current fractional solution.
     ///
-    /// Gomory cutting planes can be used to cut off fractional solutions.
-    #[allow(dead_code)]
-    pub fn add_cutting_plane(&mut self, _model: &Model) -> bool {
-        // Collect integer variables
-        let _integer_vars: Vec<Var> = self
+    /// For each integer variable with a fractional value in the model, generates
+    /// a Gomory fractional cut and asserts it as a polynomial constraint into
+    /// the NLSAT solver. This tightens the LP relaxation and can prune branches.
+    ///
+    /// Returns `true` if at least one cut was added, `false` otherwise.
+    pub fn add_cutting_plane(&mut self, model: &Model) -> bool {
+        // Build the set of integer variable IDs for the cut generator.
+        let integer_var_set: FxHashSet<usize> = self
             .var_types
             .iter()
             .enumerate()
             .filter_map(|(idx, vtype)| {
                 if *vtype == VarType::Integer {
-                    Some(idx as Var)
+                    Some(idx)
                 } else {
                     None
                 }
             })
             .collect();
 
-        // TODO: Re-enable Gomory cuts after updating to new cutting_planes API
-        // Generate Gomory cuts
-        // let cuts = self
-        //     .cut_generator
-        //     .generate_gomory_cuts(model, &integer_vars);
+        if integer_var_set.is_empty() {
+            return false;
+        }
 
-        // if cuts.is_empty() {
-        //     return false;
-        // }
+        let mut cut_gen = CuttingPlaneGenerator::new(integer_var_set.clone());
+        let mut cuts_added = false;
 
-        // Temporary: return false until cutting planes are re-enabled
-        false
+        for &var in &integer_var_set {
+            let poly_var = var as Var;
+            let Some(value) = model.arith_value(poly_var) else {
+                continue;
+            };
 
-        // Add cuts as constraints to the NLSAT solver
-        // for cut in cuts {
-        //     // Convert the cutting plane constraint (poly >= 0) to a clause
-        //     // poly >= 0 is equivalent to NOT(poly < 0)
-        //     // So we create an atom for poly < 0 and negate it
-        //     let atom_id = self.nlsat.new_ineq_atom(cut.poly.clone(), AtomKind::Lt);
-        //     let literal = self.nlsat.atom_literal(atom_id, false); // Negated literal
-        //
-        //     // Add as a unit clause (must be satisfied)
-        //     self.nlsat.add_clause(vec![literal]);
-        //     self.stats.cutting_planes += 1;
-        // }
-        //
-        // true
+            // Only attempt to cut if the value is fractional.
+            let frac = self.fractional_part(value);
+            if frac < self.config.int_tolerance || frac > (1.0 - self.config.int_tolerance) {
+                continue;
+            }
+
+            // Build a row representing: var = value  (single-variable row).
+            // The row is: coefficient 1 for `var`, RHS = value.
+            // A Gomory cut for this row is: frac(var) >= frac(value),
+            // i.e. the fractional part of var must equal or exceed frac(value).
+            // Translated: the cut pushes var away from the current fractional value.
+            let row: Vec<(usize, BigRational)> = vec![(var, BigRational::one())];
+            let Some(cut) = cut_gen.generate_gomory_cut(var, &row, value) else {
+                continue;
+            };
+
+            if cut.coeffs.is_empty() {
+                continue;
+            }
+
+            // The Gomory cut is: sum(coeffs * vars) >= rhs
+            // Equivalently: sum(coeffs * vars) - rhs >= 0
+            // We assert NOT(sum(coeffs * vars) - rhs < 0).
+            let mut cut_poly = Polynomial::zero();
+            for (cut_var, coeff) in &cut.coeffs {
+                let var_poly = Polynomial::from_var(*cut_var as Var);
+                let term = Polynomial::mul(&var_poly, &Polynomial::constant(coeff.clone()));
+                cut_poly = Polynomial::add(&cut_poly, &term);
+            }
+            // Subtract the RHS constant.
+            let rhs_poly = Polynomial::constant(cut.rhs.clone());
+            let cut_lhs = Polynomial::sub(&cut_poly, &rhs_poly);
+
+            // Assert NOT(cut_lhs < 0) → cut_lhs >= 0
+            let atom_id = self.nlsat.new_ineq_atom(cut_lhs, AtomKind::Lt);
+            let lit = self.nlsat.atom_literal(atom_id, false); // negated
+            self.nlsat.add_clause(vec![lit]);
+            self.stats.cutting_planes += 1;
+            cuts_added = true;
+        }
+
+        cuts_added
     }
 }
 

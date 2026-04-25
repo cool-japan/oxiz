@@ -1,19 +1,19 @@
 name: Performance Regression
 
 on:
-  push:
-    branches: [main, master]
   pull_request:
     branches: [main, master]
-  schedule:
-    # Run weekly on Sunday at midnight UTC
-    - cron: '0 0 * * 0'
   workflow_dispatch:
     inputs:
       threshold:
         description: 'Regression threshold percentage'
         required: false
         default: '10'
+      compare_z3:
+        description: 'Compare eligible benchmarks against Z3 when available'
+        required: false
+        type: boolean
+        default: false
       update_baseline:
         description: 'Update baseline after run'
         required: false
@@ -51,26 +51,32 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Build regression tests
-        run: |
-          cd bench/regression
-          cargo build --release
+        run: cargo build -p bench-regression --release
 
       - name: Run regression tests
         id: regression
         run: |
-          cd bench/regression
           THRESHOLD="${{ github.event.inputs.threshold || '10' }}"
-          cargo run --release -- --threshold "$THRESHOLD" --github 2>&1 | tee regression-output.txt
+          COMPARE_Z3="${{ github.event.inputs.compare_z3 || 'false' }}"
+          ARGS=(--threshold "$THRESHOLD" --github --markdown)
+          if [ "$COMPARE_Z3" = "true" ]; then
+            ARGS+=(--compare-z3)
+          fi
+          cargo run -p bench-regression --release -- "${ARGS[@]}" 2>&1 | tee bench/regression/regression-output.txt
           EXIT_CODE=${PIPESTATUS[0]}
           echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+          if [ "$EXIT_CODE" -ne 0 ]; then
+            echo "has_regression=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_regression=false" >> $GITHUB_OUTPUT
+          fi
           exit $EXIT_CODE
         continue-on-error: true
 
       - name: Generate JSON report
         if: always()
         run: |
-          cd bench/regression
-          cargo run --release -- --json > regression-report.json 2>/dev/null || true
+          cargo run -p bench-regression --release -- --json > bench/regression/regression-report.json 2>/dev/null || true
 
       - name: Upload regression report
         if: always()
@@ -80,28 +86,19 @@ jobs:
           path: |
             bench/regression/regression-output.txt
             bench/regression/regression-report.json
+            bench/regression/regression_comment.md
           retention-days: 30
 
       - name: Comment on PR
-        if: github.event_name == 'pull_request' && steps.regression.outputs.exit_code != '0'
-        uses: actions/github-script@v7
+        if: github.event_name == 'pull_request' && steps.regression.outputs.has_regression == 'true'
+        uses: peter-evans/create-or-update-comment@v3
         with:
-          script: |
-            const fs = require('fs');
-            const output = fs.readFileSync('bench/regression/regression-output.txt', 'utf8');
-
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: `## Performance Regression Detected\n\n\`\`\`\n${output}\n\`\`\`\n\nPlease investigate the performance regression before merging.`
-            });
+          issue-number: ${{ github.event.pull_request.number }}
+          body-path: bench/regression/regression_comment.md
 
       - name: Update baseline
         if: github.event.inputs.update_baseline == 'true' && github.ref == 'refs/heads/main'
-        run: |
-          cd bench/regression
-          cargo run --release -- --update
+        run: cargo run -p bench-regression --release -- --update
 
       - name: Commit baseline update
         if: github.event.inputs.update_baseline == 'true' && github.ref == 'refs/heads/main'
@@ -116,10 +113,17 @@ jobs:
           echo "Performance regression detected!"
           exit 1
 
+      - name: "Geomean gate (Z3 parity \u22641.2x)"
+        if: always()
+        run: |
+          cargo run -p bench-regression --release -- \
+            --check-geomean --max 1.2 \
+            --history-dir bench/regression/history
+
   benchmark-criterion:
     name: Criterion Benchmarks
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch'
 
     steps:
       - name: Checkout repository
@@ -142,8 +146,7 @@ jobs:
 
       - name: Run Criterion benchmarks
         run: |
-          cd bench/regression
-          cargo bench --no-run 2>/dev/null || echo "Criterion benchmarks not yet configured"
+          cargo bench -p bench-regression --no-run 2>/dev/null || echo "Criterion benchmarks not yet configured"
 
       - name: Upload benchmark results
         if: always()

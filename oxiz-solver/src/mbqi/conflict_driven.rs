@@ -21,7 +21,7 @@ use oxiz_core::sort::SortId;
 use smallvec::SmallVec;
 
 use super::model_completion::CompletedModel;
-use super::{Instantiation, InstantiationReason, QuantifiedFormula};
+use super::{Instantiation, InstantiationReason, QuantifiedFormula, QuantifierId};
 
 /// Configuration for conflict-driven instantiation
 #[derive(Debug, Clone)]
@@ -128,6 +128,56 @@ pub struct ConflictAnalysis {
     pub related_quantifiers: Vec<TermId>,
 }
 
+/// VSIDS-style conflict activity scores for quantifiers.
+#[derive(Debug, Clone)]
+pub struct ConflictScores {
+    /// Integer activity score by quantifier.
+    pub scores: HashMap<QuantifierId, u32>,
+    /// Multiplicative decay factor applied on restart.
+    pub decay_factor: f64,
+}
+
+impl ConflictScores {
+    /// Create a new score table.
+    pub fn new(decay_factor: f64) -> Self {
+        Self {
+            scores: HashMap::new(),
+            decay_factor,
+        }
+    }
+
+    /// Record a conflict for one quantifier.
+    pub fn record_conflict(&mut self, qid: QuantifierId) {
+        let entry = self.scores.entry(qid).or_insert(0);
+        *entry = entry.saturating_add(1);
+    }
+
+    /// Apply decay to all scores on restart.
+    pub fn decay_on_restart(&mut self) {
+        for score in self.scores.values_mut() {
+            *score = ((*score as f64) * self.decay_factor).round() as u32;
+        }
+    }
+
+    /// Return quantifiers in descending priority order.
+    pub fn priority_order(&self) -> Vec<QuantifierId> {
+        let mut ordered: Vec<_> = self
+            .scores
+            .iter()
+            .map(|(&qid, &score)| (qid, score))
+            .collect();
+        ordered.sort_by(|(lhs_qid, lhs_score), (rhs_qid, rhs_score)| {
+            rhs_score.cmp(lhs_score).then_with(|| lhs_qid.cmp(rhs_qid))
+        });
+        ordered.into_iter().map(|(qid, _)| qid).collect()
+    }
+
+    /// Read one score.
+    pub fn score(&self, qid: QuantifierId) -> Option<u32> {
+        self.scores.get(&qid).copied()
+    }
+}
+
 /// Conflict-driven quantifier instantiation engine
 #[derive(Debug)]
 pub struct ConflictDrivenInstantiator {
@@ -141,6 +191,8 @@ pub struct ConflictDrivenInstantiator {
     dedup: FxHashMap<(TermId, Vec<(Spur, TermId)>), usize>,
     /// Current generation counter
     generation: u32,
+    /// Quantifier conflict activity
+    conflict_scores: ConflictScores,
     /// Statistics
     stats: CDQIStats,
 }
@@ -165,12 +217,14 @@ pub struct CDQIStats {
 impl ConflictDrivenInstantiator {
     /// Create a new conflict-driven instantiator
     pub fn new(config: CDQIConfig) -> Self {
+        let relevance_decay = config.relevance_decay;
         Self {
             config,
             tracked_instances: Vec::new(),
             quantifier_index: FxHashMap::default(),
             dedup: FxHashMap::default(),
             generation: 0,
+            conflict_scores: ConflictScores::new(relevance_decay),
             stats: CDQIStats::default(),
         }
     }
@@ -199,6 +253,9 @@ impl ConflictDrivenInstantiator {
 
         // Step 1: Analyze the conflict
         let analysis = self.extract_conflict_info(conflict_clause, quantifiers, manager);
+        for &qid in &analysis.related_quantifiers {
+            self.conflict_scores.record_conflict(qid);
+        }
 
         // Step 2: Bump relevance of existing instances that match
         self.bump_matching_instances(&analysis);
@@ -214,6 +271,16 @@ impl ConflictDrivenInstantiator {
         self.prune_low_relevance();
 
         new_instances
+    }
+
+    /// Apply restart-style decay to quantifier conflict activity.
+    pub fn decay_on_restart(&mut self) {
+        self.conflict_scores.decay_on_restart();
+    }
+
+    /// Access the quantifier conflict scores.
+    pub fn conflict_scores(&self) -> &ConflictScores {
+        &self.conflict_scores
     }
 
     /// Extract information from a conflict clause
@@ -268,18 +335,10 @@ impl ConflictDrivenInstantiator {
         // Collect ground values by sort
         match &t.kind {
             TermKind::IntConst(_) | TermKind::RealConst(_) | TermKind::BitVecConst { .. } => {
-                analysis
-                    .ground_values
-                    .entry(t.sort)
-                    .or_default()
-                    .push(term);
+                analysis.ground_values.entry(t.sort).or_default().push(term);
             }
             TermKind::True | TermKind::False => {
-                analysis
-                    .ground_values
-                    .entry(t.sort)
-                    .or_default()
-                    .push(term);
+                analysis.ground_values.entry(t.sort).or_default().push(term);
             }
             TermKind::Var(name) => {
                 analysis.conflict_variables.insert(*name);
@@ -394,7 +453,10 @@ impl ConflictDrivenInstantiator {
                     self.collect_func_symbols_rec(a, symbols, visited, manager);
                 }
             }
-            TermKind::Eq(l, r) | TermKind::Lt(l, r) | TermKind::Le(l, r) | TermKind::Implies(l, r) => {
+            TermKind::Eq(l, r)
+            | TermKind::Lt(l, r)
+            | TermKind::Le(l, r)
+            | TermKind::Implies(l, r) => {
                 self.collect_func_symbols_rec(*l, symbols, visited, manager);
                 self.collect_func_symbols_rec(*r, symbols, visited, manager);
             }
@@ -479,13 +541,11 @@ impl ConflictDrivenInstantiator {
                 );
 
                 // Track the instance
-                let tracked = TrackedInstance::new(qf.term, assignment, ground_body, self.generation);
+                let tracked =
+                    TrackedInstance::new(qf.term, assignment, ground_body, self.generation);
                 let idx = self.tracked_instances.len();
                 self.tracked_instances.push(tracked);
-                self.quantifier_index
-                    .entry(qf.term)
-                    .or_default()
-                    .push(idx);
+                self.quantifier_index.entry(qf.term).or_default().push(idx);
                 self.dedup.insert(dedup_key, idx);
 
                 if self.tracked_instances.len() > self.stats.peak_tracked {
@@ -782,11 +842,7 @@ impl ConflictDrivenInstantiator {
     }
 
     /// Get the top-N most relevant instances for a quantifier
-    pub fn top_relevant_instances(
-        &self,
-        quantifier: TermId,
-        n: usize,
-    ) -> Vec<&TrackedInstance> {
+    pub fn top_relevant_instances(&self, quantifier: TermId, n: usize) -> Vec<&TrackedInstance> {
         let Some(indices) = self.quantifier_index.get(&quantifier) else {
             return Vec::new();
         };
@@ -844,12 +900,7 @@ mod tests {
     fn make_qf(term_id: u32, body_id: u32, var_names: &[usize]) -> QuantifiedFormula {
         let bound_vars: SmallVec<[(Spur, SortId); 4]> = var_names
             .iter()
-            .map(|&n| {
-                (
-                    Spur::try_from_usize(n).expect("valid spur"),
-                    SortId::new(0),
-                )
-            })
+            .map(|&n| (Spur::try_from_usize(n).expect("valid spur"), SortId::new(0)))
             .collect();
         QuantifiedFormula::new(TermId::new(term_id), bound_vars, TermId::new(body_id), true)
     }
@@ -874,24 +925,15 @@ mod tests {
 
     #[test]
     fn test_tracked_instance_creation() {
-        let tracked = TrackedInstance::new(
-            TermId::new(1),
-            FxHashMap::default(),
-            TermId::new(2),
-            0,
-        );
+        let tracked = TrackedInstance::new(TermId::new(1), FxHashMap::default(), TermId::new(2), 0);
         assert_eq!(tracked.relevance_score, 1.0);
         assert_eq!(tracked.conflict_count, 0);
     }
 
     #[test]
     fn test_tracked_instance_bump() {
-        let mut tracked = TrackedInstance::new(
-            TermId::new(1),
-            FxHashMap::default(),
-            TermId::new(2),
-            0,
-        );
+        let mut tracked =
+            TrackedInstance::new(TermId::new(1), FxHashMap::default(), TermId::new(2), 0);
         tracked.bump_relevance(2.0, 1);
         assert_eq!(tracked.relevance_score, 3.0);
         assert_eq!(tracked.conflict_count, 1);
@@ -900,12 +942,8 @@ mod tests {
 
     #[test]
     fn test_tracked_instance_decay() {
-        let mut tracked = TrackedInstance::new(
-            TermId::new(1),
-            FxHashMap::default(),
-            TermId::new(2),
-            0,
-        );
+        let mut tracked =
+            TrackedInstance::new(TermId::new(1), FxHashMap::default(), TermId::new(2), 0);
         tracked.bump_relevance(9.0, 1); // score = 10.0
         tracked.decay(0.5);
         assert!((tracked.relevance_score - 5.0).abs() < 1e-6);

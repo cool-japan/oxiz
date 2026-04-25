@@ -17,8 +17,10 @@ use crate::prelude::*;
 use num_rational::Rational64;
 use num_traits::{One, ToPrimitive, Zero};
 use oxiz_core::ast::{TermId, TermKind, TermManager};
+use oxiz_theories::nlsat::{NlDispatchResult, dispatch_nia_constraints, dispatch_nra_constraints};
 
 use super::Solver;
+use super::types::SolverResult;
 
 /// A polynomial atom extracted from an assertion.
 /// Represents: `coeff * square_term OP constant`
@@ -51,6 +53,39 @@ enum NlAtom {
 }
 
 impl Solver {
+    /// Dispatch nonlinear arithmetic assertions to the full NIA/NRA polynomial
+    /// solver.
+    ///
+    /// Translates all top-level assertions to polynomial form and runs either
+    /// `NiaSolver` (integer) or `NlsatSolver` (real). Returns a definitive
+    /// `SolverResult` when the solver is conclusive, or `None` to fall
+    /// through to CDCL(T).
+    ///
+    /// Handles:
+    /// - `x * y`, `x * y * z` (products of distinct variables)
+    /// - `x * x` (squares / higher powers via repeated multiplication)
+    /// - `(x + 1) * (y - 2)` (products of linear expressions)
+    pub(super) fn dispatch_nl_solver(&self, manager: &TermManager) -> Option<SolverResult> {
+        let logic = self.logic.as_deref()?;
+
+        let is_nia = logic.contains("NIA") || (logic.contains("NIRA") && !logic.contains("NRA"));
+        let is_nra = logic.contains("NRA") && !is_nia;
+
+        if is_nia {
+            dispatch_nia_constraints(&self.assertions, manager, true).map(|r| match r {
+                NlDispatchResult::Sat => SolverResult::Sat,
+                NlDispatchResult::Unsat => SolverResult::Unsat,
+            })
+        } else if is_nra {
+            dispatch_nra_constraints(&self.assertions, manager).map(|r| match r {
+                NlDispatchResult::Sat => SolverResult::Sat,
+                NlDispatchResult::Unsat => SolverResult::Unsat,
+            })
+        } else {
+            None
+        }
+    }
+
     /// Check nonlinear arithmetic constraints for early UNSAT detection.
     ///
     /// Returns `true` if the constraint set is detected as UNSAT.

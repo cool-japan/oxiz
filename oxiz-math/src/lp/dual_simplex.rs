@@ -9,6 +9,7 @@ use num_rational::BigRational;
 use num_traits::{Signed, Zero};
 
 /// Dual simplex solver for linear programming.
+#[derive(Clone)]
 pub struct DualSimplexSolver {
     /// Current tableau
     tableau: Vec<Vec<BigRational>>,
@@ -225,6 +226,11 @@ impl DualSimplexSolver {
     /// Get statistics.
     pub fn stats(&self) -> &DualSimplexStats {
         &self.stats
+    }
+
+    /// Return the number of decision variables (columns, excluding the RHS column).
+    pub fn num_vars(&self) -> usize {
+        self.non_basis.len()
     }
 
     /// Add constraint to tableau.

@@ -454,6 +454,7 @@ mod tests {
             expected_status: Some(ExpectedStatus::Sat),
             file_size: 100,
             category: None,
+            structural_features: None,
         };
         SingleResult::new(&meta, status, Duration::from_millis(100))
     }
@@ -559,6 +560,7 @@ mod tests {
                 expected_status: None,
                 file_size: 0,
                 category: None,
+                structural_features: None,
             },
             BenchmarkMeta {
                 path: PathBuf::from("/tmp/b.smt2"),
@@ -566,6 +568,7 @@ mod tests {
                 expected_status: None,
                 file_size: 0,
                 category: None,
+                structural_features: None,
             },
         ];
 

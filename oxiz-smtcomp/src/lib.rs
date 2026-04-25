@@ -74,6 +74,7 @@
 //!     expected_status: Some(ExpectedStatus::Sat),
 //!     file_size: 100,
 //!     category: None,
+//!     structural_features: None,
 //! };
 //!
 //! let results_a = vec![SingleResult::new(&meta, BenchmarkStatus::Sat, Duration::from_millis(100))];
@@ -89,8 +90,10 @@
 // Core modules
 pub mod benchmark;
 pub mod loader;
+pub mod logic_detector;
 pub mod reporter;
 pub mod statistics;
+pub mod svcomp;
 
 // High priority modules
 pub mod memory;
@@ -101,6 +104,8 @@ pub mod starexec;
 // Medium priority modules
 pub mod filtering;
 pub mod html_report;
+#[cfg(feature = "pdf-report")]
+pub mod pdf_report;
 pub mod plotting;
 pub mod resumption;
 pub mod virtual_best;
@@ -111,18 +116,29 @@ pub mod dashboard;
 pub mod regression;
 pub mod sampling;
 
+// Optional WebSocket progress API (feature-gated)
+#[cfg(feature = "ws-progress")]
+pub mod websocket;
+
 // Re-export main types for convenience
 pub use benchmark::{
     BenchmarkError, BenchmarkResult, BenchmarkStatus, RunSummary, Runner, RunnerConfig,
     SingleResult,
 };
 
-pub use loader::{Benchmark, BenchmarkMeta, Loader, LoaderConfig, LoaderError, LoaderResult};
+pub use loader::{
+    Benchmark, BenchmarkMeta, DEFAULT_PARSE_CACHE_CAPACITY, Loader, LoaderConfig, LoaderError,
+    LoaderResult, ParseCache,
+};
+
+pub use logic_detector::{TheoryBits, detect_logic, detect_theory_bits, logic_from_bits};
 
 pub use reporter::{
     Report, ReportFormat, Reporter, ReporterConfig, ReporterError, ReporterResult, ResultEntry,
     SmtCompScore, SolverInfo,
 };
+
+pub use svcomp::{SkippedReason, SvCompError, SvCompReader, SvCompTask};
 
 pub use statistics::{
     CactusPoint, CategoryStats, DifficultyAnalysis, FullAnalysis, ScatterPoint, SolverComparison,
@@ -150,6 +166,12 @@ pub use plotting::{
 
 // Re-export HTML report types
 pub use html_report::{HtmlReportConfig, HtmlReportGenerator, generate_comparison_report};
+
+// Re-export PDF report types (feature-gated)
+#[cfg(feature = "pdf-report")]
+pub use pdf_report::{
+    PdfReport, PdfReportConfig, PdfReportError, PdfReportGenerator, PdfReportResult,
+};
 
 // Re-export resumption types
 pub use resumption::{

@@ -16,12 +16,14 @@ use smallvec::SmallVec;
 #[cfg(feature = "std")]
 use std::time::{Duration, Instant};
 
+use super::conflict_driven::ConflictScores;
 use super::counterexample::CounterExampleGenerator;
 use super::finite_model::FiniteModelFinder;
+use super::heuristics::MBQIBudget;
 use super::instantiation::InstantiationEngine;
 use super::lazy_instantiation::LazyInstantiator;
 use super::model_completion::ModelCompleter;
-use super::{Instantiation, MBQIResult, MBQIStats, QuantifiedFormula};
+use super::{Instantiation, MBQIResult, MBQIStats, QuantifiedFormula, QuantifierId};
 
 /// Callback trait for solver communication
 pub trait SolverCallback: fmt::Debug {
@@ -64,6 +66,10 @@ pub struct MBQIIntegration {
     blind_attempted: bool,
     /// Current round number
     current_round: usize,
+    /// Per-round instantiation budget.
+    budget: MBQIBudget,
+    /// Conflict-driven quantifier activity.
+    conflict_scores: ConflictScores,
     /// Maximum rounds
     max_rounds: usize,
     /// Time limit
@@ -90,6 +96,8 @@ impl MBQIIntegration {
             extra_candidates: FxHashMap::default(),
             blind_attempted: false,
             current_round: 0,
+            budget: MBQIBudget::new(1024),
+            conflict_scores: ConflictScores::new(0.95),
             max_rounds: 100,
             #[cfg(feature = "std")]
             time_limit: Some(Duration::from_secs(60)),
@@ -161,6 +169,12 @@ impl MBQIIntegration {
         }
 
         self.current_round += 1;
+        if self.current_round > 1 {
+            self.conflict_scores.decay_on_restart();
+        }
+        let quantifier_ids: Vec<QuantifierId> = self.quantifiers.iter().map(|q| q.term).collect();
+        self.budget
+            .carve_per_quantifier(&quantifier_ids, Some(&self.conflict_scores));
         callback.on_round_start(self.current_round);
         self.stats.num_checks += 1;
 
@@ -223,6 +237,9 @@ impl MBQIIntegration {
             self.stats.num_counterexamples += cex_result.counterexamples.len();
 
             for cex in &cex_result.counterexamples {
+                if !self.budget.consume(quantifier.term, 1) {
+                    break;
+                }
                 // Build the instantiation lemma: body[x1/v1, ..., xn/vn]
                 let ground_body =
                     self.apply_substitution(quantifier.body, &cex.assignment, manager);
@@ -250,6 +267,9 @@ impl MBQIIntegration {
                         .instantiate(quantifier, &completed_model, manager);
 
                 for inst in engine_insts {
+                    if !self.budget.consume(quantifier.term, 1) {
+                        break;
+                    }
                     if !self.is_duplicate(&inst) {
                         self.record_instantiation(&inst);
                         callback.on_instantiation(&inst);
@@ -292,6 +312,9 @@ impl MBQIIntegration {
                     self.instantiation_engine
                         .instantiate(quantifier, &completed_model, manager);
                 for mut inst in engine_insts {
+                    if !self.budget.consume(quantifier.term, 1) {
+                        break;
+                    }
                     // Simplify the result body so guards like (0 >= 0 /\ 0 <= 3)
                     // collapse to True, and Implies(True, consequent) collapses to
                     // just the consequent.  This produces clean lemmas that the
@@ -539,6 +562,8 @@ impl MBQIIntegration {
         self.extra_candidates.clear();
         self.blind_attempted = false;
         self.current_round = 0;
+        self.budget = MBQIBudget::new(self.budget.global_budget);
+        self.conflict_scores = ConflictScores::new(self.conflict_scores.decay_factor);
         #[cfg(feature = "std")]
         {
             self.start_time = None;

@@ -72,10 +72,14 @@ impl FieldExtension {
         let mut result = coeffs.to_vec();
 
         // Polynomial long division by minimal_poly
-        while result.len() > self.degree && !result.last().map_or(true, |c| c.is_zero()) {
+        while result.len() > self.degree && !result.last().is_none_or(|c| c.is_zero()) {
             let deg_diff = result.len() - self.minimal_poly.len();
             let lead_coeff = result.last().cloned().expect("checked non-empty");
-            let min_lead = self.minimal_poly.last().cloned().expect("checked non-empty");
+            let min_lead = self
+                .minimal_poly
+                .last()
+                .cloned()
+                .expect("checked non-empty");
 
             let quotient_coeff = &lead_coeff / &min_lead;
 
@@ -91,7 +95,7 @@ impl FieldExtension {
         }
 
         // Remove leading zeros
-        while result.last().map_or(false, |c| c.is_zero()) {
+        while result.last().is_some_and(|c| c.is_zero()) {
             result.pop();
         }
 
@@ -106,10 +110,10 @@ impl FieldExtension {
     pub fn multiply(&mut self, a: &[BigRational], b: &[BigRational]) -> Vec<BigRational> {
         // Check cache first
         let key = (a.len(), b.len());
-        if let Some(cached) = self.mult_table.get(&key) {
-            if a == cached || b == cached {
-                // Simple case, use cache if applicable
-            }
+        if let Some(cached) = self.mult_table.get(&key)
+            && (a == cached || b == cached)
+        {
+            // Simple case, use cache if applicable
         }
 
         // Polynomial multiplication
@@ -146,7 +150,7 @@ impl FieldExtension {
         }
 
         // Remove trailing zeros
-        while result.len() > 1 && result.last().map_or(false, |c| c.is_zero()) {
+        while result.len() > 1 && result.last().is_some_and(|c| c.is_zero()) {
             result.pop();
         }
 
@@ -160,7 +164,7 @@ impl FieldExtension {
 
     /// Compute the multiplicative inverse of an element.
     ///
-    /// Uses extended Euclidean algorithm in Q[x] modulo minimal polynomial.
+    /// Uses extended Euclidean algorithm in Q\[x\] modulo minimal polynomial.
     pub fn inverse(&mut self, a: &[BigRational]) -> Option<Vec<BigRational>> {
         // Check cache
         if let Some(cached) = self.inv_table.get(a) {
@@ -213,7 +217,11 @@ impl FieldExtension {
     }
 
     /// Polynomial division: returns (quotient, remainder).
-    fn poly_div(&self, a: &[BigRational], b: &[BigRational]) -> (Vec<BigRational>, Vec<BigRational>) {
+    fn poly_div(
+        &self,
+        a: &[BigRational],
+        b: &[BigRational],
+    ) -> (Vec<BigRational>, Vec<BigRational>) {
         if b.is_empty() || b.iter().all(|c| c.is_zero()) {
             return (vec![BigRational::zero()], a.to_vec());
         }
@@ -248,10 +256,10 @@ impl FieldExtension {
         }
 
         // Remove leading zeros
-        while quotient.last().map_or(false, |c| c.is_zero()) {
+        while quotient.last().is_some_and(|c| c.is_zero()) {
             quotient.pop();
         }
-        while remainder.last().map_or(false, |c| c.is_zero()) {
+        while remainder.last().is_some_and(|c| c.is_zero()) {
             remainder.pop();
         }
 
@@ -295,7 +303,7 @@ impl FieldExtension {
             result[i] = &result[i] - coeff;
         }
 
-        while result.len() > 1 && result.last().map_or(false, |c| c.is_zero()) {
+        while result.len() > 1 && result.last().is_some_and(|c| c.is_zero()) {
             result.pop();
         }
 
@@ -373,14 +381,15 @@ impl FieldElement {
 
     /// Get the rational part (constant term).
     pub fn rational_part(&self) -> BigRational {
-        self.coeffs.first().cloned().unwrap_or_else(BigRational::zero)
+        self.coeffs
+            .first()
+            .cloned()
+            .unwrap_or_else(BigRational::zero)
     }
 
     /// Get the degree of the element (highest non-zero coefficient index).
     pub fn degree(&self) -> usize {
-        self.coeffs.iter()
-            .rposition(|c| !c.is_zero())
-            .unwrap_or(0)
+        self.coeffs.iter().rposition(|c| !c.is_zero()).unwrap_or(0)
     }
 }
 
@@ -544,6 +553,8 @@ mod tests {
 
         // Check: (1 + √2) * inv = 1
         let product = ext.multiply(&a, &inv);
-        assert!(product.len() == 1 || (product.len() > 1 && product[1..].iter().all(|c| c.is_zero())));
+        assert!(
+            product.len() == 1 || (product.len() > 1 && product[1..].iter().all(|c| c.is_zero()))
+        );
     }
 }

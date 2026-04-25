@@ -43,6 +43,13 @@ std = [
 ]
 parallel-theories = ["rayon"]
 property-tests = []
+profiling = [
+    "std",
+    "oxiz-core/profiling",
+    "oxiz-sat/profiling",
+    "oxiz-theories/profiling",
+    "oxiz-proof/profiling",
+]
 
 [dev-dependencies]
 proptest = { workspace = true }

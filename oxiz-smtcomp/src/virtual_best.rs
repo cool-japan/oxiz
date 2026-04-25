@@ -300,6 +300,7 @@ impl VirtualBestSolver {
                     expected_status: None,
                     file_size: 0,
                     category: None,
+                    structural_features: None,
                 };
 
                 SingleResult::new(&meta, vbs.status, vbs.time)
@@ -401,6 +402,7 @@ mod tests {
             expected_status: Some(ExpectedStatus::Sat),
             file_size: 100,
             category: None,
+            structural_features: None,
         };
         SingleResult::new(&meta, status, Duration::from_millis(time_ms))
     }

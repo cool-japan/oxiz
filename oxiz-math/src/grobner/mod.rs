@@ -23,11 +23,11 @@ pub use buchberger_enhanced::{
     Polynomial as BuchbergerPolynomial, Term,
 };
 
-// TODO: Export f4 types when module exports are finalized
-// pub use f4::{F4Config, F4Solver, F4Stats, Matrix, Polynomial as F4Polynomial};
+pub use f4::{
+    CriticalPair as F4CriticalPair, F4Algorithm, F4Config, F4Stats, Monomial as F4Monomial,
+    Polynomial as F4Polynomial, Term as F4Term,
+};
 
-// TODO: Export syzygy types when module exports are finalized
-// pub use syzygy::{
-//     Module, ModuleElement, SyzygyComputation, SyzygyConfig, SyzygyStats,
-//     Vector as SyzygyVector,
-// };
+pub use syzygy::{
+    BuchbergerCriteria, CriticalPair as SyzygyCriticalPair, Syzygy, SyzygyComputer, SyzygyStats,
+};

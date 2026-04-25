@@ -660,6 +660,7 @@ mod tests {
             expected_status: Some(expected),
             file_size: 100,
             category: None,
+            structural_features: None,
         }
     }
 

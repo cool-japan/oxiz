@@ -10,7 +10,7 @@
 //! Reference: Z3's optimization strategies and local search techniques
 
 use crate::maxsat::Weight;
-use rand::Rng;
+use rand::RngExt;
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 

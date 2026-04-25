@@ -6,6 +6,8 @@ use crate::ast::{RoundingMode, TermId};
 use crate::error::{OxizError, Result};
 #[allow(unused_imports)]
 use crate::prelude::*;
+#[cfg(feature = "profiling")]
+use crate::profiling::{ProfilingCategory, ScopedTimer};
 
 impl<'a> Parser<'a> {
     /// Expect an opening parenthesis '('
@@ -116,6 +118,8 @@ impl<'a> Parser<'a> {
     /// Parse a single SMT-LIB2 top-level command.
     /// Returns `None` on EOF.
     pub fn parse_command(&mut self) -> Result<Option<Command>> {
+        #[cfg(feature = "profiling")]
+        let _timer = ScopedTimer::new(ProfilingCategory::Parser);
         let token = match self.lexer.next_token() {
             Some(t) if matches!(t.kind, TokenKind::Eof) => return Ok(None),
             Some(t) => t,

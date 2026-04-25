@@ -49,16 +49,17 @@ pub enum ClauseTier {
 #[derive(Debug, Clone)]
 #[repr(align(64))]
 pub struct Clause {
-    /// The literals in this clause
-    pub lits: SmallVec<[Lit; 4]>,
-    /// Whether this is a learned clause
-    pub learned: bool,
     /// Activity for clause deletion heuristic
     pub activity: f64,
+    /// Whether this is a learned clause
+    pub learned: bool,
     /// LBD (Literal Block Distance) for quality metric
     pub lbd: u32,
-    /// Whether this clause is marked for deletion
+    /// Keep hot metadata at the front of the struct so propagation and clause
+    /// management usually touch a single cache line before reading literals.
     pub deleted: bool,
+    /// The literals in this clause
+    pub lits: SmallVec<[Lit; 4]>,
     /// Tier for tiered database management (only used for learned clauses)
     pub tier: ClauseTier,
     /// Number of times this clause was used in conflict analysis (for tier promotion)
@@ -70,11 +71,11 @@ impl Clause {
     #[must_use]
     pub fn new(lits: impl IntoIterator<Item = Lit>, learned: bool) -> Self {
         Self {
-            lits: lits.into_iter().collect(),
-            learned,
             activity: 0.0,
+            learned,
             lbd: 0,
             deleted: false,
+            lits: lits.into_iter().collect(),
             tier: ClauseTier::Local, // All learned clauses start in Local tier
             usage_count: 0,
         }

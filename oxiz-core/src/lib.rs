@@ -83,7 +83,10 @@ pub mod error_recovery;
 pub mod error_utils;
 pub mod literal;
 pub mod lockfree;
+#[cfg(feature = "profiling")]
+pub mod profiling;
 pub mod rewrite;
+pub mod simplification;
 pub mod sort;
 pub mod theories;
 pub mod traits;
@@ -131,6 +134,7 @@ pub use error_utils::{
     validate_arity_range, validate_max_arity, validate_min_arity,
 };
 pub use literal::{Lit, Var};
+pub use simplification::{AggressiveSimplifier, SimplificationConfig};
 pub use sort::{DataTypeConstructor, Sort, SortId, SortKind};
 pub use unsat_core::{UnsatCore, UnsatCoreBuilder, UnsatCoreStrategy};
 
@@ -156,6 +160,10 @@ pub use traits::{
 // === std-only exports ===
 #[cfg(feature = "std")]
 pub use diagnostics::{Diagnostic, DiagnosticEmitter, Fix, RelatedDiagnostic, Severity};
+#[cfg(feature = "profiling")]
+pub use profiling::{
+    ProfilingCategory, ProfilingCategorySnapshot, ProfilingSnapshot, ProfilingStats, ScopedTimer,
+};
 #[cfg(feature = "std")]
 pub use resource::{LimitStatus, ResourceManager};
 #[cfg(feature = "std")]

@@ -6,7 +6,7 @@
 //! Reference: Z3's local search implementations and SLS MaxSAT solvers
 
 use crate::maxsat::{SoftClause, Weight};
-use rand::Rng;
+use rand::RngExt;
 use rustc_hash::FxHashMap;
 use thiserror::Error;
 

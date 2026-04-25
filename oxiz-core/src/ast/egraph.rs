@@ -12,6 +12,9 @@
 use crate::ast::{TermId, TermKind, TermManager};
 #[allow(unused_imports)]
 use crate::prelude::*;
+#[cfg(feature = "profiling")]
+use crate::profiling::{ProfilingCategory, ScopedTimer};
+use smallvec::SmallVec;
 
 /// E-class ID representing an equivalence class of terms
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -67,7 +70,7 @@ pub struct EClass {
     /// The ID of this e-class
     pub id: EClassId,
     /// The canonical e-node representative
-    pub nodes: Vec<ENode>,
+    pub nodes: SmallVec<[ENode; 4]>,
     /// Parent e-classes (for congruence closure)
     pub parents: FxHashSet<EClassId>,
 }
@@ -78,7 +81,7 @@ impl EClass {
     pub fn new(id: EClassId) -> Self {
         Self {
             id,
-            nodes: Vec::new(),
+            nodes: SmallVec::new(),
             parents: FxHashSet::default(),
         }
     }
@@ -177,6 +180,8 @@ impl EGraph {
 
     /// Merge two e-classes
     pub fn merge(&mut self, id1: EClassId, id2: EClassId) -> EClassId {
+        #[cfg(feature = "profiling")]
+        let _timer = ScopedTimer::new(ProfilingCategory::EGraphMerge);
         let root1 = self.find(id1);
         let root2 = self.find(id2);
 
@@ -191,7 +196,7 @@ impl EGraph {
         let (class2_nodes, class2_parents) = if let Some(class2) = self.classes.remove(&root2) {
             (class2.nodes, class2.parents)
         } else {
-            (Vec::new(), FxHashSet::default())
+            (SmallVec::new(), FxHashSet::default())
         };
 
         if let Some(class1) = self.classes.get_mut(&root1) {

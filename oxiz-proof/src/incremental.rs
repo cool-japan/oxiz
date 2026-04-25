@@ -255,6 +255,9 @@ enum RecordedStep {
     },
 }
 
+#[cfg(feature = "profiling")]
+use oxiz_core::profiling::{ProfilingCategory, ScopedTimer};
+
 impl ProofRecorder {
     /// Create a new proof recorder
     #[must_use]
@@ -287,16 +290,10 @@ impl ProofRecorder {
     /// Record an input clause
     pub fn record_input(&mut self, conclusion: impl Into<String>) -> u32 {
         let clause_id = self.alloc_clause_id();
-        let conclusion = conclusion.into();
-
-        if self.batch_mode {
-            self.queue.push_back(RecordedStep::Axiom {
-                clause_id,
-                conclusion,
-            });
-        } else {
-            self.builder.record_axiom(clause_id, conclusion);
-        }
+        self.record_step(RecordedStep::Axiom {
+            clause_id,
+            conclusion: conclusion.into(),
+        });
 
         clause_id
     }
@@ -309,23 +306,43 @@ impl ProofRecorder {
         conclusion: impl Into<String>,
     ) -> u32 {
         let clause_id = self.alloc_clause_id();
-        let rule = rule.into();
-        let conclusion = conclusion.into();
-
-        if self.batch_mode {
-            self.queue.push_back(RecordedStep::Inference {
-                clause_id,
-                rule,
-                premises: premises.to_vec(),
-                conclusion,
-                args: Vec::new(),
-            });
-        } else {
-            self.builder
-                .record_inference(clause_id, rule, premises, conclusion);
-        }
+        self.record_step(RecordedStep::Inference {
+            clause_id,
+            rule: rule.into(),
+            premises: premises.to_vec(),
+            conclusion: conclusion.into(),
+            args: Vec::new(),
+        });
 
         clause_id
+    }
+
+    fn record_step(&mut self, step: RecordedStep) {
+        #[cfg(feature = "profiling")]
+        let _timer = ScopedTimer::new(ProfilingCategory::ProofGeneration);
+        if self.batch_mode {
+            self.queue.push_back(step);
+            return;
+        }
+
+        match step {
+            RecordedStep::Axiom {
+                clause_id,
+                conclusion,
+            } => {
+                self.builder.record_axiom(clause_id, conclusion);
+            }
+            RecordedStep::Inference {
+                clause_id,
+                rule,
+                premises,
+                conclusion,
+                args,
+            } => {
+                self.builder
+                    .record_inference_with_args(clause_id, rule, &premises, args, conclusion);
+            }
+        }
     }
 
     /// Flush the batched steps

@@ -81,6 +81,7 @@ pub mod proof;
 pub mod reach;
 pub mod recursive;
 pub mod smt;
+pub mod tactics;
 pub mod theory;
 
 // Re-exports for convenience
@@ -128,4 +129,5 @@ pub use reach::{
 };
 pub use recursive::{RecursionKind, RecursiveAnalyzer, RecursiveError, RecursiveInfo};
 pub use smt::{MbpResult, Model, SmtError, SmtSolver, SmtStats};
+pub use tactics::{BmcEngine, BmcUnrollTactic};
 pub use theory::TheoryIntegration;

@@ -1,0 +1,17 @@
+# Root .dockerignore — this is the file Docker actually reads when
+# building from the repo root with `-f oxiz-smtcomp/Dockerfile`.
+# Keeps target/, git metadata, wasm artefacts, and other bulk out of
+# the build context so the builder stage stays fast.
+target/
+**/target/
+.git/
+.github/
+**/*.pdf
+**/*.log
+**/node_modules/
+**/__pycache__/
+**/*.pyc
+oxiz-wasm/pkg/
+oxiz-wasm/target/
+bench/logs/
+**/.DS_Store

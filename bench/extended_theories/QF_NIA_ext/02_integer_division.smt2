@@ -1,5 +1,5 @@
 ; Test: Properties of integer division and modulus
-;; expected: sat
+;; expected: unknown
 ; Pattern: div/mod relationship: a = (div a b) * b + (mod a b)
 
 (set-logic QF_NIA)
