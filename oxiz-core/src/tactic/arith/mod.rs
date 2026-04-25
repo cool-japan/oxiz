@@ -23,8 +23,7 @@ pub use fm_advanced::{
     LinearInequality as FmLinearInequality,
 };
 pub use normalize_bounds::{
-    BoundType, NormalizedBounds, NormalizeBoundsConfig, NormalizeBoundsStats,
-    NormalizeBoundsTactic,
+    BoundType, NormalizeBoundsConfig, NormalizeBoundsStats, NormalizeBoundsTactic, NormalizedBounds,
 };
 pub use propagate_ineqs::{
     Bound, BoundKind, PropagateIneqsConfig, PropagateIneqsError, PropagateIneqsStats,

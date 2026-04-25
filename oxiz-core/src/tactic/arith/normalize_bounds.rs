@@ -9,12 +9,12 @@
 //! 4. Derives transitive inequalities between pairs of variables.
 //! 5. Reassembles the result as a conjunction of normalized atoms.
 
+use crate::ast::{TermId, TermKind, TermManager};
 #[allow(unused_imports)]
 use crate::prelude::*;
-use crate::ast::{TermId, TermKind, TermManager};
 use num_bigint::BigInt;
 use num_rational::BigRational;
-use num_traits::{One, Zero};
+use num_traits::One;
 
 // ─── Public types required by the parent module ──────────────────────────────
 
@@ -100,7 +100,11 @@ impl NormalizeBoundsTactic {
 
     /// Create with explicit configuration.
     pub fn with_config(config: NormalizeBoundsConfig) -> Self {
-        Self { config, bounds: FxHashMap::default(), stats: NormalizeBoundsStats::default() }
+        Self {
+            config,
+            bounds: FxHashMap::default(),
+            stats: NormalizeBoundsStats::default(),
+        }
     }
 
     /// Apply normalization to a formula, returning a simplified conjunction.
@@ -154,7 +158,9 @@ impl NormalizeBoundsTactic {
         let mut stack = vec![formula];
 
         while let Some(tid) = stack.pop() {
-            let term = tm.get(tid).ok_or_else(|| format!("term {:?} not found", tid))?;
+            let term = tm
+                .get(tid)
+                .ok_or_else(|| format!("term {:?} not found", tid))?;
 
             match &term.kind {
                 TermKind::And(args) => {
@@ -211,7 +217,10 @@ impl NormalizeBoundsTactic {
     // ── Bound maintenance ─────────────────────────────────────────────────────
 
     fn update_lower_bound(&mut self, var: String, new_b: BoundValue) {
-        let entry = self.bounds.entry(var).or_insert(BoundInfo { lower: None, upper: None });
+        let entry = self.bounds.entry(var).or_insert(BoundInfo {
+            lower: None,
+            upper: None,
+        });
         let tighter = match &entry.lower {
             None => true,
             Some(existing) => {
@@ -230,7 +239,10 @@ impl NormalizeBoundsTactic {
     }
 
     fn update_upper_bound(&mut self, var: String, new_b: BoundValue) {
-        let entry = self.bounds.entry(var).or_insert(BoundInfo { lower: None, upper: None });
+        let entry = self.bounds.entry(var).or_insert(BoundInfo {
+            lower: None,
+            upper: None,
+        });
         let tighter = match &entry.upper {
             None => true,
             Some(existing) => {
@@ -368,7 +380,6 @@ impl Default for NormalizeBoundsTactic {
 /// so we fall back to rounding to the nearest integer (sound for the
 /// normalization pass, which is a pre-processing step, not a proof).
 fn rational_to_term(r: &BigRational, tm: &mut TermManager) -> Result<TermId, String> {
-    use num_traits::ToPrimitive;
     if r.denom() == &BigInt::one() {
         Ok(tm.mk_int(r.numer().clone()))
     } else {
@@ -397,12 +408,18 @@ mod tests {
 
         t.update_lower_bound(
             "x".into(),
-            BoundValue { value: BigRational::from_integer(BigInt::from(3)), strict: false },
+            BoundValue {
+                value: BigRational::from_integer(BigInt::from(3)),
+                strict: false,
+            },
         );
         // A looser bound should be discarded.
         t.update_lower_bound(
             "x".into(),
-            BoundValue { value: BigRational::from_integer(BigInt::from(1)), strict: false },
+            BoundValue {
+                value: BigRational::from_integer(BigInt::from(1)),
+                strict: false,
+            },
         );
 
         let info = t.bounds.get("x").expect("variable must be present");
@@ -444,6 +461,8 @@ mod tests {
                 strict: true,
             }),
         };
-        let _cfg = NormalizeBoundsConfig { derive_transitive: true };
+        let _cfg = NormalizeBoundsConfig {
+            derive_transitive: true,
+        };
     }
 }
