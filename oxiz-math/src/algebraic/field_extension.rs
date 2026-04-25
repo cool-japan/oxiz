@@ -164,7 +164,7 @@ impl FieldExtension {
 
     /// Compute the multiplicative inverse of an element.
     ///
-    /// Uses extended Euclidean algorithm in Q[x] modulo minimal polynomial.
+    /// Uses extended Euclidean algorithm in Q\[x\] modulo minimal polynomial.
     pub fn inverse(&mut self, a: &[BigRational]) -> Option<Vec<BigRational>> {
         // Check cache
         if let Some(cached) = self.inv_table.get(a) {

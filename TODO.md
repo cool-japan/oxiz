@@ -2,8 +2,6 @@
 
 Last Updated: 2026-04-24
 
-Reference: Z3 codebase at `../z3/` for algorithms and implementation strategies.
-
 ---
 
 ## Major Milestone Achieved: 100% Z3 Parity (v0.2.0)

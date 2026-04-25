@@ -74,6 +74,7 @@
 //!     expected_status: Some(ExpectedStatus::Sat),
 //!     file_size: 100,
 //!     category: None,
+//!     structural_features: None,
 //! };
 //!
 //! let results_a = vec![SingleResult::new(&meta, BenchmarkStatus::Sat, Duration::from_millis(100))];

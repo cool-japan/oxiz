@@ -198,17 +198,17 @@ impl NormalizeBoundsTactic {
         tm: &TermManager,
     ) -> Result<(), String> {
         // Case: var ≤ constant  →  upper bound on var.
-        if let Some(var) = self.get_var_name(lhs, tm) {
-            if let Some(c) = self.eval_constant(rhs, tm) {
-                self.update_upper_bound(var, BoundValue { value: c, strict });
-            }
+        if let Some(var) = self.get_var_name(lhs, tm)
+            && let Some(c) = self.eval_constant(rhs, tm)
+        {
+            self.update_upper_bound(var, BoundValue { value: c, strict });
         }
 
         // Case: constant ≤ var  →  lower bound on var.
-        if let Some(var) = self.get_var_name(rhs, tm) {
-            if let Some(c) = self.eval_constant(lhs, tm) {
-                self.update_lower_bound(var, BoundValue { value: c, strict });
-            }
+        if let Some(var) = self.get_var_name(rhs, tm)
+            && let Some(c) = self.eval_constant(lhs, tm)
+        {
+            self.update_lower_bound(var, BoundValue { value: c, strict });
         }
 
         Ok(())
@@ -329,12 +329,12 @@ impl NormalizeBoundsTactic {
                 };
 
                 // If var1 ≤ c1 and c2 ≤ var2, and c1 ≤ c2, then var1 ≤ var2.
-                if let (Some(hi1), Some(lo2)) = (&info1.upper, &info2.lower) {
-                    if hi1.value <= lo2.value {
-                        let t1 = tm.mk_var(v1.as_str(), int_sort);
-                        let t2 = tm.mk_var(v2.as_str(), int_sort);
-                        derived.push(tm.mk_le(t1, t2));
-                    }
+                if let (Some(hi1), Some(lo2)) = (&info1.upper, &info2.lower)
+                    && hi1.value <= lo2.value
+                {
+                    let t1 = tm.mk_var(v1.as_str(), int_sort);
+                    let t2 = tm.mk_var(v2.as_str(), int_sort);
+                    derived.push(tm.mk_le(t1, t2));
                 }
             }
         }
