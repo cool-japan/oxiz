@@ -335,7 +335,7 @@ impl NormalizeBoundsTactic {
     fn get_var_name(&self, tid: TermId, tm: &TermManager) -> Option<String> {
         let term = tm.get(tid)?;
         match &term.kind {
-            TermKind::Var(name) => Some(name.to_string()),
+            TermKind::Var(name) => Some(tm.resolve_str(*name).to_owned()),
             _ => None,
         }
     }
