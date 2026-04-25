@@ -427,32 +427,86 @@ impl ClauseLearner {
             return Ok(());
         }
 
-        // TODO: Clause strengthening not implemented yet (can_remove_literal always returns false)
-        // for clause in &mut self.learned_db.clauses {
-        //     if clause.locked {
-        //         continue;
-        //     }
-        //
-        //     let original_len = clause.literals.len();
-        //
-        //     // Try to remove each literal (clone to avoid borrow checker issues)
-        //     let original_literals = clause.literals.clone();
-        //     clause.literals.retain(|&lit| {
-        //         !self.can_remove_literal(lit, &original_literals)
-        //     });
-        //
-        //     if clause.literals.len() < original_len {
-        //         self.stats.clauses_strengthened += 1;
-        //     }
-        // }
+        for idx in 0..self.learned_db.clauses.len() {
+            if self.learned_db.clauses[idx].locked {
+                continue;
+            }
+
+            // Clone the literals to avoid simultaneous borrow of self (needed because
+            // can_remove_literal borrows self.impl_graph immutably while we modify the clause).
+            let original_literals = self.learned_db.clauses[idx].literals.clone();
+            let original_len = original_literals.len();
+
+            let mut new_literals = Vec::with_capacity(original_len);
+            for &lit in &original_literals {
+                if !self.can_remove_literal(lit, &original_literals) {
+                    new_literals.push(lit);
+                }
+            }
+
+            if new_literals.len() < original_len {
+                self.learned_db.clauses[idx].literals = new_literals;
+                self.stats.clauses_strengthened += 1;
+            }
+        }
 
         Ok(())
     }
 
     /// Check if a literal can be removed from a clause.
-    fn can_remove_literal(&self, _lit: TermId, _clause: &[TermId]) -> bool {
-        // Simplified: would check if clause remains asserting without this literal
-        false
+    ///
+    /// A literal `lit` is removable when every literal in its reason clause
+    /// (other than `lit` itself) is already in `clause`.  The check is
+    /// recursive: a peer literal that is not directly in `clause` may itself
+    /// be removable, allowing deeper subsumption.
+    ///
+    /// A `visited` set guards against revisiting nodes; implication graphs in
+    /// standard CDCL are acyclic, but the guard is kept for robustness.
+    fn can_remove_literal(&self, lit: TermId, clause: &[TermId]) -> bool {
+        let mut visited = FxHashSet::default();
+        self.can_remove_literal_rec(lit, clause, &mut visited)
+    }
+
+    fn can_remove_literal_rec(
+        &self,
+        lit: TermId,
+        clause: &[TermId],
+        visited: &mut FxHashSet<TermId>,
+    ) -> bool {
+        if !visited.insert(lit) {
+            // Already visited this node — avoid infinite looping.
+            return true;
+        }
+
+        // Decision literals have no reason clause and cannot be removed.
+        let reason_id = match self.impl_graph.get_reason(lit) {
+            Some(r) => r,
+            None => return false,
+        };
+
+        // Retrieve the reason clause's literals.  If the underlying clause
+        // database is not yet wired up, `get_clause_literals` returns an empty
+        // vec, which makes the vacuous `all` below return `true` — harmless
+        // because no real literal will be removed from an empty reason clause.
+        let reason_lits = match self.get_clause_literals(reason_id) {
+            Ok(lits) => lits,
+            Err(_) => return false,
+        };
+
+        // Every literal in the reason clause (other than `lit` itself) must
+        // either already be present in `clause` or be recursively removable.
+        for other_lit in &reason_lits {
+            if *other_lit == lit {
+                continue;
+            }
+            if !clause.contains(other_lit)
+                && !self.can_remove_literal_rec(*other_lit, clause, visited)
+            {
+                return false;
+            }
+        }
+
+        true
     }
 
     /// Reduce clause database.

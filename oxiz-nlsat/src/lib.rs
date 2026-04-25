@@ -73,8 +73,9 @@ pub use chrono_bt::{
     BacktrackDecision, ChronoBacktracker, ChronoConfig, ChronoStats, ConflictAnalysisResult,
 };
 pub use clause_tiers::{ClauseTier, ClauseTierConfig, ClauseTierManager, ClauseTierStats};
-// TODO: Re-export cutting planes from oxiz-math after API updates
-// pub use oxiz_math::lp::cutting_planes::{Cut, CutType, CuttingPlaneConfig, CuttingPlaneGenerator, CuttingPlaneStats};
+pub use oxiz_math::lp::cutting_planes::{
+    CutType, CuttingPlane, CuttingPlaneConfig, CuttingPlaneGenerator, CuttingPlaneStats,
+};
 pub use discriminant::{DiscriminantAnalyzer, DiscriminantSign, DiscriminantStats, RootInfo};
 pub use eval_cache::{CachedSign, EvalCache, EvalCacheConfig, EvalCacheStats, SignPattern};
 pub use grobner_preprocess::{

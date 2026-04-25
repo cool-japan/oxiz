@@ -15,16 +15,14 @@
 //! - "Algorithms in Real Algebraic Geometry" (Basu et al., 2006)
 //! - Z3's `math/polynomial/algebraic_numbers.h`
 
-// Simplified imports - actual Polynomial API differs from what was assumed
-// This module needs refactoring to match oxiz-math Polynomial API
-#[allow(dead_code)]
-mod simplified {
-    use num_bigint::BigInt;
-    use num_rational::BigRational;
 #[allow(unused_imports)]
 use crate::prelude::*;
+use crate::polynomial::root_counting::Polynomial;
 use core::cmp::Ordering;
 use core::fmt;
+use num_bigint::BigInt;
+use num_rational::BigRational;
+use num_traits::{Signed, Zero};
 
 /// Algebraic number error types.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,41 +50,63 @@ impl fmt::Display for AlgebraicNumberError {
 
 impl core::error::Error for AlgebraicNumberError {}
 
-/// Algebraic number represented as a root of a polynomial.
+/// Algebraic number represented as a root of a univariate polynomial over Q.
 #[derive(Debug, Clone)]
 pub struct AlgebraicNumber {
     /// Minimal polynomial (irreducible, with rational coefficients).
-    pub minimal_poly: Polynomial<BigRational>,
-    /// Isolating interval [lower, upper] containing exactly one root.
+    pub minimal_poly: Polynomial,
+    /// Lower bound of the isolating interval.
     pub lower: BigRational,
+    /// Upper bound of the isolating interval.
     pub upper: BigRational,
-    /// Cached refinements for faster operations.
+    /// Number of refinement steps performed (for termination detection).
     refinement_level: usize,
 }
 
 impl AlgebraicNumber {
     /// Create a new algebraic number.
     ///
+    /// Validates that the interval `[lower, upper]` contains exactly one root
+    /// of `poly` using Sturm's theorem before accepting it.
+    ///
     /// # Errors
     ///
-    /// Returns error if interval doesn't isolate exactly one root.
+    /// Returns an error if:
+    /// - `poly` is the zero polynomial,
+    /// - `lower > upper` (degenerate interval ordering), or
+    /// - the Sturm sequence shows ≠ 1 root inside `(lower, upper)`.
     pub fn new(
-        poly: Polynomial<BigRational>,
+        poly: Polynomial,
         lower: BigRational,
         upper: BigRational,
     ) -> Result<Self, AlgebraicNumberError> {
-        // Validate polynomial
-        if poly.is_zero() {
+        // Reject the zero polynomial — it has infinitely many roots.
+        if poly.degree() == 0 && poly.coeffs.first().is_none_or(Zero::is_zero) {
             return Err(AlgebraicNumberError::ZeroPolynomial);
         }
 
-        // Validate interval
-        if lower >= upper {
+        if lower > upper {
             return Err(AlgebraicNumberError::NonIsolatingInterval);
         }
 
-        // TODO: Check that exactly one root exists in [lower, upper]
-        // using Sturm sequences or Descartes' rule
+        // Degenerate (point) interval: check whether `lower` is a root.
+        if lower == upper {
+            if poly.eval(&lower).is_zero() {
+                return Ok(Self {
+                    minimal_poly: poly,
+                    lower,
+                    upper,
+                    refinement_level: 0,
+                });
+            }
+            return Err(AlgebraicNumberError::NoRootInInterval);
+        }
+
+        // Sturm sequence check: the interval must isolate exactly one root.
+        let root_count = sturm_root_count(&poly, &lower, &upper);
+        if root_count != 1 {
+            return Err(AlgebraicNumberError::NonIsolatingInterval);
+        }
 
         Ok(Self {
             minimal_poly: poly,
@@ -97,8 +117,10 @@ impl AlgebraicNumber {
     }
 
     /// Create algebraic number from a rational.
+    ///
+    /// The rational `r` is represented as the root of the linear polynomial `(x - r)`.
     pub fn from_rational(r: BigRational) -> Self {
-        // Represent as root of (x - r)
+        // x - r  →  coeffs = [-r, 1]
         let poly = Polynomial::new(vec![-r.clone(), BigRational::from(BigInt::from(1))]);
 
         Self {
@@ -109,12 +131,12 @@ impl AlgebraicNumber {
         }
     }
 
-    /// Check if this is a rational number.
+    /// Check if this algebraic number is rational.
     pub fn is_rational(&self) -> bool {
         self.minimal_poly.degree() == 1 || self.lower == self.upper
     }
 
-    /// Convert to rational if possible.
+    /// Convert to rational if the number is rational.
     pub fn to_rational(&self) -> Option<BigRational> {
         if self.is_rational() {
             Some(self.lower.clone())
@@ -123,26 +145,22 @@ impl AlgebraicNumber {
         }
     }
 
-    /// Refine the isolating interval to half its size.
+    /// Refine the isolating interval by bisection.
     pub fn refine(&mut self) {
         let mid = (&self.lower + &self.upper) / BigRational::from(BigInt::from(2));
-
-        // Evaluate polynomial at midpoint
-        let mid_value = self.minimal_poly.evaluate(&mid);
+        let mid_value = self.minimal_poly.eval(&mid);
 
         if mid_value.is_zero() {
-            // Exact root found
+            // Exact root — collapse to a point.
             self.lower = mid.clone();
             self.upper = mid;
         } else {
-            // Determine which half contains the root
-            let lower_value = self.minimal_poly.evaluate(&self.lower);
-
+            let lower_value = self.minimal_poly.eval(&self.lower);
             if lower_value.signum() != mid_value.signum() {
-                // Root is in [lower, mid]
+                // Root is in [lower, mid].
                 self.upper = mid;
             } else {
-                // Root is in [mid, upper]
+                // Root is in [mid, upper].
                 self.lower = mid;
             }
         }
@@ -150,28 +168,26 @@ impl AlgebraicNumber {
         self.refinement_level += 1;
     }
 
-    /// Refine until interval width is below threshold.
+    /// Refine until the interval width is at most `precision`.
     pub fn refine_to_precision(&mut self, precision: &BigRational) {
         while &self.upper - &self.lower > *precision {
             self.refine();
         }
     }
 
-    /// Get interval width.
+    /// Width of the current isolating interval.
     pub fn interval_width(&self) -> BigRational {
         &self.upper - &self.lower
     }
 
-    /// Get midpoint of isolating interval (approximation).
+    /// Midpoint of the current isolating interval (an approximation of the number).
     pub fn midpoint(&self) -> BigRational {
         (&self.lower + &self.upper) / BigRational::from(BigInt::from(2))
     }
 
-    /// Compare with another algebraic number.
+    /// Compare with another algebraic number by interval refinement.
     pub fn compare(&mut self, other: &mut AlgebraicNumber) -> Ordering {
-        // Refine both until intervals don't overlap
         loop {
-            // Check if intervals are disjoint
             if self.upper < other.lower {
                 return Ordering::Less;
             }
@@ -179,7 +195,7 @@ impl AlgebraicNumber {
                 return Ordering::Greater;
             }
 
-            // Check if they're equal (same polynomial and interval)
+            // Identical representation → definitely equal.
             if self.minimal_poly == other.minimal_poly
                 && self.lower == other.lower
                 && self.upper == other.upper
@@ -187,13 +203,12 @@ impl AlgebraicNumber {
                 return Ordering::Equal;
             }
 
-            // Intervals overlap, refine both
+            // Intervals overlap; refine both.
             self.refine();
             other.refine();
 
-            // Prevent infinite loops for equal numbers
             if self.refinement_level > 1000 {
-                // Assume equal if we can't separate after 1000 refinements
+                // Cannot separate after 1 000 steps — treat as equal.
                 return Ordering::Equal;
             }
         }
@@ -201,42 +216,46 @@ impl AlgebraicNumber {
 
     /// Add two algebraic numbers.
     ///
-    /// Result is the root of the resultant polynomial.
+    /// Only rational operands are handled in this implementation.
+    ///
+    /// # Errors
+    ///
+    /// Returns `InvalidOperation` when either operand is non-rational (the
+    /// general case requires resultant computation, not yet implemented).
     pub fn add(&self, other: &AlgebraicNumber) -> Result<AlgebraicNumber, AlgebraicNumberError> {
-        // Special case: both rational
         if self.is_rational() && other.is_rational() {
-            return Ok(AlgebraicNumber::from_rational(
-                &self.lower + &other.lower,
-            ));
+            return Ok(AlgebraicNumber::from_rational(&self.lower + &other.lower));
         }
 
-        // General case: compute resultant and find appropriate root
-        // Simplified: return error for now
         Err(AlgebraicNumberError::InvalidOperation(
-            "General algebraic addition not yet implemented".to_string(),
+            "General algebraic addition requires resultant computation (not yet implemented)"
+                .to_string(),
         ))
     }
 
     /// Multiply two algebraic numbers.
+    ///
+    /// Only rational operands are handled in this implementation.
+    ///
+    /// # Errors
+    ///
+    /// Returns `InvalidOperation` when either operand is non-rational.
     pub fn mul(&self, other: &AlgebraicNumber) -> Result<AlgebraicNumber, AlgebraicNumberError> {
-        // Special case: both rational
         if self.is_rational() && other.is_rational() {
-            return Ok(AlgebraicNumber::from_rational(
-                &self.lower * &other.lower,
-            ));
+            return Ok(AlgebraicNumber::from_rational(&self.lower * &other.lower));
         }
 
-        // General case: compute resultant
         Err(AlgebraicNumberError::InvalidOperation(
-            "General algebraic multiplication not yet implemented".to_string(),
+            "General algebraic multiplication requires resultant computation (not yet implemented)"
+                .to_string(),
         ))
     }
 
     /// Negate an algebraic number.
+    ///
+    /// If α is a root of p(x), then −α is a root of p(−x).
     pub fn negate(&self) -> AlgebraicNumber {
-        // -α is a root of p(-x)
-        let neg_poly = self.minimal_poly.substitute_neg_x();
-
+        let neg_poly = poly_substitute_neg_x(&self.minimal_poly);
         AlgebraicNumber {
             minimal_poly: neg_poly,
             lower: -&self.upper,
@@ -245,20 +264,106 @@ impl AlgebraicNumber {
         }
     }
 
-    /// Sign of the algebraic number.
+    /// Return the sign of the algebraic number: −1, 0, or 1.
     pub fn signum(&self) -> i32 {
-        if self.upper < BigRational::from(BigInt::from(0)) {
+        if self.upper < BigRational::zero() {
             -1
-        } else if self.lower > BigRational::from(BigInt::from(0)) {
+        } else if self.lower > BigRational::zero() {
             1
+        } else if self.lower == self.upper && self.lower.is_zero() {
+            0
         } else {
-            // Interval contains zero, refine
+            // Interval straddles zero; refine until sign is clear.
             let mut copy = self.clone();
             copy.refine();
             copy.signum()
         }
     }
 }
+
+// ─── private helpers ────────────────────────────────────────────────────────
+
+/// Substitute x → −x in a polynomial: p(−x).
+///
+/// For p(x) = a₀ + a₁x + a₂x² + …, we have p(−x) = a₀ − a₁x + a₂x² − …
+fn poly_substitute_neg_x(poly: &Polynomial) -> Polynomial {
+    let coeffs: Vec<BigRational> = poly
+        .coeffs
+        .iter()
+        .enumerate()
+        .map(|(i, c)| if i % 2 == 0 { c.clone() } else { -c })
+        .collect();
+    Polynomial::new(coeffs)
+}
+
+/// Count distinct real roots of `poly` in the open interval `(lower, upper)`
+/// using Sturm's theorem: count = V(lower) − V(upper) where V(x) is the
+/// number of sign changes in the Sturm sequence evaluated at x.
+fn sturm_root_count(poly: &Polynomial, lower: &BigRational, upper: &BigRational) -> usize {
+    let seq = build_sturm_sequence(poly);
+    let v_lower = sign_variations(&seq, lower);
+    let v_upper = sign_variations(&seq, upper);
+    (v_lower as isize - v_upper as isize).unsigned_abs()
+}
+
+/// Build the Sturm sequence of a polynomial.
+///
+/// - p₀ = p
+/// - p₁ = p′
+/// - pₖ₊₁ = −rem(pₖ₋₁, pₖ)
+fn build_sturm_sequence(poly: &Polynomial) -> Vec<Polynomial> {
+    let mut seq = vec![poly.clone(), poly.derivative()];
+
+    loop {
+        let n = seq.len();
+        let last = &seq[n - 1];
+
+        // Terminate when the last polynomial is zero.
+        if last.degree() == 0 && last.coeffs.first().is_none_or(Zero::is_zero) {
+            break;
+        }
+
+        let remainder = seq[n - 2].remainder(last);
+        let negated = Polynomial::new(remainder.coeffs.iter().map(|c| -c).collect());
+
+        if negated.degree() == 0 && negated.coeffs.first().is_none_or(Zero::is_zero) {
+            break;
+        }
+
+        seq.push(negated);
+
+        // Safety guard against pathological inputs.
+        if seq.len() > 1000 {
+            break;
+        }
+    }
+
+    seq
+}
+
+/// Count sign variations in the Sturm sequence evaluated at `point`.
+///
+/// Zero values are skipped (Sturm's theorem convention).
+fn sign_variations(seq: &[Polynomial], point: &BigRational) -> usize {
+    let signs: Vec<i32> = seq
+        .iter()
+        .map(|p| {
+            let val = p.eval(point);
+            if val.is_positive() {
+                1
+            } else if val.is_negative() {
+                -1
+            } else {
+                0
+            }
+        })
+        .filter(|&s| s != 0)
+        .collect();
+
+    signs.windows(2).filter(|w| w[0] != w[1]).count()
+}
+
+// ─── trait impls ────────────────────────────────────────────────────────────
 
 impl PartialEq for AlgebraicNumber {
     fn eq(&self, other: &Self) -> bool {
@@ -272,9 +377,7 @@ impl Eq for AlgebraicNumber {}
 
 impl PartialOrd for AlgebraicNumber {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        let mut a = self.clone();
-        let mut b = other.clone();
-        Some(a.compare(&mut b))
+        Some(self.cmp(other))
     }
 }
 
@@ -286,75 +389,73 @@ impl Ord for AlgebraicNumber {
     }
 }
 
+// ─── tests ──────────────────────────────────────────────────────────────────
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn rat(n: i64) -> BigRational {
+        BigRational::from(BigInt::from(n))
+    }
+
     #[test]
     fn test_from_rational() {
-        let alg = AlgebraicNumber::from_rational(BigRational::from(BigInt::from(42)));
+        let alg = AlgebraicNumber::from_rational(rat(42));
         assert!(alg.is_rational());
-        assert_eq!(alg.to_rational(), Some(BigRational::from(BigInt::from(42))));
+        assert_eq!(alg.to_rational(), Some(rat(42)));
     }
 
     #[test]
     fn test_rational_arithmetic() {
-        let a = AlgebraicNumber::from_rational(BigRational::from(BigInt::from(3)));
-        let b = AlgebraicNumber::from_rational(BigRational::from(BigInt::from(5)));
+        let a = AlgebraicNumber::from_rational(rat(3));
+        let b = AlgebraicNumber::from_rational(rat(5));
 
         let sum = a.add(&b).expect("test operation should succeed");
         assert!(sum.is_rational());
-        assert_eq!(sum.to_rational(), Some(BigRational::from(BigInt::from(8))));
+        assert_eq!(sum.to_rational(), Some(rat(8)));
 
         let prod = a.mul(&b).expect("test operation should succeed");
         assert!(prod.is_rational());
-        assert_eq!(prod.to_rational(), Some(BigRational::from(BigInt::from(15))));
+        assert_eq!(prod.to_rational(), Some(rat(15)));
     }
 
     #[test]
     fn test_negate() {
-        let a = AlgebraicNumber::from_rational(BigRational::from(BigInt::from(5)));
+        let a = AlgebraicNumber::from_rational(rat(5));
         let neg_a = a.negate();
 
         assert!(neg_a.is_rational());
-        assert_eq!(neg_a.to_rational(), Some(BigRational::from(BigInt::from(-5))));
+        assert_eq!(neg_a.to_rational(), Some(rat(-5)));
     }
 
     #[test]
     fn test_compare() {
-        let a = AlgebraicNumber::from_rational(BigRational::from(BigInt::from(3)));
-        let b = AlgebraicNumber::from_rational(BigRational::from(BigInt::from(5)));
+        let a = AlgebraicNumber::from_rational(rat(3));
+        let b = AlgebraicNumber::from_rational(rat(5));
 
         assert!(a < b);
         assert!(b > a);
-        assert_eq!(a, a);
+        assert_eq!(a, a.clone());
     }
 
     #[test]
     fn test_signum() {
-        let pos = AlgebraicNumber::from_rational(BigRational::from(BigInt::from(5)));
-        let neg = AlgebraicNumber::from_rational(BigRational::from(BigInt::from(-3)));
-        let zero = AlgebraicNumber::from_rational(BigRational::from(BigInt::from(0)));
+        let pos = AlgebraicNumber::from_rational(rat(5));
+        let neg = AlgebraicNumber::from_rational(rat(-3));
+        let zero = AlgebraicNumber::from_rational(rat(0));
 
         assert_eq!(pos.signum(), 1);
         assert_eq!(neg.signum(), -1);
-        assert_eq!(zero.signum(), 1); // Note: zero case needs refinement
+        assert_eq!(zero.signum(), 0);
     }
 
     #[test]
     fn test_refine() {
-        let poly = Polynomial::new(vec![
-            BigRational::from(BigInt::from(-2)),
-            BigRational::from(BigInt::from(0)),
-            BigRational::from(BigInt::from(1)),
-        ]); // x^2 - 2
-
-        let mut alg = AlgebraicNumber::new(
-            poly,
-            BigRational::from(BigInt::from(1)),
-            BigRational::from(BigInt::from(2)),
-        )
-        .expect("test operation should succeed");
+        // x^2 - 2, root in [1, 2]
+        let poly = Polynomial::new(vec![rat(-2), rat(0), rat(1)]);
+        let mut alg = AlgebraicNumber::new(poly, rat(1), rat(2))
+            .expect("test operation should succeed");
 
         let initial_width = alg.interval_width();
         alg.refine();
@@ -365,7 +466,44 @@ mod tests {
 
     #[test]
     fn test_interval_width() {
-        let alg = AlgebraicNumber::from_rational(BigRational::from(BigInt::from(5)));
-        assert_eq!(alg.interval_width(), BigRational::from(BigInt::from(0)));
+        let alg = AlgebraicNumber::from_rational(rat(5));
+        assert_eq!(alg.interval_width(), rat(0));
+    }
+
+    #[test]
+    fn test_new_rejects_non_isolating_interval() {
+        // x^2 - 1 has two roots in [-2, 2]
+        let poly = Polynomial::new(vec![rat(-1), rat(0), rat(1)]);
+        let result = AlgebraicNumber::new(poly, rat(-2), rat(2));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_new_accepts_isolating_interval() {
+        // x^2 - 2 has exactly one root in [1, 2]
+        let poly = Polynomial::new(vec![rat(-2), rat(0), rat(1)]);
+        let result = AlgebraicNumber::new(poly, rat(1), rat(2));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_sturm_root_count() {
+        // x^2 - 2: one positive root between 1 and 2
+        let poly = Polynomial::new(vec![rat(-2), rat(0), rat(1)]);
+        let count = sturm_root_count(&poly, &rat(1), &rat(2));
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_poly_substitute_neg_x() {
+        // p(x) = x^2 - 2 → p(-x) = x^2 - 2 (even polynomial, unchanged)
+        let poly = Polynomial::new(vec![rat(-2), rat(0), rat(1)]);
+        let neg = poly_substitute_neg_x(&poly);
+        assert_eq!(neg.eval(&rat(2)), poly.eval(&rat(2)));
+
+        // p(x) = x^3 → p(-x) = -x^3
+        let poly2 = Polynomial::new(vec![rat(0), rat(0), rat(0), rat(1)]);
+        let neg2 = poly_substitute_neg_x(&poly2);
+        assert_eq!(neg2.eval(&rat(2)), -poly2.eval(&rat(2)));
     }
 }

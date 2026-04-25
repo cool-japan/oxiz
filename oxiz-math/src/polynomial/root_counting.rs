@@ -21,7 +21,7 @@ use num_rational::BigRational;
 use num_traits::{Signed, Zero};
 
 /// A univariate polynomial over Q.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Polynomial {
     /// Coefficients in increasing degree order: a_0 + a_1*x + a_2*x^2 + ...
     pub coeffs: Vec<BigRational>,

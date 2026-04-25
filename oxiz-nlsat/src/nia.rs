@@ -95,7 +95,6 @@ pub struct NiaSolver {
     config: NiaConfig,
     /// Statistics.
     stats: NiaStats,
-    // TODO: Re-enable cutting plane generator after updating to new cutting_planes API from oxiz_math::lp
 }
 
 /// Statistics for NIA solver.
@@ -124,8 +123,6 @@ impl NiaSolver {
             var_types: Vec::new(),
             config,
             stats: NiaStats::default(),
-            // TODO: Re-enable after updating to new cutting_planes API
-            // cut_generator: CuttingPlaneGenerator::new(),
         }
     }
 

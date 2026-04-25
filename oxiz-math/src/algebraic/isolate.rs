@@ -16,9 +16,10 @@
 
 #[allow(unused_imports)]
 use crate::prelude::*;
-use crate::polynomial::Polynomial;
+use crate::polynomial::root_counting::Polynomial;
 use num_bigint::BigInt;
 use num_rational::BigRational;
+use num_traits::{Signed, Zero};
 
 /// Isolating interval for a root.
 #[derive(Debug, Clone)]
@@ -74,7 +75,7 @@ impl Default for IsolationConfig {
             use_sturm: true,
             use_descartes: true,
             max_iterations: 1000,
-            precision: BigRational::new(BigInt::from(1), BigInt::from(1000000)),
+            precision: BigRational::new(BigInt::from(1), BigInt::from(1_000_000)),
         }
     }
 }
@@ -105,19 +106,19 @@ pub enum IntervalRefinement {
 
 /// Root isolator using interval arithmetic.
 pub struct RootIsolator {
-    /// Polynomial to isolate roots for.
-    poly: Polynomial<BigRational>,
+    /// Polynomial to isolate roots for (univariate over Q).
+    poly: Polynomial,
     /// Configuration.
     config: IsolationConfig,
     /// Statistics.
     stats: IsolationStats,
     /// Cached Sturm sequence.
-    sturm_sequence: Option<Vec<Polynomial<BigRational>>>,
+    sturm_sequence: Option<Vec<Polynomial>>,
 }
 
 impl RootIsolator {
     /// Create a new root isolator.
-    pub fn new(poly: Polynomial<BigRational>, config: IsolationConfig) -> Self {
+    pub fn new(poly: Polynomial, config: IsolationConfig) -> Self {
         Self {
             poly,
             config,
@@ -127,18 +128,16 @@ impl RootIsolator {
     }
 
     /// Create with default configuration.
-    pub fn default_config(poly: Polynomial<BigRational>) -> Self {
+    pub fn default_config(poly: Polynomial) -> Self {
         Self::new(poly, IsolationConfig::default())
     }
 
     /// Isolate all real roots of the polynomial.
     pub fn isolate_roots(&mut self) -> Vec<IsolatingInterval> {
-        // Handle trivial cases
-        if self.poly.is_zero() {
-            return Vec::new();
-        }
-
-        if self.poly.degree() == 0 {
+        // Handle trivial cases: zero polynomial or non-zero constant
+        let is_zero = self.poly.degree() == 0
+            && self.poly.coeffs.first().is_none_or(Zero::is_zero);
+        if is_zero || self.poly.degree() == 0 {
             return Vec::new();
         }
 
@@ -164,22 +163,27 @@ impl RootIsolator {
                 break;
             }
 
+            let last = &seq[len - 1];
+            // Stop if last polynomial is zero
+            if last.degree() == 0 && last.coeffs.first().is_none_or(Zero::is_zero) {
+                break;
+            }
+
             let remainder = seq[len - 2].remainder(&seq[len - 1]);
 
-            // Negate remainder (Sturm sequence convention)
-            let negated = Polynomial::new(
-                remainder
-                    .coefficients()
-                    .iter()
-                    .map(|c| -c)
-                    .collect(),
-            );
+            // Negate remainder (Sturm sequence convention: p_{k+1} = -rem(p_{k-1}, p_k))
+            let negated = Polynomial::new(remainder.coeffs.iter().map(|c| -c).collect());
 
-            if negated.is_zero() {
+            if negated.degree() == 0 && negated.coeffs.first().is_none_or(Zero::is_zero) {
                 break;
             }
 
             seq.push(negated);
+
+            // Guard against degenerate polynomials
+            if seq.len() > 1000 {
+                break;
+            }
         }
 
         self.sturm_sequence = Some(seq);
@@ -192,31 +196,32 @@ impl RootIsolator {
             self.compute_sturm_sequence();
         }
 
-        let seq = self.sturm_sequence.as_ref().expect("operation should succeed");
+        // Clone to avoid simultaneous immutable+mutable borrow of self.
+        let seq: Vec<Polynomial> = self.sturm_sequence.as_ref().cloned().unwrap_or_default();
 
-        let sign_changes_lower = self.count_sign_changes(seq, lower);
-        let sign_changes_upper = self.count_sign_changes(seq, upper);
+        let sign_changes_lower = self.count_sign_changes(&seq, lower);
+        let sign_changes_upper = self.count_sign_changes(&seq, upper);
 
         (sign_changes_lower as isize - sign_changes_upper as isize).unsigned_abs()
     }
 
     /// Count sign changes in Sturm sequence at a point.
-    fn count_sign_changes(&mut self, seq: &[Polynomial<BigRational>], point: &BigRational) -> usize {
+    fn count_sign_changes(&mut self, seq: &[Polynomial], point: &BigRational) -> usize {
         self.stats.sign_evaluations += seq.len() as u64;
 
-        let mut signs: Vec<i32> = seq
+        let signs: Vec<i32> = seq
             .iter()
             .map(|p| {
-                let val = p.evaluate(point);
-                if val > BigRational::from(BigInt::from(0)) {
+                let val = p.eval(point);
+                if val.is_positive() {
                     1
-                } else if val < BigRational::from(BigInt::from(0)) {
+                } else if val.is_negative() {
                     -1
                 } else {
                     0
                 }
             })
-            .filter(|&s| s != 0) // Skip zeros
+            .filter(|&s| s != 0) // Skip zeros per Sturm's theorem
             .collect();
 
         // Count sign changes
@@ -230,22 +235,27 @@ impl RootIsolator {
         changes
     }
 
-    /// Compute bounds containing all real roots.
-    fn root_bounds(&self) -> (BigRational, BigRational) {
-        // Cauchy bound: |roots| ≤ 1 + max(|a_i| / |a_n|)
-        let coeffs = self.poly.coefficients();
+    /// Compute bounds containing all real roots (Cauchy bound).
+    ///
+    /// Cauchy bound: |roots| <= 1 + max(|a_i| / |a_n|)
+    pub(crate) fn root_bounds(&self) -> (BigRational, BigRational) {
+        let coeffs = &self.poly.coeffs;
         if coeffs.is_empty() {
-            return (BigRational::from(BigInt::from(0)), BigRational::from(BigInt::from(0)));
+            return (BigRational::zero(), BigRational::zero());
         }
 
-        let leading = coeffs.last().expect("collection should not be empty").clone().abs();
+        let leading = match coeffs.last() {
+            Some(c) => c.abs(),
+            None => return (BigRational::zero(), BigRational::zero()),
+        };
+
         if leading.is_zero() {
-            return (BigRational::from(BigInt::from(0)), BigRational::from(BigInt::from(0)));
+            return (BigRational::zero(), BigRational::zero());
         }
 
-        let mut max_ratio = BigRational::from(BigInt::from(0));
+        let mut max_ratio = BigRational::zero();
         for coeff in coeffs.iter().take(coeffs.len() - 1) {
-            let ratio = coeff.clone().abs() / &leading;
+            let ratio = coeff.abs() / &leading;
             if ratio > max_ratio {
                 max_ratio = ratio;
             }
@@ -290,15 +300,15 @@ impl RootIsolator {
         left
     }
 
-    /// Evaluate sign of polynomial at a point.
+    /// Evaluate sign of polynomial at a point (-1, 0, or 1).
     fn eval_sign(&mut self, point: &BigRational) -> i32 {
         self.stats.sign_evaluations += 1;
 
-        let val = self.poly.evaluate(point);
+        let val = self.poly.eval(point);
 
-        if val > BigRational::from(BigInt::from(0)) {
+        if val.is_positive() {
             1
-        } else if val < BigRational::from(BigInt::from(0)) {
+        } else if val.is_negative() {
             -1
         } else {
             0
@@ -315,9 +325,12 @@ impl RootIsolator {
             IntervalRefinement::Bisection => self.refine_bisection(interval),
             IntervalRefinement::Newton => self.refine_newton(interval),
             IntervalRefinement::Hybrid => {
-                // Try Newton first, fall back to bisection
+                // Try Newton first, fall back to bisection if not contracting fast enough
                 let newton_result = self.refine_newton(interval);
-                if newton_result.width() < interval.width() * BigRational::new(BigInt::from(9), BigInt::from(10)) {
+                if newton_result.width()
+                    < interval.width()
+                        * BigRational::new(BigInt::from(9), BigInt::from(10))
+                {
                     newton_result
                 } else {
                     self.refine_bisection(interval)
@@ -350,18 +363,18 @@ impl RootIsolator {
     /// Refine interval using Newton's method.
     fn refine_newton(&mut self, interval: &IsolatingInterval) -> IsolatingInterval {
         let mid = interval.midpoint();
-        let f_mid = self.poly.evaluate(&mid);
-        let df_mid = self.poly.derivative().evaluate(&mid);
+        let f_mid = self.poly.eval(&mid);
+        let df_mid = self.poly.derivative().eval(&mid);
 
         if df_mid.is_zero() {
-            // Can't use Newton, fall back to bisection
+            // Derivative is zero - fall back to bisection
             return self.refine_bisection(interval);
         }
 
         // Newton step: x_new = x - f(x)/f'(x)
         let x_new = &mid - (&f_mid / &df_mid);
 
-        // Ensure new point is in interval
+        // Ensure new point is strictly inside interval
         if x_new > interval.lower && x_new < interval.upper {
             let sign_new = self.eval_sign(&x_new);
 
@@ -370,12 +383,22 @@ impl RootIsolator {
             }
 
             if sign_new != interval.sign_lower {
-                IsolatingInterval::new(interval.lower.clone(), x_new, interval.sign_lower, sign_new)
+                IsolatingInterval::new(
+                    interval.lower.clone(),
+                    x_new,
+                    interval.sign_lower,
+                    sign_new,
+                )
             } else {
-                IsolatingInterval::new(x_new, interval.upper.clone(), sign_new, interval.sign_upper)
+                IsolatingInterval::new(
+                    x_new,
+                    interval.upper.clone(),
+                    sign_new,
+                    interval.sign_upper,
+                )
             }
         } else {
-            // Newton step went outside, use bisection
+            // Newton step escaped the interval - use bisection
             self.refine_bisection(interval)
         }
     }
@@ -395,13 +418,13 @@ impl RootIsolator {
 mod tests {
     use super::*;
 
+    fn rat(n: i64) -> BigRational {
+        BigRational::from(BigInt::from(n))
+    }
+
     #[test]
     fn test_isolator_creation() {
-        let poly = Polynomial::new(vec![
-            BigRational::from(BigInt::from(-2)),
-            BigRational::from(BigInt::from(0)),
-            BigRational::from(BigInt::from(1)),
-        ]);
+        let poly = Polynomial::new(vec![rat(-2), rat(0), rat(1)]);
 
         let isolator = RootIsolator::default_config(poly);
         assert_eq!(isolator.stats().roots_isolated, 0);
@@ -409,51 +432,35 @@ mod tests {
 
     #[test]
     fn test_root_bounds() {
-        let poly = Polynomial::new(vec![
-            BigRational::from(BigInt::from(-6)),
-            BigRational::from(BigInt::from(5)),
-            BigRational::from(BigInt::from(1)),
-        ]); // x^2 + 5x - 6
+        let poly = Polynomial::new(vec![rat(-6), rat(5), rat(1)]); // x^2 + 5x - 6
 
         let isolator = RootIsolator::default_config(poly);
         let (lower, upper) = isolator.root_bounds();
 
         // Roots are -6 and 1, so bounds should contain both
-        assert!(lower < BigRational::from(BigInt::from(-6)));
-        assert!(upper > BigRational::from(BigInt::from(1)));
+        assert!(lower < rat(-6));
+        assert!(upper > rat(1));
     }
 
     #[test]
     fn test_isolate_linear() {
-        let poly = Polynomial::new(vec![
-            BigRational::from(BigInt::from(-5)),
-            BigRational::from(BigInt::from(1)),
-        ]); // x - 5
+        let poly = Polynomial::new(vec![rat(-5), rat(1)]); // x - 5
 
         let mut isolator = RootIsolator::default_config(poly);
         let intervals = isolator.isolate_roots();
 
         assert_eq!(intervals.len(), 1);
-        assert!(intervals[0].lower <= BigRational::from(BigInt::from(5)));
-        assert!(intervals[0].upper >= BigRational::from(BigInt::from(5)));
+        assert!(intervals[0].lower <= rat(5));
+        assert!(intervals[0].upper >= rat(5));
     }
 
     #[test]
     fn test_refine_bisection() {
-        let poly = Polynomial::new(vec![
-            BigRational::from(BigInt::from(-2)),
-            BigRational::from(BigInt::from(0)),
-            BigRational::from(BigInt::from(1)),
-        ]); // x^2 - 2
+        let poly = Polynomial::new(vec![rat(-2), rat(0), rat(1)]); // x^2 - 2
 
         let mut isolator = RootIsolator::default_config(poly);
 
-        let interval = IsolatingInterval::new(
-            BigRational::from(BigInt::from(1)),
-            BigRational::from(BigInt::from(2)),
-            -1,
-            1,
-        );
+        let interval = IsolatingInterval::new(rat(1), rat(2), -1, 1);
 
         let refined = isolator.refine_interval(&interval, IntervalRefinement::Bisection);
 
@@ -462,10 +469,7 @@ mod tests {
 
     #[test]
     fn test_stats() {
-        let poly = Polynomial::new(vec![
-            BigRational::from(BigInt::from(-5)),
-            BigRational::from(BigInt::from(1)),
-        ]);
+        let poly = Polynomial::new(vec![rat(-5), rat(1)]);
 
         let mut isolator = RootIsolator::default_config(poly);
         isolator.isolate_roots();

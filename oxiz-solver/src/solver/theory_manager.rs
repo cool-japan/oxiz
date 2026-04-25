@@ -776,9 +776,22 @@ impl<'a> TheoryManager<'a> {
                             did_assert = true;
                         }
 
-                        // BV SAT check disabled for now - causes false UNSAT
-                        // TODO: Fix the BV encoding to avoid false UNSAT
-                        let _ = (did_assert, has_arith_op_in_constraint);
+                        // Only run the BV SAT check when a BV arithmetic operation
+                        // (e.g. bvmul, bvudiv) was fully encoded in this constraint.
+                        // Simple var=const constraints are intermediate states; running
+                        // check() on them before the op encoding is complete produces
+                        // false UNSAT because the solver sees partial constraints.
+                        if did_assert && has_arith_op_in_constraint {
+                            use oxiz_theories::Theory;
+                            use oxiz_theories::TheoryCheckResult as TheoryCheckResultEnum;
+                            if let Ok(TheoryCheckResultEnum::Unsat(conflict_terms)) =
+                                self.bv.check()
+                            {
+                                let conflict_lits =
+                                    self.terms_to_conflict_clause(&conflict_terms);
+                                return TheoryCheckResult::Conflict(conflict_lits);
+                            }
+                        }
                     }
                 } else {
                     // Negative assignment: a != b, tell EUF about disequality.
@@ -850,11 +863,15 @@ impl<'a> TheoryManager<'a> {
                         self.bv.new_bv(lhs, width);
                         self.bv.new_bv(rhs, width);
 
-                        // Determine if this is a signed comparison by checking if
-                        // either lhs or rhs is the result of a signed BV operation
-                        // For now, assume unsigned (most common case)
-                        // TODO: Track signedness more precisely
-                        let is_signed = false;
+                        // Derive signedness from the original TermKind stored for
+                        // the SAT variable.  Both BvSlt and BvUlt encode to
+                        // Constraint::Lt(lhs, rhs) during formula encoding (encode.rs),
+                        // so the distinction is only recoverable by inspecting the term
+                        // that the SAT variable was created for.
+                        let constraint_term_id = self.term_for_var(var);
+                        let is_signed = manager.get(constraint_term_id).is_some_and(|t| {
+                            matches!(t.kind, TermKind::BvSlt(_, _) | TermKind::BvSle(_, _))
+                        });
 
                         if is_positive {
                             // Positive assignment: constraint holds

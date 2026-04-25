@@ -95,8 +95,7 @@ extern crate alloc;
 
 mod prelude;
 
-// TODO: algebraic module needs refactoring to match Polynomial API
-// pub mod algebraic;
+pub mod algebraic;
 pub mod algebraic_number;
 pub mod bdd;
 #[cfg(feature = "std")]

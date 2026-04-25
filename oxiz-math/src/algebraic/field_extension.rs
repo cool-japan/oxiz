@@ -72,7 +72,7 @@ impl FieldExtension {
         let mut result = coeffs.to_vec();
 
         // Polynomial long division by minimal_poly
-        while result.len() > self.degree && !result.last().map_or(true, |c| c.is_zero()) {
+        while result.len() > self.degree && !result.last().is_none_or(|c| c.is_zero()) {
             let deg_diff = result.len() - self.minimal_poly.len();
             let lead_coeff = result.last().cloned().expect("checked non-empty");
             let min_lead = self.minimal_poly.last().cloned().expect("checked non-empty");
@@ -91,7 +91,7 @@ impl FieldExtension {
         }
 
         // Remove leading zeros
-        while result.last().map_or(false, |c| c.is_zero()) {
+        while result.last().is_some_and(|c| c.is_zero()) {
             result.pop();
         }
 
@@ -106,11 +106,10 @@ impl FieldExtension {
     pub fn multiply(&mut self, a: &[BigRational], b: &[BigRational]) -> Vec<BigRational> {
         // Check cache first
         let key = (a.len(), b.len());
-        if let Some(cached) = self.mult_table.get(&key) {
-            if a == cached || b == cached {
+        if let Some(cached) = self.mult_table.get(&key)
+            && (a == cached || b == cached) {
                 // Simple case, use cache if applicable
             }
-        }
 
         // Polynomial multiplication
         let mut product = vec![BigRational::zero(); a.len() + b.len() - 1];
@@ -146,7 +145,7 @@ impl FieldExtension {
         }
 
         // Remove trailing zeros
-        while result.len() > 1 && result.last().map_or(false, |c| c.is_zero()) {
+        while result.len() > 1 && result.last().is_some_and(|c| c.is_zero()) {
             result.pop();
         }
 
@@ -248,10 +247,10 @@ impl FieldExtension {
         }
 
         // Remove leading zeros
-        while quotient.last().map_or(false, |c| c.is_zero()) {
+        while quotient.last().is_some_and(|c| c.is_zero()) {
             quotient.pop();
         }
-        while remainder.last().map_or(false, |c| c.is_zero()) {
+        while remainder.last().is_some_and(|c| c.is_zero()) {
             remainder.pop();
         }
 
@@ -295,7 +294,7 @@ impl FieldExtension {
             result[i] = &result[i] - coeff;
         }
 
-        while result.len() > 1 && result.last().map_or(false, |c| c.is_zero()) {
+        while result.len() > 1 && result.last().is_some_and(|c| c.is_zero()) {
             result.pop();
         }
 

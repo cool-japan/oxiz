@@ -5,7 +5,7 @@
 
 #[allow(unused_imports)]
 use crate::prelude::*;
-use super::field_extension::{FieldExtension, FieldExtensionManager, ExtensionId};
+use super::field_extension::ExtensionId;
 use num_rational::BigRational;
 use num_traits::{One, Zero};
 
@@ -330,7 +330,7 @@ impl Discriminant {
         let resultant = Self::resultant(poly, &derivative)?;
 
         let n = poly.len() - 1;
-        let sign_factor = if (n * (n - 1) / 2) % 2 == 0 {
+        let sign_factor = if (n * (n - 1) / 2).is_multiple_of(2) {
             BigRational::one()
         } else {
             -BigRational::one()
@@ -414,7 +414,7 @@ impl Discriminant {
                 -BigRational::one()
             };
 
-            det = det + sign * &matrix[0][j] * minor_det;
+            det += sign * &matrix[0][j] * minor_det;
         }
 
         Some(det)
