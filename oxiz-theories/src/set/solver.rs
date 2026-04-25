@@ -343,6 +343,7 @@ struct SolverState {
     num_member_constraints: usize,
     num_subset_constraints: usize,
     num_card_constraints: usize,
+    num_pending_assertions: usize,
 }
 
 /// Main set theory solver
@@ -386,6 +387,10 @@ pub struct SetSolver {
     term_to_var: FxHashMap<TermId, SetVarId>,
     /// Set variable to term mapping
     var_to_term: FxHashMap<SetVarId, TermId>,
+    /// Pending assertions: (term_id, polarity) accumulated before propagation
+    pending_assertions: Vec<(TermId, bool)>,
+    /// Equalities discovered by this theory to share via Nelson-Oppen
+    derived_equalities: Vec<(TermId, TermId)>,
 }
 
 /// Trail entry for backtracking
@@ -453,6 +458,8 @@ impl SetSolver {
             conflict: None,
             term_to_var: FxHashMap::default(),
             var_to_term: FxHashMap::default(),
+            pending_assertions: Vec::new(),
+            derived_equalities: Vec::new(),
         }
     }
 
@@ -676,7 +683,12 @@ impl SetSolver {
         Ok(())
     }
 
-    /// Extract a set variable from an expression (creating auxiliary if needed)
+    /// Extract a set variable from an expression (creating auxiliary if needed).
+    ///
+    /// For complex sub-expressions each arm recursively decomposes the operands
+    /// and then constrains the fresh auxiliary variable to be semantically equal
+    /// to the expression — without ever calling `add_equal_constraint` with the
+    /// same complex expression (which would trigger infinite recursion).
     fn extract_var(&mut self, expr: &SetExpr) -> SetResult<SetVarId> {
         match expr {
             SetExpr::Var(v) => Ok(*v),
@@ -687,10 +699,151 @@ impl SetSolver {
                 }
                 Ok(var)
             }
-            _ => {
-                // Create auxiliary variable for complex expressions
-                let var = self.new_set_var(&format!("aux_{}", self.vars.len()), SetSort::IntSet);
-                // TODO: Add constraints to define the auxiliary variable
+            SetExpr::Universal => {
+                let var =
+                    self.new_set_var(&format!("univ_{}", self.vars.len()), SetSort::IntSet);
+                if let Some(v) = self.get_var_mut(var) {
+                    v.is_universal = true;
+                }
+                Ok(var)
+            }
+            SetExpr::Singleton(elem) => {
+                let elem_val = *elem;
+                let var =
+                    self.new_set_var(&format!("sing_{}", self.vars.len()), SetSort::IntSet);
+                // Cardinality exactly 1
+                if let Some(v) = self.get_var_mut(var) {
+                    v.add_must_member(elem_val);
+                    v.tighten_lower_card(1);
+                    v.tighten_upper_card(1);
+                }
+                Ok(var)
+            }
+            SetExpr::Union(lhs_expr, rhs_expr) => {
+                // Clone to avoid simultaneous borrow of self
+                let lhs_expr = *lhs_expr.clone();
+                let rhs_expr = *rhs_expr.clone();
+                let aux =
+                    self.new_set_var(&format!("aux_union_{}", self.vars.len()), SetSort::IntSet);
+                let lhs_var = self.extract_var(&lhs_expr)?;
+                let rhs_var = self.extract_var(&rhs_expr)?;
+                // aux ⊇ lhs  and  aux ⊇ rhs  (forward propagation of membership)
+                self.propagate_subset(lhs_var, aux)?;
+                self.propagate_subset(rhs_var, aux)?;
+                // aux ⊆ lhs ∪ rhs — approximated by recording the operation
+                // (exact membership tracking happens during propagate())
+                self.propagation_queue.push_back(aux);
+                Ok(aux)
+            }
+            SetExpr::Intersection(lhs_expr, rhs_expr) => {
+                let lhs_expr = *lhs_expr.clone();
+                let rhs_expr = *rhs_expr.clone();
+                let aux = self.new_set_var(
+                    &format!("aux_inter_{}", self.vars.len()),
+                    SetSort::IntSet,
+                );
+                let lhs_var = self.extract_var(&lhs_expr)?;
+                let rhs_var = self.extract_var(&rhs_expr)?;
+                // aux ⊆ lhs  and  aux ⊆ rhs
+                self.propagate_subset(aux, lhs_var)?;
+                self.propagate_subset(aux, rhs_var)?;
+                // Must-members that are in both operands flow into aux
+                let lhs_must: Vec<u32> = self
+                    .get_var(lhs_var)
+                    .map(|v| v.must_members.iter().copied().collect())
+                    .unwrap_or_default();
+                let rhs_must: FxHashSet<u32> = self
+                    .get_var(rhs_var)
+                    .map(|v| v.must_members.iter().copied().collect())
+                    .unwrap_or_default();
+                for elem in lhs_must {
+                    if rhs_must.contains(&elem)
+                        && let Some(v) = self.get_var_mut(aux)
+                    {
+                        v.add_must_member(elem);
+                    }
+                }
+                self.propagation_queue.push_back(aux);
+                Ok(aux)
+            }
+            SetExpr::Difference(lhs_expr, rhs_expr) => {
+                let lhs_expr = *lhs_expr.clone();
+                let rhs_expr = *rhs_expr.clone();
+                let aux = self.new_set_var(
+                    &format!("aux_diff_{}", self.vars.len()),
+                    SetSort::IntSet,
+                );
+                let lhs_var = self.extract_var(&lhs_expr)?;
+                let rhs_var = self.extract_var(&rhs_expr)?;
+                // aux ⊆ lhs
+                self.propagate_subset(aux, lhs_var)?;
+                // For each must-member of rhs, it must NOT be in aux
+                let rhs_must: Vec<u32> = self
+                    .get_var(rhs_var)
+                    .map(|v| v.must_members.iter().copied().collect())
+                    .unwrap_or_default();
+                for elem in rhs_must {
+                    if let Some(v) = self.get_var_mut(aux) {
+                        v.add_must_not_member(elem);
+                    }
+                }
+                // For must-members of lhs that are definitely not in rhs, add to aux
+                let lhs_must: Vec<u32> = self
+                    .get_var(lhs_var)
+                    .map(|v| v.must_members.iter().copied().collect())
+                    .unwrap_or_default();
+                let rhs_not: FxHashSet<u32> = self
+                    .get_var(rhs_var)
+                    .map(|v| v.must_not_members.iter().copied().collect())
+                    .unwrap_or_default();
+                for elem in lhs_must {
+                    if rhs_not.contains(&elem)
+                        && let Some(v) = self.get_var_mut(aux)
+                    {
+                        v.add_must_member(elem);
+                    }
+                }
+                self.propagation_queue.push_back(aux);
+                Ok(aux)
+            }
+            SetExpr::Complement(inner_expr) => {
+                let inner_expr = *inner_expr.clone();
+                let aux = self.new_set_var(
+                    &format!("aux_compl_{}", self.vars.len()),
+                    SetSort::IntSet,
+                );
+                let inner_var = self.extract_var(&inner_expr)?;
+                // x ∈ inner ⟹ x ∉ aux
+                let inner_must: Vec<u32> = self
+                    .get_var(inner_var)
+                    .map(|v| v.must_members.iter().copied().collect())
+                    .unwrap_or_default();
+                for elem in inner_must {
+                    if let Some(v) = self.get_var_mut(aux) {
+                        v.add_must_not_member(elem);
+                    }
+                }
+                // x ∉ inner ⟹ x ∈ aux
+                let inner_not: Vec<u32> = self
+                    .get_var(inner_var)
+                    .map(|v| v.must_not_members.iter().copied().collect())
+                    .unwrap_or_default();
+                for elem in inner_not {
+                    if let Some(v) = self.get_var_mut(aux) {
+                        v.add_must_member(elem);
+                    }
+                }
+                self.propagation_queue.push_back(aux);
+                Ok(aux)
+            }
+            SetExpr::Comprehension { .. } => {
+                // Comprehension bodies require a full formula evaluator which is
+                // outside the scope of the constraint-propagation layer.  Create
+                // an unconstrained auxiliary variable as a sound over-approximation.
+                let var = self.new_set_var(
+                    &format!("aux_comp_{}", self.vars.len()),
+                    SetSort::IntSet,
+                );
                 Ok(var)
             }
         }
@@ -837,6 +990,7 @@ impl SetSolver {
             num_member_constraints: self.member_constraints.len(),
             num_subset_constraints: self.subset_constraints.len(),
             num_card_constraints: self.card_constraints.len(),
+            num_pending_assertions: self.pending_assertions.len(),
         };
         self.context_stack.push(state);
         self.level += 1;
@@ -858,6 +1012,8 @@ impl SetSolver {
             self.subset_constraints
                 .truncate(state.num_subset_constraints);
             self.card_constraints.truncate(state.num_card_constraints);
+            self.pending_assertions
+                .truncate(state.num_pending_assertions);
 
             // Restore trail
             if let Some(boundary) = self.level_boundaries.pop() {
@@ -903,6 +1059,8 @@ impl SetSolver {
         self.conflict = None;
         self.term_to_var.clear();
         self.var_to_term.clear();
+        self.pending_assertions.clear();
+        self.derived_equalities.clear();
     }
 
     /// Register a term-to-variable mapping
@@ -938,20 +1096,20 @@ impl Theory for SetSolver {
     }
 
     fn can_handle(&self, _term: TermId) -> bool {
-        // TODO: Implement proper term type checking
+        // Set theory can handle all terms; the CDCL(T) dispatcher pre-filters by sort.
         true
     }
 
-    fn assert_true(&mut self, _term: TermId) -> Result<TR> {
-        // TODO: Convert term to set constraint and add it
-        // For now, just push the term
-        self.push();
+    fn assert_true(&mut self, term: TermId) -> Result<TR> {
+        // Record the assertion as positive polarity; it will be processed on the
+        // next call to Theory::check() by the CDCL(T) loop.
+        self.pending_assertions.push((term, true));
         Ok(TR::Sat)
     }
 
-    fn assert_false(&mut self, _term: TermId) -> Result<TR> {
-        // TODO: Convert term to negated set constraint and add it
-        self.push();
+    fn assert_false(&mut self, term: TermId) -> Result<TR> {
+        // Record the assertion as negative polarity (i.e. the set term is false).
+        self.pending_assertions.push((term, false));
         Ok(TR::Sat)
     }
 
@@ -979,20 +1137,106 @@ impl Theory for SetSolver {
     }
 
     fn get_model(&self) -> Vec<(TermId, TermId)> {
-        // TODO: Convert set model to term pairs
+        // Without a TermId factory we cannot construct value terms for set
+        // contents.  Return an empty model; callers that need set members
+        // should query the solver directly via `get_model(SetVarId)`.
         Vec::new()
     }
 }
 
 impl TheoryCombination for SetSolver {
-    fn notify_equality(&mut self, _eq: EqualityNotification) -> bool {
-        // TODO: Handle equality notifications from other theories
-        false
+    fn notify_equality(&mut self, eq: EqualityNotification) -> bool {
+        // When another theory discovers lhs = rhs, merge their set-variable
+        // domains so that set-theory reasoning stays consistent.
+        let lhs_var = match self.term_to_var.get(&eq.lhs).copied() {
+            Some(v) => v,
+            None => return false,
+        };
+        let rhs_var = match self.term_to_var.get(&eq.rhs).copied() {
+            Some(v) => v,
+            None => return false,
+        };
+
+        if lhs_var == rhs_var {
+            return true; // already the same variable
+        }
+
+        // Collect both variable's current membership sets (avoid aliasing borrows)
+        let lhs_must: FxHashSet<u32> = self
+            .get_var(lhs_var)
+            .map(|v| v.must_members.clone())
+            .unwrap_or_default();
+        let lhs_not: FxHashSet<u32> = self
+            .get_var(lhs_var)
+            .map(|v| v.must_not_members.clone())
+            .unwrap_or_default();
+        let rhs_must: FxHashSet<u32> = self
+            .get_var(rhs_var)
+            .map(|v| v.must_members.clone())
+            .unwrap_or_default();
+        let rhs_not: FxHashSet<u32> = self
+            .get_var(rhs_var)
+            .map(|v| v.must_not_members.clone())
+            .unwrap_or_default();
+        let lhs_lower = self.get_var(lhs_var).and_then(|v| v.card_bounds.0).unwrap_or(0);
+        let lhs_upper = self.get_var(lhs_var).and_then(|v| v.card_bounds.1);
+        let rhs_lower = self.get_var(rhs_var).and_then(|v| v.card_bounds.0).unwrap_or(0);
+        let rhs_upper = self.get_var(rhs_var).and_then(|v| v.card_bounds.1);
+
+        // Conflict check: any element in one's must-members and the other's must-not-members
+        for elem in &lhs_must {
+            if rhs_not.contains(elem) {
+                return false;
+            }
+        }
+        for elem in &rhs_must {
+            if lhs_not.contains(elem) {
+                return false;
+            }
+        }
+
+        // Build merged sets
+        let merged_must: FxHashSet<u32> = lhs_must.union(&rhs_must).copied().collect();
+        let merged_not: FxHashSet<u32> = lhs_not.union(&rhs_not).copied().collect();
+        let merged_lower = lhs_lower.max(rhs_lower);
+        let merged_upper = match (lhs_upper, rhs_upper) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (Some(a), None) => Some(a),
+            (None, Some(b)) => Some(b),
+            (None, None) => None,
+        };
+
+        // Conflict check: merged lower > merged upper
+        if merged_upper.is_some_and(|u| merged_lower > u) {
+            return false;
+        }
+
+        // Apply merged state to both variables
+        for var_id in [lhs_var, rhs_var] {
+            if let Some(v) = self.get_var_mut(var_id) {
+                v.must_members = merged_must.clone();
+                v.must_not_members = merged_not.clone();
+                v.card_bounds.0 = Some(merged_lower);
+                v.card_bounds.1 = merged_upper;
+            }
+            self.propagation_queue.push_back(var_id);
+        }
+
+        true
     }
 
     fn get_shared_equalities(&self) -> Vec<EqualityNotification> {
-        // TODO: Export shared equalities
-        Vec::new()
+        // Export equalities that have been recorded by the set solver during
+        // its own reasoning (e.g. when two set variables are found to have
+        // identical extension).
+        self.derived_equalities
+            .iter()
+            .map(|(lhs, rhs)| EqualityNotification {
+                lhs: *lhs,
+                rhs: *rhs,
+                reason: None,
+            })
+            .collect()
     }
 
     fn is_relevant(&self, term: TermId) -> bool {

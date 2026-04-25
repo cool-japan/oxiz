@@ -554,17 +554,116 @@ impl CodeTreeBuilder {
         // (This is simplified - in practice, we'd need to renumber indices)
     }
 
-    /// Merge sequential instructions
-    fn merge_sequences(&self, _tree: &mut CodeTree) {
-        // TODO: Implement instruction merging optimization
-        // E.g., merge consecutive Compare instructions
+    /// Merge sequential instructions.
+    ///
+    /// Finds consecutive Compare instructions that check the same discriminant
+    /// and removes the duplicate — the first check already establishes the kind.
+    fn merge_sequences(&self, tree: &mut CodeTree) {
+        if tree.instructions.len() < 2 {
+            return;
+        }
+
+        // Build a set of instruction indices to drop (duplicates).
+        let mut drop: FxHashSet<usize> = FxHashSet::default();
+
+        // Walk the instruction chain starting from root via `next` links.
+        let mut idx = tree.root;
+        while let Some(instr) = tree.instructions.get(idx) {
+            let next_opt = instr.next;
+            if let Some(next_idx) = next_opt {
+                if let (Some(cur), Some(nxt)) = (
+                    tree.instructions.get(idx),
+                    tree.instructions.get(next_idx),
+                ) {
+                    // Two consecutive Compare instructions with the same expected
+                    // discriminant: the second is redundant.
+                    if let (
+                        InstructionKind::Compare { expected: exp_cur },
+                        InstructionKind::Compare { expected: exp_nxt },
+                    ) = (&cur.kind, &nxt.kind)
+                        && exp_cur == exp_nxt
+                    {
+                        drop.insert(next_idx);
+                    }
+                }
+                idx = next_idx;
+            } else {
+                break;
+            }
+        }
+
+        Self::patch_links(&drop, &mut tree.instructions);
     }
 
-    /// Eliminate redundant checks
-    fn eliminate_redundant_checks(&self, _tree: &mut CodeTree) {
-        // TODO: Implement redundancy elimination
-        // E.g., remove duplicate sort checks
+    /// Eliminate redundant checks.
+    ///
+    /// Walks the instruction chain via `next` links and removes any `Check`
+    /// instruction whose property was already verified by an earlier `Check`
+    /// on the same chain.
+    fn eliminate_redundant_checks(&self, tree: &mut CodeTree) {
+        let mut seen: FxHashSet<String> = FxHashSet::default();
+        let mut drop: FxHashSet<usize> = FxHashSet::default();
+
+        let mut idx = tree.root;
+        while let Some(instr) = tree.instructions.get(idx) {
+            let next_opt = instr.next;
+
+            if let InstructionKind::Check { property } = &instr.kind {
+                // Use a stable string key for deduplication (avoids requiring Hash on TermProperty).
+                let key = format!("{:?}", property);
+                if !seen.insert(key) {
+                    drop.insert(idx);
+                }
+            }
+
+            if let Some(next_idx) = next_opt {
+                idx = next_idx;
+            } else {
+                break;
+            }
+        }
+
+        Self::patch_links(&drop, &mut tree.instructions);
     }
+
+    /// Rewrite `next`/`alt` pointers that refer to dropped instructions,
+    /// forwarding them to the dropped instruction's own successor.
+    ///
+    /// Pre-computes all replacements before mutating to satisfy the borrow checker.
+    fn patch_links(drop: &FxHashSet<usize>, instructions: &mut [Instruction]) {
+        // (new_next, new_alt): Some(v) means "replace with v", None means "keep as-is".
+        type Patch = (Option<Option<usize>>, Option<Option<usize>>);
+        let forwards: Vec<Patch> = instructions
+            .iter()
+            .map(|instr| {
+                let new_next = instr.next.and_then(|ni| {
+                    if drop.contains(&ni) {
+                        Some(instructions.get(ni).and_then(|i| i.next))
+                    } else {
+                        None
+                    }
+                });
+                let new_alt = instr.alt.and_then(|ai| {
+                    if drop.contains(&ai) {
+                        Some(instructions.get(ai).and_then(|i| i.next))
+                    } else {
+                        None
+                    }
+                });
+                (new_next, new_alt)
+            })
+            .collect();
+
+        for (instr, (new_next, new_alt)) in instructions.iter_mut().zip(forwards.iter()) {
+            if let Some(replacement) = new_next {
+                instr.next = *replacement;
+            }
+            if let Some(replacement) = new_alt {
+                instr.alt = *replacement;
+            }
+        }
+    }
+
 }
 
 impl Default for CodeTreeBuilder {

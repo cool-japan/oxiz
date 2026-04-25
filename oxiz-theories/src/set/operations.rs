@@ -702,11 +702,94 @@ impl NarySetOp {
         }
     }
 
-    /// Flatten nested operations of the same kind
-    #[allow(dead_code)]
-    pub fn flatten(_ops: Vec<SetOp>) -> Vec<NarySetOp> {
-        // TODO: Implement flattening logic
-        Vec::new()
+    /// Flatten a sequence of binary `SetOp`s into `NarySetOp`s by absorbing
+    /// same-kind children into their parent.
+    ///
+    /// Only `Union` and `Intersection` are associative; `Difference` and
+    /// `SymmetricDiff` are left as 2-operand n-ary operations.
+    /// `Complement` (unary) is skipped entirely.
+    pub fn flatten(ops: Vec<SetOp>) -> Vec<NarySetOp> {
+        if ops.is_empty() {
+            return Vec::new();
+        }
+
+        // Build a map: result SetVarId -> index into `ops`
+        let mut result_to_idx: FxHashMap<SetVarId, usize> = FxHashMap::default();
+        for (idx, op) in ops.iter().enumerate() {
+            if let SetOp::Binary { result, .. } = op {
+                result_to_idx.insert(*result, idx);
+            }
+        }
+
+        // Determine which result vars are consumed as operands of another op
+        let mut consumed: FxHashSet<SetVarId> = FxHashSet::default();
+        for op in &ops {
+            if let SetOp::Binary { lhs, rhs, .. } = op {
+                consumed.insert(*lhs);
+                consumed.insert(*rhs);
+            }
+        }
+
+        // Recursive helper: collect all leaf operands for a root binary op,
+        // flattening same-kind children in-place.
+        fn collect_leaves(
+            var: SetVarId,
+            root_op: SetBinOp,
+            ops: &[SetOp],
+            result_to_idx: &FxHashMap<SetVarId, usize>,
+            leaves: &mut SmallVec<[SetVarId; 8]>,
+        ) {
+            // Check whether this var is itself the result of a same-kind binary op
+            if let Some(&idx) = result_to_idx.get(&var)
+                && let SetOp::Binary { op, lhs, rhs, .. } = &ops[idx]
+            {
+                // Only absorb if the op kind is the same AND it is associative
+                let absorb = *op == root_op
+                    && matches!(root_op, SetBinOp::Union | SetBinOp::Intersection);
+                if absorb {
+                    collect_leaves(*lhs, root_op, ops, result_to_idx, leaves);
+                    collect_leaves(*rhs, root_op, ops, result_to_idx, leaves);
+                    return;
+                }
+            }
+            leaves.push(var);
+        }
+
+        let mut nary_ops: Vec<NarySetOp> = Vec::new();
+
+        for op in &ops {
+            let SetOp::Binary {
+                op: bin_op,
+                lhs,
+                rhs,
+                result,
+            } = op
+            else {
+                // Skip Complement (unary)
+                continue;
+            };
+
+            // Only emit a root NarySetOp for ops whose result is NOT consumed by
+            // another op (i.e. they are tree roots).
+            if consumed.contains(result) {
+                continue;
+            }
+
+            let mut leaves: SmallVec<[SetVarId; 8]> = SmallVec::new();
+            // For associative ops, recursively absorb children
+            if matches!(bin_op, SetBinOp::Union | SetBinOp::Intersection) {
+                collect_leaves(*lhs, *bin_op, &ops, &result_to_idx, &mut leaves);
+                collect_leaves(*rhs, *bin_op, &ops, &result_to_idx, &mut leaves);
+            } else {
+                // Non-associative: keep as 2-operand n-ary
+                leaves.push(*lhs);
+                leaves.push(*rhs);
+            }
+
+            nary_ops.push(NarySetOp::new(*bin_op, leaves, *result));
+        }
+
+        nary_ops
     }
 
     /// Propagate n-ary union

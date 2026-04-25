@@ -223,9 +223,23 @@ impl ArrayBoundsTactic {
                 return *store_value;
             }
 
-            // TODO: Check if indices are provably different
-            // For now, recursively simplify
-            return self.simplify_select(*base_array, index, original);
+            // Check if indices are provably different (both integer constants with distinct values).
+            let base_array_id = *base_array;
+            let store_index_id = *store_index;
+            let provably_different = match (
+                self.manager.get(store_index_id).map(|t| t.kind.clone()),
+                self.manager.get(index).map(|t| t.kind.clone()),
+            ) {
+                (Some(TermKind::IntConst(a)), Some(TermKind::IntConst(b))) => a != b,
+                _ => false,
+            };
+            if provably_different {
+                // select(store(A, i, v), j) = select(A, j) when i != j
+                self.stats.store_select_simplified += 1;
+                let new_select = self.manager.mk_select(base_array_id, index);
+                return self.simplify_select(base_array_id, index, new_select);
+            }
+            return self.simplify_select(base_array_id, index, original);
         }
 
         // Propagate index bounds

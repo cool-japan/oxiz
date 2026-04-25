@@ -12,8 +12,9 @@
 //!
 //! Reference: Z3's CAD implementation and classical algebraic geometry
 
+use num_bigint::BigInt;
 use num_rational::BigRational;
-use num_traits::{Signed, Zero};
+use num_traits::{One, Signed, Zero};
 use oxiz_math::polynomial::Polynomial;
 use rustc_hash::FxHashMap;
 use std::collections::hash_map::DefaultHasher;
@@ -123,11 +124,61 @@ impl DiscriminantAnalyzer {
             return self.discriminant_cubic(poly);
         }
 
-        // For higher degrees, use resultant-based formula
-        // disc(p) = (-1)^(n(n-1)/2) * res(p, p') / leading_coeff(p)
-        // For now, return a placeholder
-        // TODO: Implement general resultant computation
-        BigRational::from_integer(1.into())
+        // For higher degrees use resultant-based formula via Sylvester matrix:
+        // disc(p) = (-1)^(n*(n-1)/2) * (1/lc(p)) * res(p, p')
+        self.discriminant_via_sylvester(poly)
+    }
+
+    /// Compute discriminant for degree ≥ 4 via the Sylvester matrix resultant.
+    ///
+    /// disc(p) = (-1)^(n*(n-1)/2) * (1/lc(p)) * det(Syl(p, p'))
+    fn discriminant_via_sylvester(&self, poly: &Polynomial) -> BigRational {
+        let var = poly.max_var();
+        let n = poly.degree(var) as usize;
+        if n == 0 {
+            return BigRational::one();
+        }
+
+        let dp = poly.derivative(var);
+        let m = dp.degree(var) as usize;
+
+        // Collect coefficients: poly_coeffs[i] = coeff of x^i in poly (BigRational)
+        let poly_coeffs: Vec<BigRational> = (0..=n)
+            .map(|k| poly.univ_coeff(var, k as u32))
+            .collect();
+        let dp_coeffs: Vec<BigRational> = (0..=m)
+            .map(|k| dp.univ_coeff(var, k as u32))
+            .collect();
+
+        // Sylvester matrix is (n + m) x (n + m)
+        let size = n + m;
+        let mut mat = vec![vec![BigRational::zero(); size]; size];
+
+        // Top m rows: coefficients of poly shifted right 0..m-1 positions
+        // Row i: poly coefficients in columns i..(i+n+1), high degree first
+        for i in 0..m {
+            for j in 0..=n {
+                mat[i][i + j] = poly_coeffs[n - j].clone();
+            }
+        }
+
+        // Bottom n rows: coefficients of dp shifted right 0..n-1 positions
+        // Row (m+i): dp coefficients in columns i..(i+m+1), high degree first
+        for i in 0..n {
+            for j in 0..=m {
+                mat[m + i][i + j] = dp_coeffs[m - j].clone();
+            }
+        }
+
+        let resultant = gaussian_elimination_det(mat);
+
+        let lc = poly_coeffs[n].clone();
+        if lc.is_zero() {
+            return BigRational::zero();
+        }
+
+        let sign: i64 = if (n * (n - 1) / 2).is_multiple_of(2) { 1 } else { -1 };
+        resultant / lc * BigRational::new(BigInt::from(sign), BigInt::one())
     }
 
     /// Compute discriminant for quadratic polynomial.
@@ -168,11 +219,15 @@ impl DiscriminantAnalyzer {
         term1 - term2 + term3 - term4 - term5
     }
 
-    /// Extract univariate polynomial coefficients (assumes univariate).
-    fn extract_univariate_coeffs(&self, _poly: &Polynomial) -> Vec<BigRational> {
-        // This is a simplified version - in practice, you'd need proper coefficient extraction
-        // For now, return empty vec as placeholder
-        vec![]
+    /// Extract univariate polynomial coefficients (assumes univariate in its max_var).
+    ///
+    /// Returns a vector where `result[i]` is the coefficient of `x^i`.
+    fn extract_univariate_coeffs(&self, poly: &Polynomial) -> Vec<BigRational> {
+        let var = poly.max_var();
+        let degree = poly.degree(var) as usize;
+        (0..=degree)
+            .map(|k| poly.univ_coeff(var, k as u32))
+            .collect()
     }
 
     /// Analyze root information based on discriminant.
@@ -265,6 +320,54 @@ impl DiscriminantAnalyzer {
     }
 }
 
+/// Compute the determinant of a square matrix over BigRational via Gaussian elimination.
+///
+/// Uses partial pivoting to avoid division by zero. The determinant is computed
+/// by tracking the product of pivot elements and the sign from row swaps.
+fn gaussian_elimination_det(mut mat: Vec<Vec<BigRational>>) -> BigRational {
+    let n = mat.len();
+    if n == 0 {
+        return BigRational::one();
+    }
+
+    let mut det = BigRational::one();
+
+    for col in 0..n {
+        // Find pivot row (first non-zero entry in this column at or below `col`)
+        let pivot_row = (col..n).find(|&r| !mat[r][col].is_zero());
+
+        let pivot_row = match pivot_row {
+            Some(r) => r,
+            None => return BigRational::zero(),
+        };
+
+        // Swap rows if needed
+        if pivot_row != col {
+            mat.swap(col, pivot_row);
+            det = -det.clone();
+        }
+
+        let pivot = mat[col][col].clone();
+        det *= &pivot;
+
+        // Eliminate below
+        for row in (col + 1)..n {
+            if mat[row][col].is_zero() {
+                continue;
+            }
+            let factor = mat[row][col].clone() / &pivot;
+            // Subtract factor * pivot_row from current row
+            let pivot_row_slice: Vec<BigRational> = mat[col][col..n].to_vec();
+            for (offset, pv) in pivot_row_slice.into_iter().enumerate() {
+                let sub = &factor * &pv;
+                mat[row][col + offset] -= sub;
+            }
+        }
+    }
+
+    det
+}
+
 impl Default for DiscriminantAnalyzer {
     fn default() -> Self {
         Self::new()
@@ -346,5 +449,90 @@ mod tests {
         analyzer.compute_discriminant(&poly);
 
         assert_eq!(analyzer.cache_hit_rate(), 0.5);
+    }
+
+    /// Build a univariate polynomial from integer coefficients.
+    /// `coeffs[i]` is the coefficient of x^i (constant term first).
+    fn poly_from_int_coeffs(var: u32, coeffs: &[i64]) -> Polynomial {
+        let rat_coeffs: Vec<BigRational> = coeffs
+            .iter()
+            .map(|&c| BigRational::from_integer(BigInt::from(c)))
+            .collect();
+        Polynomial::univariate(var, &rat_coeffs)
+    }
+
+    #[test]
+    fn test_discriminant_degree4_repeated_root() {
+        // x^4 - x^2 = x^2 * (x^2 - 1) has a repeated root at 0, so disc = 0
+        let mut analyzer = DiscriminantAnalyzer::new();
+        // coefficients: [0, 0, -1, 0, 1] => 0 + 0*x + (-1)*x^2 + 0*x^3 + 1*x^4
+        let poly = poly_from_int_coeffs(0, &[0, 0, -1, 0, 1]);
+        let disc = analyzer.compute_discriminant(&poly);
+        assert!(
+            disc.is_zero(),
+            "disc(x^4 - x^2) should be zero (repeated root at 0), got {disc:?}"
+        );
+    }
+
+    #[test]
+    fn test_discriminant_degree4_x4_minus_1() {
+        // disc(x^4 - 1) = -256
+        // x^4 - 1: coefficients [−1, 0, 0, 0, 1]
+        let mut analyzer = DiscriminantAnalyzer::new();
+        let poly = poly_from_int_coeffs(0, &[-1, 0, 0, 0, 1]);
+        let disc = analyzer.compute_discriminant(&poly);
+        let expected = BigRational::from_integer(BigInt::from(-256i64));
+        assert_eq!(disc, expected, "disc(x^4 - 1) should be -256");
+    }
+
+    #[test]
+    fn test_discriminant_degree4_x4_plus_1() {
+        // disc(x^4 + 1) = 256  (positive; all roots are complex conjugate pairs, no real roots)
+        // For n=4: (-1)^(4*3/2) = (-1)^6 = +1, so sign is positive.
+        // x^4 + 1: coefficients [1, 0, 0, 0, 1]
+        let mut analyzer = DiscriminantAnalyzer::new();
+        let poly = poly_from_int_coeffs(0, &[1, 0, 0, 0, 1]);
+        let disc = analyzer.compute_discriminant(&poly);
+        let expected = BigRational::from_integer(BigInt::from(256i64));
+        assert_eq!(disc, expected, "disc(x^4 + 1) should be 256");
+    }
+
+    #[test]
+    fn test_discriminant_quadratic_correct() {
+        // x^2 - 5x + 6 = (x-2)(x-3), disc = 25 - 24 = 1
+        let mut analyzer = DiscriminantAnalyzer::new();
+        let poly = poly_from_int_coeffs(0, &[6, -5, 1]);
+        let disc = analyzer.compute_discriminant(&poly);
+        let expected = BigRational::from_integer(BigInt::from(1i64));
+        assert_eq!(disc, expected, "disc(x^2 - 5x + 6) should be 1");
+    }
+
+    #[test]
+    fn test_discriminant_cubic_correct() {
+        // x^3 - 3x + 2 = (x-1)^2*(x+2), disc = 0 (repeated root)
+        let mut analyzer = DiscriminantAnalyzer::new();
+        let poly = poly_from_int_coeffs(0, &[2, -3, 0, 1]);
+        let disc = analyzer.compute_discriminant(&poly);
+        assert!(
+            disc.is_zero(),
+            "disc(x^3 - 3x + 2) should be zero (repeated root), got {disc:?}"
+        );
+    }
+
+    #[test]
+    fn test_gaussian_elimination_det_2x2() {
+        // det([[1, 2], [3, 4]]) = -2
+        let mat = vec![
+            vec![
+                BigRational::from_integer(BigInt::from(1)),
+                BigRational::from_integer(BigInt::from(2)),
+            ],
+            vec![
+                BigRational::from_integer(BigInt::from(3)),
+                BigRational::from_integer(BigInt::from(4)),
+            ],
+        ];
+        let det = gaussian_elimination_det(mat);
+        assert_eq!(det, BigRational::from_integer(BigInt::from(-2i64)));
     }
 }

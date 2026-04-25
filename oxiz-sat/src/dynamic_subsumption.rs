@@ -279,7 +279,7 @@ impl DynamicSubsumption {
 
         #[cfg(feature = "std")]
         let start = std::time::Instant::now();
-        let results = Vec::new();
+        let mut results = Vec::new();
 
         // Check all learned clauses against each other
         // This is expensive, so we limit the time budget
@@ -288,15 +288,80 @@ impl DynamicSubsumption {
             let budget_ms = 10; // 10ms budget for periodic checks
             let deadline = start + std::time::Duration::from_millis(budget_ms);
 
-            // Iterate over clauses (simplified - real implementation would be more efficient)
-            for _i in 0..clause_db.len() {
-                if std::time::Instant::now() > deadline {
-                    self.stats.checks_timeout += 1;
-                    break;
+            let clause_ids: Vec<ClauseId> = clause_db.iter_ids().collect();
+            let n = clause_ids.len();
+
+            // Bounded scan: process a window of pairs to avoid O(n²) blowup per call
+            let window = (n * n / 2).min(500);
+            let mut checked = 0usize;
+
+            'outer: for i in 0..n {
+                let id_i = clause_ids[i];
+                let lits_i = match clause_db.get(id_i) {
+                    Some(c) => c.lits.clone(),
+                    None => continue,
+                };
+
+                if lits_i.len() > self.config.max_clause_size {
+                    continue;
                 }
 
-                // TODO: Actual subsumption checking logic
-                // This would compare clause i with other clauses
+                for &id_j in clause_ids[(i + 1)..].iter() {
+                    if std::time::Instant::now() > deadline {
+                        self.stats.checks_timeout += 1;
+                        break 'outer;
+                    }
+                    if checked >= window {
+                        break 'outer;
+                    }
+                    checked += 1;
+                    self.stats.checks_performed += 1;
+
+                    let lits_j = match clause_db.get(id_j) {
+                        Some(c) => c.lits.clone(),
+                        None => continue,
+                    };
+
+                    if lits_j.len() > self.config.max_clause_size {
+                        continue;
+                    }
+
+                    // Forward subsumption: clause i subsumes clause j
+                    if self.config.enable_forward && subsumes(&lits_i, &lits_j) {
+                        results.push(SubsumptionResult::Forward {
+                            subsumer: id_i,
+                            subsumed: id_j,
+                        });
+                        self.stats.forward_subsumptions += 1;
+                    }
+
+                    // Backward subsumption: clause j subsumes clause i
+                    if self.config.enable_backward && subsumes(&lits_j, &lits_i) {
+                        results.push(SubsumptionResult::Forward {
+                            subsumer: id_j,
+                            subsumed: id_i,
+                        });
+                        self.stats.backward_subsumptions += 1;
+                    }
+
+                    // Self-subsumption: strengthen clause j using clause i
+                    if self.config.enable_self_subsumption {
+                        if let Some(lit) = find_self_subsumption(&lits_i, &lits_j) {
+                            results.push(SubsumptionResult::SelfSubsumption {
+                                clause: id_j,
+                                literal: lit,
+                            });
+                            self.stats.self_subsumptions += 1;
+                        }
+                        if let Some(lit) = find_self_subsumption(&lits_j, &lits_i) {
+                            results.push(SubsumptionResult::SelfSubsumption {
+                                clause: id_i,
+                                literal: lit,
+                            });
+                            self.stats.self_subsumptions += 1;
+                        }
+                    }
+                }
             }
 
             self.stats.total_time_us += start.elapsed().as_micros() as u64;

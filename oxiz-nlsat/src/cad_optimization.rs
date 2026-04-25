@@ -372,13 +372,15 @@ impl HongProjection {
     pub fn project(&mut self, equations: &[Polynomial], var: Var) -> Vec<Polynomial> {
         let mut projection = Vec::new();
 
-        // Add leading coefficients
+        // Add leading coefficients (as polynomials in the remaining variables).
+        // Hong's projection requires lc_x(p) in the projection set so that
+        // the sign of the leading coefficient is determined in each cell.
         for eq in equations {
             if eq.max_var() == var && eq.degree(var) > 0 {
-                // Leading coefficient is just a rational, not a polynomial
-                // For Hong's projection, we need the coefficient as a function of other vars
-                // For now, skip this as it requires more complex extraction
-                // TODO: Implement proper leading coefficient extraction
+                let lc = eq.leading_coeff_wrt(var);
+                if !lc.is_zero() && !lc.is_constant() {
+                    projection.push(lc);
+                }
             }
         }
 
