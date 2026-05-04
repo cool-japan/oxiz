@@ -340,6 +340,74 @@ fn test_verbosity_levels() {
     fs::remove_file(temp_file).ok();
 }
 
+/// Regression test for issue #5 follow-up: sequential multi-file solving must
+/// not leak solver state from one file into the next.
+///
+/// Before the fix, the second file always returned `unsat` in sequential mode
+/// because assertions from file 1 were still present in the shared Context
+/// when file 2 was solved.
+#[test]
+fn test_issue_5_sequential_isolation() {
+    // A simple LRA problem: (declare x Real), assert x >= 1.5 → sat
+    let lra_content = r#"
+(set-logic QF_LRA)
+(declare-const x Real)
+(assert (>= x 1.5))
+(check-sat)
+"#;
+
+    // A simple LIA problem: (declare n Int), assert n <= 10 → sat
+    let lia_content = r#"
+(set-logic QF_LIA)
+(declare-const n Int)
+(assert (<= n 10))
+(check-sat)
+"#;
+
+    let lra_file = create_temp_smt2(lra_content);
+    let lia_file = create_temp_smt2(lia_content);
+
+    // Run both files sequentially (no --parallel flag)
+    let output = Command::new(oxiz_bin())
+        .arg("--quiet")
+        .arg(lra_file.to_str().expect("lra path is valid UTF-8"))
+        .arg(lia_file.to_str().expect("lia path is valid UTF-8"))
+        .output()
+        .expect("Failed to execute oxiz");
+
+    fs::remove_file(&lra_file).ok();
+    fs::remove_file(&lia_file).ok();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // Both files must be reported sat; neither should be unsat due to leaked state.
+    let lines: Vec<&str> = stdout
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
+
+    assert_eq!(
+        lines.len(),
+        2,
+        "Expected exactly 2 result lines (one per file), got: {:?}\nstdout={}\nstderr={}",
+        lines,
+        stdout,
+        stderr
+    );
+    assert_eq!(
+        lines[0], "sat",
+        "First file (LRA) should be sat, got '{}'\nstdout={}\nstderr={}",
+        lines[0], stdout, stderr
+    );
+    assert_eq!(
+        lines[1], "sat",
+        "Second file (LIA) should be sat, got '{}' — state leak from first file suspected\nstdout={}\nstderr={}",
+        lines[1], stdout, stderr
+    );
+}
+
 #[test]
 fn test_output_file() {
     let smt2_content = r#"

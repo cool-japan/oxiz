@@ -5,6 +5,7 @@
 
 use crate::benchmark::{BenchmarkStatus, RunnerConfig, SingleResult};
 use crate::loader::{Benchmark, BenchmarkMeta, Loader};
+use crate::predictor::{DifficultyModel, Features};
 use oxiz_core::ast::TermManager;
 use oxiz_core::smtlib::{Command, parse_script};
 use oxiz_solver::Solver;
@@ -202,6 +203,46 @@ impl ParallelRunner {
         } else {
             run_benchmarks()
         }
+    }
+
+    /// Run benchmarks from metadata in parallel using LPT (Longest Processing Time first)
+    /// scheduling.
+    ///
+    /// Predicts runtime for each benchmark using `predictor`, sorts descending by predicted
+    /// runtime, then dispatches in that order via the standard rayon parallel runner.
+    /// LPT scheduling reduces makespan on heterogeneous batches by ensuring the longest
+    /// tasks start first.
+    ///
+    /// Results are returned in the same set as `run_from_meta` but may be in a different
+    /// order depending on how rayon schedules threads.
+    pub fn run_from_meta_with_predictor(
+        &self,
+        meta_list: &[BenchmarkMeta],
+        loader: &Loader,
+        predictor: &dyn DifficultyModel,
+    ) -> Vec<SingleResult> {
+        // 1. Predict runtime for each meta
+        let mut meta_with_pred: Vec<(f64, &BenchmarkMeta)> = meta_list
+            .iter()
+            .map(|meta| {
+                let features = Features::from_meta(meta);
+                let predicted = predictor.predict_runtime(&features);
+                (predicted, meta)
+            })
+            .collect();
+
+        // 2. Sort descending by predicted runtime (LPT)
+        meta_with_pred.sort_by(|a, b| {
+            b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        // 3. Extract sorted metas and run via existing method
+        let sorted_metas: Vec<BenchmarkMeta> = meta_with_pred
+            .into_iter()
+            .map(|(_, m)| m.clone())
+            .collect();
+
+        self.run_from_meta_with_progress(&sorted_metas, loader, None)
     }
 
     /// Run benchmarks from metadata in parallel

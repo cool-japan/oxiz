@@ -291,7 +291,7 @@ fn collect_files(inputs: &[PathBuf], recursive: bool) -> Vec<PathBuf> {
 /// Process files sequentially with optional progress bar
 fn process_files_sequential(
     files: &[PathBuf],
-    ctx: &mut Context,
+    _ctx: &mut Context,
     args: &Args,
     verbosity: Verbosity,
     cache: &mut Option<cache::ResultCache>,
@@ -330,7 +330,15 @@ fn process_files_sequential(
             pb.set_message(msg);
         }
 
-        let result = process_single_file(file, ctx, args, cache);
+        // Each file gets a completely fresh solver context to prevent state
+        // from the previous file leaking into the next (issue #5 follow-up).
+        let mut file_ctx = Context::new();
+        if let Some(ref logic) = args.logic {
+            file_ctx.set_logic(logic);
+        }
+        apply_solver_options(&mut file_ctx, args);
+
+        let result = process_single_file(file, &mut file_ctx, args, cache);
         results.push(result);
 
         if let Some(ref pb) = progress {

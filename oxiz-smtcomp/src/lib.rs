@@ -113,6 +113,7 @@ pub mod virtual_best;
 // Low priority modules
 pub mod ci_integration;
 pub mod dashboard;
+pub mod predictor;
 pub mod regression;
 pub mod sampling;
 
@@ -203,3 +204,10 @@ pub use regression::{
 
 // Re-export dashboard types
 pub use dashboard::{DashboardConfig, DashboardData, DashboardGenerator, generate_dashboard};
+
+// Re-export predictor types
+pub use predictor::{
+    Dataset, DifficultyClass, DifficultyModel, FeatureNormalizer, Features, KnnRegressor,
+    LinearRegressor, PredictorStats, RegressionTree, Sample, TrainingConfig, TrainingReport,
+    default_model, load_from_file, save_to_file, train_model, FEATURE_DIM,
+};
