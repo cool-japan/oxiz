@@ -10,10 +10,9 @@ on:
       publish_target:
         description: 'Publish target'
         required: true
-        default: 'testpypi'
+        default: 'pypi'
         type: choice
         options:
-          - testpypi
           - pypi
           - none
       version_tag:
@@ -127,8 +126,8 @@ jobs:
     needs: [linux, macos, windows, sdist]
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
     environment:
-      name: ${{ github.event.inputs.publish_target == 'pypi' && 'pypi' || 'testpypi' }}
-      url: ${{ github.event.inputs.publish_target == 'pypi' && 'https://pypi.org/project/oxiz/' || 'https://test.pypi.org/project/oxiz/' }}
+      name: pypi
+      url: https://pypi.org/project/oxiz/
     permissions:
       id-token: write
     steps:
@@ -142,18 +141,8 @@ jobs:
       - name: List dist contents
         run: ls -la dist/
 
-      # Publish to TestPyPI
-      - name: Publish to TestPyPI
-        if: github.event.inputs.publish_target == 'testpypi' || (github.event_name == 'push' && contains(github.ref, 'rc'))
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          repository-url: https://test.pypi.org/legacy/
-          skip-existing: true
-          verbose: true
-
       # Publish to PyPI
       - name: Publish to PyPI
-        if: github.event.inputs.publish_target == 'pypi' || (github.event_name == 'push' && !contains(github.ref, 'rc'))
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           skip-existing: true
