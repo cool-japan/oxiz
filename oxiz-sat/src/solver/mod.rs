@@ -151,10 +151,16 @@ impl core::fmt::Debug for SolverConfig {
                 "enable_chronological_backtrack",
                 &self.enable_chronological_backtrack,
             )
-            .field("chrono_backtrack_threshold", &self.chrono_backtrack_threshold)
+            .field(
+                "chrono_backtrack_threshold",
+                &self.chrono_backtrack_threshold,
+            )
             .field(
                 "external_branching",
-                &self.external_branching.as_ref().map(|_| "<BranchingHeuristic>"),
+                &self
+                    .external_branching
+                    .as_ref()
+                    .map(|_| "<BranchingHeuristic>"),
             )
             .finish()
     }

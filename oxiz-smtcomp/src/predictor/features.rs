@@ -127,9 +127,7 @@ fn theory_bits_from_logic_name(logic: &str) -> TheoryBits {
         || body.contains("NIRA");
 
     // Nonlinear
-    bits.has_nonlinear = body.contains("NIA")
-        || body.contains("NRA")
-        || body.contains("NIRA");
+    bits.has_nonlinear = body.contains("NIA") || body.contains("NRA") || body.contains("NIRA");
 
     // Strings: body is "S", "SLIA", or similar
     bits.has_string = body == "S" || body.contains("SLIA");
@@ -165,47 +163,55 @@ impl Features {
         let theory_combination_score = theory_bits.iter().filter(|&&v| v > 0.0).count() as f64;
         let log_file_size = (meta.file_size as f64 + 1.0).log10();
 
-        let (atom_count, clause_count, max_term_depth, max_quantifier_nesting,
-             max_ite_depth, max_let_depth, max_bv_width, total_bv_volume,
-             max_array_dim, total_array_volume) =
-            if let Some(sf) = &meta.structural_features {
-                let max_bv_width = sf
-                    .bv_width_histogram
-                    .iter()
-                    .map(|(w, _)| *w)
-                    .max()
-                    .unwrap_or(0) as f64;
-                let total_bv_volume = sf
-                    .bv_width_histogram
-                    .iter()
-                    .map(|(w, c)| (*w as f64) * (*c as f64))
-                    .sum::<f64>();
-                let max_array_dim = sf
-                    .array_dim_histogram
-                    .iter()
-                    .map(|(d, _)| *d)
-                    .max()
-                    .unwrap_or(0) as f64;
-                let total_array_volume = sf
-                    .array_dim_histogram
-                    .iter()
-                    .map(|(d, c)| (*d as f64) * (*c as f64))
-                    .sum::<f64>();
-                (
-                    sf.atom_count as f64,
-                    sf.clause_count as f64,
-                    sf.max_term_depth as f64,
-                    sf.max_quantifier_nesting as f64,
-                    sf.max_ite_depth as f64,
-                    sf.max_let_depth as f64,
-                    max_bv_width,
-                    total_bv_volume,
-                    max_array_dim,
-                    total_array_volume,
-                )
-            } else {
-                (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-            };
+        let (
+            atom_count,
+            clause_count,
+            max_term_depth,
+            max_quantifier_nesting,
+            max_ite_depth,
+            max_let_depth,
+            max_bv_width,
+            total_bv_volume,
+            max_array_dim,
+            total_array_volume,
+        ) = if let Some(sf) = &meta.structural_features {
+            let max_bv_width = sf
+                .bv_width_histogram
+                .iter()
+                .map(|(w, _)| *w)
+                .max()
+                .unwrap_or(0) as f64;
+            let total_bv_volume = sf
+                .bv_width_histogram
+                .iter()
+                .map(|(w, c)| (*w as f64) * (*c as f64))
+                .sum::<f64>();
+            let max_array_dim = sf
+                .array_dim_histogram
+                .iter()
+                .map(|(d, _)| *d)
+                .max()
+                .unwrap_or(0) as f64;
+            let total_array_volume = sf
+                .array_dim_histogram
+                .iter()
+                .map(|(d, c)| (*d as f64) * (*c as f64))
+                .sum::<f64>();
+            (
+                sf.atom_count as f64,
+                sf.clause_count as f64,
+                sf.max_term_depth as f64,
+                sf.max_quantifier_nesting as f64,
+                sf.max_ite_depth as f64,
+                sf.max_let_depth as f64,
+                max_bv_width,
+                total_bv_volume,
+                max_array_dim,
+                total_array_volume,
+            )
+        } else {
+            (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+        };
 
         Self {
             theory_bits,

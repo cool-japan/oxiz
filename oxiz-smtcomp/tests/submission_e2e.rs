@@ -2,7 +2,7 @@
 
 #[cfg(test)]
 mod tests {
-    use oxiz_smtcomp::submission::{generate_submission_package, SubmissionConfig, Track};
+    use oxiz_smtcomp::submission::{SubmissionConfig, Track, generate_submission_package};
     use std::fs;
 
     fn temp_dir(suffix: &str) -> std::path::PathBuf {
@@ -16,8 +16,10 @@ mod tests {
 
     #[test]
     fn test_all_tracks_have_unique_suffixes() {
-        let mut suffixes: Vec<&str> =
-            Track::all().iter().map(|t| t.as_starexec_suffix()).collect();
+        let mut suffixes: Vec<&str> = Track::all()
+            .iter()
+            .map(|t| t.as_starexec_suffix())
+            .collect();
         suffixes.sort_unstable();
         suffixes.dedup();
         assert_eq!(suffixes.len(), Track::all().len());
@@ -56,8 +58,7 @@ mod tests {
         let dir = temp_dir("solver_name");
         let cfg = SubmissionConfig::default_oxiz_2026();
         let pkg = generate_submission_package(&cfg, &dir).expect("generate failed");
-        let conf =
-            fs::read_to_string(pkg.root_dir.join("starexec_conf.xml")).expect("read conf");
+        let conf = fs::read_to_string(pkg.root_dir.join("starexec_conf.xml")).expect("read conf");
         assert!(
             conf.contains("OxiZ") || conf.contains("oxiz"),
             "conf missing solver name"
@@ -70,10 +71,9 @@ mod tests {
         let dir = temp_dir("single_query");
         let cfg = SubmissionConfig::default_oxiz_2026();
         let pkg = generate_submission_package(&cfg, &dir).expect("generate failed");
-        let default_script = fs::read_to_string(
-            pkg.root_dir.join("bin").join("starexec_run_default"),
-        )
-        .expect("read default script");
+        let default_script =
+            fs::read_to_string(pkg.root_dir.join("bin").join("starexec_run_default"))
+                .expect("read default script");
         // Single-query track should not pass --track to preserve backward compat.
         assert!(
             default_script.contains("smtcomp2026"),
@@ -92,10 +92,8 @@ mod tests {
         let dir = temp_dir("unsat_core");
         let cfg = SubmissionConfig::default_oxiz_2026();
         let pkg = generate_submission_package(&cfg, &dir).expect("generate failed");
-        let script = fs::read_to_string(
-            pkg.root_dir.join("bin").join("starexec_run_unsat_core"),
-        )
-        .expect("read unsat_core script");
+        let script = fs::read_to_string(pkg.root_dir.join("bin").join("starexec_run_unsat_core"))
+            .expect("read unsat_core script");
         assert!(
             script.contains("unsat"),
             "unsat-core script should reference unsat-core track"

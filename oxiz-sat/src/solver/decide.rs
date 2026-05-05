@@ -11,10 +11,7 @@ impl Solver {
                 .map(|i| Var::new(i as u32))
                 .filter(|&v| !self.trail.is_assigned(v))
                 .collect();
-            let scores: Vec<f64> = candidates
-                .iter()
-                .map(|&v| self.vsids.activity(v))
-                .collect();
+            let scores: Vec<f64> = candidates.iter().map(|&v| self.vsids.activity(v)).collect();
             if let Ok(mut h) = ext.lock()
                 && let Some(chosen) = h.select(&candidates, &scores)
             {

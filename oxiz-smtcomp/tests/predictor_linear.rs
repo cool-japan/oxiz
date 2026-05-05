@@ -10,7 +10,10 @@ use std::env;
 
 fn make_sample(atom: f64, rt: f64) -> Sample {
     Sample {
-        features: Features { atom_count: atom, ..Default::default() },
+        features: Features {
+            atom_count: atom,
+            ..Default::default()
+        },
         runtime_seconds: rt,
         status: BenchmarkStatus::Sat,
     }

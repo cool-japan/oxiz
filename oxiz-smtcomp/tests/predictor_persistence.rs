@@ -12,7 +12,10 @@ fn make_tiny_dataset() -> Dataset {
     let mut ds = Dataset::new();
     for i in 0..8 {
         ds.push(Sample {
-            features: Features { atom_count: i as f64 * 5.0, ..Default::default() },
+            features: Features {
+                atom_count: i as f64 * 5.0,
+                ..Default::default()
+            },
             runtime_seconds: 0.1 * (i + 1) as f64,
             status: BenchmarkStatus::Sat,
         });
@@ -119,7 +122,9 @@ fn test_persistence_rejects_version_mismatch() {
     std::fs::write(&path, json).expect("write failed");
 
     let result = load_from_file(&path);
-    let err = result.err().expect("should have failed for version mismatch");
+    let err = result
+        .err()
+        .expect("should have failed for version mismatch");
     assert!(
         err.to_string().contains("version mismatch"),
         "Unexpected error: {err}"

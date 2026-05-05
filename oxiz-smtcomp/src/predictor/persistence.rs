@@ -105,10 +105,10 @@ pub fn load_from_file(path: &std::path::Path) -> std::io::Result<Box<dyn Difficu
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::benchmark::BenchmarkStatus;
     use crate::predictor::dataset::{Dataset, Sample};
     use crate::predictor::features::Features;
     use crate::predictor::report::TrainingConfig;
-    use crate::benchmark::BenchmarkStatus;
     use rand::SeedableRng;
     use std::env;
 
@@ -116,7 +116,10 @@ mod tests {
         let mut ds = Dataset::new();
         for i in 0..5 {
             ds.push(Sample {
-                features: Features { atom_count: i as f64 * 10.0, ..Default::default() },
+                features: Features {
+                    atom_count: i as f64 * 10.0,
+                    ..Default::default()
+                },
                 runtime_seconds: 0.1 * (i + 1) as f64,
                 status: BenchmarkStatus::Sat,
             });

@@ -398,8 +398,7 @@ pub fn validate_divisions(
     config: &SubmissionConfig,
     results: &[SingleResult],
 ) -> SubmissionResult<Vec<DivisionValidationResult>> {
-    let valid_divisions: HashSet<&str> =
-        SMT_COMP_2026_DIVISIONS.iter().copied().collect();
+    let valid_divisions: HashSet<&str> = SMT_COMP_2026_DIVISIONS.iter().copied().collect();
 
     let mut validation_results = Vec::with_capacity(config.divisions.len());
 
@@ -503,9 +502,7 @@ impl SubmissionPackage {
         let track_lines: String = self
             .track_scripts
             .iter()
-            .map(|(track, path)| {
-                format!("  {:20} {}", track.display_name(), path.display())
-            })
+            .map(|(track, path)| format!("  {:20} {}", track.display_name(), path.display()))
             .collect::<Vec<_>>()
             .join("\n");
 
@@ -632,7 +629,10 @@ fn write_track_run_script(
     writeln!(w, "# Version: {}", config.version)?;
     writeln!(w, "# SMT-COMP 2026")?;
     writeln!(w, "#")?;
-    writeln!(w, "# Usage: this script is called by StarExec with the benchmark as $1")?;
+    writeln!(
+        w,
+        "# Usage: this script is called by StarExec with the benchmark as $1"
+    )?;
     writeln!(w)?;
 
     // Environment variable exports
@@ -641,10 +641,17 @@ fn write_track_run_script(
     }
 
     writeln!(w)?;
-    writeln!(w, "SOLVER_BIN=\"$(dirname \"$0\")/../{}\"", config.solver_binary)?;
+    writeln!(
+        w,
+        "SOLVER_BIN=\"$(dirname \"$0\")/../{}\"",
+        config.solver_binary
+    )?;
     writeln!(w)?;
     writeln!(w, "if [ ! -x \"$SOLVER_BIN\" ]; then")?;
-    writeln!(w, "    echo \"error: solver binary not found at $SOLVER_BIN\"")?;
+    writeln!(
+        w,
+        "    echo \"error: solver binary not found at $SOLVER_BIN\""
+    )?;
     writeln!(w, "    exit 1")?;
     writeln!(w, "fi")?;
     writeln!(w)?;
@@ -698,11 +705,7 @@ fn write_description(config: &SubmissionConfig, path: &Path) -> SubmissionResult
     }
     writeln!(w)?;
 
-    writeln!(
-        w,
-        "Supported Logics: {}",
-        config.divisions.join(", ")
-    )?;
+    writeln!(w, "Supported Logics: {}", config.divisions.join(", "))?;
 
     w.flush()?;
     Ok(())
@@ -725,32 +728,16 @@ fn write_starexec_xml(config: &SubmissionConfig, path: &Path) -> SubmissionResul
         "  <solverName>{}</solverName>",
         xml_escape(&config.solver_name)
     )?;
-    writeln!(
-        w,
-        "  <version>{}</version>",
-        xml_escape(&config.version)
-    )?;
-    writeln!(
-        w,
-        "  <memoryLimit>{}</memoryLimit>",
-        config.memory_limit_mb
-    )?;
-    writeln!(
-        w,
-        "  <cpuTimeout>{}</cpuTimeout>",
-        config.cpu_timeout_secs
-    )?;
+    writeln!(w, "  <version>{}</version>", xml_escape(&config.version))?;
+    writeln!(w, "  <memoryLimit>{}</memoryLimit>", config.memory_limit_mb)?;
+    writeln!(w, "  <cpuTimeout>{}</cpuTimeout>", config.cpu_timeout_secs)?;
     writeln!(w, "  <divisions>")?;
     for division in &config.divisions {
         writeln!(w, "    <division>{}</division>", xml_escape(division))?;
     }
     writeln!(w, "  </divisions>")?;
     writeln!(w, "  <contact>")?;
-    writeln!(
-        w,
-        "    <name>{}</name>",
-        xml_escape(&config.contact.name)
-    )?;
+    writeln!(w, "    <name>{}</name>", xml_escape(&config.contact.name))?;
     writeln!(
         w,
         "    <email>{}</email>",
@@ -783,10 +770,10 @@ fn xml_escape(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
-    use std::time::Duration;
     use crate::benchmark::{BenchmarkStatus, SingleResult};
     use crate::loader::{BenchmarkMeta, ExpectedStatus};
+    use std::path::PathBuf;
+    use std::time::Duration;
 
     fn make_meta(logic: &str, expected: ExpectedStatus) -> BenchmarkMeta {
         BenchmarkMeta {
@@ -819,14 +806,12 @@ mod tests {
     #[test]
     fn test_validate_divisions_passes() {
         let contact = ContactInfo::new("Test", "t@t.com", "Org");
-        let config = SubmissionConfig::new("Solver", "1.0", contact)
-            .with_division("QF_LIA");
+        let config = SubmissionConfig::new("Solver", "1.0", contact).with_division("QF_LIA");
 
         let meta = make_meta("QF_LIA", ExpectedStatus::Sat);
         let results = vec![make_result(&meta, BenchmarkStatus::Sat)];
 
-        let validation = validate_divisions(&config, &results)
-            .expect("validation should pass");
+        let validation = validate_divisions(&config, &results).expect("validation should pass");
         assert_eq!(validation.len(), 1);
         assert!(validation[0].passed);
         assert_eq!(validation[0].passing_count, 1);
@@ -835,22 +820,19 @@ mod tests {
     #[test]
     fn test_validate_divisions_fails_no_results() {
         let contact = ContactInfo::new("Test", "t@t.com", "Org");
-        let config = SubmissionConfig::new("Solver", "1.0", contact)
-            .with_division("QF_LIA");
+        let config = SubmissionConfig::new("Solver", "1.0", contact).with_division("QF_LIA");
 
-        let err = validate_divisions(&config, &[])
-            .expect_err("should fail with no results");
+        let err = validate_divisions(&config, &[]).expect_err("should fail with no results");
         assert!(matches!(err, SubmissionError::DivisionNotValidated(_)));
     }
 
     #[test]
     fn test_validate_divisions_rejects_unknown() {
         let contact = ContactInfo::new("Test", "t@t.com", "Org");
-        let config = SubmissionConfig::new("Solver", "1.0", contact)
-            .with_division("QF_UNKNOWN_LOGIC");
+        let config =
+            SubmissionConfig::new("Solver", "1.0", contact).with_division("QF_UNKNOWN_LOGIC");
 
-        let err = validate_divisions(&config, &[])
-            .expect_err("should fail with unknown division");
+        let err = validate_divisions(&config, &[]).expect_err("should fail with unknown division");
         assert!(matches!(err, SubmissionError::UnknownDivision(_)));
     }
 
@@ -890,7 +872,11 @@ mod tests {
     #[test]
     fn test_all_2026_divisions_are_valid() {
         let valid: HashSet<&str> = SMT_COMP_2026_DIVISIONS.iter().copied().collect();
-        assert_eq!(valid.len(), SMT_COMP_2026_DIVISIONS.len(), "no duplicate divisions");
+        assert_eq!(
+            valid.len(),
+            SMT_COMP_2026_DIVISIONS.len(),
+            "no duplicate divisions"
+        );
         assert!(valid.contains("QF_LIA"));
         assert!(valid.contains("AUFLIRA"));
         assert!(valid.contains("QF_NIRA"));
@@ -898,7 +884,10 @@ mod tests {
 
     #[test]
     fn test_xml_escape() {
-        assert_eq!(xml_escape("a&b<c>d\"e'f"), "a&amp;b&lt;c&gt;d&quot;e&apos;f");
+        assert_eq!(
+            xml_escape("a&b<c>d\"e'f"),
+            "a&amp;b&lt;c&gt;d&quot;e&apos;f"
+        );
     }
 
     // --- Track infrastructure tests ---
@@ -931,8 +920,7 @@ mod tests {
 
     #[test]
     fn test_generate_emits_per_track_scripts() {
-        let dir = std::env::temp_dir()
-            .join(format!("oxiz_track_scripts_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("oxiz_track_scripts_{}", std::process::id()));
         let cfg = SubmissionConfig::default_oxiz_2026();
         let _pkg = generate_submission_package(&cfg, &dir).expect("package generation failed");
         for track in Track::all() {

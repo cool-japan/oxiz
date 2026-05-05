@@ -4,7 +4,7 @@ use oxiz_smtcomp::benchmark::BenchmarkStatus;
 use oxiz_smtcomp::loader::{BenchmarkMeta, Loader, LoaderConfig};
 use oxiz_smtcomp::parallel::{ParallelConfig, ParallelRunner};
 use oxiz_smtcomp::predictor::{
-    Dataset, DifficultyModel, Features, Sample, TrainingConfig, LinearRegressor,
+    Dataset, DifficultyModel, Features, LinearRegressor, Sample, TrainingConfig,
 };
 use rand::SeedableRng;
 use std::collections::HashSet;
@@ -82,7 +82,10 @@ fn test_run_from_meta_with_predictor_returns_same_result_set() {
     // Same set of paths
     let paths_normal: HashSet<&PathBuf> = results_normal.iter().map(|r| &r.path).collect();
     let paths_lpt: HashSet<&PathBuf> = results_lpt.iter().map(|r| &r.path).collect();
-    assert_eq!(paths_normal, paths_lpt, "Path sets differ between normal and LPT runs");
+    assert_eq!(
+        paths_normal, paths_lpt,
+        "Path sets differ between normal and LPT runs"
+    );
 
     // Results should be some meaningful status
     for r in &results_lpt {
@@ -141,7 +144,10 @@ fn test_lpt_with_trained_linear_predictor() {
     let mut ds = Dataset::new();
     for i in 0..10 {
         ds.push(Sample {
-            features: Features { atom_count: i as f64 * 10.0, ..Default::default() },
+            features: Features {
+                atom_count: i as f64 * 10.0,
+                ..Default::default()
+            },
             runtime_seconds: 0.1 * (i + 1) as f64,
             status: oxiz_smtcomp::benchmark::BenchmarkStatus::Sat,
         });

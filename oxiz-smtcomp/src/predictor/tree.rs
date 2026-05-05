@@ -252,11 +252,8 @@ impl DifficultyModel for RegressionTree {
         }
 
         // Fit normalizer
-        let all_features: Vec<Features> = dataset
-            .samples
-            .iter()
-            .map(|s| s.features.clone())
-            .collect();
+        let all_features: Vec<Features> =
+            dataset.samples.iter().map(|s| s.features.clone()).collect();
         self.normalizer = FeatureNormalizer::fit(&all_features);
 
         // Build training samples in normalised space
@@ -318,7 +315,10 @@ mod tests {
 
     fn make_sample(atom: f64, rt: f64) -> Sample {
         Sample {
-            features: Features { atom_count: atom, ..Default::default() },
+            features: Features {
+                atom_count: atom,
+                ..Default::default()
+            },
             runtime_seconds: rt,
             status: BenchmarkStatus::Sat,
         }
@@ -339,11 +339,17 @@ mod tests {
         assert!(model.is_fitted);
         assert!(model.root.is_some());
 
-        let q_trivial = Features { atom_count: 0.0, ..Default::default() };
+        let q_trivial = Features {
+            atom_count: 0.0,
+            ..Default::default()
+        };
         let rt_trivial = model.predict_runtime(&q_trivial);
         assert!(rt_trivial < 1.0, "Expected trivial pred, got {rt_trivial}");
 
-        let q_hard = Features { atom_count: 100.0, ..Default::default() };
+        let q_hard = Features {
+            atom_count: 100.0,
+            ..Default::default()
+        };
         let rt_hard = model.predict_runtime(&q_hard);
         assert!(rt_hard > 1.0, "Expected hard pred, got {rt_hard}");
     }

@@ -119,11 +119,8 @@ impl DifficultyModel for LinearRegressor {
         }
 
         // 1. Fit normalizer
-        let all_features: Vec<Features> = dataset
-            .samples
-            .iter()
-            .map(|s| s.features.clone())
-            .collect();
+        let all_features: Vec<Features> =
+            dataset.samples.iter().map(|s| s.features.clone()).collect();
         self.normalizer = FeatureNormalizer::fit(&all_features);
 
         // 2. Pre-normalise all features
@@ -167,8 +164,7 @@ impl DifficultyModel for LinearRegressor {
 
             // Armijo backtracking line-search
             let mut lr = config.learning_rate;
-            let grad_norm_sq: f64 =
-                grad_w.iter().map(|g| g * g).sum::<f64>() + grad_b * grad_b;
+            let grad_norm_sq: f64 = grad_w.iter().map(|g| g * g).sum::<f64>() + grad_b * grad_b;
             let armijo_c = 0.5;
             let armijo_rho = 0.5;
 
@@ -257,7 +253,10 @@ mod tests {
         // runtime = exp(0.5 * atom_count / 100) - 1  (roughly linear in log-space)
         let mut ds = Dataset::new();
         for i in 0..n {
-            let f = Features { atom_count: i as f64, ..Default::default() };
+            let f = Features {
+                atom_count: i as f64,
+                ..Default::default()
+            };
             let rt = (0.5 * i as f64 / 100.0_f64).exp() - 1.0;
             ds.push(Sample {
                 features: f,

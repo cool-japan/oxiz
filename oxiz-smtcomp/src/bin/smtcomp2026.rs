@@ -240,48 +240,42 @@ fn run_solver(input: &str, track: &SolverTrack, verbose: bool) -> i32 {
     // print their output.  We reuse the same solver context so that the
     // accumulated solver state (assertions, etc.) is still available.
     match (track, last_result) {
-        (SolverTrack::UnsatCore, Some("unsat")) => {
-            match ctx.execute_script("(get-unsat-core)") {
-                Ok(core_lines) => {
-                    for line in &core_lines {
-                        println!("{}", line);
-                    }
-                }
-                Err(e) => {
-                    if verbose {
-                        eprintln!("smtcomp2026: get-unsat-core error: {}", e);
-                    }
+        (SolverTrack::UnsatCore, Some("unsat")) => match ctx.execute_script("(get-unsat-core)") {
+            Ok(core_lines) => {
+                for line in &core_lines {
+                    println!("{}", line);
                 }
             }
-        }
-        (SolverTrack::Model, Some("sat")) => {
-            match ctx.execute_script("(get-model)") {
-                Ok(model_lines) => {
-                    for line in &model_lines {
-                        println!("{}", line);
-                    }
-                }
-                Err(e) => {
-                    if verbose {
-                        eprintln!("smtcomp2026: get-model error: {}", e);
-                    }
+            Err(e) => {
+                if verbose {
+                    eprintln!("smtcomp2026: get-unsat-core error: {}", e);
                 }
             }
-        }
-        (SolverTrack::Proof, Some("unsat")) => {
-            match ctx.execute_script("(get-proof)") {
-                Ok(proof_lines) => {
-                    for line in &proof_lines {
-                        println!("{}", line);
-                    }
-                }
-                Err(e) => {
-                    if verbose {
-                        eprintln!("smtcomp2026: get-proof error: {}", e);
-                    }
+        },
+        (SolverTrack::Model, Some("sat")) => match ctx.execute_script("(get-model)") {
+            Ok(model_lines) => {
+                for line in &model_lines {
+                    println!("{}", line);
                 }
             }
-        }
+            Err(e) => {
+                if verbose {
+                    eprintln!("smtcomp2026: get-model error: {}", e);
+                }
+            }
+        },
+        (SolverTrack::Proof, Some("unsat")) => match ctx.execute_script("(get-proof)") {
+            Ok(proof_lines) => {
+                for line in &proof_lines {
+                    println!("{}", line);
+                }
+            }
+            Err(e) => {
+                if verbose {
+                    eprintln!("smtcomp2026: get-proof error: {}", e);
+                }
+            }
+        },
         // Single / Incremental / mismatched result — nothing extra to emit.
         _ => {}
     }

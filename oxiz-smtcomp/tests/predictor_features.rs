@@ -2,7 +2,7 @@
 
 use oxiz_smtcomp::loader::BenchmarkMeta;
 use oxiz_smtcomp::logic_detector::StructuralFeatures;
-use oxiz_smtcomp::predictor::{FeatureNormalizer, Features, FEATURE_DIM};
+use oxiz_smtcomp::predictor::{FEATURE_DIM, FeatureNormalizer, Features};
 use std::path::PathBuf;
 
 fn make_meta(logic: &str, size: u64, sf: Option<StructuralFeatures>) -> BenchmarkMeta {
@@ -21,10 +21,7 @@ fn test_features_from_meta_qf_lia() {
     let meta = make_meta("QF_LIA", 1000, None);
     let f = Features::from_meta(&meta);
     // QF_LIA should set has_int bit (index 1) and nothing else from theories
-    assert_eq!(
-        f.theory_bits[1], 1.0,
-        "QF_LIA should set int bit"
-    );
+    assert_eq!(f.theory_bits[1], 1.0, "QF_LIA should set int bit");
     assert_eq!(f.theory_bits[0], 0.0, "QF_LIA should not set UF bit");
     assert_eq!(f.theory_bits[3], 0.0, "QF_LIA should not set BV bit");
     // log_file_size = log10(1001)
@@ -128,7 +125,10 @@ fn test_normalize_round_trip() {
         let norm = normalizer.normalize(s);
         assert_eq!(norm.len(), FEATURE_DIM);
         for v in &norm {
-            assert!(*v >= 0.0 && *v <= 1.0 + 1e-9, "Normalised value out of range: {v}");
+            assert!(
+                *v >= 0.0 && *v <= 1.0 + 1e-9,
+                "Normalised value out of range: {v}"
+            );
         }
     }
 }

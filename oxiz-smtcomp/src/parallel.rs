@@ -232,15 +232,11 @@ impl ParallelRunner {
             .collect();
 
         // 2. Sort descending by predicted runtime (LPT)
-        meta_with_pred.sort_by(|a, b| {
-            b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal)
-        });
+        meta_with_pred.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
 
         // 3. Extract sorted metas and run via existing method
-        let sorted_metas: Vec<BenchmarkMeta> = meta_with_pred
-            .into_iter()
-            .map(|(_, m)| m.clone())
-            .collect();
+        let sorted_metas: Vec<BenchmarkMeta> =
+            meta_with_pred.into_iter().map(|(_, m)| m.clone()).collect();
 
         self.run_from_meta_with_progress(&sorted_metas, loader, None)
     }

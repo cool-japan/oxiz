@@ -212,5 +212,5 @@ pub use dashboard::{DashboardConfig, DashboardData, DashboardGenerator, generate
 
 // Re-export submission types
 pub use submission::{
-    generate_submission_package, validate_divisions, SubmissionConfig, SubmissionPackage, Track,
+    SubmissionConfig, SubmissionPackage, Track, generate_submission_package, validate_divisions,
 };

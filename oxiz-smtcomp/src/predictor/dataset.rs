@@ -47,9 +47,7 @@ impl Dataset {
 
         let samples = results
             .iter()
-            .filter(|r| {
-                matches!(r.status, BenchmarkStatus::Sat | BenchmarkStatus::Unsat)
-            })
+            .filter(|r| matches!(r.status, BenchmarkStatus::Sat | BenchmarkStatus::Unsat))
             .filter_map(|r| {
                 let meta = meta_map.get(&r.path)?;
                 let features = Features::from_meta(meta);
@@ -87,11 +85,7 @@ impl Dataset {
     ///
     /// Use a seeded `rng` for reproducibility.
     #[must_use]
-    pub fn shuffle_split(
-        &self,
-        train_frac: f64,
-        rng: &mut impl Rng,
-    ) -> (Dataset, Dataset) {
+    pub fn shuffle_split(&self, train_frac: f64, rng: &mut impl Rng) -> (Dataset, Dataset) {
         let mut indices: Vec<usize> = (0..self.samples.len()).collect();
         indices.shuffle(rng);
 
@@ -109,8 +103,12 @@ impl Dataset {
             .collect();
 
         (
-            Dataset { samples: train_samples },
-            Dataset { samples: test_samples },
+            Dataset {
+                samples: train_samples,
+            },
+            Dataset {
+                samples: test_samples,
+            },
         )
     }
 
@@ -130,7 +128,11 @@ impl Dataset {
 
         for fold_idx in 0..k {
             let val_start = fold_idx * fold_size;
-            let val_end = if fold_idx == k - 1 { n } else { val_start + fold_size };
+            let val_end = if fold_idx == k - 1 {
+                n
+            } else {
+                val_start + fold_size
+            };
 
             let val_samples: Vec<Sample> = self.samples[val_start..val_end].to_vec();
             let train_samples: Vec<Sample> = self.samples[..val_start]
@@ -140,8 +142,12 @@ impl Dataset {
                 .collect();
 
             folds.push((
-                Dataset { samples: train_samples },
-                Dataset { samples: val_samples },
+                Dataset {
+                    samples: train_samples,
+                },
+                Dataset {
+                    samples: val_samples,
+                },
             ));
         }
 

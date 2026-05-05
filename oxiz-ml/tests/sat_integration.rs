@@ -52,7 +52,9 @@ impl BranchingHeuristic for CountingHeuristic {
         if self.always_none {
             return None;
         }
-        self.inner.as_mut().and_then(|h| h.select(candidates, scores))
+        self.inner
+            .as_mut()
+            .and_then(|h| h.select(candidates, scores))
     }
 }
 

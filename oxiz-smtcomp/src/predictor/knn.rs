@@ -96,13 +96,13 @@ impl DifficultyModel for KnnRegressor {
         let neighbours = &distances[..k];
 
         // Inverse-distance weighted average of log1p_runtime
-        let (weighted_sum, weight_sum) = neighbours.iter().fold(
-            (0.0f64, 0.0f64),
-            |(ws, w_total), &(d, y)| {
-                let inv_d = 1.0 / (d + EPSILON);
-                (ws + y * inv_d, w_total + inv_d)
-            },
-        );
+        let (weighted_sum, weight_sum) =
+            neighbours
+                .iter()
+                .fold((0.0f64, 0.0f64), |(ws, w_total), &(d, y)| {
+                    let inv_d = 1.0 / (d + EPSILON);
+                    (ws + y * inv_d, w_total + inv_d)
+                });
 
         if weight_sum < EPSILON {
             return 0.0;
@@ -134,11 +134,8 @@ impl DifficultyModel for KnnRegressor {
         }
 
         // Fit normalizer
-        let all_features: Vec<Features> = dataset
-            .samples
-            .iter()
-            .map(|s| s.features.clone())
-            .collect();
+        let all_features: Vec<Features> =
+            dataset.samples.iter().map(|s| s.features.clone()).collect();
         self.normalizer = FeatureNormalizer::fit(&all_features);
 
         // Store normalised training samples
@@ -196,7 +193,10 @@ mod tests {
 
     fn make_sample(atom: f64, rt: f64) -> Sample {
         Sample {
-            features: Features { atom_count: atom, ..Default::default() },
+            features: Features {
+                atom_count: atom,
+                ..Default::default()
+            },
             runtime_seconds: rt,
             status: BenchmarkStatus::Sat,
         }
@@ -215,7 +215,10 @@ mod tests {
         model.fit(&ds, &config, &mut rng);
 
         // Query exactly at atom=0 should be closest to first sample
-        let query = Features { atom_count: 0.0, ..Default::default() };
+        let query = Features {
+            atom_count: 0.0,
+            ..Default::default()
+        };
         let rt = model.predict_runtime(&query);
         // Should be close to 0.05
         assert!(rt < 1.0, "Expected trivial runtime, got {rt}");
@@ -232,7 +235,10 @@ mod tests {
         let mut rng = rand::rngs::StdRng::seed_from_u64(0);
         model.fit(&ds, &config, &mut rng);
 
-        let query = Features { atom_count: 42.0, ..Default::default() };
+        let query = Features {
+            atom_count: 42.0,
+            ..Default::default()
+        };
         let rt = model.predict_runtime(&query);
         assert!(rt.is_finite(), "NaN/Inf when distance is zero: got {rt}");
     }

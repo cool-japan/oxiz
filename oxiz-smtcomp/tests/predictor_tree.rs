@@ -1,13 +1,18 @@
 //! Integration tests for `predictor::tree`.
 
 use oxiz_smtcomp::benchmark::BenchmarkStatus;
-use oxiz_smtcomp::predictor::{Dataset, DifficultyModel, Features, RegressionTree, Sample, TrainingConfig};
 use oxiz_smtcomp::predictor::tree::TreeNode;
+use oxiz_smtcomp::predictor::{
+    Dataset, DifficultyModel, Features, RegressionTree, Sample, TrainingConfig,
+};
 use rand::SeedableRng;
 
 fn make_sample(atom: f64, rt: f64) -> Sample {
     Sample {
-        features: Features { atom_count: atom, ..Default::default() },
+        features: Features {
+            atom_count: atom,
+            ..Default::default()
+        },
         runtime_seconds: rt,
         status: BenchmarkStatus::Sat,
     }
@@ -26,18 +31,27 @@ fn test_tree_fits_pure_split() {
     // Two perfectly separable clusters
     let mut ds = Dataset::new();
     for _ in 0..10 {
-        ds.push(make_sample(0.0, 0.05));    // trivial
+        ds.push(make_sample(0.0, 0.05)); // trivial
         ds.push(make_sample(100.0, 30.0)); // hard
     }
     let model = fit_tree(4, 2, &ds);
     assert!(model.is_fitted);
     assert!(model.root.is_some());
 
-    let q_trivial = Features { atom_count: 0.0, ..Default::default() };
+    let q_trivial = Features {
+        atom_count: 0.0,
+        ..Default::default()
+    };
     let rt_trivial = model.predict_runtime(&q_trivial);
-    assert!(rt_trivial < 1.0, "Expected trivial prediction, got {rt_trivial}");
+    assert!(
+        rt_trivial < 1.0,
+        "Expected trivial prediction, got {rt_trivial}"
+    );
 
-    let q_hard = Features { atom_count: 100.0, ..Default::default() };
+    let q_hard = Features {
+        atom_count: 100.0,
+        ..Default::default()
+    };
     let rt_hard = model.predict_runtime(&q_hard);
     assert!(rt_hard > 1.0, "Expected hard prediction, got {rt_hard}");
 }

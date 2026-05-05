@@ -7,7 +7,9 @@
 ///
 /// Ordered from easiest to hardest so `Trivial < Easy < Medium < Hard < VeryHard`.
 /// This ordering is used when sorting benchmarks for LPT scheduling.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum DifficultyClass {
     /// Expected runtime below 0.1 seconds.
     Trivial,
@@ -77,16 +79,46 @@ mod tests {
 
     #[test]
     fn test_class_boundaries() {
-        assert_eq!(DifficultyClass::from_runtime_seconds(0.0), DifficultyClass::Trivial);
-        assert_eq!(DifficultyClass::from_runtime_seconds(0.05), DifficultyClass::Trivial);
-        assert_eq!(DifficultyClass::from_runtime_seconds(0.1), DifficultyClass::Easy);
-        assert_eq!(DifficultyClass::from_runtime_seconds(0.5), DifficultyClass::Easy);
-        assert_eq!(DifficultyClass::from_runtime_seconds(1.0), DifficultyClass::Medium);
-        assert_eq!(DifficultyClass::from_runtime_seconds(5.0), DifficultyClass::Medium);
-        assert_eq!(DifficultyClass::from_runtime_seconds(10.0), DifficultyClass::Hard);
-        assert_eq!(DifficultyClass::from_runtime_seconds(30.0), DifficultyClass::Hard);
-        assert_eq!(DifficultyClass::from_runtime_seconds(60.0), DifficultyClass::VeryHard);
-        assert_eq!(DifficultyClass::from_runtime_seconds(120.0), DifficultyClass::VeryHard);
+        assert_eq!(
+            DifficultyClass::from_runtime_seconds(0.0),
+            DifficultyClass::Trivial
+        );
+        assert_eq!(
+            DifficultyClass::from_runtime_seconds(0.05),
+            DifficultyClass::Trivial
+        );
+        assert_eq!(
+            DifficultyClass::from_runtime_seconds(0.1),
+            DifficultyClass::Easy
+        );
+        assert_eq!(
+            DifficultyClass::from_runtime_seconds(0.5),
+            DifficultyClass::Easy
+        );
+        assert_eq!(
+            DifficultyClass::from_runtime_seconds(1.0),
+            DifficultyClass::Medium
+        );
+        assert_eq!(
+            DifficultyClass::from_runtime_seconds(5.0),
+            DifficultyClass::Medium
+        );
+        assert_eq!(
+            DifficultyClass::from_runtime_seconds(10.0),
+            DifficultyClass::Hard
+        );
+        assert_eq!(
+            DifficultyClass::from_runtime_seconds(30.0),
+            DifficultyClass::Hard
+        );
+        assert_eq!(
+            DifficultyClass::from_runtime_seconds(60.0),
+            DifficultyClass::VeryHard
+        );
+        assert_eq!(
+            DifficultyClass::from_runtime_seconds(120.0),
+            DifficultyClass::VeryHard
+        );
     }
 
     #[test]
