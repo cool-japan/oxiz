@@ -81,6 +81,18 @@
     "euf_push_pop_cycle": {
       "avg_time_us": 77.0,
       "category": "Theory"
+    },
+    "bv_simple": {
+      "avg_time_us": 200.0,
+      "category": "Theory"
+    },
+    "lra_simple": {
+      "avg_time_us": 150.0,
+      "category": "Theory"
+    },
+    "arrays_simple": {
+      "avg_time_us": 250.0,
+      "category": "Theory"
     }
   }
 }

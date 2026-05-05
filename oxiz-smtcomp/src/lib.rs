@@ -113,9 +113,14 @@ pub mod virtual_best;
 // Low priority modules
 pub mod ci_integration;
 pub mod dashboard;
-pub mod predictor;
 pub mod regression;
 pub mod sampling;
+
+// ML difficulty predictor
+pub mod predictor;
+
+// SMT-COMP submission infrastructure
+pub mod submission;
 
 // Optional WebSocket progress API (feature-gated)
 #[cfg(feature = "ws-progress")]
@@ -205,9 +210,7 @@ pub use regression::{
 // Re-export dashboard types
 pub use dashboard::{DashboardConfig, DashboardData, DashboardGenerator, generate_dashboard};
 
-// Re-export predictor types
-pub use predictor::{
-    Dataset, DifficultyClass, DifficultyModel, FeatureNormalizer, Features, KnnRegressor,
-    LinearRegressor, PredictorStats, RegressionTree, Sample, TrainingConfig, TrainingReport,
-    default_model, load_from_file, save_to_file, train_model, FEATURE_DIM,
+// Re-export submission types
+pub use submission::{
+    generate_submission_package, validate_divisions, SubmissionConfig, SubmissionPackage, Track,
 };

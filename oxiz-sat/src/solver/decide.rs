@@ -5,6 +5,23 @@ use super::*;
 impl Solver {
     /// Pick next variable to branch on
     pub(super) fn pick_branch_var(&mut self) -> Option<Var> {
+        // Try external branching heuristic first.
+        if let Some(ref ext) = self.config.external_branching {
+            let candidates: Vec<Var> = (0..self.num_vars)
+                .map(|i| Var::new(i as u32))
+                .filter(|&v| !self.trail.is_assigned(v))
+                .collect();
+            let scores: Vec<f64> = candidates
+                .iter()
+                .map(|&v| self.vsids.activity(v))
+                .collect();
+            if let Ok(mut h) = ext.lock()
+                && let Some(chosen) = h.select(&candidates, &scores)
+            {
+                return Some(chosen);
+            }
+        }
+
         if self.config.use_lrb_branching {
             // Use LRB branching
             while let Some(var) = self.lrb.select() {

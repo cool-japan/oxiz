@@ -79,6 +79,7 @@ impl ConfigPreset {
             inprocessing_interval: 5000,
             enable_chronological_backtrack: true,
             chrono_backtrack_threshold: 100,
+            external_branching: None,
         }
     }
 
@@ -105,6 +106,7 @@ impl ConfigPreset {
             inprocessing_interval: 10000,
             enable_chronological_backtrack: false,
             chrono_backtrack_threshold: 100,
+            external_branching: None,
         }
     }
 
@@ -131,6 +133,7 @@ impl ConfigPreset {
             inprocessing_interval: 10000,
             enable_chronological_backtrack: true,
             chrono_backtrack_threshold: 50,
+            external_branching: None,
         }
     }
 
@@ -157,6 +160,7 @@ impl ConfigPreset {
             inprocessing_interval: 3000, // More frequent
             enable_chronological_backtrack: true,
             chrono_backtrack_threshold: 100,
+            external_branching: None,
         }
     }
 
@@ -183,6 +187,7 @@ impl ConfigPreset {
             inprocessing_interval: 20000,
             enable_chronological_backtrack: false,
             chrono_backtrack_threshold: 100,
+            external_branching: None,
         }
     }
 
@@ -209,6 +214,7 @@ impl ConfigPreset {
             inprocessing_interval: 2000,
             enable_chronological_backtrack: true,
             chrono_backtrack_threshold: 200,
+            external_branching: None,
         }
     }
 
@@ -231,6 +237,7 @@ impl ConfigPreset {
             inprocessing_interval: 10000,
             enable_chronological_backtrack: false,
             chrono_backtrack_threshold: 100,
+            external_branching: None,
         }
     }
 
@@ -253,6 +260,7 @@ impl ConfigPreset {
             inprocessing_interval: 10000,
             enable_chronological_backtrack: false,
             chrono_backtrack_threshold: 100,
+            external_branching: None,
         }
     }
 
@@ -275,6 +283,7 @@ impl ConfigPreset {
             inprocessing_interval: 4000,
             enable_chronological_backtrack: true,
             chrono_backtrack_threshold: 100,
+            external_branching: None,
         }
     }
 

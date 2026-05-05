@@ -2,8 +2,11 @@
 
 mod conflict;
 mod decide;
+pub mod heuristic;
 mod learn;
 mod propagate;
+
+pub use heuristic::{BoxedBranchingHeuristic, BranchingHeuristic};
 
 use crate::chb::CHB;
 use crate::chrono::ChronoBacktrack;
@@ -93,7 +96,7 @@ pub enum SolverResult {
 }
 
 /// Solver configuration
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct SolverConfig {
     /// Restart interval (number of conflicts)
     pub restart_interval: u64,
@@ -123,6 +126,38 @@ pub struct SolverConfig {
     pub enable_chronological_backtrack: bool,
     /// Chronological backtracking threshold (max distance from assertion level)
     pub chrono_backtrack_threshold: u32,
+    /// Optional external branching heuristic. When `Some`, called before built-in
+    /// VSIDS/LRB/CHB; returning `None` from the heuristic falls back to built-in.
+    /// Default: `None` (pure built-in strategy).
+    pub external_branching: Option<BoxedBranchingHeuristic>,
+}
+
+impl core::fmt::Debug for SolverConfig {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("SolverConfig")
+            .field("restart_interval", &self.restart_interval)
+            .field("restart_multiplier", &self.restart_multiplier)
+            .field("clause_deletion_threshold", &self.clause_deletion_threshold)
+            .field("var_decay", &self.var_decay)
+            .field("clause_decay", &self.clause_decay)
+            .field("random_polarity_prob", &self.random_polarity_prob)
+            .field("restart_strategy", &self.restart_strategy)
+            .field("enable_lazy_hyper_binary", &self.enable_lazy_hyper_binary)
+            .field("use_chb_branching", &self.use_chb_branching)
+            .field("use_lrb_branching", &self.use_lrb_branching)
+            .field("enable_inprocessing", &self.enable_inprocessing)
+            .field("inprocessing_interval", &self.inprocessing_interval)
+            .field(
+                "enable_chronological_backtrack",
+                &self.enable_chronological_backtrack,
+            )
+            .field("chrono_backtrack_threshold", &self.chrono_backtrack_threshold)
+            .field(
+                "external_branching",
+                &self.external_branching.as_ref().map(|_| "<BranchingHeuristic>"),
+            )
+            .finish()
+    }
 }
 
 /// Restart strategy
@@ -155,6 +190,7 @@ impl Default for SolverConfig {
             inprocessing_interval: 5000,
             enable_chronological_backtrack: true,
             chrono_backtrack_threshold: 100,
+            external_branching: None,
         }
     }
 }

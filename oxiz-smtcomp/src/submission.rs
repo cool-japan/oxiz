@@ -19,7 +19,57 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 use crate::benchmark::{BenchmarkStatus, SingleResult};
-use crate::loader::{BenchmarkMeta, ExpectedStatus};
+use crate::loader::ExpectedStatus;
+
+/// SMT-COMP 2026 competition track.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum Track {
+    /// Single-query track: one `check-sat` per file.
+    SingleQuery,
+    /// Incremental track: `push`/`pop` commands present.
+    Incremental,
+    /// Unsat-core track: solver must output `(get-unsat-core)` after `unsat`.
+    UnsatCore,
+    /// Model-validation track: solver must output `(get-model)` after `sat`.
+    ModelValidation,
+    /// Proof-exhibition track: solver must output `(get-proof)` after `unsat`.
+    ProofExhibition,
+}
+
+impl Track {
+    /// Returns the StarExec suffix used in run-script filenames.
+    pub fn as_starexec_suffix(&self) -> &'static str {
+        match self {
+            Track::SingleQuery => "default",
+            Track::Incremental => "incremental",
+            Track::UnsatCore => "unsat_core",
+            Track::ModelValidation => "model_validation",
+            Track::ProofExhibition => "proof_exhibition",
+        }
+    }
+
+    /// Human-readable name.
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Track::SingleQuery => "Single Query",
+            Track::Incremental => "Incremental",
+            Track::UnsatCore => "Unsat Core",
+            Track::ModelValidation => "Model Validation",
+            Track::ProofExhibition => "Proof Exhibition",
+        }
+    }
+
+    /// All five SMT-COMP 2026 tracks.
+    pub fn all() -> &'static [Track] {
+        &[
+            Track::SingleQuery,
+            Track::Incremental,
+            Track::UnsatCore,
+            Track::ModelValidation,
+            Track::ProofExhibition,
+        ]
+    }
+}
 
 /// Errors that can occur during submission preparation.
 #[derive(Error, Debug)]
@@ -129,6 +179,12 @@ pub struct SubmissionConfig {
     /// Divisions (logics) the solver participates in.
     pub divisions: Vec<String>,
 
+    /// Competition tracks to participate in.
+    ///
+    /// Defaults to all five SMT-COMP 2026 tracks when created via
+    /// [`SubmissionConfig::default_oxiz_2026`].
+    pub tracks: Vec<Track>,
+
     /// Primary contact information.
     pub contact: ContactInfo,
 
@@ -150,6 +206,9 @@ pub struct SubmissionConfig {
 
 impl SubmissionConfig {
     /// Create a new submission configuration with required fields.
+    ///
+    /// The `tracks` field defaults to all five SMT-COMP 2026 tracks.
+    /// The `solver_binary` defaults to `"bin/smtcomp2026"`.
     pub fn new(
         solver_name: impl Into<String>,
         version: impl Into<String>,
@@ -160,11 +219,12 @@ impl SubmissionConfig {
             version: version.into(),
             description: None,
             divisions: Vec::new(),
+            tracks: Track::all().to_vec(),
             contact,
             starexec_config_name: "default".to_string(),
             memory_limit_mb: 8192,
             cpu_timeout_secs: 1200,
-            solver_binary: "bin/oxiz".to_string(),
+            solver_binary: "bin/smtcomp2026".to_string(),
             env_vars: HashMap::new(),
         }
     }
@@ -218,6 +278,13 @@ impl SubmissionConfig {
         self
     }
 
+    /// Set the competition tracks for this submission.
+    #[must_use]
+    pub fn with_tracks(mut self, tracks: Vec<Track>) -> Self {
+        self.tracks = tracks;
+        self
+    }
+
     /// Add an environment variable.
     #[must_use]
     pub fn with_env_var(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
@@ -225,7 +292,7 @@ impl SubmissionConfig {
         self
     }
 
-    /// Create a default OxiZ submission config for all 2026 divisions.
+    /// Create a default OxiZ submission config for all 2026 divisions and tracks.
     pub fn default_oxiz_2026() -> Self {
         let contact = ContactInfo::new(
             "COOLJAPAN OU (Team Kitasan)",
@@ -234,7 +301,7 @@ impl SubmissionConfig {
         )
         .with_url("https://github.com/cool-japan/oxiz");
 
-        Self::new("OxiZ", "0.2.0", contact)
+        Self::new("OxiZ", env!("CARGO_PKG_VERSION"), contact)
             .with_description(
                 "OxiZ: A next-generation SMT solver written in pure, safe Rust. \
                  Implements the complete SMT-LIB2 standard with support for all \
@@ -246,9 +313,11 @@ impl SubmissionConfig {
                     .map(|s| s.to_string())
                     .collect(),
             )
+            .with_tracks(Track::all().to_vec())
             .with_starexec_config("oxiz-smtcomp2026")
             .with_memory_limit_mb(8192)
             .with_cpu_timeout_secs(1200)
+            .with_solver_binary("bin/smtcomp2026")
     }
 }
 
@@ -416,8 +485,10 @@ pub fn validate_divisions(
 pub struct SubmissionPackage {
     /// Root directory of the submission package.
     pub root_dir: PathBuf,
-    /// Path to the generated starexec_run_default script.
+    /// Path to the generated `starexec_run_default` script (single-query track).
     pub run_script: PathBuf,
+    /// Per-track run scripts: `(Track, path)` pairs for each configured track.
+    pub track_scripts: Vec<(Track, PathBuf)>,
     /// Path to the generated solver description file.
     pub description_file: PathBuf,
     /// Path to the StarExec configuration XML.
@@ -429,14 +500,25 @@ pub struct SubmissionPackage {
 impl SubmissionPackage {
     /// Returns a summary of the package contents.
     pub fn summary(&self) -> String {
+        let track_lines: String = self
+            .track_scripts
+            .iter()
+            .map(|(track, path)| {
+                format!("  {:20} {}", track.display_name(), path.display())
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
         format!(
             "StarExec submission package at {}\n\
              Run script:   {}\n\
+             Per-track scripts:\n{}\n\
              Description:  {}\n\
              Config XML:   {}\n\
              Divisions:    {}",
             self.root_dir.display(),
             self.run_script.display(),
+            track_lines,
             self.description_file.display(),
             self.config_xml.display(),
             self.divisions.join(", ")
@@ -450,7 +532,11 @@ impl SubmissionPackage {
 /// ```text
 /// output_dir/
 ///   bin/
-///     starexec_run_default   (the run script)
+///     starexec_run_default          (single-query / backward-compat script)
+///     starexec_run_incremental      (incremental track)
+///     starexec_run_unsat_core       (unsat-core track)
+///     starexec_run_model_validation (model-validation track)
+///     starexec_run_proof_exhibition (proof-exhibition track)
 ///   description.txt
 ///   starexec_conf.xml
 /// ```
@@ -481,9 +567,20 @@ pub fn generate_submission_package(
     let bin_dir = output_dir.join("bin");
     fs::create_dir_all(&bin_dir)?;
 
-    // Generate the StarExec run script
+    // Generate the default StarExec run script (backward compatibility — no --track flag).
     let run_script_path = bin_dir.join("starexec_run_default");
     write_run_script(config, &run_script_path)?;
+
+    // Generate per-track run scripts for every configured track.
+    // The SingleQuery track reuses `starexec_run_default` (already written above);
+    // all other tracks get their own script with `--track <suffix>`.
+    let mut track_scripts: Vec<(Track, PathBuf)> = Vec::new();
+    for track in &config.tracks {
+        let suffix = track.as_starexec_suffix();
+        let script_path = bin_dir.join(format!("starexec_run_{}", suffix));
+        write_track_run_script(config, track, &script_path)?;
+        track_scripts.push((track.clone(), script_path));
+    }
 
     // Generate solver description
     let description_path = output_dir.join("description.txt");
@@ -496,19 +593,42 @@ pub fn generate_submission_package(
     Ok(SubmissionPackage {
         root_dir: output_dir.to_path_buf(),
         run_script: run_script_path,
+        track_scripts,
         description_file: description_path,
         config_xml: config_xml_path,
         divisions: config.divisions.clone(),
     })
 }
 
-/// Write the StarExec run script.
+/// Write the StarExec run script (backward-compatible default; no `--track` flag).
 fn write_run_script(config: &SubmissionConfig, path: &Path) -> SubmissionResult<()> {
+    write_track_run_script(config, &Track::SingleQuery, path)
+}
+
+/// Write a track-specific StarExec run script.
+///
+/// For `Track::SingleQuery` the generated script invokes the binary without a
+/// `--track` flag (for backward compatibility with StarExec harnesses that only
+/// call `starexec_run_default`).  For all other tracks the `--track <suffix>`
+/// flag is appended before the benchmark argument so the binary can perform the
+/// appropriate post-processing (model, unsat-core, proof retrieval).
+fn write_track_run_script(
+    config: &SubmissionConfig,
+    track: &Track,
+    path: &Path,
+) -> SubmissionResult<()> {
     let file = fs::File::create(path)?;
     let mut w = BufWriter::new(file);
 
+    let suffix = track.as_starexec_suffix();
+
     writeln!(w, "#!/bin/bash")?;
-    writeln!(w, "# Auto-generated StarExec run script for {}", config.solver_name)?;
+    writeln!(
+        w,
+        "# Auto-generated StarExec run script for {} — {} track",
+        config.solver_name,
+        track.display_name()
+    )?;
     writeln!(w, "# Version: {}", config.version)?;
     writeln!(w, "# SMT-COMP 2026")?;
     writeln!(w, "#")?;
@@ -528,7 +648,22 @@ fn write_run_script(config: &SubmissionConfig, path: &Path) -> SubmissionResult<
     writeln!(w, "    exit 1")?;
     writeln!(w, "fi")?;
     writeln!(w)?;
-    writeln!(w, "exec \"$SOLVER_BIN\" --smtcomp \"$@\"")?;
+
+    // SingleQuery uses the plain interface (no --track flag) for backward compat.
+    // All other tracks pass --track <suffix> so the binary knows which
+    // post-processing to perform.
+    match track {
+        Track::SingleQuery => {
+            writeln!(w, "exec \"$SOLVER_BIN\" --smtcomp \"$@\"")?;
+        }
+        _ => {
+            writeln!(
+                w,
+                "exec \"$SOLVER_BIN\" --smtcomp --track {} \"$@\"",
+                suffix
+            )?;
+        }
+    }
 
     w.flush()?;
     Ok(())
@@ -764,5 +899,53 @@ mod tests {
     #[test]
     fn test_xml_escape() {
         assert_eq!(xml_escape("a&b<c>d\"e'f"), "a&amp;b&lt;c&gt;d&quot;e&apos;f");
+    }
+
+    // --- Track infrastructure tests ---
+
+    #[test]
+    fn test_default_config_uses_smtcomp_binary() {
+        let cfg = SubmissionConfig::default_oxiz_2026();
+        assert_eq!(cfg.solver_binary, "bin/smtcomp2026");
+    }
+
+    #[test]
+    fn test_default_config_version_matches_cargo() {
+        let cfg = SubmissionConfig::default_oxiz_2026();
+        assert_eq!(cfg.version, env!("CARGO_PKG_VERSION"));
+    }
+
+    #[test]
+    fn test_track_enum_round_trip() {
+        for track in Track::all() {
+            let suffix = track.as_starexec_suffix();
+            assert!(!suffix.is_empty());
+            // Every suffix must be unique across all tracks.
+            let count = Track::all()
+                .iter()
+                .filter(|t| t.as_starexec_suffix() == suffix)
+                .count();
+            assert_eq!(count, 1, "suffix '{suffix}' is not unique");
+        }
+    }
+
+    #[test]
+    fn test_generate_emits_per_track_scripts() {
+        let dir = std::env::temp_dir()
+            .join(format!("oxiz_track_scripts_{}", std::process::id()));
+        let cfg = SubmissionConfig::default_oxiz_2026();
+        let _pkg = generate_submission_package(&cfg, &dir).expect("package generation failed");
+        for track in Track::all() {
+            let script = dir
+                .join("bin")
+                .join(format!("starexec_run_{}", track.as_starexec_suffix()));
+            assert!(
+                script.exists(),
+                "missing run script for track {:?}: {:?}",
+                track,
+                script
+            );
+        }
+        let _ = fs::remove_dir_all(&dir);
     }
 }

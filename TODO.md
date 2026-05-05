@@ -46,11 +46,11 @@ OxiZ has achieved **100% correctness parity with Z3** across all 88 benchmark te
 
 ---
 
-## Current Statistics (v0.2.1 - April 25, 2026)
+## Current Statistics (v0.2.2 - May 5, 2026)
 
-- **Rust Lines of Code**: 442,034 total (408,320 code lines)
-- **Rust Files**: 978
-- **Unit Tests**: 6,415 passing (0 failures)
+- **Rust Lines of Code**: ~443,500 total (net ~1,500 new lines)
+- **Rust Files**: 985+ (16 new files)
+- **Unit Tests**: 6,436+ passing (0 failures)
 - **Z3 Parity**: **100.0% (88/88)**
 - **Perfect Logics**: **8/8 tested**
 - **Workspace Crates**: 17 (16 Rust crates + 1 TypeScript)
@@ -298,7 +298,7 @@ OxiZ is not just a Z3 port - it surpasses Z3 in critical areas:
   - [ ] JavaScript/TypeScript bindings (via WASM)
 
 - [ ] Tool integration (3 items)
-  - [ ] SMT-COMP 2026 participation
+  - [x] SMT-COMP 2026 participation — entry package complete; submit when portal opens (~May 2026)
   - [ ] Integration with symbolic execution tools
   - [ ] Integration with verification frameworks
 
@@ -525,7 +525,14 @@ oxiz-core (foundation)
 - [x] Combined theory validation (QF_AUFBV, QF_ALIA, QF_ABV)
 - [x] Enhanced preprocessing tactics (planned 2026-04-19)
 - [x] Performance regression CI pipeline
-- [ ] SMT-COMP 2026 entry preparation
+- [x] SMT-COMP 2026 entry preparation (completed 2026-05-05)
+  - [x] `Track` enum (5 variants: SingleQuery, Incremental, UnsatCore, ModelValidation, ProofExhibition)
+  - [x] `submission` module wired into `oxiz-smtcomp/src/lib.rs` with full public API
+  - [x] `default_oxiz_2026()` fixed: `bin/smtcomp2026` binary, version from `CARGO_PKG_VERSION`
+  - [x] Per-track `starexec_run_<track>` scripts in submission package
+  - [x] `smtcomp2026` binary extended with `--track` flag (single|incremental|unsat-core|model|proof)
+  - [x] `scripts/package_smtcomp.sh` — assembles complete StarExec ZIP
+  - [x] End-to-end submission tests in `oxiz-smtcomp/tests/submission_e2e.rs`
 
 ### v1.0.0 (Target: Q4 2026)
 **Focus: Production Release**
@@ -538,6 +545,14 @@ oxiz-core (foundation)
 ---
 
 ## Recent Achievements
+
+### May 5, 2026 - v0.3.0 Infrastructure Push (v0.2.2)
+
+- **SMT-COMP 2026 entry complete**: `Track` enum (5 variants), per-track `starexec_run_*` scripts, `smtcomp2026 --track` flag, `scripts/package_smtcomp.sh` packaging script; `submission` module wired into public API
+- **Bench regression expanded**: BV, LRA, Arrays fixture benchmarks wired into criterion (`bench_bv`, `bench_lra`, `bench_arrays`); `src/fixtures.rs` for stable `include_str!` embedding; `tests/bench_coverage.rs` smoke tests
+- **`BranchingHeuristic` trait hook**: new `oxiz-sat::BranchingHeuristic` trait + `BoxedBranchingHeuristic` type alias; optional `external_branching` field on `SolverConfig`; hook in `pick_branch_var` — forward-compat for oxiz-ml integration (v0.4.0)
+- **Tests**: +21 new tests across three tracks (9 external_branching, 9 submission e2e, 3 bench coverage); 0 regressions; 0 clippy warnings
+- **New files**: `oxiz-sat/src/solver/heuristic.rs`, `oxiz-sat/tests/external_branching.rs`, `oxiz-smtcomp/tests/submission_e2e.rs`, `bench/regression/src/fixtures.rs`, `bench/regression/tests/bench_coverage.rs`, `scripts/package_smtcomp.sh`
 
 ### April 25, 2026 - Statistics Update (v0.2.1)
 

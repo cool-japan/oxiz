@@ -10,7 +10,7 @@ use num_bigint::BigInt;
 use oxiz_core::ast::TermManager;
 use oxiz_core::smtlib::parse_script;
 use oxiz_sat::{DimacsParser, Lit, Solver as SatSolver, Var};
-use oxiz_solver::Solver;
+use oxiz_solver::{Context, Solver};
 use std::hint::black_box;
 use std::io::Cursor;
 
@@ -178,6 +178,42 @@ fn bench_dimacs_parser(c: &mut Criterion) {
     });
 }
 
+/// Benchmark BV theory via the embedded QF_BV fixture.
+///
+/// Uses `Context::execute_script` – the same path exercised by the z3_parity
+/// and profile harnesses – so that parser + theory solver are both measured.
+fn bench_bv(c: &mut Criterion) {
+    let script = bench_regression::fixtures::BV_SIMPLE;
+    c.bench_function("bv_simple", |b| {
+        b.iter(|| {
+            let mut ctx = Context::new();
+            black_box(ctx.execute_script(black_box(script)))
+        })
+    });
+}
+
+/// Benchmark LRA theory via the embedded QF_LRA fixture.
+fn bench_lra(c: &mut Criterion) {
+    let script = bench_regression::fixtures::LRA_SIMPLE;
+    c.bench_function("lra_simple", |b| {
+        b.iter(|| {
+            let mut ctx = Context::new();
+            black_box(ctx.execute_script(black_box(script)))
+        })
+    });
+}
+
+/// Benchmark array theory via the embedded QF_AUFLIA fixture.
+fn bench_arrays(c: &mut Criterion) {
+    let script = bench_regression::fixtures::ARRAYS_SIMPLE;
+    c.bench_function("arrays_simple", |b| {
+        b.iter(|| {
+            let mut ctx = Context::new();
+            black_box(ctx.execute_script(black_box(script)))
+        })
+    });
+}
+
 criterion_group!(
     benches,
     bench_sat_3sat,
@@ -185,6 +221,9 @@ criterion_group!(
     bench_theory_lia,
     bench_parser,
     bench_dimacs_parser,
+    bench_bv,
+    bench_lra,
+    bench_arrays,
 );
 
 criterion_main!(benches);

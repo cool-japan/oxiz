@@ -18,6 +18,10 @@
 //! smtcomp2026 [OPTIONS] [FILE]
 //!
 //! If FILE is omitted, reads from stdin.
+//!
+//! Options:
+//!   --track <TRACK>   Competition track (default: single).
+//!                     Allowed values: single, incremental, unsat-core, model, proof.
 //! ```
 
 use std::io::{self, Read};
@@ -33,7 +37,44 @@ const EXIT_UNSAT: i32 = 10;
 /// Exit code for UNKNOWN / error / timeout.
 const EXIT_UNKNOWN: i32 = 20;
 
-/// Simple CLI argument container for SMT-COMP mode.
+/// SMT-COMP 2026 track selection for the binary.
+///
+/// Each variant changes the set of post-`check-sat` queries that are issued
+/// and printed after the primary result.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum SolverTrack {
+    /// Single-query track: one `check-sat` per file, no follow-up queries.
+    #[default]
+    Single,
+    /// Incremental track: `push`/`pop` are handled natively; no extra output.
+    Incremental,
+    /// Unsat-core track: emit `(get-unsat-core)` after an `unsat` result.
+    UnsatCore,
+    /// Model-validation track: emit `(get-model)` after a `sat` result.
+    Model,
+    /// Proof-exhibition track: emit `(get-proof)` after an `unsat` result.
+    Proof,
+}
+
+impl SolverTrack {
+    /// Parse a `--track` argument value into a `SolverTrack`.
+    ///
+    /// Accepted strings: `"single"`, `"incremental"`, `"unsat-core"`,
+    /// `"unsat_core"`, `"model"`, `"model_validation"`, `"proof"`,
+    /// `"proof_exhibition"`.  Returns `None` for unrecognised values.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "single" | "default" => Some(Self::Single),
+            "incremental" => Some(Self::Incremental),
+            "unsat-core" | "unsat_core" => Some(Self::UnsatCore),
+            "model" | "model_validation" => Some(Self::Model),
+            "proof" | "proof_exhibition" => Some(Self::Proof),
+            _ => None,
+        }
+    }
+}
+
+/// CLI argument container for SMT-COMP mode.
 #[derive(Debug)]
 struct Args {
     /// Path to the SMT-LIB2 input file, or `None` for stdin.
@@ -42,6 +83,8 @@ struct Args {
     print_version: bool,
     /// Verbose/debug mode (writes to stderr).
     verbose: bool,
+    /// Competition track selection.
+    track: SolverTrack,
 }
 
 impl Args {
@@ -51,6 +94,7 @@ impl Args {
         let mut input_file = None;
         let mut print_version = false;
         let mut verbose = false;
+        let mut track = SolverTrack::default();
         let mut i = 1;
 
         while i < args.len() {
@@ -63,6 +107,24 @@ impl Args {
                 }
                 // StarExec passes --smtcomp as a mode flag; consume silently.
                 "--smtcomp" => {}
+                // Track selection flag.
+                "--track" => {
+                    i += 1;
+                    if i < args.len() {
+                        match SolverTrack::parse(&args[i]) {
+                            Some(t) => track = t,
+                            None => {
+                                eprintln!(
+                                    "smtcomp2026: unknown track '{}'; \
+                                     valid: single, incremental, unsat-core, model, proof",
+                                    args[i]
+                                );
+                            }
+                        }
+                    } else {
+                        eprintln!("smtcomp2026: --track requires an argument");
+                    }
+                }
                 // Ignore time/memory limit flags (enforced by StarExec externally).
                 "--time" | "-t" | "--memory" | "-m" => {
                     i += 1; // skip the following value argument
@@ -81,6 +143,7 @@ impl Args {
             input_file,
             print_version,
             verbose,
+            track,
         }
     }
 }
@@ -104,9 +167,10 @@ fn main() {
 
     if args.verbose {
         eprintln!("smtcomp2026: read {} bytes of input", input.len());
+        eprintln!("smtcomp2026: track = {:?}", args.track);
     }
 
-    process::exit(run_solver(&input, args.verbose));
+    process::exit(run_solver(&input, &args.track, args.verbose));
 }
 
 /// Read the full SMT-LIB2 input from a file or stdin.
@@ -121,11 +185,15 @@ fn read_input(args: &Args) -> io::Result<String> {
     }
 }
 
-/// Execute the SMT-LIB2 script and return the appropriate exit code.
+/// Execute the SMT-LIB2 script, apply track-specific post-processing, and
+/// return the appropriate exit code.
 ///
-/// Inspects the output lines from `Context::execute_script` to determine the
-/// final check-sat result. Returns `EXIT_SAT`, `EXIT_UNSAT`, or `EXIT_UNKNOWN`.
-fn run_solver(input: &str, verbose: bool) -> i32 {
+/// For the `UnsatCore`, `Model`, and `Proof` tracks a second `execute_script`
+/// call is made with the relevant get-* command so that its output reaches
+/// stdout before we exit.  The primary check-sat result (sat/unsat/unknown)
+/// and the corresponding exit code follow the StarExec convention and are
+/// unaffected by track selection.
+fn run_solver(input: &str, track: &SolverTrack, verbose: bool) -> i32 {
     let mut ctx = Context::new();
 
     let output_lines = match ctx.execute_script(input) {
@@ -140,7 +208,7 @@ fn run_solver(input: &str, verbose: bool) -> i32 {
     };
 
     // The last check-sat result is the authoritative answer.
-    // We scan in reverse so we find the most recent check-sat outcome.
+    // Scan in reverse to find the most recent check-sat outcome.
     let mut last_result: Option<&str> = None;
     for line in output_lines.iter().rev() {
         let trimmed = line.trim();
@@ -153,7 +221,7 @@ fn run_solver(input: &str, verbose: bool) -> i32 {
         }
     }
 
-    match last_result {
+    let exit_code = match last_result {
         Some("sat") => {
             println!("sat");
             EXIT_SAT
@@ -166,5 +234,118 @@ fn run_solver(input: &str, verbose: bool) -> i32 {
             println!("unknown");
             EXIT_UNKNOWN
         }
+    };
+
+    // Track-specific post-processing: issue follow-up SMT-LIB commands and
+    // print their output.  We reuse the same solver context so that the
+    // accumulated solver state (assertions, etc.) is still available.
+    match (track, last_result) {
+        (SolverTrack::UnsatCore, Some("unsat")) => {
+            match ctx.execute_script("(get-unsat-core)") {
+                Ok(core_lines) => {
+                    for line in &core_lines {
+                        println!("{}", line);
+                    }
+                }
+                Err(e) => {
+                    if verbose {
+                        eprintln!("smtcomp2026: get-unsat-core error: {}", e);
+                    }
+                }
+            }
+        }
+        (SolverTrack::Model, Some("sat")) => {
+            match ctx.execute_script("(get-model)") {
+                Ok(model_lines) => {
+                    for line in &model_lines {
+                        println!("{}", line);
+                    }
+                }
+                Err(e) => {
+                    if verbose {
+                        eprintln!("smtcomp2026: get-model error: {}", e);
+                    }
+                }
+            }
+        }
+        (SolverTrack::Proof, Some("unsat")) => {
+            match ctx.execute_script("(get-proof)") {
+                Ok(proof_lines) => {
+                    for line in &proof_lines {
+                        println!("{}", line);
+                    }
+                }
+                Err(e) => {
+                    if verbose {
+                        eprintln!("smtcomp2026: get-proof error: {}", e);
+                    }
+                }
+            }
+        }
+        // Single / Incremental / mismatched result — nothing extra to emit.
+        _ => {}
+    }
+
+    exit_code
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_track_parse_single() {
+        assert_eq!(SolverTrack::parse("single"), Some(SolverTrack::Single));
+        assert_eq!(SolverTrack::parse("default"), Some(SolverTrack::Single));
+    }
+
+    #[test]
+    fn test_track_parse_incremental() {
+        assert_eq!(
+            SolverTrack::parse("incremental"),
+            Some(SolverTrack::Incremental)
+        );
+    }
+
+    #[test]
+    fn test_track_parse_unsat_core() {
+        assert_eq!(
+            SolverTrack::parse("unsat-core"),
+            Some(SolverTrack::UnsatCore)
+        );
+        assert_eq!(
+            SolverTrack::parse("unsat_core"),
+            Some(SolverTrack::UnsatCore)
+        );
+    }
+
+    #[test]
+    fn test_track_parse_model() {
+        assert_eq!(SolverTrack::parse("model"), Some(SolverTrack::Model));
+        assert_eq!(
+            SolverTrack::parse("model_validation"),
+            Some(SolverTrack::Model)
+        );
+    }
+
+    #[test]
+    fn test_track_parse_proof() {
+        assert_eq!(SolverTrack::parse("proof"), Some(SolverTrack::Proof));
+        assert_eq!(
+            SolverTrack::parse("proof_exhibition"),
+            Some(SolverTrack::Proof)
+        );
+    }
+
+    #[test]
+    fn test_track_parse_unknown_returns_none() {
+        assert_eq!(SolverTrack::parse("bogus"), None);
+        assert_eq!(SolverTrack::parse(""), None);
+    }
+
+    #[test]
+    fn test_track_default_is_single() {
+        let t = SolverTrack::default();
+        assert_eq!(t, SolverTrack::Single);
     }
 }
