@@ -9,6 +9,8 @@ mod vsids_ml;
 pub use features::{BranchingFeatures, FeatureCache, FeatureExtractor};
 pub use learner::{BranchingConfig, BranchingLearner, BranchingStats};
 pub use vsids_ml::{MLEnhancedVSIDS, VSIDSConfig};
+pub mod sat_adapter;
+pub use sat_adapter::MLBranchingHeuristic;
 
 /// Variable ID type (re-export from oxiz-sat)
 pub type VarId = usize;

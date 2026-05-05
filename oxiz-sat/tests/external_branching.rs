@@ -80,8 +80,7 @@ fn test_external_branching_default_none() {
 fn test_external_branching_field_accepts_arc_mutex() {
     // Verify that a BoxedBranchingHeuristic can be stored and retrieved from SolverConfig.
     let heuristic: BoxedBranchingHeuristic = Arc::new(Mutex::new(CountingHeuristic::new()));
-    let mut config = SolverConfig::default();
-    config.external_branching = Some(heuristic);
+    let config = SolverConfig { external_branching: Some(heuristic), ..SolverConfig::default() };
     assert!(config.external_branching.is_some());
 }
 
@@ -89,10 +88,7 @@ fn test_external_branching_field_accepts_arc_mutex() {
 fn test_external_branching_called_during_solve() {
     // Verify the heuristic is actually invoked when the solver makes decisions.
     let heuristic = Arc::new(Mutex::new(CountingHeuristic::new()));
-
-    let mut config = SolverConfig::default();
-    config.external_branching = Some(heuristic.clone());
-
+    let config = SolverConfig { external_branching: Some(heuristic.clone()), ..SolverConfig::default() };
     let mut solver = Solver::with_config(config);
     build_simple_sat(&mut solver);
 
@@ -110,9 +106,7 @@ fn test_external_branching_called_during_solve() {
 #[test]
 fn test_external_branching_deferring_still_solves() {
     // When the heuristic always defers, the solver falls through to built-in VSIDS.
-    let mut config = SolverConfig::default();
-    config.external_branching = Some(Arc::new(Mutex::new(DeferringHeuristic)));
-
+    let config = SolverConfig { external_branching: Some(Arc::new(Mutex::new(DeferringHeuristic))), ..SolverConfig::default() };
     let mut solver = Solver::with_config(config);
     build_simple_sat(&mut solver);
 
@@ -123,9 +117,7 @@ fn test_external_branching_deferring_still_solves() {
 #[test]
 fn test_external_branching_unsat_formula() {
     // External heuristic should not prevent UNSAT detection.
-    let mut config = SolverConfig::default();
-    config.external_branching = Some(Arc::new(Mutex::new(CountingHeuristic::new())));
-
+    let config = SolverConfig { external_branching: Some(Arc::new(Mutex::new(CountingHeuristic::new()))), ..SolverConfig::default() };
     let mut solver = Solver::with_config(config);
     let a = solver.new_var();
     solver.add_clause([Lit::pos(a)]);
@@ -138,9 +130,7 @@ fn test_external_branching_unsat_formula() {
 #[test]
 fn test_external_branching_highest_score_heuristic_solves() {
     // A non-trivial heuristic (pick highest-score candidate) should still yield SAT.
-    let mut config = SolverConfig::default();
-    config.external_branching = Some(Arc::new(Mutex::new(HighestScoreHeuristic)));
-
+    let config = SolverConfig { external_branching: Some(Arc::new(Mutex::new(HighestScoreHeuristic))), ..SolverConfig::default() };
     let mut solver = Solver::with_config(config);
     build_simple_sat(&mut solver);
 
@@ -165,9 +155,7 @@ fn test_external_branching_scores_parallel_to_candidates() {
     }
 
     let heuristic = Arc::new(Mutex::new(LengthCheckHeuristic { lengths_matched: true }));
-
-    let mut config = SolverConfig::default();
-    config.external_branching = Some(heuristic.clone());
+    let config = SolverConfig { external_branching: Some(heuristic.clone()), ..SolverConfig::default() };
 
     let mut solver = Solver::with_config(config);
     // Use a slightly larger formula so the heuristic is called with non-trivial candidates.
@@ -197,8 +185,7 @@ fn test_branching_heuristic_trait_object_is_send_sync() {
 fn test_external_branching_config_clone() {
     // SolverConfig derives Clone; make sure the new field doesn't break that.
     let heuristic: BoxedBranchingHeuristic = Arc::new(Mutex::new(DeferringHeuristic));
-    let mut config = SolverConfig::default();
-    config.external_branching = Some(heuristic);
+    let config = SolverConfig { external_branching: Some(heuristic), ..SolverConfig::default() };
 
     // Clone must succeed and the clone must point to the same Arc.
     let config2 = config.clone();

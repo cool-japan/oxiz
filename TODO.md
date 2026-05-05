@@ -546,6 +546,16 @@ oxiz-core (foundation)
 
 ## Recent Achievements
 
+### May 5, 2026 - ML Wiring + Dead Code Cleanup + Bench Calibration (v0.2.2 Pass 2)
+
+- **`MLBranchingHeuristic` adapter**: `oxiz-ml/src/branching/sat_adapter.rs` — `MLEnhancedVSIDS` now implements `BranchingHeuristic` via a thin adapter; ML branching is end-to-end reachable through `SolverConfig::external_branching` → `pick_branch_var`; type bridge `Var(u32) ↔ VarId(usize)` is lossless; confidence gate allows ML deference to VSIDS
+- **Dead code removed**: `oxiz-proof/src/transform.rs` (587 lines) and `oxiz-proof/src/compression.rs` (580 lines) deleted — both referenced non-existent `ProofRule` type; live equivalents in `compress.rs`/`simplify.rs`/`normalize.rs`/`merge.rs` cover the same surface; TODO comment in `lib.rs:84-86` removed
+- **Bench baselines calibrated**: `bv_simple` = 3,916 µs, `lra_simple` = 380 µs, `arrays_simple` = 440 µs (measured on host); BV/LRA/Arrays regression gate is now functional with ±25% envelope
+- **Pre-existing websocket doctest fixed**: `tokio_test::block_on` → `tokio::runtime::Runtime::new().unwrap().block_on` (tokio is already a dev-dep); unblocks `--all-features` doctest runs
+- **Tests**: +6 new `oxiz-ml/tests/sat_integration.rs` tests; 6,629 total passing; 0 failures; 0 clippy warnings
+- **New files**: `oxiz-ml/src/branching/sat_adapter.rs`, `oxiz-ml/tests/sat_integration.rs`
+- **Deleted files**: `oxiz-proof/src/transform.rs`, `oxiz-proof/src/compression.rs` (−1,167 lines)
+
 ### May 5, 2026 - v0.3.0 Infrastructure Push (v0.2.2)
 
 - **SMT-COMP 2026 entry complete**: `Track` enum (5 variants), per-track `starexec_run_*` scripts, `smtcomp2026 --track` flag, `scripts/package_smtcomp.sh` packaging script; `submission` module wired into public API

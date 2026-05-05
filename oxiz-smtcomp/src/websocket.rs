@@ -18,7 +18,7 @@
 //! use std::net::SocketAddr;
 //! use std::time::Duration;
 //!
-//! # tokio_test::block_on(async {
+//! # tokio::runtime::Runtime::new().unwrap().block_on(async {
 //! let addr: SocketAddr = "127.0.0.1:9090".parse().unwrap();
 //! let server = WsProgressServer::new(addr);
 //! let callback = server.progress_callback();
