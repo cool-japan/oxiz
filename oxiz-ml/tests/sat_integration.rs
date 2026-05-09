@@ -48,7 +48,7 @@ struct CountingHeuristic {
 
 impl BranchingHeuristic for CountingHeuristic {
     fn select(&mut self, candidates: &[Var], scores: &[f64]) -> Option<Var> {
-        *self.call_count.lock().unwrap() += 1;
+        *self.call_count.lock().unwrap_or_else(|e| e.into_inner()) += 1;
         if self.always_none {
             return None;
         }
@@ -83,7 +83,7 @@ fn test_solver_routes_through_adapter() {
 
     let result = solver.solve();
     assert_eq!(result, SolverResult::Sat);
-    assert!(*call_count.lock().unwrap() > 0);
+    assert!(*call_count.lock().unwrap_or_else(|e| e.into_inner()) > 0);
 }
 
 #[test]
@@ -111,5 +111,5 @@ fn test_solver_falls_back_when_adapter_returns_none() {
     // The adapter always returns None, so the built-in VSIDS takes over.
     let result = solver.solve();
     assert!(matches!(result, SolverResult::Sat | SolverResult::Unsat));
-    assert!(*call_count.lock().unwrap() > 0);
+    assert!(*call_count.lock().unwrap_or_else(|e| e.into_inner()) > 0);
 }

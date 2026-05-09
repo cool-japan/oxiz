@@ -104,7 +104,7 @@ fn test_external_branching_called_during_solve() {
     assert_eq!(result, SolverResult::Sat, "formula should be satisfiable");
 
     // The heuristic must have been called at least once (one decision needed).
-    let count = heuristic.lock().unwrap().call_count;
+    let count = heuristic.lock().unwrap_or_else(|e| e.into_inner()).call_count;
     assert!(
         count > 0,
         "external heuristic should have been called at least once; got call_count={count}"
@@ -200,7 +200,7 @@ fn test_external_branching_scores_parallel_to_candidates() {
     let _ = solver.solve();
 
     assert!(
-        heuristic.lock().unwrap().lengths_matched,
+        heuristic.lock().unwrap_or_else(|e| e.into_inner()).lengths_matched,
         "candidates and scores must always be the same length"
     );
 }
