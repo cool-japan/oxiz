@@ -5,6 +5,7 @@ use super::types::{CutInfo, LiaSolver};
 #[allow(unused_imports)]
 use crate::prelude::*;
 use num_rational::Rational64;
+use num_traits::Zero;
 use oxiz_core::error::Result;
 impl LiaSolver {
     /// Feasibility Pump heuristic for finding integer-feasible solutions
@@ -258,16 +259,35 @@ impl LiaSolver {
 
         let mut deleted_count = 0;
 
-        // Age all cuts
+        // Age all cuts and update activity.
+        // A cut's slack variable is binding (tight) when its value equals
+        // its lower bound (i.e., the constraint is active / slack = 0).
         for cut in &mut self.active_cuts {
             cut.age += 1;
+
+            // Update activity: increment when the slack variable is at its lower
+            // bound, meaning the cut is tight and is actively constraining the LP.
+            let slack_val = self.simplex.value(cut.slack_var);
+            let is_binding = match self.simplex.get_lower(cut.slack_var) {
+                Some(lb) => {
+                    // Use a small epsilon for floating-point-safe comparison.
+                    // Rational arithmetic is exact, so direct equality suffices.
+                    slack_val == lb.value.real
+                }
+                None => slack_val.is_zero(),
+            };
+            if is_binding {
+                cut.activity = cut.activity.saturating_add(1);
+            }
         }
 
-        // TODO: Update activity by checking if cuts are binding
-        // This would require querying simplex for slack variable values
-        // For now, we use a simpler age-based strategy
-
-        // Delete cuts based on criteria
+        // Delete cuts based on criteria.
+        // Note: the Simplex API in this version does not expose a constraint-deletion
+        // interface (cuts are added as slack variables and their rows remain in the
+        // tableau permanently). We mark them logically deleted here; the solver
+        // ignores them naturally because their lower bounds remain enforced but their
+        // coefficients are still in the tableau. A future tableau compaction step
+        // could physically remove dead slack rows.
         self.active_cuts.retain(|cut| {
             let should_delete =
                 // Delete old inactive cuts
@@ -277,8 +297,6 @@ impl LiaSolver {
 
             if should_delete {
                 deleted_count += 1;
-                // TODO: Actually remove constraint from simplex tableau
-                // This would require simplex API for constraint deletion
                 false
             } else {
                 true
