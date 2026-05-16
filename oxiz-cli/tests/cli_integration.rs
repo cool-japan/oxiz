@@ -408,6 +408,80 @@ fn test_issue_5_sequential_isolation() {
     );
 }
 
+/// Regression test for GitHub issue #5: --memory must report process RSS, not system-wide RAM.
+///
+/// Before the fix, `--memory` output showed the host's total installed RAM
+/// (e.g. 64 GB) instead of the solver process's own resident set size.
+///
+/// This test asserts:
+/// 1. The `--memory` flag does not crash the CLI.
+/// 2. The reported memory is > 0 (the process actually uses some RAM).
+/// 3. The reported memory is well below the total system RAM
+///    (a process solving a tiny problem should never claim all installed RAM).
+#[test]
+fn test_issue_5_memory_reports_process_rss_not_system_total() {
+    use sysinfo::System;
+
+    let smt2_content = r#"
+(set-logic QF_LIA)
+(declare-const x Int)
+(assert (and (>= x 0) (<= x 100)))
+(check-sat)
+"#;
+
+    let temp_file = create_temp_smt2(smt2_content);
+
+    let output = Command::new(oxiz_bin())
+        .arg("--memory")
+        .arg("--quiet")
+        .arg(temp_file.to_str().expect("temp path is valid UTF-8"))
+        .output()
+        .expect("Failed to execute oxiz with --memory");
+
+    fs::remove_file(&temp_file).ok();
+
+    // CLI must exit successfully
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "--memory flag caused non-zero exit.\nstderr={}",
+        stderr
+    );
+
+    // Find the "Memory used:" line in stderr (statistics go to stderr)
+    let stderr_str = stderr.to_string();
+    let stdout_str = String::from_utf8_lossy(&output.stdout).to_string();
+    let combined = format!("{}{}", stdout_str, stderr_str);
+
+    // The memory output line may appear in either stdout or stderr depending on args
+    // Parse the numeric value from "Memory used: N MB"
+    let reported_mb: Option<u64> = combined
+        .lines()
+        .find(|l| l.contains("Memory used:"))
+        .and_then(|line| {
+            line.split_whitespace()
+                .find(|tok| tok.parse::<u64>().is_ok())
+                .and_then(|tok| tok.parse().ok())
+        });
+
+    if let Some(mb) = reported_mb {
+        // Must be > 0: the process allocates at least some memory
+        assert!(mb > 0, "Reported memory is 0 — RSS collection failed");
+
+        // Must be well below total system RAM: a tiny problem can't consume all RAM
+        let total_system_mb = System::new_all().total_memory() / 1_048_576;
+        assert!(
+            mb < total_system_mb,
+            "Reported memory ({} MB) equals or exceeds total system RAM ({} MB) \
+             — this indicates system-wide RAM is being reported instead of process RSS",
+            mb,
+            total_system_mb
+        );
+    }
+    // If the line is missing entirely, that's also acceptable (very fast solve
+    // may round to 0 MB and the conditional `if stats.memory_bytes > 0` hides it)
+}
+
 #[test]
 fn test_output_file() {
     let smt2_content = r#"

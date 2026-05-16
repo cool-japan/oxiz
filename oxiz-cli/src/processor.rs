@@ -650,9 +650,36 @@ pub(crate) fn run_stdin(ctx: &mut Context, args: &Args, verbosity: Verbosity) {
         }
     }
 
+    // Capture process RSS before solving (baseline)
+    let current_pid = Pid::from_u32(std::process::id());
+    let mut sys = if args.memory {
+        let mut s = System::new();
+        s.refresh_processes_specifics(
+            ProcessesToUpdate::Some(&[current_pid]),
+            true,
+            ProcessRefreshKind::nothing().with_memory(),
+        );
+        Some(s)
+    } else {
+        None
+    };
+
     let start = Instant::now();
     let result = execute_and_format(ctx, &script, args);
     let time_ms = start.elapsed().as_millis();
+
+    // Collect process-scope RSS after solving (not system-wide total)
+    let (memory_bytes, peak_memory) = if let Some(ref mut s) = sys {
+        s.refresh_processes_specifics(
+            ProcessesToUpdate::Some(&[current_pid]),
+            true,
+            ProcessRefreshKind::nothing().with_memory(),
+        );
+        let rss = s.process(current_pid).map(|p| p.memory()).unwrap_or(0);
+        (rss, rss)
+    } else {
+        (0, 0)
+    };
 
     let solver_result = SolverResult {
         file: None,
@@ -671,15 +698,15 @@ pub(crate) fn run_stdin(ctx: &mut Context, args: &Args, verbosity: Verbosity) {
     let stats = SolverStats {
         execution_time_ms: time_ms,
         files_processed: 1,
-        memory_bytes: 0,
-        peak_memory_bytes: 0,
+        memory_bytes,
+        peak_memory_bytes: peak_memory,
         success_count: if solver_result.error.is_none() { 1 } else { 0 },
         error_count: if solver_result.error.is_some() { 1 } else { 0 },
         profiling_data: if args.profile {
             Some(vec![ProfilingData {
                 operation: "stdin".to_string(),
                 duration_us: time_ms * 1000,
-                memory_delta_bytes: 0,
+                memory_delta_bytes: memory_bytes as i64,
             }])
         } else {
             None
@@ -695,7 +722,7 @@ pub(crate) fn run_stdin(ctx: &mut Context, args: &Args, verbosity: Verbosity) {
 
     output_results(&[solver_result], args, &stats);
 
-    if args.time && !args.smtcomp {
+    if (args.time || args.memory || args.stats) && !args.smtcomp {
         print_statistics(&stats, args);
     }
 }
