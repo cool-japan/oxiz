@@ -178,12 +178,8 @@ impl ResultantComputer {
 
         // Collect coefficients: coeff_p[i] = coefficient of var^i in p
         // (index 0 = constant term, index deg_p = leading coefficient).
-        let coeff_p: Vec<Polynomial> = (0..=deg_p)
-            .map(|i| p.coeff(var, i as u32))
-            .collect();
-        let coeff_q: Vec<Polynomial> = (0..=deg_q)
-            .map(|i| q.coeff(var, i as u32))
-            .collect();
+        let coeff_p: Vec<Polynomial> = (0..=deg_p).map(|i| p.coeff(var, i as u32)).collect();
+        let coeff_q: Vec<Polynomial> = (0..=deg_q).map(|i| q.coeff(var, i as u32)).collect();
 
         // Build the Sylvester matrix as a Vec<Vec<Polynomial>>.
         // Row layout:
@@ -515,7 +511,10 @@ mod tests {
     /// non-zero constant.
     #[test]
     fn test_resultant_sylvester_linear() {
-        let cfg = ResultantConfig { method: ResultantMethod::Sylvester, ..Default::default() };
+        let cfg = ResultantConfig {
+            method: ResultantMethod::Sylvester,
+            ..Default::default()
+        };
         let mut computer = ResultantComputer::new(cfg);
 
         let var: Var = 0;
@@ -533,22 +532,34 @@ mod tests {
         let res = computer.resultant(&p, &q, var);
 
         // Must be a non-zero constant.
-        assert!(res.is_constant(), "resultant of two linears must be constant; got {res:?}");
-        assert!(!res.is_zero(), "resultant of coprime linears must be non-zero");
+        assert!(
+            res.is_constant(),
+            "resultant of two linears must be constant; got {res:?}"
+        );
+        assert!(
+            !res.is_zero(),
+            "resultant of coprime linears must be non-zero"
+        );
         // Sylvester matrix (p-rows first, then q-rows; coeff index 0 = constant):
         //   Row 0 (p, r=0):  col 0 = coeff_p[0] = -2,  col 1 = coeff_p[1] = 1
         //   Row 1 (q, r=0):  col 0 = coeff_q[0] = -3,  col 1 = coeff_q[1] = 1
         //   det = (-2)(1) - (1)(-3) = -2 + 3 = 1
         let val = res.constant_value();
-        assert_eq!(val, BigRational::from_integer(1.into()),
-            "Res(x-2, x-3) via Sylvester should be 1, got {val}");
+        assert_eq!(
+            val,
+            BigRational::from_integer(1.into()),
+            "Res(x-2, x-3) via Sylvester should be 1, got {val}"
+        );
         assert_eq!(computer.stats().sylvester_determinants, 1);
     }
 
     /// `Res(x² - 5, x² - 2)` should equal 9 (confirmed by SymPy).
     #[test]
     fn test_resultant_sylvester_quadratics() {
-        let cfg = ResultantConfig { method: ResultantMethod::Sylvester, ..Default::default() };
+        let cfg = ResultantConfig {
+            method: ResultantMethod::Sylvester,
+            ..Default::default()
+        };
         let mut computer = ResultantComputer::new(cfg);
 
         let var: Var = 0;
@@ -573,9 +584,15 @@ mod tests {
 
         let res = computer.resultant(&p, &q, var);
 
-        assert!(res.is_constant(), "resultant of two quadratics (same var) must be constant; got {res:?}");
+        assert!(
+            res.is_constant(),
+            "resultant of two quadratics (same var) must be constant; got {res:?}"
+        );
         let val = res.constant_value();
-        assert_eq!(val, BigRational::from_integer(9.into()),
-            "Res(x^2-5, x^2-2) should be 9, got {val}");
+        assert_eq!(
+            val,
+            BigRational::from_integer(9.into()),
+            "Res(x^2-5, x^2-2) should be 9, got {val}"
+        );
     }
 }

@@ -21,11 +21,11 @@
 //! - Gass & Saaty: "The Computational Algorithm for the Parametric Objective Function"
 //! - Z3's `math/lp/parametric_simplex.cpp`
 
-use crate::simplex_solver::{SimplexError, SimplexSolver, SolveStatus};
-#[cfg(test)]
-use crate::simplex_solver::{big_rat, Constraint, ConstraintKind};
 #[allow(unused_imports)]
 use crate::prelude::*;
+#[cfg(test)]
+use crate::simplex_solver::{Constraint, ConstraintKind, big_rat};
+use crate::simplex_solver::{SimplexError, SimplexSolver, SolveStatus};
 use num_rational::BigRational;
 use num_traits::{One, Zero};
 
@@ -234,11 +234,8 @@ impl ParametricSimplexSolver {
             }
 
             // Create interval [current_lambda, next_lambda).
-            let interval = self.create_interval(
-                current_lambda.clone(),
-                next_lambda.clone(),
-                &current_basis,
-            );
+            let interval =
+                self.create_interval(current_lambda.clone(), next_lambda.clone(), &current_basis);
             self.intervals.push(interval);
             self.stats.intervals += 1;
 
@@ -387,11 +384,7 @@ impl ParametricSimplexSolver {
     }
 
     /// Estimate the rate of change dz/dλ at the current optimal basis.
-    fn compute_objective_slope(
-        &self,
-        _lambda: &BigRational,
-        _basis: &[VarId],
-    ) -> BigRational {
+    fn compute_objective_slope(&self, _lambda: &BigRational, _basis: &[VarId]) -> BigRational {
         match self.config.param_type {
             ParametricType::Objective => {
                 // slope = sum_j d_j * x_j  where d_j = parametric_coeffs[j]

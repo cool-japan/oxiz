@@ -193,10 +193,12 @@ impl SimplexSolver {
 
     /// Get objective coefficient `i`.
     pub fn get_objective_coefficient(&self, i: usize) -> Result<&BigRational, SimplexError> {
-        self.obj_coeffs.get(i).ok_or(SimplexError::IndexOutOfBounds {
-            index: i,
-            len: self.n_vars,
-        })
+        self.obj_coeffs
+            .get(i)
+            .ok_or(SimplexError::IndexOutOfBounds {
+                index: i,
+                len: self.n_vars,
+            })
     }
 
     /// Get the RHS of constraint `i`.
@@ -229,7 +231,10 @@ impl SimplexSolver {
     /// Returns an error if `solve()` has not been called yet, or if the
     /// last solve did not yield an optimal solution.
     pub fn shadow_price(&self, i: usize) -> Result<BigRational, SimplexError> {
-        let result = self.last_result.as_ref().ok_or(SimplexError::NotYetSolved)?;
+        let result = self
+            .last_result
+            .as_ref()
+            .ok_or(SimplexError::NotYetSolved)?;
 
         match result.status {
             SolveStatus::Infeasible => return Err(SimplexError::Infeasible),
@@ -265,10 +270,7 @@ impl SimplexSolver {
     /// Stores the result internally so that subsequent `shadow_price()` calls
     /// do not require re-solving.
     pub fn solve(&mut self) -> Result<SolveResult, SimplexError> {
-        let result = self.run_bigm_simplex(
-            &self.obj_coeffs.clone(),
-            &self.constraints.clone(),
-        );
+        let result = self.run_bigm_simplex(&self.obj_coeffs.clone(), &self.constraints.clone());
         self.last_result = Some(result.clone());
         Ok(result)
     }
@@ -309,7 +311,8 @@ impl SimplexSolver {
                 .map(|c| c.abs())
                 .fold(BigRational::zero(), |a, b| if a >= b { a } else { b });
             let base = BigRational::new(BigInt::from(1_000_000i64), BigInt::from(1i64));
-            let scaled = &base * (&max_coeff + BigRational::new(BigInt::from(1i64), BigInt::from(1i64)));
+            let scaled =
+                &base * (&max_coeff + BigRational::new(BigInt::from(1i64), BigInt::from(1i64)));
             if scaled < base { base } else { scaled }
         };
 
@@ -325,8 +328,7 @@ impl SimplexSolver {
 
         // ── build tableau ──────────────────────────────────────────────────
         // tableau[i] has length total_cols + 1 (including RHS).
-        let mut tab: Vec<Vec<BigRational>> =
-            vec![vec![BigRational::zero(); total_cols + 1]; m];
+        let mut tab: Vec<Vec<BigRational>> = vec![vec![BigRational::zero(); total_cols + 1]; m];
 
         // obj_row[j] = reduced cost of column j (minimisation convention).
         let mut obj_row: Vec<BigRational> = vec![BigRational::zero(); total_cols + 1];
@@ -434,7 +436,15 @@ impl SimplexSolver {
             };
 
             // Pivot.
-            Self::pivot_tableau(&mut tab, &mut obj_row, &mut basis, m, leaving, entering, rhs_col);
+            Self::pivot_tableau(
+                &mut tab,
+                &mut obj_row,
+                &mut basis,
+                m,
+                leaving,
+                entering,
+                rhs_col,
+            );
         }
 
         // ── extract solution ───────────────────────────────────────────────
@@ -445,7 +455,9 @@ impl SimplexSolver {
                 values[bv] = tab[i][rhs_col].clone();
             } else if bv >= n + m {
                 // Artificial still in basis with non-zero value → infeasible.
-                if tab[i][rhs_col].abs() > BigRational::new(BigInt::from(1i64), BigInt::from(1_000_000i64)) {
+                if tab[i][rhs_col].abs()
+                    > BigRational::new(BigInt::from(1i64), BigInt::from(1_000_000i64))
+                {
                     return SolveResult {
                         status: SolveStatus::Infeasible,
                         values: vec![BigRational::zero(); n],
@@ -563,7 +575,11 @@ impl SimplexSolver {
                 continue;
             }
             // Borrow pivot row values separately to avoid aliasing.
-            let pivot_row: Vec<BigRational> = tab[leaving].iter().take(total_cols_plus_one).cloned().collect();
+            let pivot_row: Vec<BigRational> = tab[leaving]
+                .iter()
+                .take(total_cols_plus_one)
+                .cloned()
+                .collect();
             for (j, pv) in pivot_row.iter().enumerate() {
                 let v = tab[i][j].clone();
                 tab[i][j] = v - &factor * pv;
@@ -573,7 +589,11 @@ impl SimplexSolver {
         // Eliminate from objective row.
         let obj_factor = obj_row[entering].clone();
         if !obj_factor.is_zero() {
-            let pivot_row: Vec<BigRational> = tab[leaving].iter().take(total_cols_plus_one).cloned().collect();
+            let pivot_row: Vec<BigRational> = tab[leaving]
+                .iter()
+                .take(total_cols_plus_one)
+                .cloned()
+                .collect();
             for (j, pv) in pivot_row.iter().enumerate() {
                 let v = obj_row[j].clone();
                 obj_row[j] = v - &obj_factor * pv;

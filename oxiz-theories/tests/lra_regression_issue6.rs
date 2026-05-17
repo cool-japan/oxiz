@@ -18,8 +18,8 @@
 use num_rational::Rational64;
 use oxiz_core::ast::TermId;
 use oxiz_theories::Theory;
-use oxiz_theories::arithmetic::ArithSolver;
 use oxiz_theories::TheoryCheckResult;
+use oxiz_theories::arithmetic::ArithSolver;
 
 /// Regression test for GitHub issue #6.
 ///
