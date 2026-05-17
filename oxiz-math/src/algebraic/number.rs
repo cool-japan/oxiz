@@ -346,8 +346,16 @@ impl AlgebraicNumber {
             &self.upper * &other.lower,
             &self.upper * &other.upper,
         ];
-        let prod_lower = corners.iter().min_by(|a, b| a.cmp(b)).expect("4 elements").clone();
-        let prod_upper = corners.iter().max_by(|a, b| a.cmp(b)).expect("4 elements").clone();
+        let prod_lower = corners
+            .iter()
+            .min_by(|a, b| a.cmp(b))
+            .expect("4 elements")
+            .clone();
+        let prod_upper = corners
+            .iter()
+            .max_by(|a, b| a.cmp(b))
+            .expect("4 elements")
+            .clone();
 
         isolate_root_in_interval(result_poly, prod_lower, prod_upper)
     }
@@ -1027,9 +1035,7 @@ mod tests {
         // By construction the isolating interval contains exactly one root.
         // Verify: p changes sign across the interval.
         let p = |x: &num_rational::BigRational| {
-            x.clone() * x.clone() * x.clone() * x.clone()
-                - rat(10) * x.clone() * x.clone()
-                + rat(1)
+            x.clone() * x.clone() * x.clone() * x.clone() - rat(10) * x.clone() * x.clone() + rat(1)
         };
 
         // Refine until the interval is very tight (width < 2^{-20}).
@@ -1041,9 +1047,7 @@ mod tests {
 
         // Sign must differ (Intermediate Value Theorem guarantees a root).
         assert!(
-            val_lo.is_negative() != val_hi.is_negative()
-                || val_lo.is_zero()
-                || val_hi.is_zero(),
+            val_lo.is_negative() != val_hi.is_negative() || val_lo.is_zero() || val_hi.is_zero(),
             "expected sign change: p(lo)={:?}, p(hi)={:?}",
             val_lo,
             val_hi
@@ -1085,9 +1089,7 @@ mod tests {
         let val_lo = p(&prod.lower);
         let val_hi = p(&prod.upper);
         assert!(
-            val_lo.is_negative() != val_hi.is_negative()
-                || val_lo.is_zero()
-                || val_hi.is_zero(),
+            val_lo.is_negative() != val_hi.is_negative() || val_lo.is_zero() || val_hi.is_zero(),
             "expected sign change for √6: p(lo)={:?}, p(hi)={:?}",
             val_lo,
             val_hi
@@ -1101,8 +1103,12 @@ mod tests {
         let s2 = sqrt2();
         let result = one.add(&s2).expect("1 + √2 should succeed");
         // 1 + √2 ≈ 2.414; should be in (2, 3).
-        assert!(result.lower < rat(3) && result.upper > rat(2),
-            "1 + √2 expected in (2,3), got [{:?}, {:?}]", result.lower, result.upper);
+        assert!(
+            result.lower < rat(3) && result.upper > rat(2),
+            "1 + √2 expected in (2,3), got [{:?}, {:?}]",
+            result.lower,
+            result.upper
+        );
     }
 
     /// Helpers: poly_substitute_affine_t and univariate_resultant.
@@ -1123,7 +1129,10 @@ mod tests {
         let q = Polynomial::new(vec![rat(-5), rat(1)]); // t - 5
         let res = univariate_resultant(&p, &q);
         // Res(t-3, t-5) = 5 - 3 = 2 (or -2 depending on sign convention; nonzero)
-        assert!(!res.is_zero(), "resultant of coprime linear polys should be nonzero");
+        assert!(
+            !res.is_zero(),
+            "resultant of coprime linear polys should be nonzero"
+        );
     }
 
     #[test]
