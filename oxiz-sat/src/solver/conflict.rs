@@ -130,6 +130,16 @@ impl Solver {
         self.chb.bump_batch(&vars_to_bump);
         self.lrb.on_reason_batch(&vars_to_bump);
 
+        // Notify external heuristic of each conflict-involved variable with its level.
+        if let Some(ref ext) = self.config.external_branching
+            && let Ok(mut h) = ext.lock()
+        {
+            for &var in &vars_to_bump {
+                let level = self.trail.level(var);
+                h.on_conflict_var(var, level);
+            }
+        }
+
         // Set asserting literal (p is guaranteed to be Some at this point)
         if let Some(lit) = p {
             self.learnt[0] = lit.negate();
@@ -430,6 +440,16 @@ impl Solver {
         self.vsids.bump_batch(&vars_to_bump);
         self.chb.bump_batch(&vars_to_bump);
         self.lrb.on_reason_batch(&vars_to_bump);
+
+        // Notify external heuristic of each conflict-involved variable with its level.
+        if let Some(ref ext) = self.config.external_branching
+            && let Ok(mut h) = ext.lock()
+        {
+            for &var in &vars_to_bump {
+                let level = self.trail.level(var);
+                h.on_conflict_var(var, level);
+            }
+        }
 
         // Set asserting literal
         if let Some(uip) = p {

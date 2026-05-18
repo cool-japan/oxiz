@@ -57,6 +57,16 @@ pub use ext::{
     int_numeral, ite_bool, ite_bv, ite_int, ite_real, real_numeral,
 };
 
+// Extended Z3 API surfaces #2: Statistics, Params, Probe, Goal/Tactic,
+// DatatypeSort, check_assumptions/unsat_core, AstVector.
+#[path = "z3_compat_ext2.rs"]
+pub mod ext2;
+pub use ext2::{
+    DtConstructor, DtDecl, DtField, DtSelector, DtSort, Z3AstVector, Z3ApplyResult,
+    Z3Constructor, Z3DatatypeSort, Z3Field, Z3Goal, Z3Params, Z3Probe, Z3Statistics, Z3Tactic,
+    ParamVal, mk_constructor,
+};
+
 // ─── Z3Config ────────────────────────────────────────────────────────────────
 
 /// Analogue of `z3::Config`.

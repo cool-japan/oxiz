@@ -1,5 +1,6 @@
 //! Integration tests: MLBranchingHeuristic wired into oxiz-sat Solver.
 
+
 use std::sync::{Arc, Mutex};
 
 use oxiz_ml::branching::{MLBranchingHeuristic, MLEnhancedVSIDS};
@@ -112,4 +113,28 @@ fn test_solver_falls_back_when_adapter_returns_none() {
     let result = solver.solve();
     assert!(matches!(result, SolverResult::Sat | SolverResult::Unsat));
     assert!(*call_count.lock().unwrap_or_else(|e| e.into_inner()) > 0);
+}
+
+// ---------------------------------------------------------------------------
+// Test: on_conflict_var is forwarded from MLBranchingHeuristic to MLEnhancedVSIDS
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_adapter_forwards_conflict_var() {
+    // MLEnhancedVSIDS.update_conflict bumps the variable's activity score.
+    // We call on_conflict_var and verify activity increased from its initial 0.0.
+    let vsids = MLEnhancedVSIDS::default_config();
+    let mut adapter = MLBranchingHeuristic::new(vsids);
+
+    let initial_activity = adapter.inner().get_activity(2);
+    assert_eq!(initial_activity, 0.0, "initial activity should be zero");
+
+    // Simulate receiving a conflict notification for variable 2 at decision level 3.
+    adapter.on_conflict_var(Var::new(2), 3);
+
+    let updated_activity = adapter.inner().get_activity(2);
+    assert!(
+        updated_activity > initial_activity,
+        "activity must increase after on_conflict_var; got {updated_activity}"
+    );
 }

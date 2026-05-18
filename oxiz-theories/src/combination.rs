@@ -50,6 +50,7 @@
 
 use crate::arithmetic::ArithSolver;
 use crate::euf::EufSolver;
+use crate::lru_cache::LruCache;
 #[allow(unused_imports)]
 use crate::prelude::*;
 use crate::theory::{Theory, TheoryId, TheoryResult};
@@ -199,8 +200,8 @@ pub struct TheoryCombiner {
     context_stack: Vec<CombinerState>,
     /// Theory combination mode
     mode: CombinationMode,
-    /// Cache of theory lemmas to avoid recomputation
-    lemma_cache: FxHashSet<TheoryLemma>,
+    /// Cache of theory lemmas to avoid recomputation (bounded LRU)
+    lemma_cache: LruCache<TheoryLemma, ()>,
     /// Current arrangement being tested (for model-based)
     current_arrangement: Option<EqualityArrangement>,
     /// Relevancy tracking: terms that are relevant to the current search
@@ -222,6 +223,12 @@ pub struct CombinerStats {
     pub lemmas_cached: u64,
     /// Number of relevancy propagations
     pub relevancy_propagations: u64,
+    /// Number of lemma cache hits (contains_key returned true)
+    pub lemma_cache_hits: u64,
+    /// Number of lemma cache misses (contains_key returned false)
+    pub lemma_cache_misses: u64,
+    /// Number of lemma cache evictions due to capacity limit
+    pub lemma_cache_evictions: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -247,6 +254,7 @@ impl TheoryCombiner {
     /// Create a new theory combiner with specified mode
     #[must_use]
     pub fn with_mode(mode: CombinationMode) -> Self {
+        const DEFAULT_MAX_LEMMA_CACHE_SIZE: usize = 10_000;
         Self {
             euf: EufSolver::new(),
             arith: ArithSolver::lra(),
@@ -255,7 +263,26 @@ impl TheoryCombiner {
             pending_equalities: Vec::new(),
             context_stack: Vec::new(),
             mode,
-            lemma_cache: FxHashSet::default(),
+            lemma_cache: LruCache::new(DEFAULT_MAX_LEMMA_CACHE_SIZE),
+            current_arrangement: None,
+            relevant_terms: FxHashSet::default(),
+            stats: CombinerStats::default(),
+        }
+    }
+
+    /// Create a new theory combiner with a specified lemma cache size
+    #[must_use]
+    pub fn with_max_lemma_cache_size(max_size: usize) -> Self {
+        let effective = max_size.max(1);
+        Self {
+            euf: EufSolver::new(),
+            arith: ArithSolver::lra(),
+            shared_vars: FxHashSet::default(),
+            term_theory: FxHashMap::default(),
+            pending_equalities: Vec::new(),
+            context_stack: Vec::new(),
+            mode: CombinationMode::NelsonOppen,
+            lemma_cache: LruCache::new(effective),
             current_arrangement: None,
             relevant_terms: FxHashSet::default(),
             stats: CombinerStats::default(),
@@ -672,13 +699,14 @@ impl TheoryCombiner {
     /// Cache a theory lemma to avoid recomputation
     ///
     /// This also checks for subsumption: if a stronger lemma is already cached,
-    /// we don't need to cache this weaker one
+    /// we don't need to cache this weaker one.  The cache is bounded by
+    /// `max_lemma_cache_size`; when full, the LRU entry is evicted automatically.
     fn cache_lemma(&mut self, lemma: TheoryLemma) {
         // Check if any existing lemma is stronger
         let has_stronger = self
             .lemma_cache
             .iter()
-            .any(|existing| existing.is_stronger_than(&lemma));
+            .any(|(existing, _)| existing.is_stronger_than(&lemma));
 
         if has_stronger {
             // Don't cache this lemma - we already have a stronger one
@@ -686,19 +714,29 @@ impl TheoryCombiner {
         }
 
         // Remove any weaker lemmas before caching this one
-        self.lemma_cache
-            .retain(|existing| !lemma.is_stronger_than(existing));
+        let weaker_keys: Vec<TheoryLemma> = self
+            .lemma_cache
+            .iter()
+            .filter(|(existing, _)| lemma.is_stronger_than(existing))
+            .map(|(k, _)| k.clone())
+            .collect();
+        for key in weaker_keys {
+            self.lemma_cache.remove(&key);
+        }
 
-        if self.lemma_cache.insert(lemma) {
+        // Sync eviction count from cache before insertion
+        let (_hits, _misses, evictions_before) = self.lemma_cache.stats();
+
+        if self.lemma_cache.insert(lemma, ()) {
             self.stats.lemmas_cached += 1;
         }
-    }
 
-    /// Check if a lemma is cached (internal use only)
-    #[must_use]
-    #[allow(dead_code)]
-    fn is_lemma_cached(&self, lemma: &TheoryLemma) -> bool {
-        self.lemma_cache.contains(lemma)
+        // Detect if eviction occurred (capacity enforced by LruCache::insert)
+        let (_hits2, _misses2, evictions_after) = self.lemma_cache.stats();
+        if evictions_after > evictions_before {
+            self.stats.lemma_cache_evictions +=
+                (evictions_after - evictions_before) as u64;
+        }
     }
 
     /// Check if a lemma is subsumed by any cached lemma
@@ -717,7 +755,7 @@ impl TheoryCombiner {
 
         self.lemma_cache
             .iter()
-            .any(|existing| existing.subsumes(&test_lemma) || existing == &test_lemma)
+            .any(|(existing, _)| existing.subsumes(&test_lemma) || existing == &test_lemma)
     }
 
     /// Get the number of cached lemmas
@@ -739,15 +777,26 @@ impl TheoryCombiner {
         self.relevant_terms.is_empty() || self.relevant_terms.contains(&term)
     }
 
-    /// Get statistics
+    /// Get statistics, updated with current LRU cache counters
     #[must_use]
-    pub fn stats(&self) -> &CombinerStats {
-        &self.stats
+    pub fn stats(&self) -> CombinerStats {
+        let (lru_hits, lru_misses, lru_evictions) = self.lemma_cache.stats();
+        CombinerStats {
+            equalities_propagated: self.stats.equalities_propagated,
+            theory_checks: self.stats.theory_checks,
+            conflicts: self.stats.conflicts,
+            lemmas_cached: self.stats.lemmas_cached,
+            relevancy_propagations: self.stats.relevancy_propagations,
+            lemma_cache_hits: lru_hits as u64,
+            lemma_cache_misses: lru_misses as u64,
+            lemma_cache_evictions: lru_evictions as u64,
+        }
     }
 
     /// Reset statistics
     pub fn reset_stats(&mut self) {
         self.stats = CombinerStats::default();
+        self.lemma_cache.reset_stats();
     }
 
     /// Extract equalities between shared variables from EUF
@@ -790,21 +839,15 @@ impl TheoryCombiner {
         if let Some(state) = self.context_stack.pop() {
             self.pending_equalities.truncate(state.num_pending);
 
-            // Restore relevant terms
-            // Note: We can't easily truncate HashSet, so we use a simplified approach
-            // A production implementation would use a trail-based data structure
-            if self.relevant_terms.len() > state.relevant_terms_size {
-                // For simplicity, we just note that we should clean up
-                // A full implementation would maintain a trail of relevant terms
-            }
+            // Restore lemma cache to saved size, evicting the most-recently-added
+            // entries (LRU tail = oldest entry, so truncate_to evicts the LRU ones
+            // that were added during this scope).
+            self.lemma_cache.truncate_to(state.lemma_cache_size);
 
-            // Restore lemma cache size
-            // Note: We can't easily remove from HashSet, so we clear and rebuild
-            // A production implementation would use a better data structure
-            if self.lemma_cache.len() > state.lemma_cache_size {
-                // For simplicity, we just note that we should clean up
-                // A full implementation would maintain a trail of lemmas
-            }
+            // Relevant terms: a full trail-based structure would be needed for
+            // precise restoration; we conservatively leave them in place because
+            // keeping extra relevant terms is safe (they are hints, not assertions).
+            let _ = state.relevant_terms_size;
 
             self.euf.pop();
             self.arith.pop();
@@ -1141,6 +1184,13 @@ impl Purifier {
 mod tests {
     use super::*;
 
+    impl TheoryCombiner {
+        /// Check if a lemma is cached (exact match) — test helper only
+        fn is_lemma_cached(&self, lemma: &TheoryLemma) -> bool {
+            self.lemma_cache.contains_key(lemma)
+        }
+    }
+
     #[test]
     fn test_theory_combiner_basic() {
         let mut combiner = TheoryCombiner::new();
@@ -1416,5 +1466,74 @@ mod tests {
 
         // Test if a non-subsumed lemma is not detected
         assert!(!combiner.is_lemma_subsumed(&[TermId::new(5)], &[TermId::new(6)], TheoryId::EUF));
+    }
+
+    // ---- New LRU-cache integration tests ----
+
+    #[test]
+    fn test_lru_cache_evicts_at_capacity() {
+        use crate::lru_cache::LruCache;
+        let mut cache: LruCache<i32, ()> = LruCache::new(3);
+        cache.insert(1, ());
+        cache.insert(2, ());
+        cache.insert(3, ());
+        cache.insert(4, ()); // should evict 1 (LRU)
+        assert!(!cache.contains_key(&1), "entry 1 should have been evicted");
+        assert!(cache.contains_key(&4), "entry 4 should be present");
+        assert_eq!(cache.len(), 3);
+    }
+
+    #[test]
+    fn test_lru_cache_truncate_to() {
+        use crate::lru_cache::LruCache;
+        let mut cache: LruCache<i32, ()> = LruCache::new(100);
+        for i in 0..5 {
+            cache.insert(i, ());
+        }
+        cache.truncate_to(2);
+        assert_eq!(cache.len(), 2);
+    }
+
+    #[test]
+    fn test_lru_cache_iter_yields_all() {
+        use crate::lru_cache::LruCache;
+        let mut cache: LruCache<i32, ()> = LruCache::new(10);
+        for i in 0..3 {
+            cache.insert(i, ());
+        }
+        assert_eq!(cache.iter().count(), 3);
+    }
+
+    #[test]
+    fn test_lemma_cache_enforces_max_size() {
+        // Create a combiner with a tiny cache and push many lemmas
+        let mut combiner = TheoryCombiner::with_max_lemma_cache_size(5);
+
+        for i in 0..10_u32 {
+            let lemma = TheoryLemma {
+                assumptions: vec![TermId::new(100 + i)],
+                conclusion: vec![TermId::new(200 + i)],
+                theory: TheoryId::EUF,
+            };
+            combiner.cache_lemma(lemma);
+        }
+
+        // The LRU cache must enforce the capacity
+        assert!(
+            combiner.lemma_cache_size() <= 5,
+            "lemma cache exceeded max size: {}",
+            combiner.lemma_cache_size()
+        );
+    }
+
+    #[test]
+    fn test_lemma_cache_stats_exposed() {
+        use crate::lru_cache::LruCache;
+        let mut cache: LruCache<i32, i32> = LruCache::new(3);
+        cache.insert(1, 10);
+        let _ = cache.get(&1); // hit
+        let _ = cache.get(&99); // miss
+        let (hits, misses, _evictions) = cache.stats();
+        assert!(hits > 0 || misses > 0, "at least one stat should be nonzero");
     }
 }

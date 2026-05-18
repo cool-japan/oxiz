@@ -14,6 +14,7 @@ mod interactive;
 mod interpolate;
 mod learning;
 mod lsp;
+mod memory;
 mod model_counter;
 mod portfolio;
 mod processor;

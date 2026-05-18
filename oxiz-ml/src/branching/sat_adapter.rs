@@ -57,4 +57,8 @@ impl BranchingHeuristic for MLBranchingHeuristic {
         }
         Some(Var::new(decision.variable as u32))
     }
+
+    fn on_conflict_var(&mut self, var: Var, level: u32) {
+        self.inner.update_conflict(var.index(), level as f64);
+    }
 }

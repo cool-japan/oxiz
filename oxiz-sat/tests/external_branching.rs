@@ -40,6 +40,26 @@ impl BranchingHeuristic for DeferringHeuristic {
     }
 }
 
+/// A heuristic that counts on_conflict_var invocations.
+/// Does not override select (uses default no-op for conflict calls
+/// in structs that do override — but here we track via a shared counter).
+struct ConflictCountingHeuristic {
+    conflict_hook_count: Arc<Mutex<usize>>,
+}
+
+impl BranchingHeuristic for ConflictCountingHeuristic {
+    fn select(&mut self, _candidates: &[Var], _scores: &[f64]) -> Option<Var> {
+        None // always defer so built-in VSIDS drives the solve
+    }
+
+    fn on_conflict_var(&mut self, _var: Var, _level: u32) {
+        *self
+            .conflict_hook_count
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) += 1;
+    }
+}
+
 /// A heuristic that picks the candidate with the highest VSIDS score.
 struct HighestScoreHeuristic;
 
@@ -233,4 +253,53 @@ fn test_external_branching_config_clone() {
     // Clone must succeed and the clone must point to the same Arc.
     let config2 = config.clone();
     assert!(config2.external_branching.is_some());
+}
+
+#[test]
+fn test_external_branching_receives_conflict_calls() {
+    // Wire a ConflictCountingHeuristic as external_branching.
+    // Solve PHP(3,2) — 3 pigeons, 2 holes — which is UNSAT and requires real CDCL
+    // search with genuine conflict analysis (not resolvable by unit propagation alone).
+    // Assert that on_conflict_var was invoked at least once.
+    let conflict_hook_count = Arc::new(Mutex::new(0usize));
+
+    let heuristic = Arc::new(Mutex::new(ConflictCountingHeuristic {
+        conflict_hook_count: Arc::clone(&conflict_hook_count),
+    }));
+
+    let config = SolverConfig {
+        external_branching: Some(heuristic),
+        ..SolverConfig::default()
+    };
+    let mut solver = Solver::with_config(config);
+
+    // PHP(3,2): variables p_ij = pigeon i in hole j
+    // p11=0, p12=1, p21=2, p22=3, p31=4, p32=5
+    for _ in 0..6 {
+        solver.new_var();
+    }
+
+    // Each pigeon must be in at least one hole
+    solver.add_clause_dimacs(&[1, 2]); // p1 in h1 or h2
+    solver.add_clause_dimacs(&[3, 4]); // p2 in h1 or h2
+    solver.add_clause_dimacs(&[5, 6]); // p3 in h1 or h2
+
+    // At most one pigeon per hole (pairwise exclusion)
+    solver.add_clause_dimacs(&[-1, -3]); // not (p1h1 and p2h1)
+    solver.add_clause_dimacs(&[-1, -5]); // not (p1h1 and p3h1)
+    solver.add_clause_dimacs(&[-3, -5]); // not (p2h1 and p3h1)
+    solver.add_clause_dimacs(&[-2, -4]); // not (p1h2 and p2h2)
+    solver.add_clause_dimacs(&[-2, -6]); // not (p1h2 and p3h2)
+    solver.add_clause_dimacs(&[-4, -6]); // not (p2h2 and p3h2)
+
+    let result = solver.solve();
+    assert_eq!(result, SolverResult::Unsat, "PHP(3,2) must be UNSAT");
+
+    let hook_calls = *conflict_hook_count
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    assert!(
+        hook_calls > 0,
+        "on_conflict_var must have been called at least once during conflict analysis; got {hook_calls}"
+    );
 }

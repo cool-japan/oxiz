@@ -16,7 +16,6 @@ use globset::{Glob, GlobSetBuilder};
 use indicatif::{ProgressBar, ProgressStyle};
 use notify::{RecursiveMode, Watcher};
 use rayon::prelude::*;
-use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 use walkdir::WalkDir;
 
 use oxiz_solver::Context;
@@ -28,6 +27,7 @@ use crate::{Args, InputFormat, Verbosity, apply_solver_options, execute_and_form
 use crate::cache;
 use crate::cicd;
 use crate::dimacs;
+use crate::memory;
 use crate::tptp;
 
 // Import from crate::format
@@ -63,18 +63,7 @@ pub(crate) fn run_files(ctx: &mut Context, args: &Args, verbosity: Verbosity) {
         .map(|path| cache::BenchmarkTracker::new(path.clone()));
 
     let start_time = Instant::now();
-    let current_pid = Pid::from_u32(std::process::id());
-    let mut sys = if args.memory {
-        let mut s = System::new();
-        s.refresh_processes_specifics(
-            ProcessesToUpdate::Some(&[current_pid]),
-            true,
-            ProcessRefreshKind::nothing().with_memory(),
-        );
-        Some(s)
-    } else {
-        None
-    };
+    let track_memory = args.memory;
 
     let results = if args.parallel && files.len() > 1 {
         process_files_parallel(&files, ctx, args, verbosity, &mut result_cache)
@@ -95,15 +84,9 @@ pub(crate) fn run_files(ctx: &mut Context, args: &Args, verbosity: Verbosity) {
         0
     };
 
-    // Collect memory statistics (process-scope resident set size, not system-wide)
-    let (memory_bytes, peak_memory) = if let Some(ref mut s) = sys {
-        s.refresh_processes_specifics(
-            ProcessesToUpdate::Some(&[current_pid]),
-            true,
-            ProcessRefreshKind::nothing().with_memory(),
-        );
-        let rss = s.process(current_pid).map(|p| p.memory()).unwrap_or(0);
-        (rss, rss)
+    // Collect memory statistics – current RSS plus the OS-level peak (VmHWM on Linux).
+    let (memory_bytes, peak_memory) = if track_memory {
+        memory::rss_and_peak()
     } else {
         (0, 0)
     };
@@ -696,33 +679,15 @@ pub(crate) fn run_stdin(ctx: &mut Context, args: &Args, verbosity: Verbosity) {
         }
     }
 
-    // Capture process RSS before solving (baseline)
-    let current_pid = Pid::from_u32(std::process::id());
-    let mut sys = if args.memory {
-        let mut s = System::new();
-        s.refresh_processes_specifics(
-            ProcessesToUpdate::Some(&[current_pid]),
-            true,
-            ProcessRefreshKind::nothing().with_memory(),
-        );
-        Some(s)
-    } else {
-        None
-    };
+    let track_memory = args.memory;
 
     let start = Instant::now();
     let result = execute_and_format(ctx, &script, args);
     let time_ms = start.elapsed().as_millis();
 
-    // Collect process-scope RSS after solving (not system-wide total)
-    let (memory_bytes, peak_memory) = if let Some(ref mut s) = sys {
-        s.refresh_processes_specifics(
-            ProcessesToUpdate::Some(&[current_pid]),
-            true,
-            ProcessRefreshKind::nothing().with_memory(),
-        );
-        let rss = s.process(current_pid).map(|p| p.memory()).unwrap_or(0);
-        (rss, rss)
+    // Collect process-scope RSS after solving – current + OS-level peak (VmHWM on Linux).
+    let (memory_bytes, peak_memory) = if track_memory {
+        memory::rss_and_peak()
     } else {
         (0, 0)
     };

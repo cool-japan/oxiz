@@ -605,6 +605,37 @@ impl Context {
         )
     }
 
+    /// Return the raw solver statistics (crate-internal use only).
+    #[must_use]
+    pub(crate) fn raw_statistics(&self) -> &crate::solver::Statistics {
+        self.solver.get_statistics()
+    }
+
+    /// Return the current solver configuration (crate-internal use only).
+    #[must_use]
+    pub(crate) fn solver_config(&self) -> &crate::solver::SolverConfig {
+        self.solver.config()
+    }
+
+    /// Update the solver configuration (crate-internal use only).
+    pub(crate) fn set_solver_config(&mut self, config: crate::solver::SolverConfig) {
+        self.solver.set_config(config);
+    }
+
+    /// Check satisfiability under temporary assumptions (crate-internal use only).
+    pub(crate) fn check_with_assumptions_raw(
+        &mut self,
+        assumptions: &[oxiz_core::ast::TermId],
+    ) -> crate::solver::SolverResult {
+        self.solver.check_with_assumptions(assumptions, &mut self.terms)
+    }
+
+    /// Return the unsat core from the last check (crate-internal use only).
+    #[must_use]
+    pub(crate) fn get_unsat_core_raw(&self) -> Option<&crate::solver::UnsatCore> {
+        self.solver.get_unsat_core()
+    }
+
     /// Parse a sort name and return its SortId
     fn parse_sort_name(&mut self, name: &str) -> SortId {
         match name {
