@@ -643,10 +643,6 @@ mod tests {
         big_rat(n, 1)
     }
 
-    fn frac(num: i64, den: i64) -> BigRational {
-        big_rat(num, den)
-    }
-
     /// Helper: build a `SimplexSolver` for a 2-variable LP.
     ///
     /// Minimise  c1*x1 + c2*x2

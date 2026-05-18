@@ -46,11 +46,11 @@ OxiZ has achieved **100% correctness parity with Z3** across all 88 benchmark te
 
 ---
 
-## Current Statistics (v0.2.2 - May 5, 2026)
+## Current Statistics (v0.2.2 - May 18, 2026)
 
-- **Rust Lines of Code**: ~443,500 total (net ~1,500 new lines)
-- **Rust Files**: 985+ (16 new files)
-- **Unit Tests**: 6,436+ passing (0 failures)
+- **Rust Lines of Code**: ~444,500 total (net ~1,000 new lines)
+- **Rust Files**: 987+ (2 new files this pass)
+- **Unit Tests**: 6,707 passing (0 failures)
 - **Z3 Parity**: **100.0% (88/88)**
 - **Perfect Logics**: **8/8 tested**
 - **Workspace Crates**: 17 (16 Rust crates + 1 TypeScript)
@@ -545,6 +545,15 @@ oxiz-core (foundation)
 ---
 
 ## Recent Achievements
+
+### May 18, 2026 - Z3 Compat Expansion + LIA Heuristics + Dead Code Fixes (v0.2.2 Pass 3)
+
+- **Z3 API compatibility expanded**: `oxiz-solver/src/z3_compat_ext.rs` (746 lines) adds `Array` type (select/store/eq), `FuncDecl` (declaration + application), quantifiers (`forall_bool`/`exists_bool`), `ite` (Bool/Int/Real/BV), `distinct` (Int/Real/BV), `Real` symmetry (`gt`/`ge`/`neg`/`div`/`from_i64`), `Z3Optimize` wrapper around `OmtSolver`; 23 new integration tests in `z3_compat_extensions.rs`
+- **LIA heuristics wired into B&B loop**: `feasibility_pump`, `probe_variables`, `manage_cuts` — all previously dead code with `#[allow(dead_code)]` — are now called from `LiaSolver::check()` (probe + pump before B&B) and `branch_and_bound()` (manage_cuts every 8 levels); 4 new integration tests in `tests/lia_heuristics_integration.rs`
+- **`simplex_solver.rs` policy fix**: removed module-level `#![allow(dead_code)]` + deleted unused `solve_with_rhs_perturbation`; added `test_all_accessors` test activating all 10 public accessors; simplex_parametric.rs also cleaned of module-level allows
+- **LRA #6 regression guard verified**: `lra_regression_issue6.rs` (3 tests) all pass — bound-conflict detection for `x ≤ -1` + `x = -0.25` → UNSAT is correct in the current pipeline
+- **Tests**: +78 new tests (6,629 → 6,707); 0 failures; 0 clippy warnings
+- **New files**: `oxiz-solver/src/z3_compat_ext.rs`, `oxiz-solver/tests/z3_compat_extensions.rs`, `oxiz-theories/tests/lia_heuristics_integration.rs`
 
 ### May 5, 2026 - ML Wiring + Dead Code Cleanup + Bench Calibration (v0.2.2 Pass 2)
 

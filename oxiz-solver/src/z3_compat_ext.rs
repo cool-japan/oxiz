@@ -10,7 +10,6 @@
 //! - Free functions: `distinct_int`, `distinct_real`, `distinct_bv`
 //! - Free functions: `forall_bool`, `exists_bool`
 
-use num_bigint::BigInt;
 use num_rational::Rational64;
 
 use oxiz_core::ast::TermId;
@@ -293,27 +292,34 @@ pub fn exists_bool<'a>(
 /// Analogue of `z3::Optimize`.
 ///
 /// Wraps the native [`Optimizer`] and exposes a Z3-style interface for
-/// optimization modulo theories.  Assertions are accumulated and forwarded to
-/// the underlying optimizer together with a fresh [`TermManager`] when
-/// [`Z3Optimize::check`] is called.
+/// optimization modulo theories.
 ///
 /// # Design
 ///
-/// - Terms are built with the `Z3Context`'s `tm` (as everywhere else in the
-///   compatibility layer).
-/// - When `check()` is called, the stored assertions are asserted into a new
-///   `Optimizer` instance with its own `TermManager`, and then the optimization
-///   loop is run.
-/// - `get_lower`/`get_upper` return the best bound as a string (matching Z3's
-///   `Optimize::get_lower`/`get_upper` behaviour on numeric objectives).
+/// Unlike [`Z3Solver`], which shares its `TermManager` with the user's
+/// `Z3Context`, `Z3Optimize` owns its own `Optimizer` (which in turn owns a
+/// `TermManager` as a mutable borrow at `optimize()` time).  Terms handed to
+/// `assert`, `minimize`, and `maximize` must originate from the **same**
+/// `Z3Context` that was passed to [`Z3Optimize::new`]; they are forwarded to
+/// the optimizer as-is, and the optimizer's `optimize()` call receives a
+/// reference to the same shared `TermManager` via the `RefCell`.
 ///
+/// Concretely: `check()` calls `opt.optimize(&mut *tm_guard)` where
+/// `tm_guard` is a `RefMut` over the `Z3Context`'s `TermManager`.  This
+/// works because `RefMut<TermManager>` derefs to `TermManager`.
+///
+/// `get_lower`/`get_upper` return the best bound as a decimal string,
+/// matching Z3's `Optimize::get_lower`/`get_upper` behaviour on integer or
+/// real objectives.
+///
+/// [`Z3Solver`]: crate::z3_compat::Z3Solver
 /// [`Optimizer`]: crate::optimization::Optimizer
 pub struct Z3Optimize {
-    /// The context used for term construction.
+    /// Shared reference to the context term manager (same as Z3Context).
     ctx_tm: std::rc::Rc<std::cell::RefCell<oxiz_core::ast::TermManager>>,
-    /// Accumulated assertions (TermIds from the context's TermManager).
-    assertions: Vec<TermId>,
-    /// Objective term IDs (index = objective handle returned to caller).
+    /// The underlying optimizer (owns the SAT solver).
+    opt: Optimizer,
+    /// Objective term IDs and directions.
     objectives: Vec<(TermId, ObjectiveDir)>,
     /// Lower-bound strings filled after `check()`.
     lower_bounds: Vec<Option<String>>,
@@ -332,11 +338,14 @@ enum ObjectiveDir {
 
 impl Z3Optimize {
     /// Create a new optimizer associated with `ctx`.
+    ///
+    /// Assertions and objectives must subsequently be built using the same
+    /// `ctx` to guarantee that [`TermId`]s are valid in the shared manager.
     #[must_use]
     pub fn new(ctx: &Z3Context) -> Self {
         Self {
             ctx_tm: ctx.tm.clone(),
-            assertions: Vec::new(),
+            opt: Optimizer::new(),
             objectives: Vec::new(),
             lower_bounds: Vec::new(),
             upper_bounds: Vec::new(),
@@ -346,28 +355,33 @@ impl Z3Optimize {
 
     /// Assert a boolean formula as a hard constraint.
     pub fn assert(&mut self, b: &Bool) {
-        self.assertions.push(b.id);
+        self.opt.assert(b.id);
     }
 
-    /// Add a minimization objective.
+    /// Add a minimization objective for term `t`.
     ///
-    /// Returns an opaque index that can be passed to [`get_lower`]/[`get_upper`].
+    /// Returns an opaque index that can be passed to
+    /// [`get_lower`]/[`get_upper`] after calling [`check`].
     ///
     /// [`get_lower`]: Z3Optimize::get_lower
     /// [`get_upper`]: Z3Optimize::get_upper
+    /// [`check`]: Z3Optimize::check
     pub fn minimize(&mut self, t: TermId) -> usize {
         let idx = self.objectives.len();
+        self.opt.minimize(t);
         self.objectives.push((t, ObjectiveDir::Minimize));
         self.lower_bounds.push(None);
         self.upper_bounds.push(None);
         idx
     }
 
-    /// Add a maximization objective.
+    /// Add a maximization objective for term `t`.
     ///
-    /// Returns an opaque index that can be passed to [`get_lower`]/[`get_upper`].
+    /// Returns an opaque index that can be passed to
+    /// [`get_lower`]/[`get_upper`] after calling [`check`].
     pub fn maximize(&mut self, t: TermId) -> usize {
         let idx = self.objectives.len();
+        self.opt.maximize(t);
         self.objectives.push((t, ObjectiveDir::Maximize));
         self.lower_bounds.push(None);
         self.upper_bounds.push(None);
@@ -376,50 +390,23 @@ impl Z3Optimize {
 
     /// Check satisfiability and optimize all registered objectives.
     ///
-    /// Populates the internal bound tables so that [`get_lower`]/[`get_upper`]
-    /// reflect the results.
-    ///
-    /// [`get_lower`]: Z3Optimize::get_lower
-    /// [`get_upper`]: Z3Optimize::get_upper
+    /// Populates the internal bound tables so that
+    /// [`get_lower`]/[`get_upper`] reflect the results.
     pub fn check(&mut self) -> SatResult {
-        use oxiz_core::ast::TermManager;
-
-        // We re-build a fresh TermManager for the optimizer by cloning the
-        // context's term store.  Cloning is necessary because `Optimizer`
-        // takes mutable ownership of the TermManager during `optimize()`.
-        let mut local_tm = self.ctx_tm.borrow().clone();
-        let mut opt = Optimizer::new();
-
-        // Relay all assertions.
-        for &id in &self.assertions {
-            opt.assert(id);
-        }
-
-        // Register objectives.
-        for &(term_id, dir) in &self.objectives {
-            match dir {
-                ObjectiveDir::Minimize => opt.minimize(term_id),
-                ObjectiveDir::Maximize => opt.maximize(term_id),
-            }
-        }
-
-        let result = opt.optimize(&mut local_tm);
+        // `Optimizer::optimize` requires `&mut TermManager`.  We hold an
+        // `Rc<RefCell<TermManager>>` which we borrow mutably for the duration
+        // of the call.  This is safe because no other borrow is held while
+        // `check()` runs (the Z3Context is not accessed concurrently).
+        let result = self.opt.optimize(&mut self.ctx_tm.borrow_mut());
 
         match &result {
             OptimizationResult::Optimal { value, model: _ } => {
-                // Populate bounds from the optimal value term.
-                let val_str = Self::term_to_string(&local_tm, *value);
-                for (idx, (_, dir)) in self.objectives.iter().enumerate() {
-                    match dir {
-                        ObjectiveDir::Minimize => {
-                            self.lower_bounds[idx] = Some(val_str.clone());
-                            self.upper_bounds[idx] = Some(val_str.clone());
-                        }
-                        ObjectiveDir::Maximize => {
-                            self.lower_bounds[idx] = Some(val_str.clone());
-                            self.upper_bounds[idx] = Some(val_str.clone());
-                        }
-                    }
+                let tm = self.ctx_tm.borrow();
+                let val_str = Self::term_to_string(&tm, *value);
+                drop(tm);
+                for idx in 0..self.objectives.len() {
+                    self.lower_bounds[idx] = Some(val_str.clone());
+                    self.upper_bounds[idx] = Some(val_str.clone());
                 }
                 self.last_result = SatResult::Sat;
             }
@@ -435,20 +422,20 @@ impl Z3Optimize {
     }
 
     /// Return the lower bound for objective `idx` as a string, or `None` if
-    /// the bound is not available.
+    /// the bound is not yet available (before `check()` or after UNSAT).
     #[must_use]
     pub fn get_lower(&self, idx: usize) -> Option<String> {
         self.lower_bounds.get(idx).and_then(|b| b.clone())
     }
 
     /// Return the upper bound for objective `idx` as a string, or `None` if
-    /// the bound is not available.
+    /// the bound is not yet available.
     #[must_use]
     pub fn get_upper(&self, idx: usize) -> Option<String> {
         self.upper_bounds.get(idx).and_then(|b| b.clone())
     }
 
-    /// Format a term value as a string (best-effort; falls back to its TermId).
+    /// Format a term value as a decimal string (best-effort).
     fn term_to_string(tm: &oxiz_core::ast::TermManager, id: TermId) -> String {
         use oxiz_core::ast::TermKind;
         if let Some(t) = tm.get(id) {
@@ -510,7 +497,7 @@ pub fn int_numeral(ctx: &Z3Context, value: i64) -> Int {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::z3_compat::{Z3Config, Z3Context, Z3Solver};
+    use crate::z3_compat::{Z3Config, Z3Context};
     use num_bigint::BigInt;
 
     fn ctx() -> Z3Context {

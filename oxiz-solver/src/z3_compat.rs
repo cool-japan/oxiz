@@ -46,6 +46,17 @@ use crate::Context;
 use crate::SolverResult;
 use crate::solver::SolverConfig;
 
+// Extended Z3 API surfaces: Array, FuncDecl, Z3Optimize, ite_*, distinct_*,
+// forall_bool, exists_bool, plus Real symmetry methods (gt/ge/neg/div/from_i64).
+#[path = "z3_compat_ext.rs"]
+pub mod ext;
+pub use ext::{
+    Array, FuncDecl, Z3Optimize,
+    distinct_bv, distinct_int, distinct_real,
+    exists_bool, forall_bool,
+    int_numeral, ite_bool, ite_bv, ite_int, ite_real, real_numeral,
+};
+
 // ─── Z3Config ────────────────────────────────────────────────────────────────
 
 /// Analogue of `z3::Config`.
