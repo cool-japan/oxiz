@@ -3,6 +3,34 @@
 use super::*;
 use smallvec::SmallVec;
 
+/// Compute LBD (Literals per Block Distance / "glue" score) from a set of variables.
+///
+/// LBD = number of distinct decision levels among the given variables, excluding level 0.
+/// Level-0 variables are excluded because they are consequences of unit propagation at the
+/// root level and are always true — they do not contribute to the "block distance" that
+/// measures how spread across the search tree a learned clause is.
+///
+/// This is an O(n) computation with no heap allocation in the common case (SmallVec<[u32;16]>
+/// avoids a heap allocation for clauses up to 16 distinct decision levels, which covers the
+/// overwhelming majority of real CDCL learned clauses).
+///
+/// # Approximation note
+/// When the actual learned-clause literals are not yet finalized at the call site (e.g. the
+/// asserting literal's placeholder is still unset), the conflict-involved variable set
+/// (`vars_to_bump`) is used as a proxy. This yields a value ≥ the true LBD (since
+/// vars_to_bump is a superset of the 1-UIP learned clause's variables), making it a
+/// conservative overestimate rather than an underestimate.
+fn compute_lbd_from_vars(vars: &[Var], trail: &Trail) -> u32 {
+    let mut levels: SmallVec<[u32; 16]> = SmallVec::new();
+    for &var in vars {
+        let level = trail.level(var);
+        if level > 0 && !levels.contains(&level) {
+            levels.push(level);
+        }
+    }
+    levels.len() as u32
+}
+
 impl Solver {
     /// Analyze conflict and learn clause
     pub(super) fn analyze(&mut self, conflict: ClauseId) -> (u32, SmallVec<[Lit; 16]>) {
@@ -130,13 +158,18 @@ impl Solver {
         self.chb.bump_batch(&vars_to_bump);
         self.lrb.on_reason_batch(&vars_to_bump);
 
-        // Notify external heuristic of each conflict-involved variable with its level.
+        // Compute LBD from vars_to_bump (proxy for the 1-UIP learned clause).
+        // The asserting literal placeholder at self.learnt[0] is not yet finalized
+        // at this point, so we use vars_to_bump — the full set of conflict-involved
+        // variables — as a conservative proxy (LBD >= true clause LBD).
+        let lbd = compute_lbd_from_vars(&vars_to_bump, &self.trail);
+
+        // Notify external heuristic of each conflict-involved variable with the LBD score.
         if let Some(ref ext) = self.config.external_branching
             && let Ok(mut h) = ext.lock()
         {
             for &var in &vars_to_bump {
-                let level = self.trail.level(var);
-                h.on_conflict_var(var, level);
+                h.on_conflict_var_with_lbd(var, lbd);
             }
         }
 
@@ -441,13 +474,18 @@ impl Solver {
         self.chb.bump_batch(&vars_to_bump);
         self.lrb.on_reason_batch(&vars_to_bump);
 
-        // Notify external heuristic of each conflict-involved variable with its level.
+        // Compute LBD from vars_to_bump as a proxy for the learned clause.
+        // For theory conflicts the learned clause shape may differ from SAT conflicts,
+        // but the set of distinct decision levels in vars_to_bump is a sound upper bound
+        // on the true LBD.
+        let lbd = compute_lbd_from_vars(&vars_to_bump, &self.trail);
+
+        // Notify external heuristic of each conflict-involved variable with the LBD score.
         if let Some(ref ext) = self.config.external_branching
             && let Ok(mut h) = ext.lock()
         {
             for &var in &vars_to_bump {
-                let level = self.trail.level(var);
-                h.on_conflict_var(var, level);
+                h.on_conflict_var_with_lbd(var, lbd);
             }
         }
 
@@ -545,5 +583,213 @@ impl Solver {
         }
 
         if min_level == u32::MAX { 0 } else { min_level }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::trail::Trail;
+
+    // ---------------------------------------------------------------------------
+    // Helpers: build a Trail with specific variables at specific decision levels.
+    // ---------------------------------------------------------------------------
+
+    /// Assign `var` at `level` in `trail` (uses a positive literal as a decision).
+    fn assign_at_level(trail: &mut Trail, var: Var, level: u32) {
+        // Wind up the trail to the requested level if needed.
+        while trail.decision_level() < level {
+            trail.new_decision_level();
+        }
+        trail.assign_decision(Lit::pos(var));
+    }
+
+    // ---------------------------------------------------------------------------
+    // Tests for compute_lbd_from_vars
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_compute_lbd_all_same_level() {
+        // Three variables all assigned at level 3 → LBD = 1 (one distinct level).
+        let n = 4;
+        let mut trail = Trail::new(n);
+        // Level 0 is implicit; push 3 levels.
+        trail.new_decision_level(); // → level 1
+        trail.new_decision_level(); // → level 2
+        trail.new_decision_level(); // → level 3
+
+        let v0 = Var::new(0);
+        let v1 = Var::new(1);
+        let v2 = Var::new(2);
+        trail.assign_decision(Lit::pos(v0));
+        trail.assign_decision(Lit::pos(v1));
+        trail.assign_decision(Lit::pos(v2));
+
+        let vars = [v0, v1, v2];
+        let lbd = compute_lbd_from_vars(&vars, &trail);
+        assert_eq!(lbd, 1, "all vars at same level → LBD should be 1");
+    }
+
+    #[test]
+    fn test_compute_lbd_distinct_levels() {
+        // Three variables at levels 1, 2, 3 → LBD = 3.
+        let n = 4;
+        let mut trail = Trail::new(n);
+
+        let v0 = Var::new(0);
+        let v1 = Var::new(1);
+        let v2 = Var::new(2);
+
+        trail.new_decision_level(); // → level 1
+        trail.assign_decision(Lit::pos(v0));
+
+        trail.new_decision_level(); // → level 2
+        trail.assign_decision(Lit::pos(v1));
+
+        trail.new_decision_level(); // → level 3
+        trail.assign_decision(Lit::pos(v2));
+
+        let vars = [v0, v1, v2];
+        let lbd = compute_lbd_from_vars(&vars, &trail);
+        assert_eq!(lbd, 3, "vars at levels 1, 2, 3 → LBD should be 3");
+    }
+
+    #[test]
+    fn test_compute_lbd_excludes_level_zero() {
+        // Variables: one at level 0 (unit prop), two at level 2 → LBD = 1.
+        // Level-0 variables must not be counted.
+        let n = 4;
+        let mut trail = Trail::new(n);
+
+        let v0 = Var::new(0); // Will be at level 0
+        let v1 = Var::new(1); // Will be at level 2
+        let v2 = Var::new(2); // Will be at level 2
+
+        // Assign v0 at level 0 (root decision level, no new_decision_level call).
+        trail.assign_decision(Lit::pos(v0));
+
+        trail.new_decision_level(); // → level 1 (unused)
+        trail.new_decision_level(); // → level 2
+        trail.assign_decision(Lit::pos(v1));
+        trail.assign_decision(Lit::pos(v2));
+
+        let vars = [v0, v1, v2];
+        let lbd = compute_lbd_from_vars(&vars, &trail);
+        assert_eq!(
+            lbd, 1,
+            "level-0 var must be excluded; only level-2 vars count → LBD = 1"
+        );
+    }
+
+    #[test]
+    fn test_compute_lbd_mixed_duplicates_and_zero() {
+        // v0 @ level 0 (excluded), v1 @ level 2, v2 @ level 4, v3 @ level 2 (duplicate)
+        // → distinct non-zero levels: {2, 4} → LBD = 2.
+        let n = 5;
+        let mut trail = Trail::new(n);
+
+        let v0 = Var::new(0);
+        let v1 = Var::new(1);
+        let v2 = Var::new(2);
+        let v3 = Var::new(3);
+
+        trail.assign_decision(Lit::pos(v0)); // level 0
+
+        trail.new_decision_level(); // → 1
+        trail.new_decision_level(); // → 2
+        trail.assign_decision(Lit::pos(v1));
+        trail.assign_decision(Lit::pos(v3));
+
+        trail.new_decision_level(); // → 3
+        trail.new_decision_level(); // → 4
+        trail.assign_decision(Lit::pos(v2));
+
+        let vars = [v0, v1, v2, v3];
+        let lbd = compute_lbd_from_vars(&vars, &trail);
+        assert_eq!(lbd, 2, "levels {{2, 4}} → LBD = 2");
+    }
+
+    #[test]
+    fn test_compute_lbd_empty_vars() {
+        // Empty variable set → LBD = 0.
+        let trail = Trail::new(0);
+        let vars: [Var; 0] = [];
+        let lbd = compute_lbd_from_vars(&vars, &trail);
+        assert_eq!(lbd, 0, "empty var set → LBD = 0");
+    }
+
+    // ---------------------------------------------------------------------------
+    // Integration test: conflict analysis passes LBD to the external hook
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_conflict_analysis_passes_lbd_to_hook() {
+        // Solve PHP(3,2) — the same UNSAT formula used in the external_branching tests.
+        // A ConflictLbdRecordingHeuristic records all LBD values received via
+        // on_conflict_var_with_lbd.  After solving, assert:
+        //   1. at least one call was made (conflicts happened)
+        //   2. all recorded LBD values are > 0 (no degenerate LBD-0 passed through)
+        use crate::solver::heuristic::BranchingHeuristic;
+        use crate::{Solver, SolverConfig, SolverResult};
+        use std::sync::{Arc, Mutex};
+
+        struct ConflictLbdRecordingHeuristic {
+            lbd_values: Arc<Mutex<Vec<u32>>>,
+        }
+
+        impl BranchingHeuristic for ConflictLbdRecordingHeuristic {
+            fn select(&mut self, _candidates: &[Var], _scores: &[f64]) -> Option<Var> {
+                None // always defer — VSIDS drives the solve
+            }
+
+            fn on_conflict_var_with_lbd(&mut self, _var: Var, lbd: u32) {
+                self.lbd_values
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push(lbd);
+            }
+        }
+
+        let lbd_values: Arc<Mutex<Vec<u32>>> = Arc::new(Mutex::new(Vec::new()));
+        let heuristic = Arc::new(Mutex::new(ConflictLbdRecordingHeuristic {
+            lbd_values: Arc::clone(&lbd_values),
+        }));
+
+        let config = SolverConfig {
+            external_branching: Some(heuristic),
+            ..SolverConfig::default()
+        };
+        let mut solver = Solver::with_config(config);
+
+        // PHP(3,2): 6 variables
+        for _ in 0..6 {
+            solver.new_var();
+        }
+        // Each pigeon must be in at least one hole
+        solver.add_clause_dimacs(&[1, 2]);
+        solver.add_clause_dimacs(&[3, 4]);
+        solver.add_clause_dimacs(&[5, 6]);
+        // At most one pigeon per hole
+        solver.add_clause_dimacs(&[-1, -3]);
+        solver.add_clause_dimacs(&[-1, -5]);
+        solver.add_clause_dimacs(&[-3, -5]);
+        solver.add_clause_dimacs(&[-2, -4]);
+        solver.add_clause_dimacs(&[-2, -6]);
+        solver.add_clause_dimacs(&[-4, -6]);
+
+        let result = solver.solve();
+        assert_eq!(result, SolverResult::Unsat, "PHP(3,2) must be UNSAT");
+
+        let values = lbd_values.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(
+            !values.is_empty(),
+            "on_conflict_var_with_lbd must have been called at least once"
+        );
+        for &lbd in values.iter() {
+            assert!(
+                lbd > 0,
+                "LBD passed to hook must be > 0 (got {lbd}); level-0 vars should be excluded"
+            );
+        }
     }
 }

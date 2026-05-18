@@ -12,6 +12,13 @@ use oxiz_core::sort::SortId;
 #[cfg(feature = "std")]
 use std::path::{Path, PathBuf};
 
+/// Raw function interpretation: a list of `(arg_strings, value_string)` entries
+/// together with an `else_value` string and the function arity.
+///
+/// Used as the return type of [`Context::get_func_interp_raw`] to avoid pulling
+/// `oxiz_core::model` types into the public API of this file.
+pub type RawFuncInterp = (Vec<(Vec<String>, String)>, String, usize);
+
 /// A declared constant
 #[derive(Debug, Clone)]
 struct DeclaredConst {
@@ -215,6 +222,11 @@ impl Context {
         })
     }
 
+    /// Iterate over the names of all currently declared uninterpreted functions.
+    pub fn declared_function_names(&self) -> impl Iterator<Item = &str> {
+        self.declared_funs.iter().map(|d| d.name.as_str())
+    }
+
     /// Set the logic
     pub fn set_logic(&mut self, logic: &str) {
         self.logic = Some(logic.to_string());
@@ -368,6 +380,70 @@ impl Context {
         }
 
         Some(model)
+    }
+
+    /// Build a raw function interpretation for a declared uninterpreted function.
+    ///
+    /// Scans the solver's internal model for all `Apply` terms whose function
+    /// symbol matches `func_name`, converts each argument and return value to
+    /// a humanly-readable string, and returns a list of `(arg_strings, value_string)`
+    /// pairs together with an `else_value` string.
+    ///
+    /// Returns `None` when:
+    /// - the last check was not `Sat`, or
+    /// - no model is available.
+    ///
+    /// If the function was declared but no applications appear in the model,
+    /// the returned `Vec` of entries is empty (else_value = `"0"` / default).
+    ///
+    /// The return type is `(entries, else_value_string, arity)` to avoid
+    /// pulling `oxiz_core::model` types into this file.
+    pub fn get_func_interp_raw(
+        &self,
+        func_name: &str,
+    ) -> Option<RawFuncInterp> {
+        if self.last_result != Some(SolverResult::Sat) {
+            return None;
+        }
+        let solver_model = self.solver.model()?;
+
+        // Find the declared function so we know its arity and default sort.
+        let decl = self.declared_funs.iter().find(|d| d.name == func_name)?;
+        let arity = decl.arg_sorts.len();
+        let else_value = self.default_value(decl.ret_sort);
+
+        // Walk all terms in the TermManager looking for Apply nodes whose
+        // func symbol matches `func_name` and that have a model value.
+        let mut entries: Vec<(Vec<String>, String)> = Vec::new();
+        for idx in 0..(self.terms.len() as u32) {
+            let tid = TermId(idx);
+            let Some(term) = self.terms.get(tid) else {
+                continue;
+            };
+            let TermKind::Apply { func: func_spur, args } = &term.kind else {
+                continue;
+            };
+            if self.terms.resolve_str(*func_spur) != func_name {
+                continue;
+            }
+            // Get the model value for this application term.
+            let Some(val_term) = solver_model.get(tid) else {
+                continue;
+            };
+            let val_str = self.format_value(val_term);
+            // Convert each argument to its string representation.
+            let arg_strs: Vec<String> = args
+                .iter()
+                .map(|&a| {
+                    // Prefer model value of the argument; fall back to raw term.
+                    let resolved = solver_model.get(a).unwrap_or(a);
+                    self.format_value(resolved)
+                })
+                .collect();
+            entries.push((arg_strs, val_str));
+        }
+
+        Some((entries, else_value, arity))
     }
 
     /// Format a sort ID to its SMT-LIB2 name

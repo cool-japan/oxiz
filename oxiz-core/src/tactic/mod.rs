@@ -28,12 +28,16 @@ mod ctx_simplify;
 mod eliminate;
 mod pb2bv;
 mod propagate;
+pub mod registry;
 mod simplify;
 mod solve_eqs;
 mod split;
 
 // Re-export core types
 pub use core::{Goal, Precision, SolveResult, Tactic, TacticResult};
+
+// Re-export registry
+pub use registry::{default_registry, TacticRegistry};
 
 // Re-export tactics
 pub use ackermann::{AckermannizeTactic, StatelessAckermannizeTactic};

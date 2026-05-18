@@ -1,12 +1,12 @@
 //! Integration tests for the Z3 API compatibility extension layer 2.
 //!
 //! Covers: Z3Statistics, Z3Params, Z3Probe, Z3Goal, Z3Tactic, Z3ApplyResult,
-//! Z3DatatypeSort/Z3Constructor, check_assumptions/unsat_core, Z3AstVector.
+//! Z3DatatypeSort/Z3Constructor, check_assumptions/unsat_core, Z3AstVector,
+//! Z3FuncInterp/Z3FuncEntry/Z3Value.
 
 use oxiz_solver::z3_compat::{
-    Bool, BV, Int, SatResult, Z3AstVector, Z3Config, Z3Context, Z3Solver,
-    Z3Constructor, Z3DatatypeSort, Z3Goal, Z3Params, Z3Probe,
-    Z3Statistics, Z3Tactic, mk_constructor,
+    Bool, BV, FuncDecl, Int, SatResult, Z3AstVector, Z3Config, Z3Context, Z3Solver,
+    Z3DatatypeSort, Z3Goal, Z3Params, Z3Probe, Z3Tactic, Z3Value, mk_constructor,
 };
 
 fn make_ctx() -> Z3Context {
@@ -294,7 +294,7 @@ fn test_apply_result_subgoals() {
     // Access subgoals without panicking.
     for i in 0..result.num_subgoals() {
         let sg = result.get_subgoal(i);
-        assert!(sg.size() >= 0);
+        let _ = sg.size(); // size() is a usize; just verify no panic
     }
 }
 
@@ -530,4 +530,157 @@ fn test_params_pipeline() {
     let gt = Int::gt(&ctx, &x, &five);
     solver.assert(&gt);
     assert_eq!(solver.check(), SatResult::Sat);
+}
+
+// ─── Z3FuncInterp / Z3FuncEntry / Z3Value ────────────────────────────────────
+
+#[test]
+fn test_z3_value_display() {
+    let v = Z3Value::from_string("42".to_string());
+    assert_eq!(v.as_str(), "42");
+    assert_eq!(format!("{}", v), "42");
+}
+
+#[test]
+fn test_z3_value_equality() {
+    let a = Z3Value::from_string("true".to_string());
+    let b = Z3Value::from_string("true".to_string());
+    let c = Z3Value::from_string("false".to_string());
+    assert_eq!(a, b);
+    assert_ne!(a, c);
+}
+
+#[test]
+fn test_z3_func_interp_undeclared_function_returns_none() {
+    // Querying a function that was never declared must return None.
+    let ctx = make_ctx();
+    let mut solver = make_solver(&ctx);
+    let t = Bool::from_bool(&ctx, true);
+    solver.assert(&t);
+    assert_eq!(solver.check(), SatResult::Sat);
+
+    let model = solver.get_model().expect("expected model after SAT");
+    let int_sort = solver.context().terms.sorts.int_sort;
+    // A FuncDecl that was never registered in the solver context.
+    let ghost_f = FuncDecl::new(&ctx, "undeclared_ghost_fn", &[int_sort], int_sort);
+    assert!(
+        model.get_func_interp(&ghost_f).is_none(),
+        "undeclared function must not appear in the model"
+    );
+}
+
+#[test]
+fn test_z3_func_interp_declared_function_num_entries_ge_zero() {
+    // Declare UF f: Int → Int, assert f(0) = 5, get model,
+    // get_func_interp should succeed and num_entries >= 0.
+    let ctx = make_ctx();
+    let mut solver = make_solver(&ctx);
+
+    // Work in the solver's term manager (solver.context_mut().terms) to avoid
+    // cross-manager TermId confusion.
+    let int_sort = solver.context().terms.sorts.int_sort;
+
+    // Declare f in the solver context.
+    solver.context_mut().declare_fun("fi_test_f", vec![int_sort], int_sort);
+
+    // Build: f(0) — the apply term.
+    let zero_id = solver.context_mut().terms.mk_int(0i64);
+    let f_app = solver.context_mut().terms.mk_apply("fi_test_f", [zero_id], int_sort);
+
+    // Build: f(0) = 5.
+    let five_id = solver.context_mut().terms.mk_int(5i64);
+    let eq = solver.context_mut().terms.mk_eq(f_app, five_id);
+    solver.context_mut().assert(eq);
+
+    assert_eq!(solver.check(), SatResult::Sat);
+
+    let model = solver.get_model().expect("expected model after SAT");
+
+    // FuncDecl by name (used for lookup).
+    let f_decl = FuncDecl::new(&ctx, "fi_test_f", &[int_sort], int_sort);
+    let fi = model.get_func_interp(&f_decl);
+    assert!(
+        fi.is_some(),
+        "declared function fi_test_f must appear in model"
+    );
+    let fi = fi.unwrap();
+    // arity must match declaration
+    assert_eq!(fi.arity(), 1, "arity must be 1");
+    // num_entries is a usize; just access it to confirm no panic
+    let _ = fi.num_entries();
+    // else_value must be a non-empty string
+    assert!(!fi.else_value().as_str().is_empty());
+}
+
+#[test]
+fn test_z3_func_interp_entry_access() {
+    // Declare UF g: Int Int → Bool, assert g(1, 2) = true, get func interp.
+    let ctx = make_ctx();
+    let mut solver = make_solver(&ctx);
+    let int_sort = solver.context().terms.sorts.int_sort;
+    let bool_sort = solver.context().terms.sorts.bool_sort;
+
+    solver.context_mut().declare_fun("fi_test_g", vec![int_sort, int_sort], bool_sort);
+
+    let one = solver.context_mut().terms.mk_int(1i64);
+    let two = solver.context_mut().terms.mk_int(2i64);
+    let g_app = solver
+        .context_mut()
+        .terms
+        .mk_apply("fi_test_g", [one, two], bool_sort);
+    let tru = solver.context_mut().terms.mk_true();
+    let eq = solver.context_mut().terms.mk_eq(g_app, tru);
+    solver.context_mut().assert(eq);
+
+    assert_eq!(solver.check(), SatResult::Sat);
+    let model = solver.get_model().expect("expected model after SAT");
+    let g_decl = FuncDecl::new(&ctx, "fi_test_g", &[int_sort, int_sort], bool_sort);
+    let fi = model.get_func_interp(&g_decl);
+    assert!(fi.is_some(), "g must appear in model");
+    let fi = fi.unwrap();
+    assert_eq!(fi.arity(), 2);
+    // Iterate entries without panicking.
+    for entry in fi.entries() {
+        assert_eq!(entry.args.len(), 2);
+        assert!(!entry.value.as_str().is_empty());
+    }
+}
+
+#[test]
+fn test_z3_func_interp_else_value_non_empty() {
+    // Even for a constrained function, else_value must not be empty.
+    let ctx = make_ctx();
+    let mut solver = make_solver(&ctx);
+    let int_sort = solver.context().terms.sorts.int_sort;
+    solver.context_mut().declare_fun("fi_else_h", vec![int_sort], int_sort);
+    let tru = solver.context_mut().terms.mk_true();
+    solver.context_mut().assert(tru);
+    assert_eq!(solver.check(), SatResult::Sat);
+    let model = solver.get_model().expect("expected model after SAT");
+    let h_decl = FuncDecl::new(&ctx, "fi_else_h", &[int_sort], int_sort);
+    if let Some(fi) = model.get_func_interp(&h_decl) {
+        assert!(
+            !fi.else_value().as_str().is_empty(),
+            "else_value must be a non-empty string"
+        );
+    }
+    // If None it means the function wasn't found — that's also valid for an
+    // unconstrained function in this simplified model extraction.
+}
+
+#[test]
+fn test_z3_func_interp_get_model_no_panic_after_unsat() {
+    // After UNSAT, get_model returns None; no panic expected.
+    let ctx = make_ctx();
+    let mut solver = make_solver(&ctx);
+    let bool_sort = solver.context().terms.sorts.bool_sort;
+    let p = solver.context_mut().terms.mk_var("p_interp_unsat", bool_sort);
+    let not_p = solver.context_mut().terms.mk_not(p);
+    solver.context_mut().assert(p);
+    solver.context_mut().assert(not_p);
+    assert_eq!(solver.check(), SatResult::Unsat);
+    assert!(
+        solver.get_model().is_none(),
+        "get_model must return None after UNSAT"
+    );
 }

@@ -61,4 +61,14 @@ impl BranchingHeuristic for MLBranchingHeuristic {
     fn on_conflict_var(&mut self, var: Var, level: u32) {
         self.inner.update_conflict(var.index(), level as f64);
     }
+
+    /// Override to pass the real LBD score (not decision level) to the ML model.
+    ///
+    /// LBD is the gold-standard learned-clause quality metric: lower is better.
+    /// Passing it as a `f64` to `update_conflict` gives the ML learner a more
+    /// informative signal than the raw decision level that the default delegation
+    /// would provide.
+    fn on_conflict_var_with_lbd(&mut self, var: Var, lbd: u32) {
+        self.inner.update_conflict(var.index(), lbd as f64);
+    }
 }

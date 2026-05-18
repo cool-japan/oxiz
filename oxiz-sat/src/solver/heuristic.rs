@@ -32,6 +32,22 @@ pub trait BranchingHeuristic: Send + Sync {
     /// assigned. The default implementation is a no-op, preserving backward compatibility
     /// for all existing implementations.
     fn on_conflict_var(&mut self, _var: Var, _level: u32) {}
+
+    /// Called during conflict analysis with the LBD of the learned clause.
+    ///
+    /// `var` is the variable involved and `lbd` is the Literal Block Distance (glue score)
+    /// of the learned clause — i.e., the number of distinct decision levels among the
+    /// conflict-involved variables (level-0 vars excluded).
+    ///
+    /// LBD is the gold-standard quality metric for learned clauses in Glucose/MiniSat-style
+    /// CDCL solvers: LBD 1 = unit prop at level 0 (keep forever), LBD 2 = "glue" clause
+    /// (very valuable), LBD > 6 = likely weak.
+    ///
+    /// The default implementation delegates to `on_conflict_var(var, lbd)` for backward
+    /// compatibility with heuristics that only implement `on_conflict_var`.
+    fn on_conflict_var_with_lbd(&mut self, var: Var, lbd: u32) {
+        self.on_conflict_var(var, lbd);
+    }
 }
 
 /// A heap-allocated, type-erased branching heuristic.
@@ -55,6 +71,22 @@ mod tests {
             candidates.first().copied()
         }
         // on_conflict_var intentionally omitted — exercises the default impl
+        // on_conflict_var_with_lbd intentionally omitted — exercises the default delegation impl
+    }
+
+    /// A heuristic that records what values `on_conflict_var` was called with.
+    struct RecordingHeuristic {
+        recorded_levels: Vec<u32>,
+    }
+
+    impl BranchingHeuristic for RecordingHeuristic {
+        fn select(&mut self, candidates: &[Var], _scores: &[f64]) -> Option<Var> {
+            candidates.first().copied()
+        }
+
+        fn on_conflict_var(&mut self, _var: Var, level: u32) {
+            self.recorded_levels.push(level);
+        }
     }
 
     #[test]
@@ -67,5 +99,22 @@ mod tests {
         let candidates = [Var::new(3), Var::new(5)];
         let chosen = h.select(&candidates, &[0.0, 0.0]);
         assert_eq!(chosen, Some(Var::new(3)));
+    }
+
+    #[test]
+    fn test_default_on_conflict_var_with_lbd_delegates_to_on_conflict_var() {
+        // When only on_conflict_var is overridden, on_conflict_var_with_lbd should
+        // delegate to on_conflict_var, passing lbd as the level argument.
+        let mut h = RecordingHeuristic {
+            recorded_levels: Vec::new(),
+        };
+        // Call on_conflict_var_with_lbd — must delegate to on_conflict_var(var, lbd).
+        h.on_conflict_var_with_lbd(Var::new(1), 3);
+        h.on_conflict_var_with_lbd(Var::new(2), 5);
+        assert_eq!(
+            h.recorded_levels,
+            vec![3, 5],
+            "default on_conflict_var_with_lbd must forward lbd to on_conflict_var"
+        );
     }
 }

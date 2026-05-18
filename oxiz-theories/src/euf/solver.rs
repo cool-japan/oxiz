@@ -9,6 +9,12 @@ use oxiz_core::ast::TermId;
 use oxiz_core::error::Result;
 use smallvec::SmallVec;
 
+/// Capacity of the explanation cache: how many (a, b) -> reasons entries to retain.
+/// Each entry records the BFS-derived reason set for a pair of E-graph node indices.
+/// 1024 covers the vast majority of repeated sub-explanation queries that arise from
+/// congruence closure without consuming significant memory.
+const EUF_EXPL_CACHE_CAPACITY: usize = 1024;
+
 /// Signature update entry used in batched congruence-closure updates.
 #[derive(Debug)]
 struct SigUpdateEntry {
@@ -195,6 +201,13 @@ pub struct EufSolver {
     explain_visited: Vec<bool>,
     /// Reusable parent-pointer table for explain_equality — parallel to explain_visited.
     explain_parent: Vec<Option<(u32, usize)>>,
+    /// Bounded LRU cache for explanation results.
+    ///
+    /// Maps `(a, b)` node-index pairs to the `Vec<TermId>` reason set returned by
+    /// `explain_equality`.  The cache is valid as long as no new merges have been
+    /// applied; it is cleared eagerly in `merge()`, `pop()`, and `reset()` so that
+    /// stale entries can never be observed.
+    expl_cache: crate::lru_cache::LruCache<(u32, u32), Vec<TermId>>,
 }
 
 /// State to save for push/pop
@@ -232,6 +245,7 @@ impl EufSolver {
             explain_queue: crate::prelude::VecDeque::new(),
             explain_visited: Vec::new(),
             explain_parent: Vec::new(),
+            expl_cache: crate::lru_cache::LruCache::new(EUF_EXPL_CACHE_CAPACITY),
         }
     }
 
@@ -395,6 +409,9 @@ impl EufSolver {
     /// Merge two equivalence classes
     #[inline]
     pub fn merge(&mut self, a: u32, b: u32, reason: TermId) -> Result<()> {
+        // Any pending merge invalidates previously cached explanations because the
+        // proof forest will grow new edges that could shorten existing paths.
+        self.expl_cache.clear();
         self.pending.push((a, b, reason));
         self.propagate()?;
         Ok(())

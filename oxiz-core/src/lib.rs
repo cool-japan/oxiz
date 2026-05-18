@@ -72,6 +72,7 @@
 extern crate alloc;
 
 pub mod interner;
+pub(crate) mod lru_cache;
 mod prelude;
 
 // === Always-available modules (no_std compatible) ===
@@ -179,8 +180,9 @@ pub use alloc::{
 // Model exports
 #[cfg(feature = "std")]
 pub use model::{
-    EvalCache, EvalResult, ImplicantConfig, ImplicantExtractor, Model, ModelCompletion,
-    ModelCompletionConfig, ModelEvaluator, PrimeImplicant, Value, ValueFactory, ValueFactoryConfig,
+    EvalCache, EvalResult, FuncEntry, FuncInterp, ImplicantConfig, ImplicantExtractor, Model,
+    ModelCompletion, ModelCompletionConfig, ModelEvaluator, PrimeImplicant, Value, ValueFactory,
+    ValueFactoryConfig,
 };
 
 // QE exports

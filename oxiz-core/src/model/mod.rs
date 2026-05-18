@@ -186,6 +186,78 @@ impl core::fmt::Display for Value {
     }
 }
 
+/// One (input-args → output-value) entry in a function interpretation.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FuncEntry {
+    /// Argument values that trigger this entry.
+    pub args: Vec<Value>,
+    /// The output value for these arguments.
+    pub value: Value,
+}
+
+/// Full interpretation of an uninterpreted function in a model.
+///
+/// Defines the function as a finite table of `(args → value)` entries plus an
+/// `else_value` that applies to every input combination not covered by an entry.
+/// This mirrors Z3's `FuncInterp` object.
+#[derive(Debug, Clone)]
+pub struct FuncInterp {
+    /// Finite table entries (in order of insertion).
+    pub entries: Vec<FuncEntry>,
+    /// Value returned for all inputs not matched by any entry.
+    pub else_value: Value,
+    /// Number of argument positions this function accepts.
+    pub arity: usize,
+}
+
+impl FuncInterp {
+    /// Create a new empty `FuncInterp` with the given arity and `else_value`.
+    #[must_use]
+    pub fn new(arity: usize, else_value: Value) -> Self {
+        Self {
+            entries: Vec::new(),
+            else_value,
+            arity,
+        }
+    }
+
+    /// Append an `(args → value)` entry to the interpretation table.
+    ///
+    /// # Panics (debug only)
+    ///
+    /// Panics in debug builds if `args.len() != self.arity`.
+    pub fn add_entry(&mut self, args: Vec<Value>, value: Value) {
+        debug_assert_eq!(
+            args.len(),
+            self.arity,
+            "FuncInterp::add_entry: arity mismatch (expected {}, got {})",
+            self.arity,
+            args.len()
+        );
+        self.entries.push(FuncEntry { args, value });
+    }
+
+    /// Return the number of explicit entries.
+    #[must_use]
+    pub fn num_entries(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// Look up `args` in the entry table.
+    ///
+    /// Returns the value of the first matching entry, or `&self.else_value` if
+    /// no entry matches.
+    #[must_use]
+    pub fn evaluate(&self, args: &[Value]) -> &Value {
+        for entry in &self.entries {
+            if entry.args == args {
+                return &entry.value;
+            }
+        }
+        &self.else_value
+    }
+}
+
 /// A model: assignment of values to terms
 #[derive(Debug, Clone, Default)]
 pub struct Model {
@@ -193,6 +265,8 @@ pub struct Model {
     assignments: HashMap<TermId, Value>,
     /// Sort assignments (for uninterpreted sorts)
     sort_sizes: HashMap<SortId, u64>,
+    /// Function interpretations for uninterpreted functions (keyed by func TermId).
+    func_interps: HashMap<TermId, FuncInterp>,
 }
 
 impl Model {
@@ -262,6 +336,29 @@ impl Model {
         for (sort, size) in &other.sort_sizes {
             self.sort_sizes.entry(*sort).or_insert(*size);
         }
+        for (func_id, interp) in &other.func_interps {
+            self.func_interps
+                .entry(*func_id)
+                .or_insert_with(|| interp.clone());
+        }
+    }
+
+    /// Store a complete function interpretation for `func_id`.
+    ///
+    /// Any previous interpretation for the same `func_id` is replaced.
+    pub fn add_func_interp(&mut self, func_id: TermId, interp: FuncInterp) {
+        self.func_interps.insert(func_id, interp);
+    }
+
+    /// Retrieve the function interpretation for `func_id`, if one was stored.
+    #[must_use]
+    pub fn get_func_interp(&self, func_id: TermId) -> Option<&FuncInterp> {
+        self.func_interps.get(&func_id)
+    }
+
+    /// Iterate over all stored function interpretations.
+    pub fn func_interps(&self) -> impl Iterator<Item = (&TermId, &FuncInterp)> {
+        self.func_interps.iter()
     }
 }
 
@@ -355,5 +452,90 @@ mod tests {
     fn test_value_default_for_sort() {
         assert_eq!(Value::default_for_sort(SortId(0)), Value::Bool(false));
         assert_eq!(Value::default_for_sort(SortId(1)), Value::Int(0));
+    }
+
+    // ── FuncInterp ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_func_interp_new_empty() {
+        let fi = FuncInterp::new(2, Value::Int(0));
+        assert_eq!(fi.num_entries(), 0);
+        assert_eq!(fi.arity, 2);
+        assert_eq!(fi.else_value, Value::Int(0));
+    }
+
+    #[test]
+    fn test_func_interp_add_entry_and_evaluate() {
+        let mut fi = FuncInterp::new(1, Value::Int(-1));
+        fi.add_entry(vec![Value::Int(0)], Value::Int(42));
+        // Exact match
+        assert_eq!(fi.evaluate(&[Value::Int(0)]), &Value::Int(42));
+        // No match → else_value
+        assert_eq!(fi.evaluate(&[Value::Int(99)]), &Value::Int(-1));
+    }
+
+    #[test]
+    fn test_func_interp_evaluate_first_match_wins() {
+        let mut fi = FuncInterp::new(1, Value::Int(0));
+        fi.add_entry(vec![Value::Int(1)], Value::Int(10));
+        fi.add_entry(vec![Value::Int(1)], Value::Int(20)); // duplicate key; first wins
+        assert_eq!(fi.evaluate(&[Value::Int(1)]), &Value::Int(10));
+    }
+
+    #[test]
+    fn test_func_interp_multi_arg() {
+        let mut fi = FuncInterp::new(2, Value::Bool(false));
+        fi.add_entry(vec![Value::Int(3), Value::Int(4)], Value::Bool(true));
+        assert_eq!(
+            fi.evaluate(&[Value::Int(3), Value::Int(4)]),
+            &Value::Bool(true)
+        );
+        assert_eq!(
+            fi.evaluate(&[Value::Int(3), Value::Int(5)]),
+            &Value::Bool(false)
+        );
+    }
+
+    // ── Model::add_func_interp / get_func_interp ──────────────────────────────
+
+    #[test]
+    fn test_model_add_and_get_func_interp() {
+        let mut model = Model::new();
+        let func_id = TermId::from(100u32);
+
+        let mut fi = FuncInterp::new(1, Value::Int(0));
+        fi.add_entry(vec![Value::Int(7)], Value::Int(49));
+        model.add_func_interp(func_id, fi);
+
+        let retrieved = model.get_func_interp(func_id);
+        assert!(retrieved.is_some());
+        let fi2 = retrieved.unwrap();
+        assert_eq!(fi2.num_entries(), 1);
+        assert_eq!(fi2.evaluate(&[Value::Int(7)]), &Value::Int(49));
+        assert_eq!(fi2.evaluate(&[Value::Int(0)]), &Value::Int(0));
+    }
+
+    #[test]
+    fn test_model_get_func_interp_missing_returns_none() {
+        let model = Model::new();
+        let func_id = TermId::from(999u32);
+        assert!(model.get_func_interp(func_id).is_none());
+    }
+
+    #[test]
+    fn test_model_merge_preserves_func_interps() {
+        let mut m1 = Model::new();
+        let mut m2 = Model::new();
+        let f1 = TermId::from(10u32);
+        let f2 = TermId::from(20u32);
+
+        let fi1 = FuncInterp::new(0, Value::Int(1));
+        let fi2 = FuncInterp::new(0, Value::Int(2));
+        m1.add_func_interp(f1, fi1);
+        m2.add_func_interp(f2, fi2);
+
+        m1.merge(&m2);
+        assert!(m1.get_func_interp(f1).is_some());
+        assert!(m1.get_func_interp(f2).is_some());
     }
 }

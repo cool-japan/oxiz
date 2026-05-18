@@ -952,6 +952,145 @@ impl TermManagerExt for TermManager {
     }
 }
 
+// ─── Z3FuncInterp / Z3FuncEntry / Z3Value ────────────────────────────────────
+
+/// A model value exposed through the Z3 compat layer.
+///
+/// Wraps a string representation of the value so callers do not need to depend
+/// directly on `oxiz_core::model::Value`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Z3Value {
+    /// String representation (e.g. `"42"`, `"true"`, `"#b0011"`).
+    pub inner: String,
+}
+
+impl Z3Value {
+    /// Create a `Z3Value` from an arbitrary string representation.
+    #[must_use]
+    pub fn from_string(s: String) -> Self {
+        Self { inner: s }
+    }
+
+    /// Return the string representation of this value.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.inner
+    }
+}
+
+impl std::fmt::Display for Z3Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.inner)
+    }
+}
+
+/// One `(args → value)` entry in a [`Z3FuncInterp`].
+#[derive(Debug, Clone)]
+pub struct Z3FuncEntry {
+    /// Argument values for this entry (one per function parameter).
+    pub args: Vec<Z3Value>,
+    /// The output value for this argument combination.
+    pub value: Z3Value,
+}
+
+/// Analogue of `z3::FuncInterp`.
+///
+/// Represents the interpretation of an uninterpreted function in a model as a
+/// finite table of `(args → value)` entries plus an `else_value` for all other
+/// input combinations.
+///
+/// Obtained via [`Z3Model::get_func_interp`].
+pub struct Z3FuncInterp {
+    /// Finite explicit entries.
+    entries: Vec<Z3FuncEntry>,
+    /// Value returned for inputs not covered by any entry.
+    else_value: Z3Value,
+    /// Number of arguments of the function.
+    arity: usize,
+}
+
+impl Z3FuncInterp {
+    /// Create a `Z3FuncInterp` from the raw data returned by the solver context.
+    pub(crate) fn from_raw(raw: &crate::z3_compat::FuncInterpRaw) -> Self {
+        let (raw_entries, else_str, arity) = raw;
+        let entries = raw_entries
+            .iter()
+            .map(|(arg_strs, val_str)| Z3FuncEntry {
+                args: arg_strs
+                    .iter()
+                    .map(|s| Z3Value::from_string(s.clone()))
+                    .collect(),
+                value: Z3Value::from_string(val_str.clone()),
+            })
+            .collect();
+        Self {
+            entries,
+            else_value: Z3Value::from_string(else_str.clone()),
+            arity: *arity,
+        }
+    }
+
+    /// Return the number of explicit `(args → value)` entries.
+    #[must_use]
+    pub fn num_entries(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// Return the arity (number of arguments) of the interpreted function.
+    #[must_use]
+    pub fn arity(&self) -> usize {
+        self.arity
+    }
+
+    /// Return the `else` value applied to any input not matched by an entry.
+    #[must_use]
+    pub fn else_value(&self) -> &Z3Value {
+        &self.else_value
+    }
+
+    /// Return the `i`-th entry.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `i >= self.num_entries()`.
+    #[must_use]
+    pub fn get_entry(&self, i: usize) -> &Z3FuncEntry {
+        &self.entries[i]
+    }
+
+    /// Iterate over all explicit entries.
+    pub fn entries(&self) -> impl Iterator<Item = &Z3FuncEntry> {
+        self.entries.iter()
+    }
+}
+
+// ─── Z3Model::get_func_interp ─────────────────────────────────────────────────
+
+impl crate::z3_compat::Z3Model {
+    /// Return the full interpretation of an uninterpreted function `f` in this
+    /// model, or `None` if `f` was not declared or is not present in the model.
+    ///
+    /// The returned [`Z3FuncInterp`] contains the finite set of `(args → value)`
+    /// entries that the solver determined, plus an `else_value` for all other
+    /// inputs.
+    ///
+    /// # Stub note
+    ///
+    /// When the EUF e-graph does not contain any application of `f` (e.g. the
+    /// function was declared but never constrained), `num_entries()` will be 0
+    /// and `else_value()` will be the default value for the return sort.  This
+    /// is a valid (conservative) interpretation: the solver is free to choose
+    /// any value for unconstrained applications.
+    #[must_use]
+    pub fn get_func_interp(
+        &self,
+        f: &crate::z3_compat::ext::FuncDecl,
+    ) -> Option<Z3FuncInterp> {
+        self.func_interp_raw(&f.name)
+            .map(Z3FuncInterp::from_raw)
+    }
+}
+
 // ─── Re-export convenience items ─────────────────────────────────────────────
 
 /// Re-export `DatatypeDecl`, `Constructor`, `Selector`, and `Field` from the
