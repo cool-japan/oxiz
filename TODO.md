@@ -50,7 +50,7 @@ OxiZ has achieved **100% correctness parity with Z3** across all 88 benchmark te
 
 - **Rust Lines of Code**: ~444,500 total (net ~1,000 new lines)
 - **Rust Files**: 987+ (2 new files this pass)
-- **Unit Tests**: 6,707 passing (0 failures)
+- **Unit Tests**: 6,703 passing (0 failures)
 - **Z3 Parity**: **100.0% (88/88)**
 - **Perfect Logics**: **8/8 tested**
 - **Workspace Crates**: 17 (16 Rust crates + 1 TypeScript)
@@ -545,6 +545,16 @@ oxiz-core (foundation)
 ---
 
 ## Recent Achievements
+
+### May 18, 2026 - Dead Code Policy Enforcement Across 40 Modules (v0.2.2 Pass 3 cont)
+
+- **Crate-level allow removed**: `oxiz-solver/src/lib.rs` `#![allow(dead_code)]` deleted — the highest-priority policy violation, was silencing all dead code warnings for the entire solver crate
+- **39 module-level allows removed** across `oxiz-solver` (15 modules), `oxiz-core` (5 tactic modules), `oxiz-math` (4 modules), `oxiz-theories` (3 modules), `oxiz-proof` (1), `oxiz-cli` (2): all converted to per-item `#[allow(dead_code)]` or eliminated by wiring/deleting dead code
+- **`algebraic_number.rs` deleted** (446 lines): zero external callers confirmed; duplicates `realclosure.rs` functionality; removed from `oxiz-math/src/lib.rs`
+- **`SyzygyComputer` wired into `buchberger.rs`**: `apply_buchberger_criteria` now called before each S-polynomial computation to skip S-pairs failing GCD or chain criterion — improves Gröbner basis computation efficiency
+- **`cicd.rs` activated**: `CicdReport` wired into `processor.rs` `run_files` with `--cicd-report`/`--cicd-strict` CLI flags
+- **Tests**: 6,703 passing (−4 vs prior count due to test consolidation); 0 failures; 0 clippy warnings
+- **Net LoC**: −357 net (492 deleted, 135 added) from dead code removal
 
 ### May 18, 2026 - Z3 Compat Expansion + LIA Heuristics + Dead Code Fixes (v0.2.2 Pass 3)
 
