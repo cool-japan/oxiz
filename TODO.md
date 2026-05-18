@@ -48,9 +48,9 @@ OxiZ has achieved **100% correctness parity with Z3** across all 88 benchmark te
 
 ## Current Statistics (v0.2.2 - May 18, 2026)
 
-- **Rust Lines of Code**: ~444,500 total (net ~1,000 new lines)
-- **Rust Files**: 987+ (2 new files this pass)
-- **Unit Tests**: 6,703 passing (0 failures)
+- **Rust Lines of Code**: ~446,826 total (+2,326 net)
+- **Rust Files**: 990+ (3 new files this pass)
+- **Unit Tests**: 6,763 passing (0 failures)
 - **Z3 Parity**: **100.0% (88/88)**
 - **Perfect Logics**: **8/8 tested**
 - **Workspace Crates**: 17 (16 Rust crates + 1 TypeScript)
@@ -545,6 +545,16 @@ oxiz-core (foundation)
 ---
 
 ## Recent Achievements
+
+### May 18, 2026 - Z3 Compat #2, CLI Peak Memory, ML Conflict Hook, LRU Lemma Cache (v0.2.2 Pass 4)
+
+- **Z3 API compatibility expanded #2**: `oxiz-solver/src/z3_compat_ext2.rs` (963 LOC) adds `Z3Statistics` (7 counters: decisions/propagations/conflicts/restarts/learned-clauses/theory-propagations/theory-conflicts), `Z3Params` (key→value dispatcher into `SolverConfig`), `Z3Probe` (registry over 7 probe types with `.lt()`/`.gt()` combinators), `Z3Goal`/`Z3Tactic`/`Z3ApplyResult` (named-tactic dispatch + `.then()`/`.or_else()`/`.repeat()`/`.try_for()` combinators), `Z3DatatypeSort`/`Z3Constructor` (full `DatatypeDecl` wiring), `Z3Solver::check_assumptions(&[Bool])`/`unsat_core()`, `Z3AstVector`; 41 integration tests in `z3_compat_extensions2.rs`
+- **CLI peak memory fixed**: `peak_memory_bytes` was always `current_rss` — now reads Linux `VmHWM:` from `/proc/self/status` (kernel high-water-mark); new `oxiz-cli/src/memory.rs` (92 LOC) with `rss_and_peak()` function; non-Linux falls back gracefully
+- **CLI test coverage**: 9 new integration tests — peak memory nonzero, peak ≥ current, Linux VmHWM, parallel-mode, multi-file memory, exit codes for SAT/UNSAT/parse-error/missing-file
+- **`BranchingHeuristic::on_conflict_var` hook**: new defaulted method (no-op default, full backward compat); called from `conflict.rs` both `bump_batch` sites; `MLBranchingHeuristic::on_conflict_var` forwards to `MLEnhancedVSIDS::update_conflict(var, level as f64)`, enabling real ML training signal; 3 tests
+- **`LruCache<TheoryLemma>` in theory combination**: `FxHashSet<TheoryLemma>` (unbounded) replaced by `LruCache<TheoryLemma, ()>`; `config.max_lemma_cache_size` (default 10,000) finally enforced; push/pop backtracking uses `truncate_to(n)`; `CombinerStats` gains `lemma_cache_hits/misses/evictions`; 5 tests
+- **Tests**: +60 new tests (6,703 → 6,763); 0 failures; 0 clippy warnings
+- **New files**: `oxiz-solver/src/z3_compat_ext2.rs`, `oxiz-solver/tests/z3_compat_extensions2.rs`, `oxiz-cli/src/memory.rs`
 
 ### May 18, 2026 - Dead Code Policy Enforcement Across 40 Modules (v0.2.2 Pass 3 cont)
 
