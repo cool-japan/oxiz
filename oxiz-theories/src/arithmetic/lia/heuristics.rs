@@ -150,7 +150,6 @@ impl LiaSolver {
     /// - CPLEX and Gurobi both use probing extensively
     ///
     /// Returns the number of bounds tightened.
-    #[allow(dead_code)]
     pub fn probe_variables(&mut self, max_probes: usize) -> Result<usize> {
         let mut bounds_tightened = 0;
 
@@ -251,7 +250,6 @@ impl LiaSolver {
     /// - Modern solvers maintain ~5,000-50,000 active cuts
     ///
     /// Returns the number of cuts deleted.
-    #[allow(dead_code)]
     pub fn manage_cuts(&mut self) -> usize {
         const AGE_THRESHOLD: u32 = 100;
         const HIGH_AGE_THRESHOLD: u32 = 1000;

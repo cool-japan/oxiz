@@ -27,10 +27,6 @@
 //! in standard form the shadow price of constraint i is −(reduced cost of
 //! its slack variable s_i), which equals the dual variable π_i.
 
-#![allow(dead_code)]
-
-#[allow(unused_imports)]
-use crate::prelude::*;
 use num_bigint::BigInt;
 use num_rational::BigRational;
 use num_traits::{Signed, Zero};
@@ -603,29 +599,6 @@ impl SimplexSolver {
         basis[leaving] = entering;
     }
 
-    /// Solve a perturbed version of the LP where constraint `i` has its RHS
-    /// increased by `delta`.  Returns the optimal objective value, or `None`
-    /// if infeasible/unbounded.
-    fn solve_with_rhs_perturbation(
-        &self,
-        constraint_idx: usize,
-        delta: &BigRational,
-    ) -> Option<BigRational> {
-        let mut perturbed_constraints = self.constraints.clone();
-        if let Some(c) = perturbed_constraints.get_mut(constraint_idx) {
-            c.rhs = c.rhs.clone() + delta;
-        } else {
-            return None;
-        }
-
-        let result = self.run_bigm_simplex(&self.obj_coeffs, &perturbed_constraints);
-        if result.status == SolveStatus::Optimal {
-            Some(result.objective)
-        } else {
-            None
-        }
-    }
-
     /// Number of decision variables.
     pub fn n_vars(&self) -> usize {
         self.n_vars
@@ -655,6 +628,7 @@ impl SimplexSolver {
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 /// Build a `BigRational` from two `i64` values (numerator/denominator).
+#[cfg(test)]
 pub(crate) fn big_rat(num: i64, den: i64) -> BigRational {
     BigRational::new(BigInt::from(num), BigInt::from(den))
 }
@@ -850,5 +824,76 @@ mod tests {
         assert!(solver.last_result().is_some());
         solver.set_rhs(0, r(10)).expect("set_rhs should work");
         assert!(solver.last_result().is_none());
+    }
+
+    // ── accessor API ──────────────────────────────────────────────────────
+
+    /// Exercise every public accessor in a single end-to-end sequence so that
+    /// none are flagged as dead code.
+    #[test]
+    fn test_all_accessors() {
+        // Build: minimise 3x + 2y  s.t.  x + y ≤ 10,  x ≤ 6,  x,y ≥ 0.
+        let obj = vec![r(3), r(2)];
+        let constraints = vec![
+            Constraint::le(vec![r(1), r(1)], r(10)),
+            Constraint::le(vec![r(1), r(0)], r(6)),
+        ];
+        let mut solver = SimplexSolver::new(obj, constraints);
+
+        // n_vars / n_constraints before solve.
+        assert_eq!(solver.n_vars(), 2);
+        assert_eq!(solver.n_constraints(), 2);
+
+        // obj_coeffs reflects initial values.
+        assert_eq!(solver.obj_coeffs(), &[r(3), r(2)]);
+
+        // constraints accessor.
+        assert_eq!(solver.constraints().len(), 2);
+        assert_eq!(solver.constraints()[0].rhs, r(10));
+
+        // get_objective_coefficient.
+        assert_eq!(
+            *solver.get_objective_coefficient(1).expect("index 1 valid"),
+            r(2)
+        );
+        let err = solver.get_objective_coefficient(99).expect_err("oob");
+        assert!(matches!(err, SimplexError::IndexOutOfBounds { .. }));
+
+        // get_rhs.
+        assert_eq!(*solver.get_rhs(0).expect("index 0 valid"), r(10));
+        let err2 = solver.get_rhs(99).expect_err("oob");
+        assert!(matches!(err2, SimplexError::IndexOutOfBounds { .. }));
+
+        // last_result is None before solve.
+        assert!(solver.last_result().is_none());
+
+        // objective_value is None before solve.
+        assert!(solver.objective_value().is_none());
+
+        // Solve.
+        let result = solver.solve().expect("solve should succeed");
+        assert_eq!(result.status, SolveStatus::Optimal);
+
+        // last_result is Some after solve.
+        assert!(solver.last_result().is_some());
+        assert_eq!(solver.last_result().unwrap().status, SolveStatus::Optimal);
+
+        // objective_value is Some after optimal solve.
+        let ov = solver
+            .objective_value()
+            .expect("objective_value should be Some");
+        // Minimum of 3x+2y s.t. x+y≤10, x≤6, x,y≥0 is 0 (at x=0,y=0).
+        assert_eq!(ov, r(0));
+
+        // shadow_price after solve.
+        let sp0 = solver.shadow_price(0).expect("shadow_price(0)");
+        let sp1 = solver.shadow_price(1).expect("shadow_price(1)");
+        // Both shadow prices ≤ 0 for Le constraints at minimisation optimum.
+        assert!(sp0 <= r(0));
+        assert!(sp1 <= r(0));
+
+        // set_rhs and get_rhs round-trip.
+        solver.set_rhs(1, r(4)).expect("set_rhs index 1");
+        assert_eq!(*solver.get_rhs(1).expect("get_rhs index 1"), r(4));
     }
 }

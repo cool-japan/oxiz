@@ -1,5 +1,4 @@
 //! Parametric Simplex for Sensitivity Analysis.
-#![allow(dead_code, missing_docs)] // Under development
 //!
 //! Extends simplex to solve parametric linear programs where objective
 //! coefficients or RHS values depend on a parameter λ.
@@ -21,7 +20,6 @@
 //! - Gass & Saaty: "The Computational Algorithm for the Parametric Objective Function"
 //! - Z3's `math/lp/parametric_simplex.cpp`
 
-#[allow(unused_imports)]
 use crate::prelude::*;
 #[cfg(test)]
 use crate::simplex_solver::{Constraint, ConstraintKind, big_rat};
@@ -59,8 +57,9 @@ pub struct ParametricInterval {
     pub lambda_min: BigRational,
     /// Upper bound on λ (exclusive).
     pub lambda_max: BigRational,
-    /// Optimal value function: z(λ) = a + b*λ
+    /// Optimal value function slope: z(λ) = intercept + slope*λ
     pub value_slope: BigRational,
+    /// Optimal value function intercept.
     pub value_intercept: BigRational,
     /// Basis for this interval.
     pub basis: Vec<VarId>,
@@ -73,8 +72,9 @@ pub struct ParametricSimplexConfig {
     pub param_type: ParametricType,
     /// Maximum number of breakpoints to compute.
     pub max_breakpoints: usize,
-    /// Lambda range to explore.
+    /// Minimum λ value to explore (inclusive).
     pub lambda_min: BigRational,
+    /// Maximum λ value to explore (inclusive).
     pub lambda_max: BigRational,
 }
 
