@@ -1,6 +1,4 @@
 //! Bit-Level Blasting Tactic for BitVectors.
-
-#![allow(dead_code)] // Under development - not yet fully integrated
 //!
 //! This tactic decomposes bitvector operations into Boolean operations
 //! on individual bits, enabling SAT solver-based reasoning.
@@ -127,6 +125,7 @@ pub struct Bv1BlastStats {
 
 /// Bit-blasting tactic.
 pub struct Bv1BlastTactic {
+    #[allow(dead_code)]
     config: Bv1BlastConfig,
     stats: Bv1BlastStats,
     /// Next fresh variable ID.

@@ -26,6 +26,7 @@ use crate::{Args, InputFormat, Verbosity, apply_solver_options, execute_and_form
 
 // Import from crate modules
 use crate::cache;
+use crate::cicd;
 use crate::dimacs;
 use crate::tptp;
 
@@ -187,6 +188,51 @@ pub(crate) fn run_files(ctx: &mut Context, args: &Args, verbosity: Verbosity) {
             && verbosity >= Verbosity::Normal
         {
             eprintln_colored(args, &format!("Warning: Failed to save benchmarks: {}", e));
+        }
+    }
+
+    // Generate CI/CD report if requested
+    if args.cicd {
+        let mut report = cicd::CicdReport::new();
+        for result in results.iter() {
+            let file_name = result
+                .file
+                .clone()
+                .unwrap_or_else(|| "stdin".to_string());
+            report.add_result(
+                file_name,
+                result.result.clone(),
+                result.time_ms,
+                result.error.clone(),
+            );
+        }
+        report.finalize();
+
+        if verbosity >= Verbosity::Normal {
+            report.print_summary();
+        }
+
+        // Print CI platform annotations
+        for annotation in report.generate_annotations() {
+            eprintln!("{}", annotation);
+        }
+
+        // Write report file if requested
+        if let Some(ref report_path) = args.cicd_report {
+            if let Err(e) = cicd::write_report(&report, report_path) {
+                eprintln_colored(args, &format!("Warning: {}", e));
+            } else if verbosity >= Verbosity::Normal {
+                println_colored(
+                    args,
+                    &format!("CI/CD report written to {}", report_path.display()),
+                    Some(owo_colors::AnsiColors::Green),
+                );
+            }
+        }
+
+        // Exit with appropriate code if strict mode
+        if args.cicd_strict && report.exit_code() != 0 {
+            std::process::exit(report.exit_code());
         }
     }
 

@@ -484,7 +484,7 @@ impl Solver {
                                         break;
                                     }
                                     // Track domains and disequalities for pigeonhole
-                                    if let Some(dbg_t) = manager.get(inst.result) {}
+                                    let _ = manager.get(inst.result);
                                     self.scan_for_pigeonhole(
                                         inst.result,
                                         manager,

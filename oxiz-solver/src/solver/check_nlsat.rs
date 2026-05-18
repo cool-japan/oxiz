@@ -26,6 +26,7 @@ use super::types::SolverResult;
 /// Represents: `coeff * square_term OP constant`
 /// where `square_term` is a term of the form `x * x` (or product of identical terms).
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 enum NlAtom {
     /// `sq_term = const` — the square term equals a constant
     SqEq {

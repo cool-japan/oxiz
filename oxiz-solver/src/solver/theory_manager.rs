@@ -71,6 +71,7 @@ pub(crate) struct TheoryManager<'a> {
     #[allow(dead_code)]
     max_decisions: u64,
     /// Whether formula contains BV arithmetic operations (division/remainder)
+    #[allow(dead_code)]
     has_bv_arith_ops: bool,
     /// Canonical EUF node for each distinct integer constant value.
     ///
@@ -334,6 +335,7 @@ impl<'a> TheoryManager<'a> {
     /// `x = y` causes their EUF nodes to merge, congruence automatically
     /// derives `select(a, x) = select(a, y)`, which in turn allows further
     /// congruence steps (e.g., `f(select(a,x)) = f(select(a,y))`).
+    #[allow(dead_code)]
     fn intern_term_deep(&mut self, term: TermId, manager: &TermManager) -> u32 {
         if let Some(idx) = self.euf.term_to_node(term) {
             return idx;
@@ -1188,6 +1190,7 @@ impl TheoryCallback for TheoryManager<'_> {
 
 /// Result from parallel theory checking
 #[cfg(feature = "parallel-theories")]
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum ParallelTheoryResult {
     /// All theories report SAT
@@ -1198,11 +1201,13 @@ pub enum ParallelTheoryResult {
 
 /// Parallel theory checking support.
 #[cfg(feature = "parallel-theories")]
+#[allow(dead_code)]
 pub struct ParallelTheoryChecker;
 
 #[cfg(feature = "parallel-theories")]
 impl ParallelTheoryChecker {
     /// Check multiple independent theory assertions in parallel.
+    #[allow(dead_code)]
     pub fn check_parallel(
         assertions: &[(Var, Constraint, bool)],
         _term_to_var: &FxHashMap<TermId, Var>,
@@ -1243,6 +1248,7 @@ impl ParallelTheoryChecker {
         ParallelTheoryResult::AllSat
     }
 
+    #[allow(dead_code)]
     fn check_domain_contradictions(
         assertions: &[(Var, Constraint, bool)],
     ) -> Option<SmallVec<[Lit; 8]>> {
@@ -1261,6 +1267,7 @@ impl ParallelTheoryChecker {
         None
     }
 
+    #[allow(dead_code)]
     fn are_contradictory(c1: &Constraint, pos1: bool, c2: &Constraint, pos2: bool) -> bool {
         match (c1, c2) {
             (Constraint::Eq(a1, b1), Constraint::Eq(a2, b2)) => {

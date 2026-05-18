@@ -1,5 +1,4 @@
 //! Shared Terms Management for Theory Combination.
-#![allow(dead_code)] // Under development
 //!
 //! Manages terms that appear in multiple theories, enabling efficient
 //! equality sharing in Nelson-Oppen combination.
@@ -49,6 +48,7 @@ struct SharedTermInfo {
     /// Theories that use this term.
     theories: FxHashSet<TheoryId>,
     /// Representative term in equivalence class.
+    #[allow(dead_code)]
     representative: TermId,
 }
 

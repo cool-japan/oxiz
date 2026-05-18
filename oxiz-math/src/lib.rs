@@ -96,7 +96,6 @@ extern crate alloc;
 mod prelude;
 
 pub mod algebraic;
-pub mod algebraic_number;
 pub mod bdd;
 #[cfg(feature = "std")]
 pub mod blas;

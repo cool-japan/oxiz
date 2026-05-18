@@ -53,7 +53,7 @@ impl Solver {
                 .or_insert_with(|| data.clone());
             merged.merge(&data);
         }
-        let fp_additions = merged.additions;
+        let _fp_additions = merged.additions;
         let fp_divisions = merged.divisions;
         let fp_multiplications = merged.multiplications;
         let fp_comparisons = merged.comparisons;
@@ -1766,6 +1766,7 @@ impl Solver {
 
     /// Collect FP constraints from a term
     #[allow(clippy::too_many_arguments)]
+    #[allow(dead_code)]
     fn collect_fp_constraints(
         &self,
         term: TermId,

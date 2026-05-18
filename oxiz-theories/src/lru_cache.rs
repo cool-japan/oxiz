@@ -3,13 +3,12 @@
 //! This module provides a bounded cache with LRU eviction policy,
 //! used for theory lemma caching in the theory combination module.
 
-#![allow(dead_code)] // Module ready for integration
-
 #[allow(unused_imports)]
 use crate::prelude::*;
 use core::hash::Hash;
 
 /// A node in the LRU doubly-linked list
+#[allow(dead_code)]
 #[derive(Debug)]
 struct Node<K, V> {
     key: K,
@@ -19,6 +18,7 @@ struct Node<K, V> {
 }
 
 /// LRU cache with bounded size
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct LruCache<K, V>
 where
@@ -43,6 +43,7 @@ where
     evictions: usize,
 }
 
+#[allow(dead_code)]
 impl<K, V> LruCache<K, V>
 where
     K: Eq + Hash + Clone,

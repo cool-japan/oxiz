@@ -1,5 +1,4 @@
 //! Eliminate Unconstrained Variables Tactic.
-#![allow(dead_code)] // Under development - not yet fully integrated
 //!
 //! Removes variables that do not affect satisfiability by detecting
 //! unconstrained or functionally determined variables.
@@ -21,9 +20,11 @@ use crate::tactic::{Goal, Tactic, TacticResult};
 use crate::{Term, TermId};
 
 /// Variable identifier.
+#[allow(dead_code)]
 pub type VarId = usize;
 
 /// Variable occurrence information.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct VarOccurrence {
     /// Terms containing this variable.
@@ -33,6 +34,7 @@ struct VarOccurrence {
 }
 
 /// Configuration for eliminate unconstrained tactic.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct ElimUnconstrainedConfig {
     /// Enable functional dependency detection.
@@ -54,6 +56,7 @@ impl Default for ElimUnconstrainedConfig {
 }
 
 /// Statistics for eliminate unconstrained tactic.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Default)]
 pub struct ElimUnconstrainedStats {
     /// Variables eliminated.
@@ -67,6 +70,7 @@ pub struct ElimUnconstrainedStats {
 }
 
 /// Eliminate unconstrained variables tactic.
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct ElimUnconstrainedTactic {
     /// Variable occurrences.
@@ -77,6 +81,7 @@ pub struct ElimUnconstrainedTactic {
     stats: ElimUnconstrainedStats,
 }
 
+#[allow(dead_code)]
 impl ElimUnconstrainedTactic {
     /// Create a new eliminate unconstrained tactic.
     pub fn new(config: ElimUnconstrainedConfig) -> Self {

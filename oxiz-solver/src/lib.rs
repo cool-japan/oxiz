@@ -10,8 +10,6 @@
 #![allow(clippy::only_used_in_recursion)]
 #![allow(clippy::for_kv_map)]
 #![allow(clippy::too_many_arguments)]
-#![allow(unused_variables)]
-#![allow(dead_code)]
 //!
 //! # Examples
 //!

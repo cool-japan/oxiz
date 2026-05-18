@@ -1,5 +1,4 @@
 //! Polynomial Factorization Tactic.
-#![allow(dead_code)] // Under development - not yet fully integrated
 //!
 //! Factors polynomial constraints to simplify arithmetic formulas.
 //!
@@ -123,6 +122,7 @@ impl FactorTactic {
     }
 
     /// Try to factor a polynomial term.
+    #[allow(dead_code)]
     fn try_factor(&mut self, poly: &Polynomial) -> Option<Vec<Polynomial>> {
         if !self.config.enabled {
             return None;

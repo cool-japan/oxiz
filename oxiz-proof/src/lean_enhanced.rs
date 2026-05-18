@@ -1,5 +1,4 @@
 //! Enhanced Lean 4 Proof Export with Complete Proof Terms.
-#![allow(dead_code)] // Under development
 //!
 //! This module provides full proof term generation for Lean 4, including
 //! tactics, term mode proofs, and theory-specific reasoning.
@@ -18,6 +17,7 @@ pub struct EnhancedLeanExporter {
     /// Counter for generating unique names
     name_counter: usize,
     /// Use term mode (vs tactic mode)
+    #[allow(dead_code)]
     prefer_term_mode: bool,
 }
 

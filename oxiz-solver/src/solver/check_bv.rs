@@ -503,6 +503,7 @@ impl Solver {
     }
 
     /// Get FP literal value from a RealToFp conversion
+    #[allow(dead_code)]
     pub(crate) fn get_fp_literal_value(&self, term: TermId, manager: &TermManager) -> Option<f64> {
         let term_data = manager.get(term)?;
         match &term_data.kind {

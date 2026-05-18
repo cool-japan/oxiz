@@ -8,8 +8,6 @@
 //!
 //! Reference: "Interpolation and SAT-Based Model Checking" and Z3's interpolation support
 
-#![allow(dead_code)]
-
 #[allow(unused_imports)]
 use crate::prelude::*;
 use core::fmt;
@@ -279,6 +277,7 @@ impl SequenceInterpolationEngine {
 /// Tree interpolation for DAG-structured formulas
 pub struct TreeInterpolationEngine {
     /// Array interpolation engine
+    #[allow(dead_code)]
     array_engine: ArrayInterpolationEngine,
 }
 
@@ -383,6 +382,7 @@ impl TreeInterpolationEngine {
 /// Interpolation-based verification engine
 pub struct InterpolationVerifier {
     /// Interpolation engine
+    #[allow(dead_code)]
     interpolation_engine: ArrayInterpolationEngine,
     /// Verification trace
     trace: Vec<VerificationStep>,

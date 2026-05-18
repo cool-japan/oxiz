@@ -858,6 +858,7 @@ impl FpConstraintData {
     }
 
     #[must_use]
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.additions.is_empty()
             && self.divisions.is_empty()
@@ -900,6 +901,7 @@ impl Default for FpConstraintData {
 
 /// Lazy model evaluation cache.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct ModelCache {
     model: Model,
     eval_cache: FxHashMap<TermId, TermId>,
@@ -907,6 +909,7 @@ pub struct ModelCache {
     cache_misses: u64,
 }
 
+#[allow(dead_code)]
 impl ModelCache {
     #[must_use]
     pub fn new(model: Model) -> Self {

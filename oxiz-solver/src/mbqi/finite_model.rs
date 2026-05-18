@@ -12,7 +12,6 @@
 //! 4. **Conflict-Driven**: Learn from failed attempts
 
 #![allow(missing_docs)]
-#![allow(dead_code)]
 
 #[allow(unused_imports)]
 use crate::prelude::*;

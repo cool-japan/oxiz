@@ -47,6 +47,7 @@ impl Solver {
     /// `not(= x y)` and both have bounded integer domains [L, U],
     /// add `Not(Eq(x, k)) OR Not(Eq(y, k))` for each value k in the domain.
     /// This SAT-level encoding directly captures the pigeonhole principle.
+    #[allow(dead_code)]
     pub(super) fn add_pigeonhole_exclusions(&mut self, manager: &mut TermManager) {
         // Collect domain information: term -> (lo, hi)
         let mut domains: FxHashMap<TermId, (i64, i64)> = FxHashMap::default();
@@ -180,6 +181,7 @@ impl Solver {
     /// tautological clause `Eq(s_i, s_j) OR Not(Eq(s_i, s_j))`.  This
     /// forces the SAT solver to decide the equality, enabling theory
     /// propagation for pigeonhole-style contradictions.
+    #[allow(dead_code)]
     pub(super) fn add_select_equality_splits(&mut self, manager: &mut TermManager) {
         // Collect all select terms from the arith terms set
         let select_terms: Vec<(TermId, TermId, TermId)> = self

@@ -3,8 +3,6 @@
 //! This module provides a real-time web dashboard for monitoring SAT/SMT solver
 //! statistics, including conflicts, decisions, propagations, memory usage, and more.
 
-#![allow(dead_code)]
-
 #[path = "dashboard/perf.rs"]
 pub mod perf;
 
@@ -29,7 +27,8 @@ use tokio::sync::broadcast;
 pub struct DashboardState {
     /// Broadcast channel for sending updates to all WebSocket clients
     pub tx: broadcast::Sender<DashboardStats>,
-    /// Current solver statistics
+    /// Current solver statistics (updated by solver; broadcast to clients via update_stats)
+    #[allow(dead_code)]
     pub stats: DashboardStats,
     /// Whether solving is currently paused
     pub paused: AtomicBool,
@@ -98,7 +97,8 @@ impl DashboardState {
         })
     }
 
-    /// Update statistics from the solver
+    /// Update statistics from the solver; broadcasts to all connected WebSocket clients.
+    #[allow(dead_code)]
     pub fn update_stats(&self, stats: DashboardStats) {
         // Ignore send errors (no receivers)
         let _ = self.tx.send(stats);
@@ -110,20 +110,23 @@ impl DashboardState {
         self.paused.load(Ordering::Relaxed)
     }
 
-    /// Check if solving is cancelled
+    /// Check if solving is cancelled; intended for solver integration hooks.
     #[must_use]
+    #[allow(dead_code)]
     pub fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::Relaxed)
     }
 
-    /// Set the current phase
+    /// Set the current solver phase label displayed on the dashboard.
+    #[allow(dead_code)]
     pub fn set_phase(&self, phase: &str) {
         if let Ok(mut p) = self.phase.lock() {
             *p = phase.to_string();
         }
     }
 
-    /// Start timing
+    /// Start timing from the current instant; used by solver integration.
+    #[allow(dead_code)]
     pub fn start_timing(&self) {
         if let Ok(mut start) = self.start_time.lock() {
             *start = Some(std::time::Instant::now());

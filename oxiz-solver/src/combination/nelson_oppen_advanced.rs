@@ -29,7 +29,6 @@
 //! - Z3's `smt/theory_opt.cpp`, `smt/theory_combination.cpp`
 
 #![allow(missing_docs)]
-#![allow(dead_code)]
 
 #[allow(unused_imports)]
 use crate::prelude::*;
@@ -532,11 +531,13 @@ impl UnionFindWithExplanation {
     }
 
     /// Get explanation for equality.
+    #[allow(dead_code)]
     fn get_explanation(&self, eq: &Equality) -> Option<&EqualityExplanation> {
         self.explanations.get(eq)
     }
 
     /// Get decision level for equality.
+    #[allow(dead_code)]
     fn get_decision_level(&self, eq: &Equality) -> Option<DecisionLevel> {
         self.decision_levels.get(eq).copied()
     }

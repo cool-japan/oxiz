@@ -34,7 +34,6 @@
 //! - Z3's `smt/theory_propagation.cpp`
 
 #![allow(missing_docs)]
-#![allow(dead_code)]
 
 #[allow(unused_imports)]
 use crate::prelude::*;
@@ -334,6 +333,7 @@ impl DependencyGraph {
     }
 
     /// Get terms a term depends on.
+    #[allow(dead_code)]
     fn get_dependencies(&self, term: TermId) -> impl Iterator<Item = TermId> + '_ {
         self.backward
             .get(&term)
