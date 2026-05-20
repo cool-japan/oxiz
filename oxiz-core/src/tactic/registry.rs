@@ -34,8 +34,8 @@
 
 use std::collections::HashMap;
 
-use crate::tactic::core::{Goal, Tactic, TacticResult};
 use crate::error::Result;
+use crate::tactic::core::{Goal, Tactic, TacticResult};
 
 // ─── Type alias ──────────────────────────────────────────────────────────────
 
@@ -53,15 +53,17 @@ use super::eliminate::StatelessEliminateUnconstrainedTactic;
 use super::pb2bv::StatelessPb2BvTactic;
 use super::propagate::StatelessPropagateValuesTactic;
 use super::simplify::StatelessSimplifyTactic;
+use super::solve_eqs::{
+    StatelessCnfTactic, StatelessFourierMotzkinTactic, StatelessNnfTactic, StatelessSolveEqsTactic,
+};
 use super::split::StatelessSplitTactic;
-use super::solve_eqs::{StatelessCnfTactic, StatelessFourierMotzkinTactic, StatelessNnfTactic, StatelessSolveEqsTactic};
 
 // Arith tactics
-use super::arith::arith_bounds::{ArithBoundsTactic, ArithBoundsConfig};
+use super::arith::arith_bounds::{ArithBoundsConfig, ArithBoundsTactic};
 use super::arith::factor::{FactorTactic, FactorTacticConfig};
 
 // BV tactics
-use super::bv::bvarray2uf::{BvArray2UfTactic, BvArray2UfConfig};
+use super::bv::bvarray2uf::{BvArray2UfConfig, BvArray2UfTactic};
 
 // Sub-module tactics with Tactic impl
 use super::lia2card::StatelessLia2CardTactic;
@@ -92,7 +94,8 @@ impl TacticRegistry {
     where
         F: Fn() -> Box<dyn Tactic> + Send + Sync + 'static,
     {
-        self.factories.insert(name, Box::new(factory) as TacticFactory);
+        self.factories
+            .insert(name, Box::new(factory) as TacticFactory);
     }
 
     /// Create a fresh tactic instance by name.
@@ -160,9 +163,15 @@ pub fn default_registry() -> TacticRegistry {
 
     // ── Core simplification tactics ──────────────────────────────────────────
     reg.register("simplify", || Box::new(StatelessSimplifyTactic));
-    reg.register("propagate-values", || Box::new(StatelessPropagateValuesTactic));
-    reg.register("ctx-solver-simplify", || Box::new(StatelessCtxSolverSimplifyTactic));
-    reg.register("aggressive-simplify", || Box::new(StatelessAggressiveSimplifyTactic));
+    reg.register("propagate-values", || {
+        Box::new(StatelessPropagateValuesTactic)
+    });
+    reg.register("ctx-solver-simplify", || {
+        Box::new(StatelessCtxSolverSimplifyTactic)
+    });
+    reg.register("aggressive-simplify", || {
+        Box::new(StatelessAggressiveSimplifyTactic)
+    });
 
     // ── Bit-blasting and bitvector tactics ───────────────────────────────────
     reg.register("bit-blast", || Box::new(StatelessBitBlastTactic));
@@ -174,7 +183,9 @@ pub fn default_registry() -> TacticRegistry {
     reg.register("ackermannize", || Box::new(StatelessAckermannizeTactic));
 
     // ── Variable elimination and equation solving ─────────────────────────────
-    reg.register("elim-uncnstr", || Box::new(StatelessEliminateUnconstrainedTactic));
+    reg.register("elim-uncnstr", || {
+        Box::new(StatelessEliminateUnconstrainedTactic)
+    });
     reg.register("solve-eqs", || Box::new(StatelessSolveEqsTactic));
 
     // ── Normal forms and CNF ─────────────────────────────────────────────────

@@ -16,7 +16,7 @@ use oxiz_core::ast::TermId;
 use oxiz_core::sort::SortId;
 
 use crate::optimization::{OptimizationResult, Optimizer};
-use crate::z3_compat::{Bool, BV, Int, Real, SatResult, Z3Context};
+use crate::z3_compat::{BV, Bool, Int, Real, SatResult, Z3Context};
 
 // ─── Helper macro (mirrors the one in z3_compat) ─────────────────────────────
 

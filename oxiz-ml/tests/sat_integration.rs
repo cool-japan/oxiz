@@ -1,6 +1,5 @@
 //! Integration tests: MLBranchingHeuristic wired into oxiz-sat Solver.
 
-
 use std::sync::{Arc, Mutex};
 
 use oxiz_ml::branching::{MLBranchingHeuristic, MLEnhancedVSIDS};

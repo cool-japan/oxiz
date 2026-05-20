@@ -408,10 +408,7 @@ impl Context {
     ///
     /// The return type is `(entries, else_value_string, arity)` to avoid
     /// pulling `oxiz_core::model` types into this file.
-    pub fn get_func_interp_raw(
-        &self,
-        func_name: &str,
-    ) -> Option<RawFuncInterp> {
+    pub fn get_func_interp_raw(&self, func_name: &str) -> Option<RawFuncInterp> {
         if self.last_result != Some(SolverResult::Sat) {
             return None;
         }
@@ -432,7 +429,9 @@ impl Context {
             let Some(term) = self.terms.get(tid) else {
                 continue;
             };
-            if let TermKind::Apply { func: func_spur, .. } = &term.kind
+            if let TermKind::Apply {
+                func: func_spur, ..
+            } = &term.kind
                 && self.terms.resolve_str(*func_spur) == func_name
             {
                 func_id = Some(func_spur.into_inner().get());
@@ -479,11 +478,12 @@ impl Context {
                 .iter()
                 .enumerate()
                 .map(|(i, members)| {
-                    self.class_value_string(members, solver_model).unwrap_or_else(|| {
-                        decl.arg_sorts
-                            .get(i)
-                            .map_or_else(|| "?".to_string(), |&s| self.default_value(s))
-                    })
+                    self.class_value_string(members, solver_model)
+                        .unwrap_or_else(|| {
+                            decl.arg_sorts
+                                .get(i)
+                                .map_or_else(|| "?".to_string(), |&s| self.default_value(s))
+                        })
                 })
                 .collect();
             entries.push((arg_strs, val_str));
@@ -545,9 +545,7 @@ impl Context {
             .max_by(|(_, (count_a, order_a)), (_, (count_b, order_b))| {
                 // Higher count wins; on a tie the smaller insertion order wins,
                 // so we reverse the order comparison.
-                count_a
-                    .cmp(count_b)
-                    .then_with(|| order_b.cmp(order_a))
+                count_a.cmp(count_b).then_with(|| order_b.cmp(order_a))
             })
             .map(|(value, _)| value.to_string())
     }
@@ -809,7 +807,8 @@ impl Context {
         &mut self,
         assumptions: &[oxiz_core::ast::TermId],
     ) -> crate::solver::SolverResult {
-        self.solver.check_with_assumptions(assumptions, &mut self.terms)
+        self.solver
+            .check_with_assumptions(assumptions, &mut self.terms)
     }
 
     /// Return the unsat core from the last check (crate-internal use only).

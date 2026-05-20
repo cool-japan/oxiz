@@ -4,9 +4,7 @@
 //! (`Z3Context::substitute`), and quantifier patterns/triggers (`Z3Pattern`,
 //! `forall_with_patterns` / `exists_with_patterns`).
 
-use oxiz_solver::z3_compat::{
-    BV, Bool, FuncDecl, Int, Real, Z3Config, Z3Context, Z3SortKind,
-};
+use oxiz_solver::z3_compat::{BV, Bool, FuncDecl, Int, Real, Z3Config, Z3Context, Z3SortKind};
 
 fn make_ctx() -> Z3Context {
     Z3Context::new(&Z3Config::new())

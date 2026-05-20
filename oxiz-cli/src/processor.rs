@@ -178,10 +178,7 @@ pub(crate) fn run_files(ctx: &mut Context, args: &Args, verbosity: Verbosity) {
     if args.cicd {
         let mut report = cicd::CicdReport::new();
         for result in results.iter() {
-            let file_name = result
-                .file
-                .clone()
-                .unwrap_or_else(|| "stdin".to_string());
+            let file_name = result.file.clone().unwrap_or_else(|| "stdin".to_string());
             report.add_result(
                 file_name,
                 result.result.clone(),

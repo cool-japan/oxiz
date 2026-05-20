@@ -19,11 +19,11 @@ use std::rc::Rc;
 
 use oxiz_core::ast::{TermId, TermManager};
 use oxiz_core::sort::SortId;
+use oxiz_core::tactic::DepthProbe;
 use oxiz_core::tactic::{
     Goal, HasArrayProbe, HasBitVectorProbe, HasQuantifierProbe, IsLinearProbe, NodeCountProbe,
     Probe, SizeProbe, TacticResult,
 };
-use oxiz_core::tactic::DepthProbe;
 use oxiz_theories::datatype::{Constructor, DatatypeDecl};
 
 use crate::solver::SolverConfig;
@@ -418,7 +418,7 @@ impl TacticKind {
 /// [`default_registry`]: oxiz_core::tactic::default_registry
 /// [`TacticRegistry`]: oxiz_core::tactic::TacticRegistry
 fn tactic_registry() -> &'static oxiz_core::tactic::TacticRegistry {
-    use oxiz_core::tactic::{default_registry, TacticRegistry};
+    use oxiz_core::tactic::{TacticRegistry, default_registry};
     use std::sync::OnceLock;
     static REG: OnceLock<TacticRegistry> = OnceLock::new();
     REG.get_or_init(default_registry)
@@ -818,11 +818,7 @@ fn sort_name_to_id(ctx: &Z3Context, name: &str) -> SortId {
         "Bool" => ctx.bool_sort(),
         "Int" => ctx.int_sort(),
         "Real" => ctx.real_sort(),
-        other => ctx
-            .tm
-            .borrow_mut()
-            .sorts
-            .mk_datatype_sort(other),
+        other => ctx.tm.borrow_mut().sorts.mk_datatype_sort(other),
     }
 }
 
@@ -923,10 +919,9 @@ impl Z3AstVector {
     pub fn any_true(&self) -> bool {
         use oxiz_core::ast::TermKind;
         let tm = self.ctx_tm.borrow();
-        self.terms.iter().any(|&id| {
-            tm.get(id)
-                .is_some_and(|t| matches!(t.kind, TermKind::True))
-        })
+        self.terms
+            .iter()
+            .any(|&id| tm.get(id).is_some_and(|t| matches!(t.kind, TermKind::True)))
     }
 }
 
@@ -1103,12 +1098,8 @@ impl crate::z3_compat::Z3Model {
     /// is a valid (conservative) interpretation: the solver is free to choose
     /// any value for unconstrained applications.
     #[must_use]
-    pub fn get_func_interp(
-        &self,
-        f: &crate::z3_compat::ext::FuncDecl,
-    ) -> Option<Z3FuncInterp> {
-        self.func_interp_raw(&f.name)
-            .map(Z3FuncInterp::from_raw)
+    pub fn get_func_interp(&self, f: &crate::z3_compat::ext::FuncDecl) -> Option<Z3FuncInterp> {
+        self.func_interp_raw(&f.name).map(Z3FuncInterp::from_raw)
     }
 }
 
@@ -1118,6 +1109,6 @@ impl crate::z3_compat::Z3Model {
 /// theories crate so downstream code can use them without a direct dep on
 /// `oxiz-theories`.
 pub use oxiz_theories::datatype::{
-    Constructor as DtConstructor, DatatypeDecl as DtDecl, DatatypeSort as DtSort,
-    Field as DtField, Selector as DtSelector,
+    Constructor as DtConstructor, DatatypeDecl as DtDecl, DatatypeSort as DtSort, Field as DtField,
+    Selector as DtSelector,
 };

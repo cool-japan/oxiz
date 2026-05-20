@@ -51,10 +51,8 @@ use crate::solver::SolverConfig;
 #[path = "z3_compat_ext.rs"]
 pub mod ext;
 pub use ext::{
-    Array, FuncDecl, Z3Optimize,
-    distinct_bv, distinct_int, distinct_real,
-    exists_bool, forall_bool,
-    int_numeral, ite_bool, ite_bv, ite_int, ite_real, real_numeral,
+    Array, FuncDecl, Z3Optimize, distinct_bv, distinct_int, distinct_real, exists_bool,
+    forall_bool, int_numeral, ite_bool, ite_bv, ite_int, ite_real, real_numeral,
 };
 
 // Extended Z3 API surfaces #2: Statistics, Params, Probe, Goal/Tactic,
@@ -62,9 +60,9 @@ pub use ext::{
 #[path = "z3_compat_ext2.rs"]
 pub mod ext2;
 pub use ext2::{
-    DtConstructor, DtDecl, DtField, DtSelector, DtSort, Z3AstVector, Z3ApplyResult,
-    Z3Constructor, Z3DatatypeSort, Z3Field, Z3FuncEntry, Z3FuncInterp, Z3Goal, Z3Params,
-    Z3Probe, Z3Statistics, Z3Tactic, Z3Value, ParamVal, mk_constructor,
+    DtConstructor, DtDecl, DtField, DtSelector, DtSort, ParamVal, Z3ApplyResult, Z3AstVector,
+    Z3Constructor, Z3DatatypeSort, Z3Field, Z3FuncEntry, Z3FuncInterp, Z3Goal, Z3Params, Z3Probe,
+    Z3Statistics, Z3Tactic, Z3Value, mk_constructor,
 };
 
 // Extended Z3 API surfaces #3: Sort introspection, term substitution, and

@@ -734,8 +734,7 @@ impl TheoryCombiner {
         // Detect if eviction occurred (capacity enforced by LruCache::insert)
         let (_hits2, _misses2, evictions_after) = self.lemma_cache.stats();
         if evictions_after > evictions_before {
-            self.stats.lemma_cache_evictions +=
-                (evictions_after - evictions_before) as u64;
+            self.stats.lemma_cache_evictions += (evictions_after - evictions_before) as u64;
         }
     }
 
@@ -1534,6 +1533,9 @@ mod tests {
         let _ = cache.get(&1); // hit
         let _ = cache.get(&99); // miss
         let (hits, misses, _evictions) = cache.stats();
-        assert!(hits > 0 || misses > 0, "at least one stat should be nonzero");
+        assert!(
+            hits > 0 || misses > 0,
+            "at least one stat should be nonzero"
+        );
     }
 }

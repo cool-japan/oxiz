@@ -12,7 +12,7 @@
 
 use num_rational::Rational64;
 use num_traits::One;
-use oxiz_theories::arithmetic::{LinExpr, LiaSolver, VarId};
+use oxiz_theories::arithmetic::{LiaSolver, LinExpr, VarId};
 
 /// Helper: add `coeff * var + constant <= 0` as a less-than-or-equal constraint.
 fn add_le_single(solver: &mut LiaSolver, var: VarId, coeff: i64, rhs: i64, reason: u32) {
@@ -74,7 +74,10 @@ fn test_probe_variables_tightens_bounds() {
 
     // The full check must still report SAT after probing tightened bounds.
     let sat = solver.check();
-    assert!(sat.is_ok(), "check() should not error after probe_variables");
+    assert!(
+        sat.is_ok(),
+        "check() should not error after probe_variables"
+    );
     assert!(
         sat.expect("check() must succeed"),
         "problem is still satisfiable after probing (x = 1..4 is valid)"

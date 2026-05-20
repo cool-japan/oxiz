@@ -181,7 +181,9 @@ impl<'a> AggressiveSimplifier<'a> {
     }
 
     fn simplify_all(&mut self, args: SmallVec<[TermId; 4]>) -> SmallVec<[TermId; 4]> {
-        args.into_iter().map(|arg| self.simplify_cached(arg)).collect()
+        args.into_iter()
+            .map(|arg| self.simplify_cached(arg))
+            .collect()
     }
 
     fn simplify_and(&mut self, args: SmallVec<[TermId; 4]>) -> TermId {

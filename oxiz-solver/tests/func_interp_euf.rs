@@ -149,7 +149,12 @@ fn test_func_interp_value_via_class_representative() {
         .expect("f should have an interpretation after SAT");
 
     assert_eq!(arity, 1);
-    assert_eq!(entries.len(), 1, "exactly one application f(a), got {:?}", entries);
+    assert_eq!(
+        entries.len(),
+        1,
+        "exactly one application f(a), got {:?}",
+        entries
+    );
     let (args, value) = &entries[0];
     assert_eq!(args.len(), 1);
     assert_eq!(

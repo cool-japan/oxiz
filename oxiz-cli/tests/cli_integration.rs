@@ -519,11 +519,7 @@ fn test_output_file() {
 fn test_peak_memory_nonzero() {
     let dir = env::temp_dir();
     let f = dir.join(format!("pmem_nonzero_{}.smt2", rand_string()));
-    fs::write(
-        &f,
-        "(declare-const x Bool)\n(assert x)\n(check-sat)\n",
-    )
-    .unwrap();
+    fs::write(&f, "(declare-const x Bool)\n(assert x)\n(check-sat)\n").unwrap();
 
     let output = Command::new(oxiz_bin())
         .arg("--memory")
@@ -572,11 +568,7 @@ fn test_peak_memory_linux_uses_vmhwm() {
 
     let dir = env::temp_dir();
     let f = dir.join(format!("pmem_vmhwm_{}.smt2", rand_string()));
-    fs::write(
-        &f,
-        "(declare-const x Bool)\n(assert x)\n(check-sat)\n",
-    )
-    .unwrap();
+    fs::write(&f, "(declare-const x Bool)\n(assert x)\n(check-sat)\n").unwrap();
 
     // Sample VmHWM from /proc/self/status before spawning the child; the child
     // will have its own address space so we rely on the child's reported output.
@@ -624,11 +616,7 @@ fn test_peak_memory_linux_uses_vmhwm() {
 fn test_peak_memory_geq_current() {
     let dir = env::temp_dir();
     let f = dir.join(format!("pmem_geq_{}.smt2", rand_string()));
-    fs::write(
-        &f,
-        "(declare-const x Bool)\n(assert x)\n(check-sat)\n",
-    )
-    .unwrap();
+    fs::write(&f, "(declare-const x Bool)\n(assert x)\n(check-sat)\n").unwrap();
 
     let output = Command::new(oxiz_bin())
         .arg("--memory")
@@ -668,12 +656,7 @@ fn test_peak_memory_geq_current() {
     let peak = extract_mb(&combined, "Peak memory:");
 
     if let (Some(c), Some(p)) = (current, peak) {
-        assert!(
-            p >= c,
-            "peak ({} MB) must be >= current ({} MB)",
-            p,
-            c
-        );
+        assert!(p >= c, "peak ({} MB) must be >= current ({} MB)", p, c);
     }
     // If either line is absent (rounds to 0 MB) we skip the numeric check.
 }
@@ -694,9 +677,7 @@ fn test_parallel_memory_aggregate() {
         .collect();
 
     let mut cmd = Command::new(oxiz_bin());
-    cmd.arg("--parallel")
-        .arg("--memory")
-        .arg("--quiet");
+    cmd.arg("--parallel").arg("--memory").arg("--quiet");
     for f in &files {
         cmd.arg(f.to_str().unwrap());
     }
@@ -766,11 +747,7 @@ fn test_multi_file_memory_per_file() {
 fn test_exit_code_sat() {
     let dir = env::temp_dir();
     let f = dir.join(format!("exit_sat_{}.smt2", rand_string()));
-    fs::write(
-        &f,
-        "(declare-const x Bool)\n(assert x)\n(check-sat)\n",
-    )
-    .unwrap();
+    fs::write(&f, "(declare-const x Bool)\n(assert x)\n(check-sat)\n").unwrap();
 
     let status = Command::new(oxiz_bin())
         .arg("--quiet")
@@ -823,11 +800,7 @@ fn test_exit_code_parse_error() {
     let dir = env::temp_dir();
     let f = dir.join(format!("exit_parse_err_{}.smt2", rand_string()));
     // Deliberately broken: every s-expression is left unclosed
-    fs::write(
-        &f,
-        "(declare-const x Bool\n(assert x\n(check-sat\n",
-    )
-    .unwrap();
+    fs::write(&f, "(declare-const x Bool\n(assert x\n(check-sat\n").unwrap();
 
     let output = Command::new(oxiz_bin())
         .arg("--quiet")
@@ -841,9 +814,8 @@ fn test_exit_code_parse_error() {
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     // Accept either non-zero exit or an explicit error token in the output.
-    let signals_error = !output.status.success()
-        || stdout.contains("(error")
-        || stderr.contains("error");
+    let signals_error =
+        !output.status.success() || stdout.contains("(error") || stderr.contains("error");
 
     assert!(
         signals_error,

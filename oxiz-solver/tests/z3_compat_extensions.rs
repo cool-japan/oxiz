@@ -4,11 +4,9 @@
 //! forall/exists quantifiers, and Z3Optimize.
 
 use oxiz_solver::z3_compat::{
-    Bool, BV, Int, Real, SatResult, Z3Config, Z3Context, Z3Solver,
-    Array, FuncDecl, Z3Optimize,
-    distinct_bv, distinct_int, distinct_real,
-    exists_bool, forall_bool,
-    ite_bool, ite_bv, ite_int, ite_real,
+    Array, BV, Bool, FuncDecl, Int, Real, SatResult, Z3Config, Z3Context, Z3Optimize, Z3Solver,
+    distinct_bv, distinct_int, distinct_real, exists_bool, forall_bool, ite_bool, ite_bv, ite_int,
+    ite_real,
 };
 
 fn make_ctx() -> Z3Context {
@@ -58,7 +56,10 @@ fn test_real_from_i64() {
     let r = Real::from_i64(&ctx, 42);
     // Must equal the frac form with denominator 1
     let r2 = Real::from_frac(&ctx, 42, 1);
-    assert_eq!(r.id, r2.id, "from_i64 and from_frac(n,1) must produce the same term");
+    assert_eq!(
+        r.id, r2.id,
+        "from_i64 and from_frac(n,1) must produce the same term"
+    );
 }
 
 // ─── ITE ─────────────────────────────────────────────────────────────────────

@@ -37,7 +37,7 @@ mod split;
 pub use core::{Goal, Precision, SolveResult, Tactic, TacticResult};
 
 // Re-export registry
-pub use registry::{default_registry, TacticRegistry};
+pub use registry::{TacticRegistry, default_registry};
 
 // Re-export tactics
 pub use ackermann::{AckermannizeTactic, StatelessAckermannizeTactic};

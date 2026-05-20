@@ -325,19 +325,23 @@ fn subst_rebuild(
             let na = rec!(a);
             if na == a { id } else { tm.mk_not(na) }
         }
-        TermKind::And(args) => {
-            rebuild_nary(tm, id, &args, map, cache, |tm, a| tm.mk_and(a))
-        }
-        TermKind::Or(args) => {
-            rebuild_nary(tm, id, &args, map, cache, |tm, a| tm.mk_or(a))
-        }
+        TermKind::And(args) => rebuild_nary(tm, id, &args, map, cache, |tm, a| tm.mk_and(a)),
+        TermKind::Or(args) => rebuild_nary(tm, id, &args, map, cache, |tm, a| tm.mk_or(a)),
         TermKind::Xor(a, b) => {
             let (na, nb) = (rec!(a), rec!(b));
-            if na == a && nb == b { id } else { tm.mk_xor(na, nb) }
+            if na == a && nb == b {
+                id
+            } else {
+                tm.mk_xor(na, nb)
+            }
         }
         TermKind::Implies(a, b) => {
             let (na, nb) = (rec!(a), rec!(b));
-            if na == a && nb == b { id } else { tm.mk_implies(na, nb) }
+            if na == a && nb == b {
+                id
+            } else {
+                tm.mk_implies(na, nb)
+            }
         }
         TermKind::Ite(c, t, e) => {
             let (nc, nt, ne) = (rec!(c), rec!(t), rec!(e));
@@ -351,7 +355,11 @@ fn subst_rebuild(
         // ── Equality / distinct ──────────────────────────────────────────
         TermKind::Eq(a, b) => {
             let (na, nb) = (rec!(a), rec!(b));
-            if na == a && nb == b { id } else { tm.mk_eq(na, nb) }
+            if na == a && nb == b {
+                id
+            } else {
+                tm.mk_eq(na, nb)
+            }
         }
         TermKind::Distinct(args) => {
             rebuild_nary(tm, id, &args, map, cache, |tm, a| tm.mk_distinct(a))
@@ -362,39 +370,63 @@ fn subst_rebuild(
             let na = rec!(a);
             if na == a { id } else { tm.mk_neg(na) }
         }
-        TermKind::Add(args) => {
-            rebuild_nary(tm, id, &args, map, cache, |tm, a| tm.mk_add(a))
-        }
-        TermKind::Mul(args) => {
-            rebuild_nary(tm, id, &args, map, cache, |tm, a| tm.mk_mul(a))
-        }
+        TermKind::Add(args) => rebuild_nary(tm, id, &args, map, cache, |tm, a| tm.mk_add(a)),
+        TermKind::Mul(args) => rebuild_nary(tm, id, &args, map, cache, |tm, a| tm.mk_mul(a)),
         TermKind::Sub(a, b) => {
             let (na, nb) = (rec!(a), rec!(b));
-            if na == a && nb == b { id } else { tm.mk_sub(na, nb) }
+            if na == a && nb == b {
+                id
+            } else {
+                tm.mk_sub(na, nb)
+            }
         }
         TermKind::Div(a, b) => {
             let (na, nb) = (rec!(a), rec!(b));
-            if na == a && nb == b { id } else { tm.mk_div(na, nb) }
+            if na == a && nb == b {
+                id
+            } else {
+                tm.mk_div(na, nb)
+            }
         }
         TermKind::Mod(a, b) => {
             let (na, nb) = (rec!(a), rec!(b));
-            if na == a && nb == b { id } else { tm.mk_mod(na, nb) }
+            if na == a && nb == b {
+                id
+            } else {
+                tm.mk_mod(na, nb)
+            }
         }
         TermKind::Lt(a, b) => {
             let (na, nb) = (rec!(a), rec!(b));
-            if na == a && nb == b { id } else { tm.mk_lt(na, nb) }
+            if na == a && nb == b {
+                id
+            } else {
+                tm.mk_lt(na, nb)
+            }
         }
         TermKind::Le(a, b) => {
             let (na, nb) = (rec!(a), rec!(b));
-            if na == a && nb == b { id } else { tm.mk_le(na, nb) }
+            if na == a && nb == b {
+                id
+            } else {
+                tm.mk_le(na, nb)
+            }
         }
         TermKind::Gt(a, b) => {
             let (na, nb) = (rec!(a), rec!(b));
-            if na == a && nb == b { id } else { tm.mk_gt(na, nb) }
+            if na == a && nb == b {
+                id
+            } else {
+                tm.mk_gt(na, nb)
+            }
         }
         TermKind::Ge(a, b) => {
             let (na, nb) = (rec!(a), rec!(b));
-            if na == a && nb == b { id } else { tm.mk_ge(na, nb) }
+            if na == a && nb == b {
+                id
+            } else {
+                tm.mk_ge(na, nb)
+            }
         }
 
         // ── Bit-vectors ──────────────────────────────────────────────────
@@ -458,8 +490,7 @@ fn subst_rebuild(
 
         // ── Uninterpreted-function application ───────────────────────────
         TermKind::Apply { func, args } => {
-            let new_args: smallvec::SmallVec<[TermId; 4]> =
-                args.iter().map(|&a| rec!(a)).collect();
+            let new_args: smallvec::SmallVec<[TermId; 4]> = args.iter().map(|&a| rec!(a)).collect();
             if new_args.iter().zip(args.iter()).all(|(a, b)| a == b) {
                 id
             } else {

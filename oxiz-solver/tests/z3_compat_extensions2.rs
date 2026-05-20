@@ -5,8 +5,8 @@
 //! Z3FuncInterp/Z3FuncEntry/Z3Value.
 
 use oxiz_solver::z3_compat::{
-    Bool, BV, FuncDecl, Int, SatResult, Z3AstVector, Z3Config, Z3Context, Z3Solver,
-    Z3DatatypeSort, Z3Goal, Z3Params, Z3Probe, Z3Tactic, Z3Value, mk_constructor,
+    BV, Bool, FuncDecl, Int, SatResult, Z3AstVector, Z3Config, Z3Context, Z3DatatypeSort, Z3Goal,
+    Z3Params, Z3Probe, Z3Solver, Z3Tactic, Z3Value, mk_constructor,
 };
 
 fn make_ctx() -> Z3Context {
@@ -27,7 +27,10 @@ fn test_statistics_has_keys() {
     solver.assert(&p);
     let _ = solver.check();
     let stats = solver.statistics();
-    assert!(stats.num_keys() > 0, "statistics must have at least one key");
+    assert!(
+        stats.num_keys() > 0,
+        "statistics must have at least one key"
+    );
 }
 
 #[test]
@@ -119,7 +122,11 @@ fn test_params_set_str() {
     let mut params = Z3Params::new(&ctx);
     params.set_str("logic", "QF_LIA");
     assert_eq!(
-        params.as_map().get("logic").map(|v| format!("{:?}", v)).as_deref(),
+        params
+            .as_map()
+            .get("logic")
+            .map(|v| format!("{:?}", v))
+            .as_deref(),
         Some("Str(\"QF_LIA\")")
     );
 }
@@ -354,7 +361,11 @@ fn test_z3_tactic_unknown_name_returns_goal_unchanged() {
     goal.assert(&p);
     let tactic = Z3Tactic::new(&ctx, "this-is-not-a-tactic");
     let result = tactic.apply(&ctx, &goal);
-    assert_eq!(result.num_subgoals(), 1, "unknown tactic must yield one subgoal");
+    assert_eq!(
+        result.num_subgoals(),
+        1,
+        "unknown tactic must yield one subgoal"
+    );
     // The single subgoal preserves the original assertion.
     assert_eq!(result.get_subgoal(0).size(), 1);
     assert_eq!(result.get_subgoal(0).get_formula(0).id, p.id);
@@ -438,7 +449,10 @@ fn test_check_assumptions_sat_trivial() {
     let mut solver = make_solver(&ctx);
     // Build term in solver's own term manager to avoid cross-manager ID confusion.
     let bool_sort = solver.context().terms.sorts.bool_sort;
-    let p_id = solver.context_mut().terms.mk_var("p_sat_trivial", bool_sort);
+    let p_id = solver
+        .context_mut()
+        .terms
+        .mk_var("p_sat_trivial", bool_sort);
     let p = Bool::from_id(p_id);
     let result = solver.check_assumptions(&[p]);
     assert_eq!(result, SatResult::Sat);
@@ -657,11 +671,16 @@ fn test_z3_func_interp_declared_function_num_entries_ge_zero() {
     let int_sort = solver.context().terms.sorts.int_sort;
 
     // Declare f in the solver context.
-    solver.context_mut().declare_fun("fi_test_f", vec![int_sort], int_sort);
+    solver
+        .context_mut()
+        .declare_fun("fi_test_f", vec![int_sort], int_sort);
 
     // Build: f(0) — the apply term.
     let zero_id = solver.context_mut().terms.mk_int(0i64);
-    let f_app = solver.context_mut().terms.mk_apply("fi_test_f", [zero_id], int_sort);
+    let f_app = solver
+        .context_mut()
+        .terms
+        .mk_apply("fi_test_f", [zero_id], int_sort);
 
     // Build: f(0) = 5.
     let five_id = solver.context_mut().terms.mk_int(5i64);
@@ -696,7 +715,9 @@ fn test_z3_func_interp_entry_access() {
     let int_sort = solver.context().terms.sorts.int_sort;
     let bool_sort = solver.context().terms.sorts.bool_sort;
 
-    solver.context_mut().declare_fun("fi_test_g", vec![int_sort, int_sort], bool_sort);
+    solver
+        .context_mut()
+        .declare_fun("fi_test_g", vec![int_sort, int_sort], bool_sort);
 
     let one = solver.context_mut().terms.mk_int(1i64);
     let two = solver.context_mut().terms.mk_int(2i64);
@@ -728,7 +749,9 @@ fn test_z3_func_interp_else_value_non_empty() {
     let ctx = make_ctx();
     let mut solver = make_solver(&ctx);
     let int_sort = solver.context().terms.sorts.int_sort;
-    solver.context_mut().declare_fun("fi_else_h", vec![int_sort], int_sort);
+    solver
+        .context_mut()
+        .declare_fun("fi_else_h", vec![int_sort], int_sort);
     let tru = solver.context_mut().terms.mk_true();
     solver.context_mut().assert(tru);
     assert_eq!(solver.check(), SatResult::Sat);
@@ -750,7 +773,10 @@ fn test_z3_func_interp_get_model_no_panic_after_unsat() {
     let ctx = make_ctx();
     let mut solver = make_solver(&ctx);
     let bool_sort = solver.context().terms.sorts.bool_sort;
-    let p = solver.context_mut().terms.mk_var("p_interp_unsat", bool_sort);
+    let p = solver
+        .context_mut()
+        .terms
+        .mk_var("p_interp_unsat", bool_sort);
     let not_p = solver.context_mut().terms.mk_not(p);
     solver.context_mut().assert(p);
     solver.context_mut().assert(not_p);
