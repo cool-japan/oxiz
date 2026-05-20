@@ -72,6 +72,26 @@ impl ENodeFingerprint {
     }
 }
 
+/// Congruence-closed view of one interned function application, produced by
+/// [`EufSolver::function_application_entries`] for model extraction.
+///
+/// All representatives are canonical equivalence-class node indices (taken
+/// through `find`), so applications whose arguments are pairwise congruent share
+/// identical `arg_reps`/`result_rep` and collapse onto the same value class.
+#[derive(Debug, Clone)]
+pub struct FuncAppEntry {
+    /// Canonical class representative (node index) of each argument, in order.
+    pub arg_reps: SmallVec<[u32; 4]>,
+    /// Every `TermId` interned into each argument's equivalence class, in the
+    /// same order as `arg_reps`.  A model builder can scan these to find a
+    /// member that carries a concrete value.
+    pub arg_class_terms: SmallVec<[Vec<TermId>; 4]>,
+    /// Canonical class representative (node index) of the application result.
+    pub result_rep: u32,
+    /// Every `TermId` interned into the result's equivalence class.
+    pub result_class_terms: Vec<TermId>,
+}
+
 /// A term node in the E-graph
 #[derive(Debug, Clone)]
 struct ENode {
@@ -810,6 +830,72 @@ impl EufSolver {
         result
     }
 
+    /// Collect, for every interned application of `func_id`, the congruence-closed
+    /// data a model builder needs to assemble a function interpretation.
+    ///
+    /// For each application node `f(a1, …, an)` the returned [`FuncAppEntry`]
+    /// records:
+    /// - `arg_reps`: the canonical equivalence-class representative (node index,
+    ///   obtained via [`find_immutable`](Self::find_immutable)) of each argument,
+    /// - `arg_class_terms`: every `TermId` interned into each argument's class —
+    ///   so the caller can pick whichever member carries a concrete model value,
+    /// - `result_rep`: the canonical class representative of the application
+    ///   itself,
+    /// - `result_class_terms`: every `TermId` interned into the result's class.
+    ///
+    /// Because the argument and result classes are taken through `find`, two
+    /// applications whose arguments are pairwise congruent (e.g. `f(a)` and
+    /// `f(b)` when `a = b`) yield identical `arg_reps` and `result_rep`. The
+    /// caller can therefore deduplicate on `arg_reps` and rely on congruence
+    /// having already collapsed them onto the same value class.
+    ///
+    /// This is a read-only `O(nodes)` scan (it never mutates the union-find, so
+    /// no path compression occurs) and is intended for the post-`Sat` model
+    /// extraction path, not the hot solving loop.
+    #[must_use]
+    pub fn function_application_entries(&self, func_id: u32) -> Vec<FuncAppEntry> {
+        // Single O(nodes) pass: bucket every node's TermId under its canonical
+        // class representative.  This avoids the O(apps × nodes) blow-up of
+        // calling `class_members` once per application.
+        let mut class_to_terms: FxHashMap<u32, Vec<TermId>> = FxHashMap::default();
+        for idx in 0..self.nodes.len() as u32 {
+            let rep = self.uf.find_no_compress(idx);
+            class_to_terms
+                .entry(rep)
+                .or_default()
+                .push(self.nodes[idx as usize].term);
+        }
+
+        let mut entries = Vec::new();
+        for (idx, node) in self.nodes.iter().enumerate() {
+            if !node.is_app() || node.func != func_id {
+                continue;
+            }
+
+            // Canonical class rep of each argument plus the member TermIds of
+            // that class (for value resolution by the caller).
+            let mut arg_reps: SmallVec<[u32; 4]> = SmallVec::with_capacity(node.args.len());
+            let mut arg_class_terms: SmallVec<[Vec<TermId>; 4]> =
+                SmallVec::with_capacity(node.args.len());
+            for &arg in &node.args {
+                let rep = self.uf.find_no_compress(arg);
+                arg_reps.push(rep);
+                arg_class_terms.push(class_to_terms.get(&rep).cloned().unwrap_or_default());
+            }
+
+            let result_rep = self.uf.find_no_compress(idx as u32);
+            let result_class_terms = class_to_terms.get(&result_rep).cloned().unwrap_or_default();
+
+            entries.push(FuncAppEntry {
+                arg_reps,
+                arg_class_terms,
+                result_rep,
+                result_class_terms,
+            });
+        }
+        entries
+    }
+
     /// Get all members of an equivalence class (all node indices with the same representative).
     /// This is an O(n) scan; for performance-critical paths, consider caching.
     pub fn class_members(&self, class_rep: u32) -> Vec<u32> {
@@ -1491,6 +1577,88 @@ mod tests {
             "a and b should not be equal after full pop"
         );
         let _ = (fab, fbc, c, d);
+    }
+
+    #[test]
+    fn test_function_application_entries_basic() {
+        // f(a) and g(b) with func ids 7 and 8 respectively.
+        let mut solver = EufSolver::new();
+        let a = solver.intern(TermId::new(1));
+        let b = solver.intern(TermId::new(2));
+        let _fa = solver.intern_app(TermId::new(3), 7, [a]);
+        let _gb = solver.intern_app(TermId::new(4), 8, [b]);
+
+        // Only the application of func 7 is reported.
+        let entries = solver.function_application_entries(7);
+        assert_eq!(entries.len(), 1, "exactly one application of func 7");
+        let e = &entries[0];
+        assert_eq!(e.arg_reps.len(), 1);
+        // The argument class of a contains a's TermId (1).
+        assert!(e.arg_class_terms[0].contains(&TermId::new(1)));
+        // The result class contains the application term itself (3).
+        assert!(e.result_class_terms.contains(&TermId::new(3)));
+
+        // A function with no applications yields no entries.
+        assert!(solver.function_application_entries(9).is_empty());
+    }
+
+    #[test]
+    fn test_function_application_entries_congruence_collapses_arg_reps() {
+        // f(a), f(b); after a = b the two applications must share arg_reps and
+        // result_rep so a model builder deduplicates them into one entry.
+        let mut solver = EufSolver::new();
+        let a = solver.intern(TermId::new(1));
+        let b = solver.intern(TermId::new(2));
+        let f = 42u32;
+        let _fa = solver.intern_app(TermId::new(10), f, [a]);
+        let _fb = solver.intern_app(TermId::new(11), f, [b]);
+
+        // Before merge: two applications with DISTINCT argument reps.
+        let before = solver.function_application_entries(f);
+        assert_eq!(before.len(), 2);
+        assert_ne!(
+            before[0].arg_reps, before[1].arg_reps,
+            "f(a) and f(b) have distinct arg reps before a=b"
+        );
+
+        // Merge a = b -> congruence unifies f(a) and f(b).
+        solver.merge(a, b, TermId::new(20)).expect("merge a=b");
+
+        let after = solver.function_application_entries(f);
+        assert_eq!(after.len(), 2, "still two application nodes are reported");
+        // ...but they now share the same canonical argument and result class,
+        // which is exactly the dedup key a model builder relies on.
+        assert_eq!(
+            after[0].arg_reps, after[1].arg_reps,
+            "after a=b the two applications must share canonical arg reps"
+        );
+        assert_eq!(
+            after[0].result_rep, after[1].result_rep,
+            "after a=b the two applications are in the same result class"
+        );
+        // The shared result class contains both application terms.
+        assert!(after[0].result_class_terms.contains(&TermId::new(10)));
+        assert!(after[0].result_class_terms.contains(&TermId::new(11)));
+    }
+
+    #[test]
+    fn test_function_application_entries_multi_arg() {
+        // h(a, c) and h(b, c); after a = b they collapse on arg reps.
+        let mut solver = EufSolver::new();
+        let a = solver.intern(TermId::new(1));
+        let b = solver.intern(TermId::new(2));
+        let c = solver.intern(TermId::new(3));
+        let h = 5u32;
+        let _hac = solver.intern_app(TermId::new(10), h, [a, c]);
+        let _hbc = solver.intern_app(TermId::new(11), h, [b, c]);
+
+        solver.merge(a, b, TermId::new(20)).expect("merge a=b");
+
+        let entries = solver.function_application_entries(h);
+        assert_eq!(entries.len(), 2);
+        // Both arg positions canonicalize identically (a~b, and shared c).
+        assert_eq!(entries[0].arg_reps.len(), 2);
+        assert_eq!(entries[0].arg_reps, entries[1].arg_reps);
     }
 
     #[test]

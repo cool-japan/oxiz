@@ -298,6 +298,82 @@ fn test_apply_result_subgoals() {
     }
 }
 
+// ─── Z3Tactic — registry-backed dispatch ──────────────────────────────────────
+
+#[test]
+fn test_z3_tactic_registry_simplify_works() {
+    // "simplify" resolves through the TacticRegistry and produces a result.
+    let ctx = make_ctx();
+    let mut goal = Z3Goal::new(&ctx);
+    let p = Bool::new_const(&ctx, "reg_simplify_p");
+    goal.assert(&p);
+    let tactic = Z3Tactic::new(&ctx, "simplify");
+    let result = tactic.apply(&ctx, &goal);
+    // Simplify on a pure variable produces at most one subgoal without panic.
+    assert!(result.num_subgoals() <= 1);
+}
+
+#[test]
+fn test_z3_tactic_registry_covers_more_than_six() {
+    // Tactics newly reachable via the registry (previously fell through to the
+    // "goal unchanged" default in the inline match): each must produce a
+    // non-panicking apply result.
+    let ctx = make_ctx();
+    for name in ["solve-eqs", "nnf", "split", "fm"] {
+        let mut goal = Z3Goal::new(&ctx);
+        let a = Bool::new_const(&ctx, &format!("reg_more_{}_a", name));
+        let b = Bool::new_const(&ctx, &format!("reg_more_{}_b", name));
+        let conj = Bool::and(&ctx, &[a, b]);
+        goal.assert(&conj);
+        let tactic = Z3Tactic::new(&ctx, name);
+        let result = tactic.apply(&ctx, &goal);
+        // Just verify no panic and that the result is queryable.
+        let _ = result.num_subgoals();
+    }
+}
+
+#[test]
+fn test_z3_tactic_ctx_simplify_alias_resolves() {
+    // The historical short form "ctx-simplify" is aliased to the canonical
+    // registry key "ctx-solver-simplify" and must still apply.
+    let ctx = make_ctx();
+    let mut goal = Z3Goal::new(&ctx);
+    let p = Bool::new_const(&ctx, "reg_ctx_alias_p");
+    goal.assert(&p);
+    let tactic = Z3Tactic::new(&ctx, "ctx-simplify");
+    let result = tactic.apply(&ctx, &goal);
+    let _ = result.num_subgoals();
+}
+
+#[test]
+fn test_z3_tactic_unknown_name_returns_goal_unchanged() {
+    // An unregistered name preserves the goal (SubGoals carrying the original).
+    let ctx = make_ctx();
+    let mut goal = Z3Goal::new(&ctx);
+    let p = Bool::new_const(&ctx, "reg_unknown_p");
+    goal.assert(&p);
+    let tactic = Z3Tactic::new(&ctx, "this-is-not-a-tactic");
+    let result = tactic.apply(&ctx, &goal);
+    assert_eq!(result.num_subgoals(), 1, "unknown tactic must yield one subgoal");
+    // The single subgoal preserves the original assertion.
+    assert_eq!(result.get_subgoal(0).size(), 1);
+    assert_eq!(result.get_subgoal(0).get_formula(0).id, p.id);
+}
+
+#[test]
+fn test_z3_tactic_smt_backend_name_passes_through() {
+    // "smt" is a backend-only tactic (not in the registry); it passes the goal
+    // through unchanged so a pipeline can continue to the solver backend.
+    let ctx = make_ctx();
+    let mut goal = Z3Goal::new(&ctx);
+    let p = Bool::new_const(&ctx, "reg_smt_p");
+    goal.assert(&p);
+    let tactic = Z3Tactic::new(&ctx, "smt");
+    let result = tactic.apply(&ctx, &goal);
+    assert_eq!(result.num_subgoals(), 1, "smt must pass the goal through");
+    assert_eq!(result.get_subgoal(0).get_formula(0).id, p.id);
+}
+
 // ─── Z3DatatypeSort ───────────────────────────────────────────────────────────
 
 #[test]

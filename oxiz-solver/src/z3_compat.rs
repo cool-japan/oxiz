@@ -67,6 +67,12 @@ pub use ext2::{
     Z3Probe, Z3Statistics, Z3Tactic, Z3Value, ParamVal, mk_constructor,
 };
 
+// Extended Z3 API surfaces #3: Sort introspection, term substitution, and
+// quantifier patterns/triggers.
+#[path = "z3_compat_ext3.rs"]
+pub mod ext3;
+pub use ext3::*;
+
 // ─── Z3Config ────────────────────────────────────────────────────────────────
 
 /// Analogue of `z3::Config`.

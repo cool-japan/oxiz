@@ -23,10 +23,7 @@ use oxiz_core::tactic::{
     Goal, HasArrayProbe, HasBitVectorProbe, HasQuantifierProbe, IsLinearProbe, NodeCountProbe,
     Probe, SizeProbe, TacticResult,
 };
-use oxiz_core::tactic::{
-    DepthProbe, StatelessAckermannizeTactic, StatelessBitBlastTactic,
-    StatelessPropagateValuesTactic, StatelessSimplifyTactic,
-};
+use oxiz_core::tactic::DepthProbe;
 use oxiz_theories::datatype::{Constructor, DatatypeDecl};
 
 use crate::solver::SolverConfig;
@@ -407,33 +404,46 @@ impl TacticKind {
     }
 }
 
-/// Dispatch a named tactic to the appropriate concrete implementation.
+/// Lazily-built, process-wide [`TacticRegistry`].
+///
+/// [`default_registry`] allocates and registers all 19 canonical tactics on
+/// every call.  `apply_named_tactic` is on a hot path — the `Repeat` and `Then`
+/// combinators in [`TacticKind::apply_to_goal`] can invoke it up to 1000 times
+/// for a single `Z3Tactic::apply` — so we build the registry exactly once and
+/// share it behind a [`OnceLock`].
+///
+/// This is only sound because [`TacticRegistry`] is `Send + Sync`: its factory
+/// closures are stored as `Box<dyn Fn() -> Box<dyn Tactic> + Send + Sync>`.
+///
+/// [`default_registry`]: oxiz_core::tactic::default_registry
+/// [`TacticRegistry`]: oxiz_core::tactic::TacticRegistry
+fn tactic_registry() -> &'static oxiz_core::tactic::TacticRegistry {
+    use oxiz_core::tactic::{default_registry, TacticRegistry};
+    use std::sync::OnceLock;
+    static REG: OnceLock<TacticRegistry> = OnceLock::new();
+    REG.get_or_init(default_registry)
+}
+
+/// Dispatch a named tactic via the canonical [`TacticRegistry`].
+///
+/// Backend-only tactics that need a full solver (`"smt"`, `"sat"`) are not in
+/// the registry; they fall through to the `None` branch and return the goal
+/// unchanged so a tactic pipeline can continue on to the solver backend.
+///
+/// [`TacticRegistry`]: oxiz_core::tactic::TacticRegistry
 fn apply_named_tactic(name: &str, goal: &Goal) -> TacticResult {
-    use oxiz_core::tactic::Tactic;
-    match name {
-        "simplify" | "ctx-simplify" => {
-            let tactic = StatelessSimplifyTactic;
-            tactic.apply(goal).unwrap_or(TacticResult::NotApplicable)
-        }
-        "propagate-values" => {
-            let tactic = StatelessPropagateValuesTactic;
-            tactic.apply(goal).unwrap_or(TacticResult::NotApplicable)
-        }
-        "bit-blast" => {
-            let tactic = StatelessBitBlastTactic;
-            tactic.apply(goal).unwrap_or(TacticResult::NotApplicable)
-        }
-        "ackermannize" => {
-            let tactic = StatelessAckermannizeTactic;
-            tactic.apply(goal).unwrap_or(TacticResult::NotApplicable)
-        }
-        "smt" | "skip" | "sat" => {
-            // These tactics require a full solver backend; in tactic context
-            // we return the goal unchanged (NotApplicable → SubGoals wrapper).
-            TacticResult::SubGoals(vec![goal.clone()])
-        }
-        _ => {
-            // Unknown tactic name — return goal unchanged so the pipeline continues.
+    // Backward-compatibility aliases: map historical Z3 short-form names onto
+    // the registry's canonical keys.
+    let canonical = match name {
+        "ctx-simplify" => "ctx-solver-simplify",
+        other => other,
+    };
+
+    match tactic_registry().create(canonical) {
+        Some(tactic) => tactic.apply(goal).unwrap_or(TacticResult::NotApplicable),
+        None => {
+            // Unknown / backend-only tactic (e.g. "smt", "sat"): return goal
+            // unchanged so a tactic pipeline can continue to the solver backend.
             TacticResult::SubGoals(vec![goal.clone()])
         }
     }
@@ -453,9 +463,20 @@ pub struct Z3Tactic {
 impl Z3Tactic {
     /// Create a tactic by name.
     ///
-    /// Supported names: `"simplify"`, `"ctx-simplify"`, `"propagate-values"`,
-    /// `"bit-blast"`, `"ackermannize"`, `"smt"`, `"skip"`, `"sat"`.
-    /// Unrecognised names are accepted and return the goal unchanged.
+    /// Names are resolved through the canonical
+    /// [`TacticRegistry`](oxiz_core::tactic::TacticRegistry), so every tactic
+    /// registered by
+    /// [`default_registry`](oxiz_core::tactic::default_registry) is reachable —
+    /// e.g. `"simplify"`, `"propagate-values"`, `"ctx-solver-simplify"`,
+    /// `"bit-blast"`, `"ackermannize"`, `"solve-eqs"`, `"nnf"`, `"tseitin-cnf"`,
+    /// `"fm"`, `"pb2bv"`, `"split"`, `"skip"`, and more.
+    ///
+    /// The historical short form `"ctx-simplify"` is accepted as an alias for
+    /// `"ctx-solver-simplify"`.
+    ///
+    /// Backend-only names that require a full solver (`"smt"`, `"sat"`) and any
+    /// unrecognised name are accepted and return the goal unchanged so a
+    /// pipeline can continue on to the solver backend.
     #[must_use]
     pub fn new(_ctx: &Z3Context, name: &str) -> Self {
         Self {

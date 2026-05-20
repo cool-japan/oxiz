@@ -384,17 +384,27 @@ impl Context {
 
     /// Build a raw function interpretation for a declared uninterpreted function.
     ///
-    /// Scans the solver's internal model for all `Apply` terms whose function
-    /// symbol matches `func_name`, converts each argument and return value to
-    /// a humanly-readable string, and returns a list of `(arg_strings, value_string)`
-    /// pairs together with an `else_value` string.
+    /// Derives entries from the EUF congruence closure rather than from raw
+    /// `Apply` terms alone.  For every application `f(a1, …, an)` interned in the
+    /// E-graph, the arguments and the result are canonicalized through their
+    /// equivalence-class representatives, so:
+    ///
+    /// - Two applications whose arguments are pairwise congruent (e.g. `f(a)` and
+    ///   `f(b)` when `a = b` is implied by the assertions) collapse to a **single**
+    ///   entry keyed by the shared argument class.
+    /// - The reported argument and result strings are **model values** taken from
+    ///   the class (resolving through the representative), not raw term ids.
+    /// - When an application has no direct model value, the value of any congruent
+    ///   member of its class is used.
+    ///
+    /// `else_value` is chosen as the most frequently occurring entry value (ties
+    /// broken by first occurrence), mirroring how Z3 selects a default; if there
+    /// are no entries it falls back to the return sort's default value.
     ///
     /// Returns `None` when:
     /// - the last check was not `Sat`, or
-    /// - no model is available.
-    ///
-    /// If the function was declared but no applications appear in the model,
-    /// the returned `Vec` of entries is empty (else_value = `"0"` / default).
+    /// - no model is available, or
+    /// - `func_name` is not a declared function.
     ///
     /// The return type is `(entries, else_value_string, arity)` to avoid
     /// pulling `oxiz_core::model` types into this file.
@@ -410,40 +420,136 @@ impl Context {
         // Find the declared function so we know its arity and default sort.
         let decl = self.declared_funs.iter().find(|d| d.name == func_name)?;
         let arity = decl.arg_sorts.len();
-        let else_value = self.default_value(decl.ret_sort);
+        let default_else = self.default_value(decl.ret_sort);
 
-        // Walk all terms in the TermManager looking for Apply nodes whose
-        // func symbol matches `func_name` and that have a model value.
-        let mut entries: Vec<(Vec<String>, String)> = Vec::new();
+        // Resolve `func_name` to the EUF function-symbol id.  For an `Apply`
+        // term the EUF id is the underlying value of the function-name `Spur`,
+        // so we recover it from any matching application term (read-only — no
+        // mutable interner access required).
+        let mut func_id: Option<u32> = None;
         for idx in 0..(self.terms.len() as u32) {
             let tid = TermId(idx);
             let Some(term) = self.terms.get(tid) else {
                 continue;
             };
-            let TermKind::Apply { func: func_spur, args } = &term.kind else {
-                continue;
-            };
-            if self.terms.resolve_str(*func_spur) != func_name {
-                continue;
+            if let TermKind::Apply { func: func_spur, .. } = &term.kind
+                && self.terms.resolve_str(*func_spur) == func_name
+            {
+                func_id = Some(func_spur.into_inner().get());
+                break;
             }
-            // Get the model value for this application term.
-            let Some(val_term) = solver_model.get(tid) else {
+        }
+
+        // No application of this function exists in the E-graph: the function is
+        // declared but never applied, so its interpretation is purely the default.
+        let Some(func_id) = func_id else {
+            return Some((Vec::new(), default_else, arity));
+        };
+
+        // Pull congruence-closed application entries from the EUF solver.  Each
+        // entry already has its argument and result classes canonicalized, so
+        // congruence (e.g. f(a) == f(b) when a == b) is applied for us.
+        let euf_entries = self.solver.euf_function_entries(func_id);
+
+        // Deduplicate on the canonical argument-class representative tuple so
+        // congruent applications produce exactly one entry.  Because congruence
+        // forces congruent applications into the same result class, the values
+        // agree in a consistent model.
+        let mut seen_arg_keys: crate::prelude::HashSet<smallvec::SmallVec<[u32; 4]>> =
+            crate::prelude::HashSet::new();
+        let mut entries: Vec<(Vec<String>, String)> = Vec::new();
+        for entry in &euf_entries {
+            // Resolve the result value first: skip applications whose class has
+            // no concrete model value (an unconstrained application contributes
+            // nothing observable beyond the else-branch).
+            let Some(val_str) = self.class_value_string(&entry.result_class_terms, solver_model)
+            else {
                 continue;
             };
-            let val_str = self.format_value(val_term);
-            // Convert each argument to its string representation.
-            let arg_strs: Vec<String> = args
+
+            if !seen_arg_keys.insert(entry.arg_reps.clone()) {
+                continue; // already emitted this congruence class of arguments
+            }
+
+            // Resolve each argument to its canonical model value.  Falls back to
+            // the default value for the corresponding argument sort when the
+            // class carries no concrete value (rare: an unconstrained argument).
+            let arg_strs: Vec<String> = entry
+                .arg_class_terms
                 .iter()
-                .map(|&a| {
-                    // Prefer model value of the argument; fall back to raw term.
-                    let resolved = solver_model.get(a).unwrap_or(a);
-                    self.format_value(resolved)
+                .enumerate()
+                .map(|(i, members)| {
+                    self.class_value_string(members, solver_model).unwrap_or_else(|| {
+                        decl.arg_sorts
+                            .get(i)
+                            .map_or_else(|| "?".to_string(), |&s| self.default_value(s))
+                    })
                 })
                 .collect();
             entries.push((arg_strs, val_str));
         }
 
+        // Pick `else_value`: the most common entry value (ties → first seen),
+        // matching Z3's habit of reusing an existing value as the default.
+        let else_value = Self::most_common_value(&entries).unwrap_or(default_else);
+
         Some((entries, else_value, arity))
+    }
+
+    /// Resolve an equivalence class (its member `TermId`s) to a formatted model
+    /// value string, by finding the first member that carries either a direct
+    /// model assignment or is itself a literal constant.
+    ///
+    /// Returns `None` when no member of the class has an observable value.
+    fn class_value_string(
+        &self,
+        members: &[TermId],
+        solver_model: &crate::solver::Model,
+    ) -> Option<String> {
+        for &member in members {
+            // Direct model assignment (covers variables and applications whose
+            // value was extracted from an equality constraint).
+            if let Some(val_term) = solver_model.get(member) {
+                return Some(self.format_value(val_term));
+            }
+            // The member may itself be a literal constant (e.g. the term `5` in
+            // `f(a) = 5`), which has no separate model entry but is its own value.
+            if let Some(term) = self.terms.get(member)
+                && matches!(
+                    term.kind,
+                    TermKind::True
+                        | TermKind::False
+                        | TermKind::IntConst(_)
+                        | TermKind::RealConst(_)
+                        | TermKind::BitVecConst { .. }
+                )
+            {
+                return Some(self.format_value(member));
+            }
+        }
+        None
+    }
+
+    /// Choose the most frequently occurring value among the interpretation
+    /// entries, breaking ties in favour of the earliest occurrence.  Returns
+    /// `None` for an empty entry list.
+    fn most_common_value(entries: &[(Vec<String>, String)]) -> Option<String> {
+        let mut counts: crate::prelude::HashMap<&str, (usize, usize)> =
+            crate::prelude::HashMap::new();
+        for (order, (_, value)) in entries.iter().enumerate() {
+            let slot = counts.entry(value.as_str()).or_insert((0, order));
+            slot.0 += 1;
+        }
+        counts
+            .into_iter()
+            .max_by(|(_, (count_a, order_a)), (_, (count_b, order_b))| {
+                // Higher count wins; on a tie the smaller insertion order wins,
+                // so we reverse the order comparison.
+                count_a
+                    .cmp(count_b)
+                    .then_with(|| order_b.cmp(order_a))
+            })
+            .map(|(value, _)| value.to_string())
     }
 
     /// Format a sort ID to its SMT-LIB2 name
