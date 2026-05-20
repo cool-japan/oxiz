@@ -48,9 +48,9 @@ OxiZ has achieved **100% correctness parity with Z3** across all 88 benchmark te
 
 ## Current Statistics (v0.2.2 - May 18, 2026)
 
-- **Rust Lines of Code**: ~448,505 total (+1,679 net)
-- **Rust Files**: 992+ (2 new files this pass)
-- **Unit Tests**: 6,802 passing (0 failures)
+- **Rust Lines of Code**: ~450,271 total (+1,766 net)
+- **Rust Files**: 995+ (3 new files this pass)
+- **Unit Tests**: 6,834 passing (0 failures)
 - **Z3 Parity**: **100.0% (88/88)**
 - **Perfect Logics**: **8/8 tested**
 - **Workspace Crates**: 17 (16 Rust crates + 1 TypeScript)
@@ -545,6 +545,15 @@ oxiz-core (foundation)
 ---
 
 ## Recent Achievements
+
+### May 18, 2026 - TacticRegistry Wired, Real LBD, EUF FuncInterp, Z3 Sort/Subst/Patterns (v0.2.2 Pass 6)
+
+- **TacticRegistry wired into Z3 compat**: `z3_compat_ext2.rs::apply_named_tactic` now delegates to `oxiz_core::tactic::default_registry()` via a `OnceLock`-cached static; reachable tactic surface grew from 5 to 19 named tactics (adds aggressive-simplify, bvarray2uf, elim-uncnstr, solve-eqs, nnf, tseitin-cnf, fm, arith-bounds, factor, pb2bv, lia2card, nla2bv, split, ctx-solver-simplify canonical name + ctx-simplify backward-compat alias)
+- **Real LBD from learned clause**: `compute_lbd_from_literals` replaces the `vars_to_bump`-based proxy; hook now fires AFTER `self.learnt` is finalized and minimized in both `analyze()` and `analyze_theory_conflict()`, passing the distinct-nonzero-level count of the actual 1-UIP learned clause to `MLBranchingHeuristic::on_conflict_var_with_lbd`. Old `compute_lbd_from_vars` deleted (no dead code).
+- **FuncInterp EUF congruence traversal**: `EufSolver::function_application_entries(func_id)` returns canonicalized (arg_reps, result_rep) per Apply node using `find()` without path compression; `Context::get_func_interp_raw` consumes these, dedups by arg-rep tuple, resolves values via class-membership lookup, picks most-common entry as `else_value`. `Solver` gains `pub(crate) euf_function_entries()` bridge. Replaces the Pass 5 partial Apply-walk implementation with full congruence-aware extraction.
+- **Z3 Sort introspection + term substitution + quantifier patterns**: new `oxiz-solver/src/z3_compat_ext3.rs` (673 LOC) — `Z3SortKind`/`Z3Sort` (`kind`/`bv_size`/`array_domain`/`array_range`/`name`), `Z3Context::substitute` (hand-rolled bottom-up rebuild covering Bool/Arith/BV/Array/Apply/ITE, memoized via `FxHashMap` — wider coverage than core `TermManager::substitute` which silently skips BV+Apply), `Z3Pattern` + `forall_with_patterns`/`exists_with_patterns` (delegating to `TermManager::mk_*_with_patterns`)
+- **Tests**: +32 new tests (6,802 → 6,834); 0 failures; 0 clippy warnings
+- **New files**: `oxiz-solver/src/z3_compat_ext3.rs`, `oxiz-solver/tests/z3_compat_extensions3.rs`, `oxiz-solver/tests/func_interp_euf.rs`
 
 ### May 18, 2026 - FuncInterp, TacticRegistry, Real LBD, LRU Caches (v0.2.2 Pass 5)
 
