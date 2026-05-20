@@ -48,9 +48,9 @@ OxiZ has achieved **100% correctness parity with Z3** across all 88 benchmark te
 
 ## Current Statistics (v0.2.2 - May 18, 2026)
 
-- **Rust Lines of Code**: ~446,826 total (+2,326 net)
-- **Rust Files**: 990+ (3 new files this pass)
-- **Unit Tests**: 6,763 passing (0 failures)
+- **Rust Lines of Code**: ~448,505 total (+1,679 net)
+- **Rust Files**: 992+ (2 new files this pass)
+- **Unit Tests**: 6,802 passing (0 failures)
 - **Z3 Parity**: **100.0% (88/88)**
 - **Perfect Logics**: **8/8 tested**
 - **Workspace Crates**: 17 (16 Rust crates + 1 TypeScript)
@@ -545,6 +545,15 @@ oxiz-core (foundation)
 ---
 
 ## Recent Achievements
+
+### May 18, 2026 - FuncInterp, TacticRegistry, Real LBD, LRU Caches (v0.2.2 Pass 5)
+
+- **FuncInterp (model function interpretations)**: `FuncEntry`/`FuncInterp` types in `oxiz-core/src/model/mod.rs` (entries table + else_value + arity, with `evaluate`); `Model::add_func_interp`/`get_func_interp`; `Z3FuncInterp`/`Z3FuncEntry`/`Z3Value` wrappers in `z3_compat_ext2.rs`; `Z3Model::get_func_interp(&FuncDecl)` delegates to `Context::get_func_interp_raw()` which walks `Apply` terms in the model; 15 new tests
+- **TacticRegistry**: `oxiz-core/src/tactic/registry.rs` (333 LOC) with `default_registry()` registering 19 named tactics (simplify, propagate-values, ctx-solver-simplify, aggressive-simplify, bit-blast, bvarray2uf, ackermannize, elim-uncnstr, solve-eqs, nnf, tseitin-cnf, fm, arith-bounds, factor, pb2bv, lia2card, nla2bv, split, skip); `create(name)`/`names()`/`contains()`; 11 new tests
+- **Real LBD (Literals per Block Distance)**: `compute_lbd_from_vars()` in `conflict.rs` computes glue score from conflict-involved variables' distinct decision levels; new `BranchingHeuristic::on_conflict_var_with_lbd` defaulted trait method (delegates to `on_conflict_var` for backward compat); `MLBranchingHeuristic` forwards real LBD to `MLEnhancedVSIDS::update_conflict`; 7 new tests
+- **LRU caches in EUF + simplification**: `oxiz-core/src/lru_cache.rs` (copy for oxiz-core, no circular dep); `AggressiveSimplifier` gains persistent `memo_cache: LruCache<TermId,TermId>` (4096 cap) replacing per-call HashMap; `EufSolver` gains `expl_cache: LruCache<(u32,u32),Vec<TermId>>` (1024 cap, canonical min/max key, cleared on merge/pop/reset); 6 new tests
+- **Tests**: +39 new tests (6,763 → 6,802); 0 failures; 0 clippy warnings
+- **New files**: `oxiz-core/src/lru_cache.rs`, `oxiz-core/src/tactic/registry.rs`
 
 ### May 18, 2026 - Z3 Compat #2, CLI Peak Memory, ML Conflict Hook, LRU Lemma Cache (v0.2.2 Pass 4)
 
