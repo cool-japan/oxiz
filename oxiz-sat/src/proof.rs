@@ -16,7 +16,7 @@ use std::path::Path;
 /// DRAT proof logger, parameterized over the underlying writer.
 ///
 /// Defaults to `BufWriter<File>` so existing callers using the bare
-/// `DratProof` type and the `enable(path)` API see exactly the same
+/// `DratProof` type and the `enable(&path)` API see exactly the same
 /// behavior as before; in-memory capture via `enable_writer` chooses
 /// a different `W` (e.g. `Cursor<Vec<u8>>`).
 ///
@@ -74,7 +74,7 @@ impl<W: Write + Send> DratProof<W> {
     /// the DRAT proof in memory.
     ///
     /// The caller controls buffering — wrap in `BufWriter` to match
-    /// `enable(path)`'s buffering exactly.
+    /// `enable(&path)`'s buffering exactly.
     pub fn enable_writer(&mut self, w: W) -> std::io::Result<()> {
         self.writer = Some(w);
         self.enabled = true;
@@ -442,12 +442,12 @@ mod tests {
 
     #[test]
     fn test_drat_proof() {
-        let path = "/tmp/test_drat.proof";
+        let path = std::env::temp_dir().join("test_drat.proof");
         let mut proof = DratProof::new();
 
         assert!(!proof.is_enabled());
 
-        proof.enable(path).expect("test operation should succeed");
+        proof.enable(&path).expect("test operation should succeed");
         assert!(proof.is_enabled());
 
         let v0 = Var(0);
@@ -472,7 +472,7 @@ mod tests {
         proof.disable();
 
         // Read the proof file and verify
-        let mut file = File::open(path).expect("file operation failed");
+        let mut file = File::open(&path).expect("file operation failed");
         let mut contents = String::new();
         file.read_to_string(&mut contents)
             .expect("test operation should succeed");
@@ -482,7 +482,7 @@ mod tests {
         assert!(contents.contains("d 1 2 0"));
 
         // Clean up
-        fs::remove_file(path).expect("test operation should succeed");
+        fs::remove_file(&path).expect("test operation should succeed");
     }
 
     #[test]
@@ -501,12 +501,12 @@ mod tests {
 
     #[test]
     fn test_lrat_proof() {
-        let path = "/tmp/test_lrat.proof";
+        let path = std::env::temp_dir().join("test_lrat.proof");
         let mut proof = LratProof::new();
 
         assert!(!proof.is_enabled());
 
-        proof.enable(path).expect("test operation should succeed");
+        proof.enable(&path).expect("test operation should succeed");
         assert!(proof.is_enabled());
 
         let v0 = Var(0);
@@ -533,7 +533,7 @@ mod tests {
         proof.disable();
 
         // Read the proof file and verify
-        let mut file = File::open(path).expect("file operation failed");
+        let mut file = File::open(&path).expect("file operation failed");
         let mut contents = String::new();
         file.read_to_string(&mut contents)
             .expect("test operation should succeed");
@@ -543,15 +543,15 @@ mod tests {
         assert!(contents.contains("d 1 0"));
 
         // Clean up
-        fs::remove_file(path).expect("test operation should succeed");
+        fs::remove_file(&path).expect("test operation should succeed");
     }
 
     #[test]
     fn test_lrat_empty_clause() {
-        let path = "/tmp/test_lrat_empty.proof";
+        let path = std::env::temp_dir().join("test_lrat_empty.proof");
         let mut proof = LratProof::new();
 
-        proof.enable(path).expect("test operation should succeed");
+        proof.enable(&path).expect("test operation should succeed");
 
         // Add empty clause (UNSAT proof) with hints
         let id = proof
@@ -563,7 +563,7 @@ mod tests {
         proof.disable();
 
         // Read the proof file
-        let mut file = File::open(path).expect("file operation failed");
+        let mut file = File::open(&path).expect("file operation failed");
         let mut contents = String::new();
         file.read_to_string(&mut contents)
             .expect("test operation should succeed");
@@ -571,7 +571,7 @@ mod tests {
         assert!(contents.contains("1 0 1 2 3 0"));
 
         // Clean up
-        fs::remove_file(path).expect("test operation should succeed");
+        fs::remove_file(&path).expect("test operation should succeed");
     }
 
     // === enable_writer: in-memory DRAT/LRAT capture ===
@@ -584,10 +584,10 @@ mod tests {
 
         let v0 = Var::new(0);
         let v1 = Var::new(1);
-        proof.add_clause(&[Lit::pos(v0), Lit::pos(v1)]).unwrap();
-        proof.add_clause(&[Lit::neg(v0)]).unwrap();
-        proof.delete_clause(&[Lit::pos(v0), Lit::pos(v1)]).unwrap();
-        proof.flush().unwrap();
+        proof.add_clause(&[Lit::pos(v0), Lit::pos(v1)]).expect("test operation should succeed");
+        proof.add_clause(&[Lit::neg(v0)]).expect("test operation should succeed");
+        proof.delete_clause(&[Lit::pos(v0), Lit::pos(v1)]).expect("test operation should succeed");
+        proof.flush().expect("test operation should succeed");
         // The byte-identity guarantee is asserted by the parallel
         // file-vs-writer test; this test confirms the API surface
         // and that no panic / error occurs.
@@ -611,34 +611,34 @@ mod tests {
     fn test_drat_writer_output_matches_file_path() {
         use std::io::Read;
 
-        // Run the same sequence twice: once via enable(path), once via
+        // Run the same sequence twice: once via enable(&path), once via
         // enable_writer(cursor). The byte streams must be identical.
-        let path = "/tmp/test_drat_strict_superset.proof";
+        let path = std::env::temp_dir().join("oxiz_drat_strict_superset.proof");
         let v0 = Var::new(0);
         let v1 = Var::new(1);
 
         // Path variant
         {
             let mut proof = DratProof::new();
-            proof.enable(path).expect("enable path");
-            proof.add_clause(&[Lit::pos(v0), Lit::pos(v1)]).unwrap();
-            proof.add_clause(&[Lit::neg(v0)]).unwrap();
-            proof.delete_clause(&[Lit::pos(v0), Lit::pos(v1)]).unwrap();
-            proof.flush().unwrap();
+            proof.enable(&path).expect("enable path");
+            proof.add_clause(&[Lit::pos(v0), Lit::pos(v1)]).expect("test operation should succeed");
+            proof.add_clause(&[Lit::neg(v0)]).expect("test operation should succeed");
+            proof.delete_clause(&[Lit::pos(v0), Lit::pos(v1)]).expect("test operation should succeed");
+            proof.flush().expect("test operation should succeed");
             proof.disable();
         }
         let mut file_contents = Vec::new();
-        File::open(path).unwrap().read_to_end(&mut file_contents).unwrap();
-        fs::remove_file(path).ok();
+        File::open(&path).expect("test operation should succeed").read_to_end(&mut file_contents).expect("test operation should succeed");
+        fs::remove_file(&path).ok();
 
         // Writer variant — wrap a Vec<u8> in a Cursor wrapped in a
-        // BufWriter so the buffering matches `enable(path)` exactly.
+        // BufWriter so the buffering matches `enable(&path)` exactly.
         let captured: std::sync::Arc<std::sync::Mutex<Vec<u8>>> =
             std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         struct SharedSink(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
         impl Write for SharedSink {
             fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-                self.0.lock().unwrap().extend_from_slice(buf);
+                self.0.lock().expect("test operation should succeed").extend_from_slice(buf);
                 Ok(buf.len())
             }
             fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
@@ -647,17 +647,17 @@ mod tests {
 
         {
             let mut proof = DratProof::<BufWriter<SharedSink>>::with_writer(sink);
-            proof.add_clause(&[Lit::pos(v0), Lit::pos(v1)]).unwrap();
-            proof.add_clause(&[Lit::neg(v0)]).unwrap();
-            proof.delete_clause(&[Lit::pos(v0), Lit::pos(v1)]).unwrap();
-            proof.flush().unwrap();
+            proof.add_clause(&[Lit::pos(v0), Lit::pos(v1)]).expect("test operation should succeed");
+            proof.add_clause(&[Lit::neg(v0)]).expect("test operation should succeed");
+            proof.delete_clause(&[Lit::pos(v0), Lit::pos(v1)]).expect("test operation should succeed");
+            proof.flush().expect("test operation should succeed");
             proof.disable();
         }
-        let writer_contents = captured.lock().unwrap().clone();
+        let writer_contents = captured.lock().expect("test operation should succeed").clone();
 
         assert_eq!(
             file_contents, writer_contents,
-            "enable_writer must produce byte-identical output to enable(path)"
+            "enable_writer must produce byte-identical output to enable(&path)"
         );
     }
 }
