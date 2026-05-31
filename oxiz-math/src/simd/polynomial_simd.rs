@@ -1,5 +1,4 @@
 //! SIMD-Accelerated Polynomial Operations.
-#![allow(dead_code)] // Under development
 //!
 //! Provides vectorized polynomial arithmetic for improved performance
 //! on dense polynomials.
@@ -138,6 +137,7 @@ where
 /// Fast polynomial evaluation using precomputed powers (for multiple evaluations).
 pub struct PolyEvaluator<T> {
     coeffs: Vec<T>,
+    #[allow(dead_code)]
     precomputed_powers: Vec<Vec<T>>,
 }
 

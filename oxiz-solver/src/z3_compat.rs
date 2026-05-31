@@ -46,6 +46,31 @@ use crate::Context;
 use crate::SolverResult;
 use crate::solver::SolverConfig;
 
+// Extended Z3 API surfaces: Array, FuncDecl, Z3Optimize, ite_*, distinct_*,
+// forall_bool, exists_bool, plus Real symmetry methods (gt/ge/neg/div/from_i64).
+#[path = "z3_compat_ext.rs"]
+pub mod ext;
+pub use ext::{
+    Array, FuncDecl, Z3Optimize, distinct_bv, distinct_int, distinct_real, exists_bool,
+    forall_bool, int_numeral, ite_bool, ite_bv, ite_int, ite_real, real_numeral,
+};
+
+// Extended Z3 API surfaces #2: Statistics, Params, Probe, Goal/Tactic,
+// DatatypeSort, check_assumptions/unsat_core, AstVector, FuncInterp.
+#[path = "z3_compat_ext2.rs"]
+pub mod ext2;
+pub use ext2::{
+    DtConstructor, DtDecl, DtField, DtSelector, DtSort, ParamVal, Z3ApplyResult, Z3AstVector,
+    Z3Constructor, Z3DatatypeSort, Z3Field, Z3FuncEntry, Z3FuncInterp, Z3Goal, Z3Params, Z3Probe,
+    Z3Statistics, Z3Tactic, Z3Value, mk_constructor,
+};
+
+// Extended Z3 API surfaces #3: Sort introspection, term substitution, and
+// quantifier patterns/triggers.
+#[path = "z3_compat_ext3.rs"]
+pub mod ext3;
+pub use ext3::*;
+
 // ─── Z3Config ────────────────────────────────────────────────────────────────
 
 /// Analogue of `z3::Config`.
@@ -164,17 +189,37 @@ impl std::fmt::Display for SatResult {
 
 // ─── Z3Model ─────────────────────────────────────────────────────────────────
 
+/// Raw function-interpretation data extracted at model-build time.
+///
+/// Stored inside `Z3Model` so that `get_func_interp` can operate without
+/// needing access to the solver again after `get_model()` returns.
+///
+/// The inner tuple is `(entries, else_value_string, arity)` where each
+/// entry is `(arg_value_strings, output_value_string)`.
+pub(crate) type FuncInterpRaw = (Vec<(Vec<String>, String)>, String, usize);
+
 /// Analogue of `z3::Model`.
 ///
 /// Produced by [`Z3Solver::get_model`] after a `Sat` result.
 pub struct Z3Model {
     /// The model entries as (name, sort, value) triples.
     entries: Vec<(String, String, String)>,
+    /// Raw function interpretations keyed by function name.
+    ///
+    /// Populated eagerly from the solver context at model-extraction time so
+    /// that `get_func_interp` does not need a reference back to the solver.
+    func_interps: std::collections::HashMap<String, FuncInterpRaw>,
 }
 
 impl Z3Model {
-    fn from_context_model(entries: Vec<(String, String, String)>) -> Self {
-        Self { entries }
+    pub(crate) fn from_context_model(
+        entries: Vec<(String, String, String)>,
+        func_interps: std::collections::HashMap<String, FuncInterpRaw>,
+    ) -> Self {
+        Self {
+            entries,
+            func_interps,
+        }
     }
 
     /// Evaluate a constant (identified by name) in the model.
@@ -192,6 +237,16 @@ impl Z3Model {
     #[must_use]
     pub fn entries(&self) -> &[(String, String, String)] {
         &self.entries
+    }
+
+    /// Return the raw function interpretation data for the function named
+    /// `func_name`, if it was declared and the model is available.
+    ///
+    /// This is a low-level accessor; prefer [`Z3Model::get_func_interp`]
+    /// (defined in `ext2`) for the typed wrapper.
+    #[must_use]
+    pub fn func_interp_raw(&self, func_name: &str) -> Option<&FuncInterpRaw> {
+        self.func_interps.get(func_name)
     }
 }
 
@@ -254,9 +309,24 @@ impl Z3Solver {
     }
 
     /// Return the model from the last `Sat` result, or `None`.
+    ///
+    /// The returned [`Z3Model`] pre-fetches function interpretations for all
+    /// declared uninterpreted functions so that callers can query them without
+    /// holding a reference to the solver.
     #[must_use]
     pub fn get_model(&self) -> Option<Z3Model> {
-        self.ctx.get_model().map(Z3Model::from_context_model)
+        let entries = self.ctx.get_model()?;
+        // Eagerly collect function interpretations for all declared functions.
+        let func_interps = self
+            .ctx
+            .declared_function_names()
+            .filter_map(|name| {
+                self.ctx
+                    .get_func_interp_raw(name)
+                    .map(|raw| (name.to_string(), raw))
+            })
+            .collect();
+        Some(Z3Model::from_context_model(entries, func_interps))
     }
 
     /// Set the logic for this solver (e.g. `"QF_LIA"`, `"QF_BV"`).
@@ -793,9 +863,11 @@ mod tests {
         let ctx = Z3Context::new(&cfg);
         let mut solver = Z3Solver::new(&ctx);
 
-        // Build a small formula: p ∧ q using Z3-style API
-        let p = Bool::new_const(&ctx, "p");
-        let q = Bool::new_const(&ctx, "q");
+        // Build a small formula: p ∧ q using Z3-style API.
+        // The p/q constants are created to exercise the API, even though the
+        // test asserts `true` directly (the API smoke-test is the point).
+        let _p = Bool::new_const(&ctx, "p");
+        let _q = Bool::new_const(&ctx, "q");
 
         // Assert them individually (conjunction via two asserts)
         // We need to build them as terms inside the *solver's* TermManager.

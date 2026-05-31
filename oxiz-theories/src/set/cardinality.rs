@@ -5,8 +5,6 @@
 //! - Cardinality arithmetic: |S1 ∪ S2|, |S1 ∩ S2|, etc.
 //! - Cardinality-based propagation
 
-#![allow(dead_code)]
-
 use super::{SetConflict, SetLiteral, SetProofStep, SetVar, SetVarId};
 #[allow(unused_imports)]
 use crate::prelude::*;
@@ -630,6 +628,7 @@ pub struct CardinalityNetwork {
 
 impl CardinalityNetwork {
     /// Create a new cardinality network
+    #[allow(dead_code)]
     pub fn new(vars: SmallVec<[u32; 16]>, kind: CardConstraintKind, bound: i64) -> Self {
         Self { vars, kind, bound }
     }
@@ -699,6 +698,7 @@ impl CardinalityNetwork {
     }
 
     /// Check if the network is satisfiable
+    #[allow(dead_code)]
     pub fn is_satisfiable(&self, assignment: &[bool]) -> bool {
         let count = self
             .vars
@@ -717,6 +717,7 @@ pub struct CardinalityCompiler {
     next_aux: u32,
 }
 
+#[allow(dead_code)]
 impl CardinalityCompiler {
     /// Create a new compiler
     pub fn new() -> Self {

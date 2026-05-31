@@ -96,7 +96,6 @@ extern crate alloc;
 mod prelude;
 
 pub mod algebraic;
-pub mod algebraic_number;
 pub mod bdd;
 #[cfg(feature = "std")]
 pub mod blas;
@@ -122,6 +121,12 @@ pub mod realclosure_advanced;
 pub mod simd;
 pub mod simplex;
 pub mod simplex_parametric;
+pub mod simplex_solver;
+
+pub use simplex_solver::{
+    Constraint as SimplexConstraint, ConstraintKind, SimplexError, SimplexSolver, SolveResult,
+    SolveStatus,
+};
 
 #[cfg(test)]
 mod integration_tests {

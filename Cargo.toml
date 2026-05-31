@@ -42,7 +42,7 @@ default-members = [
 ]
 
 [workspace.package]
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 authors = ["COOLJAPAN OU (Team KitaSan)"]
 license = "Apache-2.0"
@@ -62,20 +62,20 @@ collapsible_if = "allow"
 
 [workspace.dependencies]
 # Meta crate
-oxiz = { version = "0.2.1", path = "oxiz" }
+oxiz = { version = "0.2.2", path = "oxiz" }
 
 # Core crates (default-features = false so downstream can control std)
-oxiz-core = { version = "0.2.1", path = "oxiz-core", default-features = false }
-oxiz-math = { version = "0.2.1", path = "oxiz-math", default-features = false }
-oxiz-sat = { version = "0.2.1", path = "oxiz-sat", default-features = false }
-oxiz-nlsat = { version = "0.2.1", path = "oxiz-nlsat" }
-oxiz-theories = { version = "0.2.1", path = "oxiz-theories", default-features = false }
-oxiz-solver = { version = "0.2.1", path = "oxiz-solver", default-features = false }
-oxiz-opt = { version = "0.2.1", path = "oxiz-opt" }
-oxiz-spacer = { version = "0.2.1", path = "oxiz-spacer" }
-oxiz-proof = { version = "0.2.1", path = "oxiz-proof" }
-oxiz-smtcomp = { version = "0.2.1", path = "oxiz-smtcomp" }
-oxiz-ml = { version = "0.2.1", path = "oxiz-ml" }
+oxiz-core = { version = "0.2.2", path = "oxiz-core", default-features = false }
+oxiz-math = { version = "0.2.2", path = "oxiz-math", default-features = false }
+oxiz-sat = { version = "0.2.2", path = "oxiz-sat", default-features = false }
+oxiz-nlsat = { version = "0.2.2", path = "oxiz-nlsat" }
+oxiz-theories = { version = "0.2.2", path = "oxiz-theories", default-features = false }
+oxiz-solver = { version = "0.2.2", path = "oxiz-solver", default-features = false }
+oxiz-opt = { version = "0.2.2", path = "oxiz-opt" }
+oxiz-spacer = { version = "0.2.2", path = "oxiz-spacer" }
+oxiz-proof = { version = "0.2.2", path = "oxiz-proof" }
+oxiz-smtcomp = { version = "0.2.2", path = "oxiz-smtcomp" }
+oxiz-ml = { version = "0.2.2", path = "oxiz-ml" }
 
 # Memory & Interning
 bumpalo = "3.20"
@@ -127,8 +127,8 @@ wasm-bindgen = "0.2"
 js-sys = "0.3"
 
 # Compression (OxiARC - Pure Rust)
-oxiarc-deflate = "0.2.7"
-oxiarc-brotli = "0.2.7"
+oxiarc-deflate = "0.3.1"
+oxiarc-brotli = "0.3.1"
 
 # PDF (Pure Rust)
 pdf-writer = "0.14"

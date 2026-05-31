@@ -3,8 +3,6 @@
 //! This module provides tools and output formats optimized for CI/CD pipelines
 //! including GitHub Actions, GitLab CI, Jenkins, and other automation platforms.
 
-#![allow(dead_code)]
-
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 

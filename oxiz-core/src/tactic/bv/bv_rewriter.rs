@@ -1,5 +1,4 @@
 //! Bit-Vector Rewriting Tactic.
-#![allow(dead_code)] // Under development - not yet fully integrated
 //!
 //! Applies algebraic and structural rewrites to simplify bit-vector formulas.
 //! Essential preprocessing for efficient solving.
@@ -357,11 +356,13 @@ impl BvRewriterTactic {
         TermId(0)
     }
 
+    #[allow(dead_code)]
     fn make_bv_one(&mut self, _width: BvWidth) -> TermId {
         // Simplified: would create BV constant 1 of given width
         TermId(0)
     }
 
+    #[allow(dead_code)]
     fn make_bv_all_ones(&mut self, _width: BvWidth) -> TermId {
         // Simplified: would create BV constant ~0 of given width
         TermId(0)

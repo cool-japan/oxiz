@@ -81,9 +81,6 @@ mod resolution;
 // Public modules with useful analysis and utility tools
 pub mod stats;
 pub mod traversal;
-// TODO: Fix API compatibility with new ProofNode structure
-// pub mod transform;
-// pub mod compression;
 
 // Proof logging and replay (binary format for offline verification)
 pub mod logging;

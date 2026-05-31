@@ -97,7 +97,10 @@ fn run_benchmark(logic: &str, path: &Path) -> Result<ParityResult> {
     let match_status = compare_results(&oxiz_result, &z3_result);
 
     Ok(ParityResult {
-        benchmark: path.file_name().unwrap().to_string_lossy().to_string(),
+        benchmark: path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| String::from("<unknown>")),
         logic: logic.to_string(),
         oxiz_result,
         z3_result,

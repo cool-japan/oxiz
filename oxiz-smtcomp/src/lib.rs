@@ -116,6 +116,12 @@ pub mod dashboard;
 pub mod regression;
 pub mod sampling;
 
+// ML difficulty predictor
+pub mod predictor;
+
+// SMT-COMP submission infrastructure
+pub mod submission;
+
 // Optional WebSocket progress API (feature-gated)
 #[cfg(feature = "ws-progress")]
 pub mod websocket;
@@ -203,3 +209,8 @@ pub use regression::{
 
 // Re-export dashboard types
 pub use dashboard::{DashboardConfig, DashboardData, DashboardGenerator, generate_dashboard};
+
+// Re-export submission types
+pub use submission::{
+    SubmissionConfig, SubmissionPackage, Track, generate_submission_package, validate_divisions,
+};

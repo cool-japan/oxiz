@@ -1,10 +1,15 @@
 //! Additional simplification infrastructure for tactic-driven preprocessing.
 
 use crate::ast::{TermId, TermKind, TermManager};
+use crate::lru_cache::LruCache;
 #[allow(unused_imports)]
 use crate::prelude::*;
 use num_bigint::BigInt;
 use smallvec::SmallVec;
+
+/// Maximum number of entries retained in the per-simplifier memo cache.
+/// LRU eviction prevents unbounded growth on large formulas.
+const SIMPLIFICATION_MEMO_CAPACITY: usize = 4096;
 
 /// Configuration for tactic-driven simplification passes.
 #[derive(Debug, Clone, Copy, Default)]
@@ -14,29 +19,42 @@ pub struct SimplificationConfig {
 }
 
 /// Recursive simplifier that layers aggressive rewrites on top of `TermManager::simplify`.
+///
+/// The `memo_cache` field persists across multiple `simplify_term` calls so that
+/// sub-term results computed for one top-level term are reused for subsequent ones.
+/// The cache is bounded to `SIMPLIFICATION_MEMO_CAPACITY` entries via LRU eviction,
+/// which prevents unbounded memory growth on large formulas.
 pub struct AggressiveSimplifier<'a> {
     manager: &'a mut TermManager,
     config: SimplificationConfig,
+    /// Persistent bounded memo table: maps `TermId` to simplified `TermId`.
+    memo_cache: LruCache<TermId, TermId>,
 }
 
 impl<'a> AggressiveSimplifier<'a> {
     /// Create a new simplifier using the provided manager and configuration.
     pub fn new(manager: &'a mut TermManager, config: SimplificationConfig) -> Self {
-        Self { manager, config }
+        Self {
+            manager,
+            config,
+            memo_cache: LruCache::new(SIMPLIFICATION_MEMO_CAPACITY),
+        }
+    }
+
+    /// Get the current memo cache stats: `(hits, misses, evictions)`.
+    #[must_use]
+    pub fn memo_stats(&self) -> (usize, usize, usize) {
+        self.memo_cache.stats()
     }
 
     /// Simplify a term recursively.
+    /// Results are memoized in an LRU cache shared across all calls on this instance.
     pub fn simplify_term(&mut self, term: TermId) -> TermId {
-        let mut cache = FxHashMap::default();
-        self.simplify_term_cached(term, &mut cache)
+        self.simplify_cached(term)
     }
 
-    fn simplify_term_cached(
-        &mut self,
-        term: TermId,
-        cache: &mut FxHashMap<TermId, TermId>,
-    ) -> TermId {
-        if let Some(&cached) = cache.get(&term) {
+    fn simplify_cached(&mut self, term: TermId) -> TermId {
+        if let Some(cached) = self.memo_cache.get(&term) {
             return cached;
         }
 
@@ -52,123 +70,119 @@ impl<'a> AggressiveSimplifier<'a> {
                 | TermKind::Var(_),
             ) => term,
             Some(TermKind::Not(arg)) => {
-                let arg = self.simplify_term_cached(arg, cache);
+                let arg = self.simplify_cached(arg);
                 self.simplify_not(arg)
             }
             Some(TermKind::And(args)) => {
-                let args = self.simplify_terms(args, cache);
+                let args = self.simplify_all(args);
                 self.simplify_and(args)
             }
             Some(TermKind::Or(args)) => {
-                let args = self.simplify_terms(args, cache);
+                let args = self.simplify_all(args);
                 self.simplify_or(args)
             }
             Some(TermKind::Implies(lhs, rhs)) => {
-                let lhs = self.simplify_term_cached(lhs, cache);
-                let rhs = self.simplify_term_cached(rhs, cache);
+                let lhs = self.simplify_cached(lhs);
+                let rhs = self.simplify_cached(rhs);
                 self.simplify_implies(lhs, rhs)
             }
             Some(TermKind::Xor(lhs, rhs)) => {
-                let lhs = self.simplify_term_cached(lhs, cache);
-                let rhs = self.simplify_term_cached(rhs, cache);
-                // mk_xor already handles: Xor(a,a)→false, Xor(a,false)→a, Xor(a,true)→Not(a)
+                let lhs = self.simplify_cached(lhs);
+                let rhs = self.simplify_cached(rhs);
+                // mk_xor already handles: Xor(a,a)->false, Xor(a,false)->a, Xor(a,true)->Not(a)
                 self.manager.mk_xor(lhs, rhs)
             }
             Some(TermKind::Eq(lhs, rhs)) => {
-                let lhs = self.simplify_term_cached(lhs, cache);
-                let rhs = self.simplify_term_cached(rhs, cache);
+                let lhs = self.simplify_cached(lhs);
+                let rhs = self.simplify_cached(rhs);
                 self.simplify_eq(lhs, rhs)
             }
             Some(TermKind::Ite(cond, then_branch, else_branch)) => {
-                let cond = self.simplify_term_cached(cond, cache);
-                let then_branch = self.simplify_term_cached(then_branch, cache);
-                let else_branch = self.simplify_term_cached(else_branch, cache);
-                // mk_ite already handles: Ite(true,a,_)→a, Ite(false,_,b)→b, Ite(_,a,a)→a
+                let cond = self.simplify_cached(cond);
+                let then_branch = self.simplify_cached(then_branch);
+                let else_branch = self.simplify_cached(else_branch);
+                // mk_ite already handles: Ite(true,a,_)->a, Ite(false,_,b)->b, Ite(_,a,a)->a
                 self.manager.mk_ite(cond, then_branch, else_branch)
             }
             Some(TermKind::Distinct(args)) => {
-                let args = self.simplify_terms(args, cache);
+                let args = self.simplify_all(args);
                 self.simplify_distinct(args)
             }
             Some(TermKind::Add(args)) => {
-                let args = self.simplify_terms(args, cache);
+                let args = self.simplify_all(args);
                 let rebuilt = self.manager.mk_add(args);
                 self.manager.simplify(rebuilt)
             }
             Some(TermKind::Sub(lhs, rhs)) => {
-                let lhs = self.simplify_term_cached(lhs, cache);
-                let rhs = self.simplify_term_cached(rhs, cache);
+                let lhs = self.simplify_cached(lhs);
+                let rhs = self.simplify_cached(rhs);
                 let rebuilt = self.manager.mk_sub(lhs, rhs);
                 self.manager.simplify(rebuilt)
             }
             Some(TermKind::Mul(args)) => {
-                let args = self.simplify_terms(args, cache);
+                let args = self.simplify_all(args);
                 let rebuilt = self.manager.mk_mul(args);
                 self.manager.simplify(rebuilt)
             }
             Some(TermKind::Neg(arg)) => {
-                let arg = self.simplify_term_cached(arg, cache);
+                let arg = self.simplify_cached(arg);
                 let rebuilt = self.manager.mk_neg(arg);
                 self.manager.simplify(rebuilt)
             }
             Some(TermKind::Lt(lhs, rhs)) => {
-                let lhs = self.simplify_term_cached(lhs, cache);
-                let rhs = self.simplify_term_cached(rhs, cache);
+                let lhs = self.simplify_cached(lhs);
+                let rhs = self.simplify_cached(rhs);
                 let rebuilt = self.manager.mk_lt(lhs, rhs);
                 self.manager.simplify(rebuilt)
             }
             Some(TermKind::Le(lhs, rhs)) => {
-                let lhs = self.simplify_term_cached(lhs, cache);
-                let rhs = self.simplify_term_cached(rhs, cache);
+                let lhs = self.simplify_cached(lhs);
+                let rhs = self.simplify_cached(rhs);
                 let rebuilt = self.manager.mk_le(lhs, rhs);
                 self.manager.simplify(rebuilt)
             }
             Some(TermKind::Gt(lhs, rhs)) => {
-                let lhs = self.simplify_term_cached(lhs, cache);
-                let rhs = self.simplify_term_cached(rhs, cache);
+                let lhs = self.simplify_cached(lhs);
+                let rhs = self.simplify_cached(rhs);
                 let rebuilt = self.manager.mk_gt(lhs, rhs);
                 self.manager.simplify(rebuilt)
             }
             Some(TermKind::Ge(lhs, rhs)) => {
-                let lhs = self.simplify_term_cached(lhs, cache);
-                let rhs = self.simplify_term_cached(rhs, cache);
+                let lhs = self.simplify_cached(lhs);
+                let rhs = self.simplify_cached(rhs);
                 let rebuilt = self.manager.mk_ge(lhs, rhs);
                 self.manager.simplify(rebuilt)
             }
-            // BV identity rules — mk_bv_* does no simplification so we handle here.
+            // BV identity rules -- mk_bv_* does no simplification so we handle here.
             Some(TermKind::BvNot(arg)) => {
-                let arg = self.simplify_term_cached(arg, cache);
+                let arg = self.simplify_cached(arg);
                 self.simplify_bv_not(arg)
             }
             Some(TermKind::BvAnd(lhs, rhs)) => {
-                let lhs = self.simplify_term_cached(lhs, cache);
-                let rhs = self.simplify_term_cached(rhs, cache);
+                let lhs = self.simplify_cached(lhs);
+                let rhs = self.simplify_cached(rhs);
                 self.simplify_bv_and(lhs, rhs)
             }
             Some(TermKind::BvOr(lhs, rhs)) => {
-                let lhs = self.simplify_term_cached(lhs, cache);
-                let rhs = self.simplify_term_cached(rhs, cache);
+                let lhs = self.simplify_cached(lhs);
+                let rhs = self.simplify_cached(rhs);
                 self.simplify_bv_or(lhs, rhs)
             }
             Some(TermKind::BvXor(lhs, rhs)) => {
-                let lhs = self.simplify_term_cached(lhs, cache);
-                let rhs = self.simplify_term_cached(rhs, cache);
+                let lhs = self.simplify_cached(lhs);
+                let rhs = self.simplify_cached(rhs);
                 self.simplify_bv_xor(lhs, rhs)
             }
             Some(_) => self.manager.simplify(term),
         };
 
-        cache.insert(term, simplified);
+        self.memo_cache.insert(term, simplified);
         simplified
     }
 
-    fn simplify_terms(
-        &mut self,
-        args: SmallVec<[TermId; 4]>,
-        cache: &mut FxHashMap<TermId, TermId>,
-    ) -> SmallVec<[TermId; 4]> {
+    fn simplify_all(&mut self, args: SmallVec<[TermId; 4]>) -> SmallVec<[TermId; 4]> {
         args.into_iter()
-            .map(|arg| self.simplify_term_cached(arg, cache))
+            .map(|arg| self.simplify_cached(arg))
             .collect()
     }
 
@@ -202,17 +216,16 @@ impl<'a> AggressiveSimplifier<'a> {
         baseline
     }
 
-    /// Simplify `Not(arg)` — mk_not already collapses Not(Not(a))→a and Not(true/false).
+    /// Simplify `Not(arg)` -- mk_not already collapses Not(Not(a))->a and Not(true/false).
     /// This method additionally applies De Morgan push-down for And-of-children
     /// when aggressive mode is on, so downstream rules can fire on the resulting Or.
     fn simplify_not(&mut self, arg: TermId) -> TermId {
-        // mk_not already eliminates double negation and true/false.
         let baseline = self.manager.mk_not(arg);
         if !self.config.aggressive {
             return baseline;
         }
 
-        // De Morgan: Not(And(a, b, ...)) → Or(Not(a), Not(b), ...)
+        // De Morgan: Not(And(a, b, ...)) -> Or(Not(a), Not(b), ...)
         // Apply only when there are exactly 2 children to avoid blowing up size.
         if let Some(TermKind::And(and_args)) = self.manager.get(arg).map(|t| t.kind.clone())
             && and_args.len() == 2
@@ -226,21 +239,18 @@ impl<'a> AggressiveSimplifier<'a> {
     }
 
     /// Simplify `Implies(lhs, rhs)`.
-    /// mk_implies already handles: Implies(false,_)→true, Implies(true,b)→b, Implies(_,true)→true.
-    /// This method adds: Implies(a,false)→Not(a) and Implies(a,a)→true.
+    /// mk_implies already handles: Implies(false,_)->true, Implies(true,b)->b, Implies(_,true)->true.
+    /// This method adds: Implies(a,false)->Not(a) and Implies(a,a)->true.
     fn simplify_implies(&mut self, lhs: TermId, rhs: TermId) -> TermId {
-        // Reflexivity: a → a is always true.
         if lhs == rhs {
             return self.manager.mk_true();
         }
 
-        // Implies(a, false) → Not(a); pass through simplify_not for De Morgan chaining.
         let false_id = self.manager.mk_false();
         if rhs == false_id {
             return self.simplify_not(lhs);
         }
 
-        // Delegate remaining cases (true/false antecedent, true consequent) to mk_implies.
         self.manager.mk_implies(lhs, rhs)
     }
 
@@ -350,7 +360,7 @@ impl<'a> AggressiveSimplifier<'a> {
     }
 
     /// Simplify `BvNot(arg)`.
-    /// Rule: BvNot(BvNot(x)) → x.
+    /// Rule: BvNot(BvNot(x)) -> x.
     fn simplify_bv_not(&mut self, arg: TermId) -> TermId {
         if let Some(TermKind::BvNot(inner)) = self.manager.get(arg).map(|t| t.kind.clone()) {
             return inner;
@@ -359,9 +369,8 @@ impl<'a> AggressiveSimplifier<'a> {
     }
 
     /// Simplify `BvAnd(lhs, rhs)`.
-    /// Rules: BvAnd(x, 0) → 0; BvAnd(x, all_ones) → x; BvAnd(x, x) → x.
+    /// Rules: BvAnd(x, 0) -> 0; BvAnd(x, all_ones) -> x; BvAnd(x, x) -> x.
     fn simplify_bv_and(&mut self, lhs: TermId, rhs: TermId) -> TermId {
-        // BvAnd(x, x) → x
         if lhs == rhs {
             return lhs;
         }
@@ -373,14 +382,11 @@ impl<'a> AggressiveSimplifier<'a> {
             let lhs_val = bv_constant(self.manager, lhs);
             let rhs_val = bv_constant(self.manager, rhs);
 
-            // BvAnd(0, x) → 0  /  BvAnd(x, 0) → 0
             if lhs_val.as_ref() == Some(&BigInt::from(0_i32))
                 || rhs_val.as_ref() == Some(&BigInt::from(0_i32))
             {
                 return self.manager.mk_bitvec(BigInt::from(0_i32), w);
             }
-
-            // BvAnd(all_ones, x) → x  /  BvAnd(x, all_ones) → x
             if lhs_val.as_ref() == Some(&all_ones) {
                 return rhs;
             }
@@ -393,9 +399,8 @@ impl<'a> AggressiveSimplifier<'a> {
     }
 
     /// Simplify `BvOr(lhs, rhs)`.
-    /// Rules: BvOr(x, 0) → x; BvOr(x, all_ones) → all_ones; BvOr(x, x) → x.
+    /// Rules: BvOr(x, 0) -> x; BvOr(x, all_ones) -> all_ones; BvOr(x, x) -> x.
     fn simplify_bv_or(&mut self, lhs: TermId, rhs: TermId) -> TermId {
-        // BvOr(x, x) → x
         if lhs == rhs {
             return lhs;
         }
@@ -407,15 +412,12 @@ impl<'a> AggressiveSimplifier<'a> {
             let lhs_val = bv_constant(self.manager, lhs);
             let rhs_val = bv_constant(self.manager, rhs);
 
-            // BvOr(0, x) → x  /  BvOr(x, 0) → x
             if lhs_val.as_ref() == Some(&BigInt::from(0_i32)) {
                 return rhs;
             }
             if rhs_val.as_ref() == Some(&BigInt::from(0_i32)) {
                 return lhs;
             }
-
-            // BvOr(all_ones, x) → all_ones  /  BvOr(x, all_ones) → all_ones
             if lhs_val.as_ref() == Some(&all_ones) {
                 return self.manager.mk_bitvec(all_ones, w);
             }
@@ -428,9 +430,8 @@ impl<'a> AggressiveSimplifier<'a> {
     }
 
     /// Simplify `BvXor(lhs, rhs)`.
-    /// Rules: BvXor(x, 0) → x; BvXor(x, x) → 0.
+    /// Rules: BvXor(x, 0) -> x; BvXor(x, x) -> 0.
     fn simplify_bv_xor(&mut self, lhs: TermId, rhs: TermId) -> TermId {
-        // BvXor(x, x) → 0
         if lhs == rhs {
             let w = bv_width(self.manager, lhs).unwrap_or(1);
             return self.manager.mk_bitvec(BigInt::from(0_i32), w);
@@ -439,7 +440,6 @@ impl<'a> AggressiveSimplifier<'a> {
         let lhs_val = bv_constant(self.manager, lhs);
         let rhs_val = bv_constant(self.manager, rhs);
 
-        // BvXor(0, x) → x  /  BvXor(x, 0) → x
         if lhs_val.as_ref() == Some(&BigInt::from(0_i32)) {
             return rhs;
         }
@@ -532,5 +532,63 @@ mod tests {
         let simplified = simplifier.simplify_term(ite);
 
         assert_eq!(simplified, x);
+    }
+
+    #[test]
+    fn test_simplification_memo_bounded() {
+        // Simplifying many distinct terms must not grow the cache unboundedly.
+        // The LRU cache is capped at SIMPLIFICATION_MEMO_CAPACITY entries.
+        let mut manager = TermManager::new();
+        let int_sort = manager.sorts.int_sort;
+
+        let num_terms = SIMPLIFICATION_MEMO_CAPACITY + 200;
+        let terms: Vec<TermId> = (0..num_terms)
+            .map(|i| manager.mk_var(format!("x_{i}").as_str(), int_sort))
+            .collect();
+
+        let mut simplifier =
+            AggressiveSimplifier::new(&mut manager, SimplificationConfig { aggressive: false });
+        for &term in &terms {
+            simplifier.simplify_term(term);
+        }
+
+        assert!(
+            simplifier.memo_cache.len() <= SIMPLIFICATION_MEMO_CAPACITY,
+            "memo cache grew beyond capacity: {} > {}",
+            simplifier.memo_cache.len(),
+            SIMPLIFICATION_MEMO_CAPACITY,
+        );
+        let (_, _, evictions) = simplifier.memo_stats();
+        assert!(
+            evictions > 0,
+            "expected LRU evictions when inserting more than capacity"
+        );
+    }
+
+    #[test]
+    fn test_simplification_memo_cache_hit() {
+        // Simplifying the same compound term twice should produce a cache hit on the
+        // second call.
+        let mut manager = TermManager::new();
+        let x = manager.mk_var("x", manager.sorts.int_sort);
+        let y = manager.mk_var("y", manager.sorts.int_sort);
+        let add = manager.mk_add(vec![x, y]);
+
+        let mut simplifier =
+            AggressiveSimplifier::new(&mut manager, SimplificationConfig { aggressive: false });
+
+        let result1 = simplifier.simplify_term(add);
+        let (hits_before, _, _) = simplifier.memo_stats();
+
+        let result2 = simplifier.simplify_term(add);
+        let (hits_after, _, _) = simplifier.memo_stats();
+
+        assert_eq!(result1, result2, "simplification must be deterministic");
+        assert!(
+            hits_after > hits_before,
+            "second call should hit the memo cache (hits: {} -> {})",
+            hits_before,
+            hits_after,
+        );
     }
 }

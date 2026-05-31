@@ -319,6 +319,7 @@ impl Solver {
     }
 
     /// Collect datatype constraints from a term
+    #[allow(dead_code)]
     fn collect_dt_constraints(
         &self,
         term: TermId,
@@ -335,6 +336,7 @@ impl Solver {
         );
     }
 
+    #[allow(dead_code)]
     fn collect_dt_constraints_inner(
         &self,
         term: TermId,

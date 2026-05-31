@@ -14,7 +14,29 @@ impl LiaSolver {
         // First check if the LP relaxation is feasible
         match self.simplex.check() {
             Ok(()) => {
-                // LP is feasible, now check integrality
+                // LP is feasible: run root-node preprocessing before B&B.
+
+                // Step 1: Probe variables — root bound tightening.
+                // Tentatively fixes each integer variable to its bounds and
+                // propagates implied tightenings. Failure is non-fatal; we
+                // proceed even if probing returns an error.
+                let _ = self.probe_variables(20);
+
+                // Step 2: Feasibility pump — opportunistic incumbent search.
+                // Try to find an integer-feasible solution cheaply before
+                // spending time in branch-and-bound. If the pump succeeds we
+                // pass the incumbent implicitly: branch_and_bound will verify
+                // integrality again and can prune accordingly.
+                if let Ok(Some(_int_sol)) = self.feasibility_pump(10) {
+                    // Pump found an integer-feasible solution.  We don't
+                    // short-circuit B&B here because we still need to check
+                    // that the full constraint set (including any constraints
+                    // added after the LP solve) is satisfied and to populate
+                    // the simplex model with the verified incumbent.  B&B will
+                    // detect the integer assignment quickly on its first pass.
+                }
+
+                // Step 3: Branch-and-bound — full integer feasibility check.
                 self.branch_and_bound(0)
             }
             Err(_reasons) => {
@@ -30,6 +52,13 @@ impl LiaSolver {
             return Err(OxizError::Internal(
                 "branch-and-bound depth limit exceeded".to_string(),
             ));
+        }
+
+        // Periodically age and purge ineffective learned cuts to keep the LP
+        // matrix compact.  We do this every 8 levels so the overhead is O(1)
+        // amortised per node for typical tree depths.
+        if depth.is_multiple_of(8) {
+            self.manage_cuts();
         }
 
         // Check if current solution is integer

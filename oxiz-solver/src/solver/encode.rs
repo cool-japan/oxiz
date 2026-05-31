@@ -1178,7 +1178,7 @@ impl Solver {
                 // Check if body is Exists — if so, Skolemize the nested existential.
                 // This handles the Forall-Exists pattern: ∀x. ∃y. φ(x,y) → ∀x. φ(x, f(x))
                 let body_id = *body;
-                let vars_clone = vars.clone();
+                let _vars_clone = vars.clone();
                 let patterns_clone = patterns.clone();
                 let body_is_exists = manager
                     .get(body_id)
@@ -1426,6 +1426,7 @@ impl Solver {
     /// OR (lhs > rhs)` for each.  This ensures ArithSolver knows about
     /// disequalities that arise from SAT-level implication propagation (e.g.
     /// from MBQI-generated instantiations like `(=> (= f(a) f(b)) (= a b))`).
+    #[allow(dead_code)]
     pub(super) fn add_arith_diseq_splits_for_sat_model(&mut self, manager: &mut TermManager) {
         use super::types::Constraint;
         use oxiz_sat::LBool;

@@ -1,5 +1,4 @@
 //! Clause Learning for CDCL(T) Solver.
-#![allow(dead_code)] // Under development
 //!
 //! Implements sophisticated conflict-driven clause learning including:
 //! - First UIP computation
@@ -32,6 +31,7 @@ pub struct ImplicationGraph {
     /// Nodes: variable → implication node
     nodes: FxHashMap<TermId, ImplicationNode>,
     /// Adjacency list: variable → predecessors
+    #[allow(dead_code)]
     predecessors: FxHashMap<TermId, Vec<TermId>>,
     /// Decision levels: variable → level
     levels: FxHashMap<TermId, usize>,
@@ -97,6 +97,7 @@ pub struct ClauseMinimizer {
     /// Variables to analyze
     analyze_stack: Vec<TermId>,
     /// Minimization cache
+    #[allow(dead_code)]
     cache: FxHashMap<TermId, bool>,
 }
 

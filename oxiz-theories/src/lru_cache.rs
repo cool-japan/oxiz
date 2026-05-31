@@ -3,9 +3,6 @@
 //! This module provides a bounded cache with LRU eviction policy,
 //! used for theory lemma caching in the theory combination module.
 
-#![allow(dead_code)] // Module ready for integration
-
-#[allow(unused_imports)]
 use crate::prelude::*;
 use core::hash::Hash;
 
@@ -72,6 +69,7 @@ where
     }
 
     /// Check if cache is empty
+    #[cfg(test)]
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.map.is_empty()
@@ -90,7 +88,8 @@ where
         self.evictions = 0;
     }
 
-    /// Get a value from the cache
+    /// Get a value from the cache (also updates LRU order and hit/miss stats)
+    #[cfg(test)]
     pub fn get(&mut self, key: &K) -> Option<&V> {
         if let Some(&idx) = self.map.get(key) {
             self.hits += 1;
@@ -154,6 +153,7 @@ where
     }
 
     /// Check if a key exists in the cache
+    #[cfg(test)]
     #[must_use]
     pub fn contains_key(&self, key: &K) -> bool {
         self.map.contains_key(key)
@@ -208,6 +208,7 @@ where
     }
 
     /// Retain only elements that satisfy the predicate
+    #[cfg(test)]
     pub fn retain<F>(&mut self, mut f: F)
     where
         F: FnMut(&K, &V) -> bool,
@@ -264,6 +265,15 @@ where
             let key = self.nodes[tail_idx].key.clone();
             self.remove(&key);
             self.evictions += 1;
+        }
+    }
+
+    /// Truncate the cache to at most `n` entries by evicting LRU entries first.
+    ///
+    /// Used to restore a saved cache size during backtracking.
+    pub fn truncate_to(&mut self, n: usize) {
+        while self.len() > n {
+            self.evict_lru();
         }
     }
 }

@@ -4,7 +4,8 @@
 //!
 //! Reference: <https://chc-comp.github.io/format.html>
 
-use crate::chc::{ChcSystem, PredId, PredicateApp};
+use crate::chc::{ChcSystem, PredId, PredicateApp, RuleBody, RuleHead};
+use oxiz_core::ast::TermKind;
 use oxiz_core::sort::SortId;
 use oxiz_core::{TermId, TermManager};
 use std::collections::HashMap;
@@ -726,23 +727,170 @@ impl<'a> ChcParser<'a> {
         }
     }
 
-    /// Process an assertion (convert to CHC rule)
-    fn process_assertion(&mut self, _formula: TermId) -> Result<(), ParseError> {
-        // This would extract the Horn clause structure from the formula
-        // and add it to the system
-        // For now, this is a simplified placeholder
+    /// Process an assertion (convert to CHC rule).
+    ///
+    /// Extracts Horn clause structure from the formula and adds it to the CHC system.
+    /// Handles three top-level shapes:
+    ///   - `(forall ((x Sort) ...) (=> body head))` — universal Horn clause
+    ///   - `(=> body head)` — bare implication
+    ///   - any other formula — treated as a constraint / query
+    fn process_assertion(&mut self, formula: TermId) -> Result<(), ParseError> {
+        let Some(term_data) = self.terms.get(formula) else {
+            return Err(ParseError::InvalidSyntax(
+                "invalid term in assertion".to_string(),
+            ));
+        };
+
+        match &term_data.kind.clone() {
+            // (forall ((x Sort) ...) body)
+            TermKind::Forall { vars, body, .. } => {
+                let body_id = *body;
+                let bound_vars: Vec<(String, SortId)> = vars
+                    .iter()
+                    .map(|(name_spur, sort)| {
+                        (self.terms.resolve_str(*name_spur).to_string(), *sort)
+                    })
+                    .collect();
+                self.process_horn_clause(body_id, bound_vars)
+            }
+            // (=> body head)
+            TermKind::Implies(body_term, head_term) => {
+                let (b, h) = (*body_term, *head_term);
+                self.process_implication(b, h, Vec::new())
+            }
+            // Anything else: fact or query
+            _ => {
+                let body = RuleBody::init(self.terms.mk_true());
+                if let Some(pred_app) = self.try_extract_predicate_app(formula) {
+                    let head = RuleHead::Predicate(pred_app);
+                    self.system.add_rule(Vec::new(), body, head, None);
+                } else {
+                    let query_body = RuleBody::init(formula);
+                    let head = RuleHead::Query;
+                    self.system.add_rule(Vec::new(), query_body, head, None);
+                }
+                Ok(())
+            }
+        }
+    }
+
+    /// Process a possibly-quantified Horn clause body.
+    fn process_horn_clause(
+        &mut self,
+        body: TermId,
+        vars: Vec<(String, SortId)>,
+    ) -> Result<(), ParseError> {
+        let Some(body_term) = self.terms.get(body) else {
+            return Err(ParseError::InvalidSyntax(
+                "invalid body in Horn clause".to_string(),
+            ));
+        };
+
+        match body_term.kind.clone() {
+            TermKind::Implies(lhs, rhs) => self.process_implication(lhs, rhs, vars),
+            _ => {
+                let rule_body = RuleBody::init(body);
+                let head = RuleHead::Query;
+                self.system.add_rule(vars, rule_body, head, None);
+                Ok(())
+            }
+        }
+    }
+
+    /// Process `body => head` into a CHC rule.
+    fn process_implication(
+        &mut self,
+        body_term: TermId,
+        head_term: TermId,
+        vars: Vec<(String, SortId)>,
+    ) -> Result<(), ParseError> {
+        // Split the body into uninterpreted predicate applications and linear constraints.
+        let (body_preds, body_constraint) = self.decompose_conjunction(body_term);
+
+        // Determine the head.
+        let head = if let Some(head_data) = self.terms.get(head_term) {
+            match head_data.kind.clone() {
+                TermKind::False => RuleHead::Query,
+                TermKind::Apply { func, args } => {
+                    let func_name = self.terms.resolve_str(func).to_string();
+                    if let Some(&pred_id) = self.predicates.get(&func_name) {
+                        RuleHead::Predicate(PredicateApp::new(pred_id, args.iter().copied()))
+                    } else {
+                        return Err(ParseError::UndefinedSymbol(func_name));
+                    }
+                }
+                _ => {
+                    if let Some(pred_app) = self.try_extract_predicate_app(head_term) {
+                        RuleHead::Predicate(pred_app)
+                    } else {
+                        RuleHead::Query
+                    }
+                }
+            }
+        } else {
+            RuleHead::Query
+        };
+
+        let rule_body = if body_preds.is_empty() {
+            RuleBody::init(body_constraint)
+        } else {
+            RuleBody::new(body_preds, body_constraint)
+        };
+
+        self.system.add_rule(vars, rule_body, head, None);
         Ok(())
     }
 
-    /// Parse a simple rule in text format (helper for testing)
-    /// Format: "x = 0 => Inv(x)" or "Inv(x) /\ x' = x + 1 => Inv(x')"
-    #[allow(dead_code)]
-    fn parse_simple_rule(&mut self, _rule_text: &str) -> Result<(), ParseError> {
-        // Simple text parser for basic testing
-        // Real implementation would parse SMT-LIB2
-        Err(ParseError::Unsupported(
-            "Simple rule parser not yet implemented".to_string(),
-        ))
+    /// Flatten an AND-tree into individual conjuncts.
+    fn collect_conjuncts(&self, term: TermId) -> Vec<TermId> {
+        let Some(term_data) = self.terms.get(term) else {
+            return vec![term];
+        };
+        match &term_data.kind {
+            TermKind::And(args) => {
+                let mut result = Vec::new();
+                for &arg in args.iter() {
+                    result.extend(self.collect_conjuncts(arg));
+                }
+                result
+            }
+            _ => vec![term],
+        }
+    }
+
+    /// Split a conjunction into predicate applications and theory constraints.
+    fn decompose_conjunction(&mut self, term: TermId) -> (Vec<PredicateApp>, TermId) {
+        let mut predicates = Vec::new();
+        let mut constraints = Vec::new();
+
+        for conjunct in self.collect_conjuncts(term) {
+            if let Some(pred_app) = self.try_extract_predicate_app(conjunct) {
+                predicates.push(pred_app);
+            } else {
+                constraints.push(conjunct);
+            }
+        }
+
+        let constraint = match constraints.len() {
+            0 => self.terms.mk_true(),
+            1 => constraints[0],
+            _ => self.terms.mk_and(constraints),
+        };
+
+        (predicates, constraint)
+    }
+
+    /// Try to identify `term` as an application of a declared predicate.
+    fn try_extract_predicate_app(&self, term: TermId) -> Option<PredicateApp> {
+        let term_data = self.terms.get(term)?;
+        match &term_data.kind {
+            TermKind::Apply { func, args } => {
+                let func_name = self.terms.resolve_str(*func).to_string();
+                let pred_id = *self.predicates.get(&func_name)?;
+                Some(PredicateApp::new(pred_id, args.iter().copied()))
+            }
+            _ => None,
+        }
     }
 
     /// Get the parsed CHC system
@@ -1019,5 +1167,61 @@ mod tests {
     fn test_sexpr_parser_error_unexpected_close() {
         let result = SExprParser::parse_str("foo)");
         assert!(result.is_err());
+    }
+
+    // ── process_assertion tests ───────────────────────────────────────────────
+
+    /// A query assertion `(assert false)` should produce a query rule.
+    #[test]
+    fn test_parse_assertion_false_query() {
+        let mut terms = TermManager::new();
+        let mut parser = ChcParser::new(&mut terms);
+
+        let input = "(set-logic HORN)\n\
+                     (declare-fun Inv (Int) Bool)\n\
+                     (assert false)";
+        let result = parser.parse(input);
+        assert!(result.is_ok(), "parse failed: {:?}", result);
+        let system = result.expect("parse succeeded");
+        // A bare `false` assertion becomes a query rule.
+        assert!(
+            system.num_rules() > 0,
+            "expected at least one rule from (assert false)"
+        );
+    }
+
+    /// A forward Horn clause: `(assert (forall ((x Int)) (=> (and (= x 0)) (Inv x))))`.
+    /// Parses correctly and registers 1 predicate and 1 rule.
+    #[test]
+    fn test_parse_assertion_forall_horn_clause() {
+        let mut terms = TermManager::new();
+        let mut parser = ChcParser::new(&mut terms);
+
+        // This input: x=0 implies Inv(x).  One Horn rule with Inv in the head.
+        let input = "(set-logic HORN)\n\
+                     (declare-fun Inv (Int) Bool)\n\
+                     (assert (forall ((x Int)) (=> (= x 0) (Inv x))))";
+        let result = parser.parse(input);
+        assert!(result.is_ok(), "parse failed: {:?}", result);
+        let system = result.expect("parse succeeded");
+        assert_eq!(system.num_predicates(), 1, "should have 1 predicate (Inv)");
+        assert_eq!(system.num_rules(), 1, "should have 1 Horn rule");
+    }
+
+    /// Parsing two Horn clauses produces 2 rules.
+    #[test]
+    fn test_parse_assertion_two_clauses() {
+        let mut terms = TermManager::new();
+        let mut parser = ChcParser::new(&mut terms);
+
+        let input = "(set-logic HORN)\n\
+                     (declare-fun Inv (Int) Bool)\n\
+                     (assert (forall ((x Int)) (=> (= x 0) (Inv x))))\n\
+                     (assert (forall ((x Int)) (=> (Inv x) false)))";
+        let result = parser.parse(input);
+        assert!(result.is_ok(), "parse failed: {:?}", result);
+        let system = result.expect("parse succeeded");
+        assert_eq!(system.num_predicates(), 1);
+        assert_eq!(system.num_rules(), 2, "should have 2 Horn rules");
     }
 }

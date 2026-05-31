@@ -1,5 +1,4 @@
 //! Syzygy Computations for Gröbner Bases.
-#![allow(dead_code)] // Under development
 //!
 //! Implements:
 //! - S-polynomial computation
@@ -351,6 +350,7 @@ impl SyzygyComputer {
     }
 
     /// Monomial GCD.
+    #[allow(dead_code)]
     fn monomial_gcd(m1: &Monomial, m2: &Monomial) -> Monomial {
         let mut result_powers = FxHashMap::default();
 
@@ -472,6 +472,7 @@ impl Default for SyzygyComputer {
 }
 
 // Helper trait extensions for Polynomial
+#[allow(dead_code)]
 trait PolynomialSyzygy {
     fn sugar_degree(&self) -> usize;
     fn mul_monomial(&self, m: &Monomial) -> Polynomial;
@@ -507,6 +508,7 @@ impl PolynomialSyzygy for Polynomial {
 }
 
 // Helper trait for Monomial
+#[allow(dead_code)]
 trait MonomialHelper {
     fn from_powers(powers: FxHashMap<Var, usize>) -> Monomial;
     fn powers(&self) -> &FxHashMap<Var, usize>;

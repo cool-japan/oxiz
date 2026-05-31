@@ -547,6 +547,7 @@ impl Solver {
     }
 
     /// Check if assertion says (= term1 term2)
+    #[allow(dead_code)]
     fn asserts_equality(
         &self,
         assertion: TermId,

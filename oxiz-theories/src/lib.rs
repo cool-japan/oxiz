@@ -78,7 +78,7 @@ pub mod euf;
 pub mod fp;
 pub mod fp_interval_prop;
 pub mod hashcons;
-mod lru_cache;
+pub(crate) mod lru_cache;
 pub mod pb;
 pub mod propagation;
 #[cfg(feature = "std")]

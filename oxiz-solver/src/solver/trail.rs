@@ -41,6 +41,7 @@ pub(crate) struct ContextState {
 
 /// Collector for floating-point constraints to detect early conflicts
 #[derive(Debug, Default)]
+#[allow(dead_code)]
 pub(crate) struct FpConstraintCollector {
     /// FP variables with isZero predicate applied
     is_zero_vars: FxHashSet<TermId>,
@@ -64,6 +65,7 @@ pub(crate) struct FpConstraintCollector {
     real_to_fp: Vec<(TermKind, TermId, u32, u32, TermId)>,
 }
 
+#[allow(dead_code)]
 impl FpConstraintCollector {
     fn new() -> Self {
         Self::default()
@@ -303,7 +305,7 @@ impl FpConstraintCollector {
         false
     }
 
-    fn terms_equal(&self, a: TermId, b: TermId, manager: &TermManager) -> bool {
+    fn terms_equal(&self, a: TermId, b: TermId, _manager: &TermManager) -> bool {
         if a == b {
             return true;
         }

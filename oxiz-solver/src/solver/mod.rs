@@ -484,7 +484,7 @@ impl Solver {
                                         break;
                                     }
                                     // Track domains and disequalities for pigeonhole
-                                    if let Some(dbg_t) = manager.get(inst.result) {}
+                                    let _ = manager.get(inst.result);
                                     self.scan_for_pigeonhole(
                                         inst.result,
                                         manager,
@@ -700,6 +700,22 @@ impl Solver {
     #[must_use]
     pub fn model(&self) -> Option<&Model> {
         self.model.as_ref()
+    }
+
+    /// Congruence-closed function-application entries from the EUF solver for
+    /// the given function symbol id (crate-internal use only).
+    ///
+    /// Each entry's argument and result classes have already been canonicalized
+    /// through the union-find, so callers building a `FuncInterp` get congruence
+    /// applied for free (e.g. `f(a)` and `f(b)` collapse when `a = b`).  The
+    /// `func_id` is the EUF function symbol id, which for an `Apply` term is the
+    /// underlying value of the function-name `Spur` (`spur.into_inner().get()`).
+    #[must_use]
+    pub(crate) fn euf_function_entries(
+        &self,
+        func_id: u32,
+    ) -> Vec<oxiz_theories::euf::FuncAppEntry> {
+        self.euf.function_application_entries(func_id)
     }
 
     /// Check satisfiability with resource limits.

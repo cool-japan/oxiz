@@ -18,7 +18,6 @@
 //! - "Complete Quantifier Instantiation" (Ge & de Moura, 2009)
 
 #![allow(missing_docs)]
-#![allow(dead_code)]
 
 #[allow(unused_imports)]
 use crate::prelude::*;

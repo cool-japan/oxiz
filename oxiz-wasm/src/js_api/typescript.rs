@@ -377,7 +377,7 @@ const DTS_VERSION_FN: &str = r#"
 /**
  * Return the OxiZ WASM library version string.
  *
- * @returns A semver string, e.g. `"0.2.0"`.
+ * @returns A semver string, e.g. `"0.2.2"`.
  *
  * @example
  * ```typescript

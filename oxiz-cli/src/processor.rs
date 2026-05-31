@@ -16,7 +16,6 @@ use globset::{Glob, GlobSetBuilder};
 use indicatif::{ProgressBar, ProgressStyle};
 use notify::{RecursiveMode, Watcher};
 use rayon::prelude::*;
-use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 use walkdir::WalkDir;
 
 use oxiz_solver::Context;
@@ -26,7 +25,9 @@ use crate::{Args, InputFormat, Verbosity, apply_solver_options, execute_and_form
 
 // Import from crate modules
 use crate::cache;
+use crate::cicd;
 use crate::dimacs;
+use crate::memory;
 use crate::tptp;
 
 // Import from crate::format
@@ -62,18 +63,7 @@ pub(crate) fn run_files(ctx: &mut Context, args: &Args, verbosity: Verbosity) {
         .map(|path| cache::BenchmarkTracker::new(path.clone()));
 
     let start_time = Instant::now();
-    let current_pid = Pid::from_u32(std::process::id());
-    let mut sys = if args.memory {
-        let mut s = System::new();
-        s.refresh_processes_specifics(
-            ProcessesToUpdate::Some(&[current_pid]),
-            true,
-            ProcessRefreshKind::nothing().with_memory(),
-        );
-        Some(s)
-    } else {
-        None
-    };
+    let track_memory = args.memory;
 
     let results = if args.parallel && files.len() > 1 {
         process_files_parallel(&files, ctx, args, verbosity, &mut result_cache)
@@ -94,15 +84,9 @@ pub(crate) fn run_files(ctx: &mut Context, args: &Args, verbosity: Verbosity) {
         0
     };
 
-    // Collect memory statistics (process-scope resident set size, not system-wide)
-    let (memory_bytes, peak_memory) = if let Some(ref mut s) = sys {
-        s.refresh_processes_specifics(
-            ProcessesToUpdate::Some(&[current_pid]),
-            true,
-            ProcessRefreshKind::nothing().with_memory(),
-        );
-        let rss = s.process(current_pid).map(|p| p.memory()).unwrap_or(0);
-        (rss, rss)
+    // Collect memory statistics – current RSS plus the OS-level peak (VmHWM on Linux).
+    let (memory_bytes, peak_memory) = if track_memory {
+        memory::rss_and_peak()
     } else {
         (0, 0)
     };
@@ -187,6 +171,48 @@ pub(crate) fn run_files(ctx: &mut Context, args: &Args, verbosity: Verbosity) {
             && verbosity >= Verbosity::Normal
         {
             eprintln_colored(args, &format!("Warning: Failed to save benchmarks: {}", e));
+        }
+    }
+
+    // Generate CI/CD report if requested
+    if args.cicd {
+        let mut report = cicd::CicdReport::new();
+        for result in results.iter() {
+            let file_name = result.file.clone().unwrap_or_else(|| "stdin".to_string());
+            report.add_result(
+                file_name,
+                result.result.clone(),
+                result.time_ms,
+                result.error.clone(),
+            );
+        }
+        report.finalize();
+
+        if verbosity >= Verbosity::Normal {
+            report.print_summary();
+        }
+
+        // Print CI platform annotations
+        for annotation in report.generate_annotations() {
+            eprintln!("{}", annotation);
+        }
+
+        // Write report file if requested
+        if let Some(ref report_path) = args.cicd_report {
+            if let Err(e) = cicd::write_report(&report, report_path) {
+                eprintln_colored(args, &format!("Warning: {}", e));
+            } else if verbosity >= Verbosity::Normal {
+                println_colored(
+                    args,
+                    &format!("CI/CD report written to {}", report_path.display()),
+                    Some(owo_colors::AnsiColors::Green),
+                );
+            }
+        }
+
+        // Exit with appropriate code if strict mode
+        if args.cicd_strict && report.exit_code() != 0 {
+            std::process::exit(report.exit_code());
         }
     }
 
@@ -291,7 +317,7 @@ fn collect_files(inputs: &[PathBuf], recursive: bool) -> Vec<PathBuf> {
 /// Process files sequentially with optional progress bar
 fn process_files_sequential(
     files: &[PathBuf],
-    ctx: &mut Context,
+    _ctx: &mut Context,
     args: &Args,
     verbosity: Verbosity,
     cache: &mut Option<cache::ResultCache>,
@@ -330,7 +356,15 @@ fn process_files_sequential(
             pb.set_message(msg);
         }
 
-        let result = process_single_file(file, ctx, args, cache);
+        // Each file gets a completely fresh solver context to prevent state
+        // from the previous file leaking into the next (issue #5 follow-up).
+        let mut file_ctx = Context::new();
+        if let Some(ref logic) = args.logic {
+            file_ctx.set_logic(logic);
+        }
+        apply_solver_options(&mut file_ctx, args);
+
+        let result = process_single_file(file, &mut file_ctx, args, cache);
         results.push(result);
 
         if let Some(ref pb) = progress {
@@ -642,9 +676,18 @@ pub(crate) fn run_stdin(ctx: &mut Context, args: &Args, verbosity: Verbosity) {
         }
     }
 
+    let track_memory = args.memory;
+
     let start = Instant::now();
     let result = execute_and_format(ctx, &script, args);
     let time_ms = start.elapsed().as_millis();
+
+    // Collect process-scope RSS after solving – current + OS-level peak (VmHWM on Linux).
+    let (memory_bytes, peak_memory) = if track_memory {
+        memory::rss_and_peak()
+    } else {
+        (0, 0)
+    };
 
     let solver_result = SolverResult {
         file: None,
@@ -663,15 +706,15 @@ pub(crate) fn run_stdin(ctx: &mut Context, args: &Args, verbosity: Verbosity) {
     let stats = SolverStats {
         execution_time_ms: time_ms,
         files_processed: 1,
-        memory_bytes: 0,
-        peak_memory_bytes: 0,
+        memory_bytes,
+        peak_memory_bytes: peak_memory,
         success_count: if solver_result.error.is_none() { 1 } else { 0 },
         error_count: if solver_result.error.is_some() { 1 } else { 0 },
         profiling_data: if args.profile {
             Some(vec![ProfilingData {
                 operation: "stdin".to_string(),
                 duration_us: time_ms * 1000,
-                memory_delta_bytes: 0,
+                memory_delta_bytes: memory_bytes as i64,
             }])
         } else {
             None
@@ -687,7 +730,7 @@ pub(crate) fn run_stdin(ctx: &mut Context, args: &Args, verbosity: Verbosity) {
 
     output_results(&[solver_result], args, &stats);
 
-    if args.time && !args.smtcomp {
+    if (args.time || args.memory || args.stats) && !args.smtcomp {
         print_statistics(&stats, args);
     }
 }

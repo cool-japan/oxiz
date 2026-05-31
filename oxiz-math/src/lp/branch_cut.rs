@@ -1,5 +1,4 @@
 //! Branch-and-Cut Algorithm for Mixed-Integer Programming.
-#![allow(dead_code)] // Under development
 //!
 //! Integrates branch-and-bound with cutting planes for solving MIP:
 //! - LP relaxation at each node
@@ -165,6 +164,7 @@ pub struct BranchCutSolver {
     /// Best integer objective value.
     best_value: Option<BigRational>,
     /// Cutting plane generator.
+    #[allow(dead_code)]
     cut_generator: CuttingPlaneGenerator,
     /// Statistics.
     stats: BranchCutStats,

@@ -848,11 +848,6 @@ mod tests {
         BigRational::from_integer(BigInt::from(n))
     }
 
-    #[allow(dead_code)]
-    fn frac(num: i64, den: i64) -> BigRational {
-        BigRational::new(BigInt::from(num), BigInt::from(den))
-    }
-
     #[test]
     fn test_lp_simple() {
         let mut solver = LPSolver::new();

@@ -3,6 +3,33 @@
 use super::*;
 use smallvec::SmallVec;
 
+/// Compute LBD (Literals per Block Distance / "glue" score) from a set of clause literals.
+///
+/// LBD = number of distinct decision levels among the literals, excluding level 0.
+/// Level-0 literals are excluded because they are consequences of unit propagation at the
+/// root level and are always true — they do not contribute to the "block distance" that
+/// measures how spread across the search tree a learned clause is.
+///
+/// This is an O(n) computation with no heap allocation in the common case
+/// (`SmallVec<[u32; 32]>` avoids a heap allocation for clauses up to 32 distinct decision
+/// levels, which covers the overwhelming majority of real CDCL learned clauses).
+///
+/// This is the standard Glucose/MiniSat LBD definition applied to the **actual learned
+/// (1-UIP) clause literals**, so the value it returns satisfies `lbd <= literals.len()`.
+/// It is a pure function (no shared scratch state) so it can be called at sites where a
+/// `&mut self` borrow of the solver is unavailable — in particular after `self.learnt`
+/// has been finalized but while `&self.trail` is borrowed to fire the external hook.
+fn compute_lbd_from_literals(literals: &[Lit], trail: &Trail) -> u32 {
+    let mut levels: SmallVec<[u32; 32]> = SmallVec::new();
+    for &lit in literals {
+        let level = trail.level(lit.var());
+        if level > 0 && !levels.contains(&level) {
+            levels.push(level);
+        }
+    }
+    levels.len() as u32
+}
+
 impl Solver {
     /// Analyze conflict and learn clause
     pub(super) fn analyze(&mut self, conflict: ClauseId) -> (u32, SmallVec<[Lit; 16]>) {
@@ -137,6 +164,23 @@ impl Solver {
 
         // Minimize learnt clause using recursive resolution
         self.minimize_learnt_clause();
+
+        // Compute the real LBD from the FINAL learned (1-UIP) clause literals.
+        // This is the standard Glucose definition: the number of distinct decision
+        // levels in the learned clause itself (level 0 excluded), not the larger
+        // `vars_to_bump` set. It is computed AFTER minimization so it reflects the
+        // exact clause that will be stored, and therefore satisfies lbd <= clause len.
+        let lbd = compute_lbd_from_literals(&self.learnt, &self.trail);
+
+        // Notify external heuristic of each conflict-involved variable with the
+        // learned-clause LBD score.
+        if let Some(ref ext) = self.config.external_branching
+            && let Ok(mut h) = ext.lock()
+        {
+            for &var in &vars_to_bump {
+                h.on_conflict_var_with_lbd(var, lbd);
+            }
+        }
 
         // Calculate assertion level (traditional backtrack level)
         let assertion_level = if self.learnt.len() == 1 {
@@ -439,6 +483,23 @@ impl Solver {
         // Minimize
         self.minimize_learnt_clause();
 
+        // Compute the real LBD from the FINAL learned clause literals (post-minimization),
+        // matching the standard Glucose definition rather than using the larger
+        // `vars_to_bump` proxy. For theory conflicts the learned clause shape may differ
+        // from Boolean conflicts, but the distinct-decision-level count of the actual
+        // learned clause is the correct glue score and never exceeds the clause length.
+        let lbd = compute_lbd_from_literals(&self.learnt, &self.trail);
+
+        // Notify external heuristic of each conflict-involved variable with the
+        // learned-clause LBD score.
+        if let Some(ref ext) = self.config.external_branching
+            && let Ok(mut h) = ext.lock()
+        {
+            for &var in &vars_to_bump {
+                h.on_conflict_var_with_lbd(var, lbd);
+            }
+        }
+
         // Calculate backtrack level
         let backtrack_level = if self.learnt.len() == 1 {
             0
@@ -525,5 +586,387 @@ impl Solver {
         }
 
         if min_level == u32::MAX { 0 } else { min_level }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::trail::Trail;
+
+    // ---------------------------------------------------------------------------
+    // Tests for compute_lbd_from_literals
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_compute_lbd_all_same_level() {
+        // Three literals whose vars are all assigned at level 3 → LBD = 1.
+        let n = 4;
+        let mut trail = Trail::new(n);
+        // Level 0 is implicit; push 3 levels.
+        trail.new_decision_level(); // → level 1
+        trail.new_decision_level(); // → level 2
+        trail.new_decision_level(); // → level 3
+
+        let v0 = Var::new(0);
+        let v1 = Var::new(1);
+        let v2 = Var::new(2);
+        trail.assign_decision(Lit::pos(v0));
+        trail.assign_decision(Lit::pos(v1));
+        trail.assign_decision(Lit::pos(v2));
+
+        let lits = [Lit::pos(v0), Lit::neg(v1), Lit::pos(v2)];
+        let lbd = compute_lbd_from_literals(&lits, &trail);
+        assert_eq!(lbd, 1, "all literals at same level → LBD should be 1");
+    }
+
+    #[test]
+    fn test_compute_lbd_distinct_levels() {
+        // Three literals at levels 1, 2, 3 → LBD = 3.
+        let n = 4;
+        let mut trail = Trail::new(n);
+
+        let v0 = Var::new(0);
+        let v1 = Var::new(1);
+        let v2 = Var::new(2);
+
+        trail.new_decision_level(); // → level 1
+        trail.assign_decision(Lit::pos(v0));
+
+        trail.new_decision_level(); // → level 2
+        trail.assign_decision(Lit::pos(v1));
+
+        trail.new_decision_level(); // → level 3
+        trail.assign_decision(Lit::pos(v2));
+
+        let lits = [Lit::pos(v0), Lit::pos(v1), Lit::neg(v2)];
+        let lbd = compute_lbd_from_literals(&lits, &trail);
+        assert_eq!(lbd, 3, "literals at levels 1, 2, 3 → LBD should be 3");
+    }
+
+    #[test]
+    fn test_compute_lbd_excludes_level_zero() {
+        // Literals: one var at level 0 (unit prop), two at level 2 → LBD = 1.
+        // Level-0 variables must not be counted.
+        let n = 4;
+        let mut trail = Trail::new(n);
+
+        let v0 = Var::new(0); // Will be at level 0
+        let v1 = Var::new(1); // Will be at level 2
+        let v2 = Var::new(2); // Will be at level 2
+
+        // Assign v0 at level 0 (root decision level, no new_decision_level call).
+        trail.assign_decision(Lit::pos(v0));
+
+        trail.new_decision_level(); // → level 1 (unused)
+        trail.new_decision_level(); // → level 2
+        trail.assign_decision(Lit::pos(v1));
+        trail.assign_decision(Lit::pos(v2));
+
+        let lits = [Lit::pos(v0), Lit::pos(v1), Lit::pos(v2)];
+        let lbd = compute_lbd_from_literals(&lits, &trail);
+        assert_eq!(
+            lbd, 1,
+            "level-0 var must be excluded; only level-2 vars count → LBD = 1"
+        );
+    }
+
+    #[test]
+    fn test_compute_lbd_mixed_duplicates_and_zero() {
+        // v0 @ level 0 (excluded), v1 @ level 2, v2 @ level 4, v3 @ level 2 (duplicate)
+        // → distinct non-zero levels: {2, 4} → LBD = 2.
+        let n = 5;
+        let mut trail = Trail::new(n);
+
+        let v0 = Var::new(0);
+        let v1 = Var::new(1);
+        let v2 = Var::new(2);
+        let v3 = Var::new(3);
+
+        trail.assign_decision(Lit::pos(v0)); // level 0
+
+        trail.new_decision_level(); // → 1
+        trail.new_decision_level(); // → 2
+        trail.assign_decision(Lit::pos(v1));
+        trail.assign_decision(Lit::pos(v3));
+
+        trail.new_decision_level(); // → 3
+        trail.new_decision_level(); // → 4
+        trail.assign_decision(Lit::pos(v2));
+
+        let lits = [Lit::pos(v0), Lit::pos(v1), Lit::neg(v2), Lit::pos(v3)];
+        let lbd = compute_lbd_from_literals(&lits, &trail);
+        assert_eq!(lbd, 2, "levels {{2, 4}} → LBD = 2");
+    }
+
+    #[test]
+    fn test_compute_lbd_empty_literals() {
+        // Empty literal set → LBD = 0.
+        let trail = Trail::new(0);
+        let lits: [Lit; 0] = [];
+        let lbd = compute_lbd_from_literals(&lits, &trail);
+        assert_eq!(lbd, 0, "empty literal set → LBD = 0");
+    }
+
+    // ---------------------------------------------------------------------------
+    // Integration test: conflict analysis passes LBD to the external hook
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_conflict_analysis_passes_lbd_to_hook() {
+        // Solve PHP(3,2) — the same UNSAT formula used in the external_branching tests.
+        // A ConflictLbdRecordingHeuristic records all LBD values received via
+        // on_conflict_var_with_lbd.  After solving, assert:
+        //   1. at least one call was made (conflicts happened)
+        //   2. all recorded LBD values are > 0 (no degenerate LBD-0 passed through)
+        use crate::solver::heuristic::BranchingHeuristic;
+        use crate::{Solver, SolverConfig, SolverResult};
+        use std::sync::{Arc, Mutex};
+
+        struct ConflictLbdRecordingHeuristic {
+            lbd_values: Arc<Mutex<Vec<u32>>>,
+        }
+
+        impl BranchingHeuristic for ConflictLbdRecordingHeuristic {
+            fn select(&mut self, _candidates: &[Var], _scores: &[f64]) -> Option<Var> {
+                None // always defer — VSIDS drives the solve
+            }
+
+            fn on_conflict_var_with_lbd(&mut self, _var: Var, lbd: u32) {
+                self.lbd_values
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push(lbd);
+            }
+        }
+
+        let lbd_values: Arc<Mutex<Vec<u32>>> = Arc::new(Mutex::new(Vec::new()));
+        let heuristic = Arc::new(Mutex::new(ConflictLbdRecordingHeuristic {
+            lbd_values: Arc::clone(&lbd_values),
+        }));
+
+        let config = SolverConfig {
+            external_branching: Some(heuristic),
+            ..SolverConfig::default()
+        };
+        let mut solver = Solver::with_config(config);
+
+        // PHP(3,2): 6 variables
+        for _ in 0..6 {
+            solver.new_var();
+        }
+        // Each pigeon must be in at least one hole
+        solver.add_clause_dimacs(&[1, 2]);
+        solver.add_clause_dimacs(&[3, 4]);
+        solver.add_clause_dimacs(&[5, 6]);
+        // At most one pigeon per hole
+        solver.add_clause_dimacs(&[-1, -3]);
+        solver.add_clause_dimacs(&[-1, -5]);
+        solver.add_clause_dimacs(&[-3, -5]);
+        solver.add_clause_dimacs(&[-2, -4]);
+        solver.add_clause_dimacs(&[-2, -6]);
+        solver.add_clause_dimacs(&[-4, -6]);
+
+        let result = solver.solve();
+        assert_eq!(result, SolverResult::Unsat, "PHP(3,2) must be UNSAT");
+
+        let values = lbd_values.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(
+            !values.is_empty(),
+            "on_conflict_var_with_lbd must have been called at least once"
+        );
+        for &lbd in values.iter() {
+            assert!(
+                lbd > 0,
+                "LBD passed to hook must be > 0 (got {lbd}); level-0 vars should be excluded"
+            );
+        }
+    }
+
+    #[test]
+    fn test_lbd_matches_learned_clause_glue() {
+        // The LBD passed to the hook must be the glue score of the ACTUAL learned
+        // (1-UIP) clause — i.e. the distinct decision-level count of `self.learnt` —
+        // NOT the distinct-level count of the larger `vars_to_bump` union.
+        //
+        // We solve a crafted UNSAT instance with clause deletion effectively disabled
+        // so every learned clause persists. The hook records the set of LBD values it
+        // receives; the solver stores `clause.lbd` (computed independently in
+        // learn.rs::compute_lbd from the same final clause). Since a 1-UIP learned
+        // clause never contains level-0 literals, the two definitions coincide, so the
+        // set of hook LBDs must be a SUBSET of the stored learned-clause LBD set
+        // (plus 1 for unit learned clauses, whose single literal sits at the current
+        // decision level). The old `vars_to_bump` proxy would routinely report values
+        // ABSENT from any stored clause's LBD, so a subset relation is decisive.
+        use crate::solver::heuristic::BranchingHeuristic;
+        use crate::{Solver, SolverConfig, SolverResult};
+        use std::collections::BTreeSet;
+        use std::sync::{Arc, Mutex};
+
+        struct SetRecordingHeuristic {
+            lbd_set: Arc<Mutex<BTreeSet<u32>>>,
+        }
+
+        impl BranchingHeuristic for SetRecordingHeuristic {
+            fn select(&mut self, _candidates: &[Var], _scores: &[f64]) -> Option<Var> {
+                None
+            }
+
+            fn on_conflict_var_with_lbd(&mut self, _var: Var, lbd: u32) {
+                self.lbd_set
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(lbd);
+            }
+        }
+
+        let lbd_set: Arc<Mutex<BTreeSet<u32>>> = Arc::new(Mutex::new(BTreeSet::new()));
+        let heuristic = Arc::new(Mutex::new(SetRecordingHeuristic {
+            lbd_set: Arc::clone(&lbd_set),
+        }));
+
+        let config = SolverConfig {
+            external_branching: Some(heuristic),
+            // Disable clause deletion so every learned clause survives for inspection.
+            clause_deletion_threshold: usize::MAX,
+            ..SolverConfig::default()
+        };
+        let mut solver = Solver::with_config(config);
+
+        // PHP(3,2): 6 variables, UNSAT, produces multi-level conflicts.
+        for _ in 0..6 {
+            solver.new_var();
+        }
+        solver.add_clause_dimacs(&[1, 2]);
+        solver.add_clause_dimacs(&[3, 4]);
+        solver.add_clause_dimacs(&[5, 6]);
+        solver.add_clause_dimacs(&[-1, -3]);
+        solver.add_clause_dimacs(&[-1, -5]);
+        solver.add_clause_dimacs(&[-3, -5]);
+        solver.add_clause_dimacs(&[-2, -4]);
+        solver.add_clause_dimacs(&[-2, -6]);
+        solver.add_clause_dimacs(&[-4, -6]);
+
+        let result = solver.solve();
+        assert_eq!(result, SolverResult::Unsat, "PHP(3,2) must be UNSAT");
+
+        // Gather the LBD of every surviving learned clause from the solver's
+        // internal database (these fields are crate-visible). Unit learned clauses
+        // (len == 1) keep the default lbd 0 but their hook LBD is 1, so we add 1 for
+        // every unit clause to the allowed set.
+        let mut stored_lbds: BTreeSet<u32> = BTreeSet::new();
+        for &cid in &solver.learned_clause_ids {
+            if let Some(clause) = solver.clauses.get(cid) {
+                if clause.lits.len() == 1 {
+                    stored_lbds.insert(1);
+                } else {
+                    stored_lbds.insert(clause.lbd);
+                }
+            }
+        }
+
+        let hook_lbds = lbd_set.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(!hook_lbds.is_empty(), "hook must have received LBD values");
+
+        // Decisive check: every LBD the hook reported is the glue score of a real
+        // learned clause (subset relation). With the old vars_to_bump proxy this
+        // would fail because vars_to_bump-derived LBDs exceed any stored clause's LBD.
+        for &lbd in hook_lbds.iter() {
+            assert!(
+                stored_lbds.contains(&lbd),
+                "hook LBD {lbd} must match the glue score of an actual learned clause; \
+                 stored learned-clause LBDs = {stored_lbds:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_lbd_le_clause_size() {
+        // The LBD of a learned clause can never exceed its literal count: each literal
+        // contributes at most one distinct decision level. The fix computes LBD from
+        // the actual learned clause, so this invariant must hold for the value handed
+        // to the hook (unlike the old vars_to_bump proxy, which could exceed the clause
+        // length). We verify it on every surviving learned clause and also confirm the
+        // hook never reported an LBD larger than the largest learned clause.
+        use crate::solver::heuristic::BranchingHeuristic;
+        use crate::{Solver, SolverConfig, SolverResult};
+        use std::sync::{Arc, Mutex};
+
+        struct MaxRecordingHeuristic {
+            max_lbd: Arc<Mutex<u32>>,
+        }
+
+        impl BranchingHeuristic for MaxRecordingHeuristic {
+            fn select(&mut self, _candidates: &[Var], _scores: &[f64]) -> Option<Var> {
+                None
+            }
+
+            fn on_conflict_var_with_lbd(&mut self, _var: Var, lbd: u32) {
+                let mut m = self.max_lbd.lock().unwrap_or_else(|e| e.into_inner());
+                if lbd > *m {
+                    *m = lbd;
+                }
+            }
+        }
+
+        let max_lbd: Arc<Mutex<u32>> = Arc::new(Mutex::new(0));
+        let heuristic = Arc::new(Mutex::new(MaxRecordingHeuristic {
+            max_lbd: Arc::clone(&max_lbd),
+        }));
+
+        let config = SolverConfig {
+            external_branching: Some(heuristic),
+            clause_deletion_threshold: usize::MAX,
+            ..SolverConfig::default()
+        };
+        let mut solver = Solver::with_config(config);
+
+        // PHP(4,3): 12 variables, UNSAT, deeper search → larger learned clauses.
+        for _ in 0..12 {
+            solver.new_var();
+        }
+        // Each of 4 pigeons in at least one of 3 holes (pigeon p, hole h → var 3*(p-1)+h).
+        solver.add_clause_dimacs(&[1, 2, 3]);
+        solver.add_clause_dimacs(&[4, 5, 6]);
+        solver.add_clause_dimacs(&[7, 8, 9]);
+        solver.add_clause_dimacs(&[10, 11, 12]);
+        // At most one pigeon per hole (for each hole h, no two pigeons share it).
+        for hole in 0..3 {
+            let h = hole + 1;
+            let occupants = [h, h + 3, h + 6, h + 9];
+            for i in 0..occupants.len() {
+                for j in (i + 1)..occupants.len() {
+                    solver.add_clause_dimacs(&[-occupants[i], -occupants[j]]);
+                }
+            }
+        }
+
+        let result = solver.solve();
+        assert_eq!(result, SolverResult::Unsat, "PHP(4,3) must be UNSAT");
+
+        // Invariant on every surviving learned clause: lbd <= number of literals.
+        let mut max_learnt_len: usize = 0;
+        for &cid in &solver.learned_clause_ids {
+            if let Some(clause) = solver.clauses.get(cid) {
+                let len = clause.lits.len();
+                max_learnt_len = max_learnt_len.max(len);
+                // Unit clauses store the default lbd 0; the invariant lbd <= len is
+                // trivially satisfied. For len >= 2 the stored lbd was computed from
+                // the clause literals and must not exceed the literal count.
+                assert!(
+                    clause.lbd as usize <= len,
+                    "learned clause LBD {} exceeds its literal count {len}",
+                    clause.lbd
+                );
+            }
+        }
+
+        let observed_max = *max_lbd.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(observed_max > 0, "hook must have received a positive LBD");
+        assert!(
+            observed_max as usize <= max_learnt_len,
+            "max hook LBD {observed_max} must not exceed the largest learned clause length \
+             {max_learnt_len} — proves LBD is computed from the learned clause, not vars_to_bump"
+        );
     }
 }

@@ -1,5 +1,4 @@
 //! Context-Dependent Solver Simplification
-#![allow(dead_code)] // Under development - not yet fully integrated
 //!
 //! This tactic performs context-aware simplifications during solving:
 //! - Propagate known facts from context
@@ -10,9 +9,11 @@
 /// Placeholder term identifier
 #[allow(unused_imports)]
 use crate::prelude::*;
+#[allow(dead_code)]
 pub type TermId = usize;
 
 /// Simplification context
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct SimplificationContext {
     /// Known facts (assignments)
@@ -24,6 +25,7 @@ pub struct SimplificationContext {
 }
 
 /// Simplification result
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum SimplifyResult {
     /// Simplified term
@@ -37,6 +39,7 @@ pub enum SimplifyResult {
 }
 
 /// Statistics for context simplification
+#[allow(dead_code)]
 #[derive(Debug, Clone, Default)]
 pub struct CtxSimplifyStats {
     pub simplifications: u64,
@@ -48,6 +51,7 @@ pub struct CtxSimplifyStats {
 }
 
 /// Configuration for context simplification
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct CtxSimplifyConfig {
     /// Enable fact propagation
@@ -75,6 +79,7 @@ impl Default for CtxSimplifyConfig {
 }
 
 /// Context-dependent solver simplifier
+#[allow(dead_code)]
 pub struct CtxSolverSimplify {
     config: CtxSimplifyConfig,
     stats: CtxSimplifyStats,
@@ -82,6 +87,7 @@ pub struct CtxSolverSimplify {
     context: SimplificationContext,
 }
 
+#[allow(dead_code)]
 impl CtxSolverSimplify {
     /// Create a new context simplifier
     pub fn new(config: CtxSimplifyConfig) -> Self {
@@ -329,6 +335,7 @@ impl CtxSolverSimplify {
 }
 
 /// Context-aware simplification with caching
+#[allow(dead_code)]
 pub struct CachedCtxSimplify {
     /// Base simplifier
     simplifier: CtxSolverSimplify,
@@ -336,6 +343,7 @@ pub struct CachedCtxSimplify {
     cache: FxHashMap<TermId, SimplifyResult>,
 }
 
+#[allow(dead_code)]
 impl CachedCtxSimplify {
     /// Create a new cached simplifier
     pub fn new(config: CtxSimplifyConfig) -> Self {

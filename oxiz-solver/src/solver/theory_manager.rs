@@ -71,6 +71,7 @@ pub(crate) struct TheoryManager<'a> {
     #[allow(dead_code)]
     max_decisions: u64,
     /// Whether formula contains BV arithmetic operations (division/remainder)
+    #[allow(dead_code)]
     has_bv_arith_ops: bool,
     /// Canonical EUF node for each distinct integer constant value.
     ///
@@ -95,6 +96,144 @@ pub(crate) struct TheoryManager<'a> {
     /// detects conflicts (e.g., f(a)=true, f(b)=false, but a=b).
     bool_true_node: Option<u32>,
     bool_false_node: Option<u32>,
+}
+
+/// Post-order, memoised BV term encoding.
+///
+/// Recursively encodes every sub-term of `root` into the BV solver using an
+/// explicit work-stack so that arbitrarily deep nesting is handled without
+/// overflowing the call stack.  A `FxHashSet<TermId>` memo prevents duplicate
+/// encoding when the same sub-term appears in multiple branches of the DAG.
+///
+/// Returns `true` when `root` was fully encoded, `false` when an unrecognised
+/// TermKind is encountered.
+fn encode_bv_term_recursive(
+    bv: &mut BvSolver,
+    root: TermId,
+    mgr: &TermManager,
+    encoded: &mut FxHashSet<TermId>,
+) -> bool {
+    // Work-stack entry: (term_id, children_pushed)
+    // We push a term twice: first time to push children, second time to
+    // encode the term itself (post-order).
+    let mut stack: Vec<(TermId, bool)> = vec![(root, false)];
+
+    while let Some((tid, children_done)) = stack.pop() {
+        if encoded.contains(&tid) {
+            continue;
+        }
+
+        let term = match mgr.get(tid) {
+            Some(t) => t,
+            None => return false,
+        };
+
+        let width = match mgr.sorts.get(term.sort).and_then(|s| s.bitvec_width()) {
+            Some(w) => w,
+            None => return false,
+        };
+
+        if !children_done {
+            // Re-push this node as "children done" so we encode it after children
+            stack.push((tid, true));
+
+            // Push children (they will be encoded first)
+            match &term.kind {
+                TermKind::BvAdd(a, b)
+                | TermKind::BvMul(a, b)
+                | TermKind::BvSub(a, b)
+                | TermKind::BvAnd(a, b)
+                | TermKind::BvOr(a, b)
+                | TermKind::BvXor(a, b)
+                | TermKind::BvUdiv(a, b)
+                | TermKind::BvSdiv(a, b)
+                | TermKind::BvUrem(a, b)
+                | TermKind::BvSrem(a, b) => {
+                    if !encoded.contains(a) {
+                        stack.push((*a, false));
+                    }
+                    if !encoded.contains(b) {
+                        stack.push((*b, false));
+                    }
+                }
+                TermKind::BvNot(a) => {
+                    if !encoded.contains(a) {
+                        stack.push((*a, false));
+                    }
+                }
+                // Leaves: Var, BitVecConst — no children to push
+                TermKind::Var(_) | TermKind::BitVecConst { .. } => {}
+                // Unknown term kind — cannot encode, abort
+                _ => return false,
+            }
+        } else {
+            // Encode this node (children already encoded)
+            match &term.kind {
+                TermKind::BvAdd(a, b) => {
+                    bv.new_bv(*a, width);
+                    bv.new_bv(*b, width);
+                    bv.bv_add(tid, *a, *b);
+                }
+                TermKind::BvMul(a, b) => {
+                    bv.new_bv(*a, width);
+                    bv.new_bv(*b, width);
+                    bv.bv_mul(tid, *a, *b);
+                }
+                TermKind::BvSub(a, b) => {
+                    bv.new_bv(*a, width);
+                    bv.new_bv(*b, width);
+                    bv.bv_sub(tid, *a, *b);
+                }
+                TermKind::BvAnd(a, b) => {
+                    bv.new_bv(*a, width);
+                    bv.new_bv(*b, width);
+                    bv.bv_and(tid, *a, *b);
+                }
+                TermKind::BvOr(a, b) => {
+                    bv.new_bv(*a, width);
+                    bv.new_bv(*b, width);
+                    bv.bv_or(tid, *a, *b);
+                }
+                TermKind::BvXor(a, b) => {
+                    bv.new_bv(*a, width);
+                    bv.new_bv(*b, width);
+                    bv.bv_xor(tid, *a, *b);
+                }
+                TermKind::BvNot(a) => {
+                    bv.new_bv(*a, width);
+                    bv.bv_not(tid, *a);
+                }
+                TermKind::BvUdiv(a, b) => {
+                    bv.new_bv(*a, width);
+                    bv.new_bv(*b, width);
+                    bv.bv_udiv(tid, *a, *b);
+                }
+                TermKind::BvSdiv(a, b) => {
+                    bv.new_bv(*a, width);
+                    bv.new_bv(*b, width);
+                    bv.bv_sdiv(tid, *a, *b);
+                }
+                TermKind::BvUrem(a, b) => {
+                    bv.new_bv(*a, width);
+                    bv.new_bv(*b, width);
+                    bv.bv_urem(tid, *a, *b);
+                }
+                TermKind::BvSrem(a, b) => {
+                    bv.new_bv(*a, width);
+                    bv.new_bv(*b, width);
+                    bv.bv_srem(tid, *a, *b);
+                }
+                TermKind::Var(_) | TermKind::BitVecConst { .. } => {
+                    // Leaf: just ensure a BV variable exists
+                    bv.new_bv(tid, width);
+                }
+                _ => return false,
+            }
+            encoded.insert(tid);
+        }
+    }
+
+    true
 }
 
 impl<'a> TheoryManager<'a> {
@@ -334,6 +473,7 @@ impl<'a> TheoryManager<'a> {
     /// `x = y` causes their EUF nodes to merge, congruence automatically
     /// derives `select(a, x) = select(a, y)`, which in turn allows further
     /// congruence steps (e.g., `f(select(a,x)) = f(select(a,y))`).
+    #[allow(dead_code)]
     fn intern_term_deep(&mut self, term: TermId, manager: &TermManager) -> u32 {
         if let Some(idx) = self.euf.term_to_node(term) {
             return idx;
@@ -584,95 +724,9 @@ impl<'a> TheoryManager<'a> {
                                 .is_some_and(|t| matches!(t.kind, TermKind::Var(_)))
                         };
 
-                        // Helper to encode a BV operation and return the result term
-                        // This ensures operands have BV variables created
-                        let encode_bv_op =
-                            |bv: &mut BvSolver, op_term: TermId, mgr: &TermManager| -> bool {
-                                let term = match mgr.get(op_term) {
-                                    Some(t) => t,
-                                    None => return false,
-                                };
-                                let width = mgr.sorts.get(term.sort).and_then(|s| s.bitvec_width());
-                                let width = match width {
-                                    Some(w) => w,
-                                    None => return false,
-                                };
-
-                                match &term.kind {
-                                    TermKind::BvAdd(a, b) => {
-                                        // Ensure operands have BV variables
-                                        bv.new_bv(*a, width);
-                                        bv.new_bv(*b, width);
-                                        bv.bv_add(op_term, *a, *b);
-                                        true
-                                    }
-                                    TermKind::BvMul(a, b) => {
-                                        bv.new_bv(*a, width);
-                                        bv.new_bv(*b, width);
-                                        bv.bv_mul(op_term, *a, *b);
-                                        true
-                                    }
-                                    TermKind::BvSub(a, b) => {
-                                        bv.new_bv(*a, width);
-                                        bv.new_bv(*b, width);
-                                        bv.bv_sub(op_term, *a, *b);
-                                        true
-                                    }
-                                    TermKind::BvAnd(a, b) => {
-                                        bv.new_bv(*a, width);
-                                        bv.new_bv(*b, width);
-                                        bv.bv_and(op_term, *a, *b);
-                                        true
-                                    }
-                                    TermKind::BvOr(a, b) => {
-                                        bv.new_bv(*a, width);
-                                        bv.new_bv(*b, width);
-                                        bv.bv_or(op_term, *a, *b);
-                                        true
-                                    }
-                                    TermKind::BvXor(a, b) => {
-                                        bv.new_bv(*a, width);
-                                        bv.new_bv(*b, width);
-                                        bv.bv_xor(op_term, *a, *b);
-                                        true
-                                    }
-                                    TermKind::BvNot(a) => {
-                                        bv.new_bv(*a, width);
-                                        bv.bv_not(op_term, *a);
-                                        true
-                                    }
-                                    TermKind::BvUdiv(a, b) => {
-                                        bv.new_bv(*a, width);
-                                        bv.new_bv(*b, width);
-                                        bv.bv_udiv(op_term, *a, *b);
-                                        true
-                                    }
-                                    TermKind::BvSdiv(a, b) => {
-                                        bv.new_bv(*a, width);
-                                        bv.new_bv(*b, width);
-                                        bv.bv_sdiv(op_term, *a, *b);
-                                        true
-                                    }
-                                    TermKind::BvUrem(a, b) => {
-                                        bv.new_bv(*a, width);
-                                        bv.new_bv(*b, width);
-                                        bv.bv_urem(op_term, *a, *b);
-                                        true
-                                    }
-                                    TermKind::BvSrem(a, b) => {
-                                        bv.new_bv(*a, width);
-                                        bv.new_bv(*b, width);
-                                        bv.bv_srem(op_term, *a, *b);
-                                        true
-                                    }
-                                    TermKind::Var(_) => {
-                                        // Simple variable - just ensure it has BV var
-                                        bv.new_bv(op_term, width);
-                                        true
-                                    }
-                                    _ => false,
-                                }
-                            };
+                        // Memo set to track already-encoded TermIds within this
+                        // constraint so that shared sub-terms are encoded exactly once.
+                        let mut bv_encoded: FxHashSet<TermId> = FxHashSet::default();
 
                         // Check for BV operations and encode them
                         let lhs_term = manager.get(lhs);
@@ -714,8 +768,8 @@ impl<'a> TheoryManager<'a> {
                         // Case 1: BV operation = constant (e.g., (= (bvmul x y) #x0c))
                         if lhs_is_op {
                             if let Some(width) = get_bv_width(lhs) {
-                                // Encode the LHS operation
-                                let _encoded = encode_bv_op(self.bv, lhs, manager);
+                                // Recursively encode the LHS operation and all its sub-terms
+                                encode_bv_term_recursive(self.bv, lhs, manager, &mut bv_encoded);
                                 has_arith_op_in_constraint = true;
 
                                 if let Some((val, _)) = rhs_const_info {
@@ -733,8 +787,8 @@ impl<'a> TheoryManager<'a> {
                         // Case 2: constant = BV operation
                         else if rhs_is_op {
                             if let Some(width) = get_bv_width(rhs) {
-                                // Encode the RHS operation
-                                encode_bv_op(self.bv, rhs, manager);
+                                // Recursively encode the RHS operation and all its sub-terms
+                                encode_bv_term_recursive(self.bv, rhs, manager, &mut bv_encoded);
                                 has_arith_op_in_constraint = true;
 
                                 if let Some((val, _)) = lhs_const_info {
@@ -784,6 +838,10 @@ impl<'a> TheoryManager<'a> {
                         if did_assert && has_arith_op_in_constraint {
                             use oxiz_theories::Theory;
                             use oxiz_theories::TheoryCheckResult as TheoryCheckResultEnum;
+                            // Record the constraint term so that check() can produce a
+                            // non-empty conflict clause if the SAT sub-solver returns UNSAT.
+                            let constraint_term = self.term_for_var(var);
+                            self.bv.record_constraint_term(constraint_term);
                             if let Ok(TheoryCheckResultEnum::Unsat(conflict_terms)) =
                                 self.bv.check()
                             {
@@ -897,6 +955,9 @@ impl<'a> TheoryManager<'a> {
                         // Check BV solver for conflicts
                         use oxiz_theories::Theory;
                         use oxiz_theories::TheoryCheckResult as TheoryCheckResultEnum;
+                        // Record the constraint term for non-empty conflict clause generation.
+                        let constraint_term = self.term_for_var(var);
+                        self.bv.record_constraint_term(constraint_term);
                         if let Ok(TheoryCheckResultEnum::Unsat(conflict_terms)) = self.bv.check() {
                             let conflict_lits = self.terms_to_conflict_clause(&conflict_terms);
                             return TheoryCheckResult::Conflict(conflict_lits);
@@ -1188,6 +1249,7 @@ impl TheoryCallback for TheoryManager<'_> {
 
 /// Result from parallel theory checking
 #[cfg(feature = "parallel-theories")]
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum ParallelTheoryResult {
     /// All theories report SAT
@@ -1198,11 +1260,13 @@ pub enum ParallelTheoryResult {
 
 /// Parallel theory checking support.
 #[cfg(feature = "parallel-theories")]
+#[allow(dead_code)]
 pub struct ParallelTheoryChecker;
 
 #[cfg(feature = "parallel-theories")]
 impl ParallelTheoryChecker {
     /// Check multiple independent theory assertions in parallel.
+    #[allow(dead_code)]
     pub fn check_parallel(
         assertions: &[(Var, Constraint, bool)],
         _term_to_var: &FxHashMap<TermId, Var>,
@@ -1243,6 +1307,7 @@ impl ParallelTheoryChecker {
         ParallelTheoryResult::AllSat
     }
 
+    #[allow(dead_code)]
     fn check_domain_contradictions(
         assertions: &[(Var, Constraint, bool)],
     ) -> Option<SmallVec<[Lit; 8]>> {
@@ -1261,6 +1326,7 @@ impl ParallelTheoryChecker {
         None
     }
 
+    #[allow(dead_code)]
     fn are_contradictory(c1: &Constraint, pos1: bool, c2: &Constraint, pos2: bool) -> bool {
         match (c1, c2) {
             (Constraint::Eq(a1, b1), Constraint::Eq(a2, b2)) => {

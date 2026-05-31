@@ -35,7 +35,10 @@
   - **Risk:** mtime-granularity false positives on fast re-writes; mitigation: include file size as secondary key. Verify actual `loader.rs` API before committing to the constructor shape.
 
 ### Analysis
-- [ ] Machine learning-based difficulty prediction
+- [x] Machine learning-based difficulty prediction (planned 2026-05-04, completed 2026-05-05)
+  - **Goal:** Pure-Rust ML difficulty predictor that, given a parsed benchmark's `BenchmarkMeta` (logic + `StructuralFeatures` + file size), predicts (a) expected runtime in seconds and (b) a difficulty class from `{Trivial, Easy, Medium, Hard, VeryHard}`. Three independent model implementations (linear regression, k-NN, regression tree), all train from a `Dataset` of historical `SingleResult` rows, all serialize to JSON, all expose the same `DifficultyModel` trait. The `ParallelRunner` gains a new `run_from_meta_with_predictor` method that performs **Longest Processing Time first (LPT) scheduling** — sorting tasks by predicted runtime descending before dispatch — to reduce makespan on heterogeneous batches. Existing `run_from_meta` / `run_all` paths are unchanged.
+  - **Files:** `oxiz-smtcomp/src/predictor/{mod,features,dataset,models,linear,knn,tree,class,persistence,report}.rs` (new); `oxiz-smtcomp/src/lib.rs`, `oxiz-smtcomp/src/parallel.rs` (modified); 6 new integration test files.
+  - **Tests:** `predictor_features`, `predictor_linear`, `predictor_knn`, `predictor_tree`, `predictor_persistence`, `predictor_scheduler` test suites; all 0 warnings, all pass.
 - [x] Automatic logic detection from formulas (planned 2026-04-15, completed 2026-04-15)
   - **Goal:** When a benchmark has no `(set-logic)` header, walk the parsed asserted terms, identify theory features (LIA, LRA, BV, UF, Arrays, Strings, FP, DT, NIA/NRA, quantifiers), and emit a matching SMT-LIB logic string.
   - **Design:** New `oxiz-smtcomp/src/logic_detector.rs` with `LogicDetector` visitor collecting `TheoryBits`. Bits→logic table (e.g., `UF | LIA → "UFLIA"`, `ARR | BV → "QF_ABV"`), fallback `"ALL"` if unrepresentable. Call path integrated into `loader.rs` when logic unknown. Subagent to verify what AST type is available in the loader path (term AST vs. raw text) and pick the correct layer.

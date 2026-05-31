@@ -7,7 +7,6 @@
 //! - Instantiation deduplication and filtering
 
 #![allow(missing_docs)]
-#![allow(dead_code)]
 
 #[allow(unused_imports)]
 use crate::prelude::*;

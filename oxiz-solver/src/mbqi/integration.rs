@@ -4,7 +4,6 @@
 //! It provides callbacks, communication interfaces, and coordination logic.
 
 #![allow(missing_docs)]
-#![allow(dead_code)]
 
 #[allow(unused_imports)]
 use crate::prelude::*;
