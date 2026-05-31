@@ -139,7 +139,7 @@ impl Features {
     /// Build a feature vector from benchmark metadata.
     ///
     /// * Theory bits are derived from the logic name string using
-    ///   [`theory_bits_from_logic_name`]; if the logic is `None` all bits are 0.
+    ///   `theory_bits_from_logic_name`; if the logic is `None` all bits are 0.
     /// * Structural features default to 0.0 when
     ///   `meta.structural_features` is `None`.
     /// * `log_file_size = (file_size as f64 + 1.0).log10()`

@@ -38,7 +38,7 @@ use crate::z3_compat::{BV, Bool, Int, Real, Z3Context};
 
 /// The high-level kind of a [`Z3Sort`], mirroring `z3::SortKind`.
 ///
-/// This collapses OxiZ's richer [`SortKind`](oxiz_core::sort::SortKind) into the
+/// This collapses OxiZ's richer [`SortKind`] into the
 /// categories that Z3 exposes through its public API.  Sorts that have no Z3
 /// analogue (sort parameters, parametric applications) are reported as
 /// [`Z3SortKind::Other`].

@@ -40,7 +40,7 @@ impl LinearRegressor {
         }
     }
 
-    /// Deserialise from a JSON string produced by [`to_json`].
+    /// Deserialise from a JSON string produced by [`Self::to_json`].
     ///
     /// # Errors
     ///

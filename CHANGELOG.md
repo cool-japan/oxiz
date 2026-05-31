@@ -5,6 +5,30 @@ All notable changes to OxiZ will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-05-31
+
+### Added
+- Recursive BV term encoding for nested bit-vector expressions in `BvSolver`
+- Enhanced conflict reporting with structured diagnostics in `BvSolver`
+- Z3 compatibility extensions: `TacticRegistry` wired to solver pipeline, `FuncInterp` support in EUF, Z3 sort/substitution/pattern APIs (`z3_compat_ext2`)
+- ML conflict hook integration for branching heuristics
+- LRU lemma cache for reuse of frequently activated learned clauses
+- LRU caches in EUF solver and simplification layer
+- CLI peak memory reporting
+- CUDA-accelerated computation stubs (feature-gated, pure-Rust default)
+
+### Changed
+- Real LBD (Literal Block Distance) scoring replaces stub implementation in CDCL
+- Big-M primal simplex method for LP in `SimplexSolver`
+- Sylvester matrix determinant computation for resultant-based reasoning
+- Regression tree predictor wired into ML branching subsystem
+- Dead proof code removed; dead code policy enforced across 40+ modules
+- LIA heuristic improvements wired into solver
+
+### Fixed
+- Z3 compatibility layer: sort handling, term substitution, and pattern matching correctness
+- Production-path dead code warnings eliminated across multiple solver modules
+
 ## [0.2.1] - 2026-04-24
 
 ### Performance

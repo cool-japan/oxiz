@@ -204,7 +204,10 @@ fn test_nested_xor_and_unsat() {
 
     match solver.check().expect("check should not error") {
         TheoryCheckResult::Unsat(_) => {}
-        other => panic!("Expected UNSAT for nested xor/and contradiction, got {:?}", other),
+        other => panic!(
+            "Expected UNSAT for nested xor/and contradiction, got {:?}",
+            other
+        ),
     }
 }
 
@@ -280,10 +283,7 @@ fn test_memo_prevents_dup_encoding() {
 
     match solver.check().expect("check should not error") {
         TheoryCheckResult::Sat => {}
-        other => panic!(
-            "Expected SAT for shared sub-term test, got {:?}",
-            other
-        ),
+        other => panic!("Expected SAT for shared sub-term test, got {:?}", other),
     }
 }
 

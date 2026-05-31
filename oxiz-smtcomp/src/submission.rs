@@ -843,7 +843,7 @@ mod tests {
 
         let contact = ContactInfo::new("Test User", "test@example.com", "Test Org")
             .with_url("https://example.com");
-        let config = SubmissionConfig::new("OxiZ", "0.2.0", contact)
+        let config = SubmissionConfig::new("OxiZ", "0.2.2", contact)
             .with_division("QF_LIA")
             .with_division("QF_BV");
 

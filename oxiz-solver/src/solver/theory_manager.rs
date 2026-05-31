@@ -769,12 +769,7 @@ impl<'a> TheoryManager<'a> {
                         if lhs_is_op {
                             if let Some(width) = get_bv_width(lhs) {
                                 // Recursively encode the LHS operation and all its sub-terms
-                                encode_bv_term_recursive(
-                                    self.bv,
-                                    lhs,
-                                    manager,
-                                    &mut bv_encoded,
-                                );
+                                encode_bv_term_recursive(self.bv, lhs, manager, &mut bv_encoded);
                                 has_arith_op_in_constraint = true;
 
                                 if let Some((val, _)) = rhs_const_info {
@@ -793,12 +788,7 @@ impl<'a> TheoryManager<'a> {
                         else if rhs_is_op {
                             if let Some(width) = get_bv_width(rhs) {
                                 // Recursively encode the RHS operation and all its sub-terms
-                                encode_bv_term_recursive(
-                                    self.bv,
-                                    rhs,
-                                    manager,
-                                    &mut bv_encoded,
-                                );
+                                encode_bv_term_recursive(self.bv, rhs, manager, &mut bv_encoded);
                                 has_arith_op_in_constraint = true;
 
                                 if let Some((val, _)) = lhs_const_info {

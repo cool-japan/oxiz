@@ -6,7 +6,7 @@ use oxiz_sat::{BranchingHeuristic, Var};
 
 use super::{MLEnhancedVSIDS, VarId};
 
-/// Wraps [`MLEnhancedVSIDS`] so it can be plugged into [`SolverConfig::external_branching`].
+/// Wraps [`MLEnhancedVSIDS`] so it can be plugged into `SolverConfig::external_branching`.
 ///
 /// Type bridge: `Var(u32) ↔ VarId(usize)` via `Var::index()` / `Var::new()`.
 pub struct MLBranchingHeuristic {

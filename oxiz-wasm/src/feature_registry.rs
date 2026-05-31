@@ -27,7 +27,7 @@
 //! ```toml
 //! # Cargo.toml — size-optimized WASM build
 //! [dependencies]
-//! oxiz-wasm = { version = "0.2.0", default-features = false, features = ["minimal"] }
+//! oxiz-wasm = { version = "0.2.2", default-features = false, features = ["minimal"] }
 //! ```
 //!
 //! Or via `wasm-pack`:

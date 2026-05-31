@@ -383,7 +383,10 @@ impl TacticKind {
                             if sub[0].assertions == current.assertions {
                                 break; // fixed-point
                             }
-                            current = sub.into_iter().next().unwrap();
+                            current = sub
+                                .into_iter()
+                                .next()
+                                .expect("sub.len() == 1 guarantees exactly one element");
                         }
                         TacticResult::SubGoals(sub) => {
                             return TacticResult::SubGoals(sub);
@@ -453,7 +456,7 @@ fn apply_named_tactic(name: &str, goal: &Goal) -> TacticResult {
 
 /// Analogue of `z3::Tactic`.
 ///
-/// A Z3Tactic wraps a [`TacticKind`] tree and can be combined with other
+/// A Z3Tactic wraps a `TacticKind` tree and can be combined with other
 /// tactics using `.then()`, `.or_else()`, `.repeat()`, and `.try_for()`.
 #[derive(Clone)]
 pub struct Z3Tactic {
@@ -721,7 +724,7 @@ impl Z3DatatypeSort {
         self.decl.constructors.len()
     }
 
-    /// Return the [`FuncDecl`] for the `i`-th constructor.
+    /// Return the [`crate::z3_compat::ext::FuncDecl`] for the `i`-th constructor.
     ///
     /// The returned `FuncDecl` has arity equal to the number of fields of the
     /// constructor, and its range is this datatype's sort.
@@ -743,7 +746,7 @@ impl Z3DatatypeSort {
         crate::z3_compat::ext::FuncDecl::new(ctx, &con.name, &domain, self.sort_id)
     }
 
-    /// Return the recogniser [`FuncDecl`] for the `i`-th constructor.
+    /// Return the recogniser [`crate::z3_compat::ext::FuncDecl`] for the `i`-th constructor.
     ///
     /// The recogniser takes one argument of this datatype's sort and returns
     /// `Bool`.  Its name is `"is-<constructor-name>"`.
@@ -759,7 +762,7 @@ impl Z3DatatypeSort {
         crate::z3_compat::ext::FuncDecl::new(ctx, &name, &[self.sort_id], bool_sort)
     }
 
-    /// Return the accessor [`FuncDecl`] for field `field_i` of constructor `con_i`.
+    /// Return the accessor [`crate::z3_compat::ext::FuncDecl`] for field `field_i` of constructor `con_i`.
     ///
     /// The accessor takes one argument of this datatype's sort and returns the
     /// sort of the field.
@@ -1015,7 +1018,7 @@ pub struct Z3FuncEntry {
 /// finite table of `(args → value)` entries plus an `else_value` for all other
 /// input combinations.
 ///
-/// Obtained via [`Z3Model::get_func_interp`].
+/// Obtained via [`crate::z3_compat::Z3Model::get_func_interp`].
 pub struct Z3FuncInterp {
     /// Finite explicit entries.
     entries: Vec<Z3FuncEntry>,

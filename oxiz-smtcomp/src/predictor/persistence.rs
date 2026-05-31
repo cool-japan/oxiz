@@ -58,7 +58,7 @@ pub fn save_to_file(model: &dyn DifficultyModel, path: &std::path::Path) -> std:
 /// Returns an [`std::io::Error`] if:
 /// * the file cannot be read,
 /// * the JSON is malformed,
-/// * the version does not match [`CURRENT_VERSION`], or
+/// * the version does not match `CURRENT_VERSION`, or
 /// * the `kind` is not one of "linear", "knn", "tree".
 pub fn load_from_file(path: &std::path::Path) -> std::io::Result<Box<dyn DifficultyModel>> {
     let bytes = std::fs::read(path)?;

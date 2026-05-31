@@ -24,7 +24,7 @@ pub trait DifficultyModel: Send + Sync {
 
     /// Predict the difficulty class for the given feature vector.
     ///
-    /// Default implementation delegates to [`predict_runtime`] and converts
+    /// Default implementation delegates to [`Self::predict_runtime`] and converts
     /// via [`DifficultyClass::from_runtime_seconds`].
     fn predict_class(&self, features: &Features) -> DifficultyClass {
         DifficultyClass::from_runtime_seconds(self.predict_runtime(features))

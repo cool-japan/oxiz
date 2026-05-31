@@ -41,28 +41,28 @@
 //!
 //! ```toml
 //! [dependencies]
-//! oxiz = "0.2.0"  # Default: std + core solver
+//! oxiz = "0.2.2"  # Default: std + core solver
 //! ```
 //!
 //! For no_std (e.g., zkVM):
 //!
 //! ```toml
 //! [dependencies]
-//! oxiz = { version = "0.2.0", default-features = false }
+//! oxiz = { version = "0.2.2", default-features = false }
 //! ```
 //!
 //! With additional features:
 //!
 //! ```toml
 //! [dependencies]
-//! oxiz = { version = "0.2.0", features = ["nlsat", "optimization"] }
+//! oxiz = { version = "0.2.2", features = ["nlsat", "optimization"] }
 //! ```
 //!
 //! Or use all features:
 //!
 //! ```toml
 //! [dependencies]
-//! oxiz = { version = "0.2.0", features = ["full"] }
+//! oxiz = { version = "0.2.2", features = ["full"] }
 //! ```
 //!
 //! ### Basic SMT Solving

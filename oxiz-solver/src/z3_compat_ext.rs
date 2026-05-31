@@ -260,7 +260,7 @@ impl FuncDecl {
 /// `vars` is a slice of `(name, sort)` pairs naming the bound variables.
 /// The body is a [`Bool`] term that may reference variables with those names.
 ///
-/// Internally delegates to [`TermManager::mk_forall`].
+/// Internally delegates to [`oxiz_core::ast::TermManager::mk_forall`].
 #[must_use]
 pub fn forall_bool<'a>(
     ctx: &Z3Context,
@@ -276,7 +276,7 @@ pub fn forall_bool<'a>(
 /// `vars` is a slice of `(name, sort)` pairs naming the bound variables.
 /// The body is a [`Bool`] term that may reference variables with those names.
 ///
-/// Internally delegates to [`TermManager::mk_exists`].
+/// Internally delegates to [`oxiz_core::ast::TermManager::mk_exists`].
 #[must_use]
 pub fn exists_bool<'a>(
     ctx: &Z3Context,
@@ -361,11 +361,7 @@ impl Z3Optimize {
     /// Add a minimization objective for term `t`.
     ///
     /// Returns an opaque index that can be passed to
-    /// [`get_lower`]/[`get_upper`] after calling [`check`].
-    ///
-    /// [`get_lower`]: Z3Optimize::get_lower
-    /// [`get_upper`]: Z3Optimize::get_upper
-    /// [`check`]: Z3Optimize::check
+    /// [`Self::get_lower`]/[`Self::get_upper`] after calling [`Self::check`].
     pub fn minimize(&mut self, t: TermId) -> usize {
         let idx = self.objectives.len();
         self.opt.minimize(t);
@@ -378,7 +374,7 @@ impl Z3Optimize {
     /// Add a maximization objective for term `t`.
     ///
     /// Returns an opaque index that can be passed to
-    /// [`get_lower`]/[`get_upper`] after calling [`check`].
+    /// [`Self::get_lower`]/[`Self::get_upper`] after calling [`Self::check`].
     pub fn maximize(&mut self, t: TermId) -> usize {
         let idx = self.objectives.len();
         self.opt.maximize(t);
@@ -391,7 +387,7 @@ impl Z3Optimize {
     /// Check satisfiability and optimize all registered objectives.
     ///
     /// Populates the internal bound tables so that
-    /// [`get_lower`]/[`get_upper`] reflect the results.
+    /// [`Self::get_lower`]/[`Self::get_upper`] reflect the results.
     pub fn check(&mut self) -> SatResult {
         // `Optimizer::optimize` requires `&mut TermManager`.  We hold an
         // `Rc<RefCell<TermManager>>` which we borrow mutably for the duration
