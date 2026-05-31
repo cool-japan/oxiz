@@ -1,6 +1,6 @@
 # OxiZ TODO
 
-Last Updated: 2026-04-25
+Last Updated: 2026-06-01
 
 ---
 
@@ -46,11 +46,11 @@ OxiZ has achieved **100% correctness parity with Z3** across all 88 benchmark te
 
 ---
 
-## Current Statistics (v0.2.2 - May 18, 2026)
+## Current Statistics (v0.2.2 - 2026-06-01)
 
-- **Rust Lines of Code**: ~450,271 total (+1,766 net)
-- **Rust Files**: 995+ (3 new files this pass)
-- **Unit Tests**: 6,834 passing (0 failures)
+- **Rust Lines of Code**: ~419,576 code lines (~1,012 files)
+- **Rust Files**: 1,012+
+- **Unit Tests**: 6,735 passing (16 skipped, 0 failures)
 - **Z3 Parity**: **100.0% (88/88)**
 - **Perfect Logics**: **8/8 tested**
 - **Workspace Crates**: 17 (16 Rust crates + 1 TypeScript)
@@ -546,6 +546,19 @@ oxiz-core (foundation)
 
 ## Recent Achievements
 
+### 2026-06-01 - v0.2.2 Release
+
+- **Recursive BV term encoding**: Full nested bit-vector expression encoding in `BvSolver` with structured conflict diagnostics
+- **Z3 API compatibility layer**: `TacticRegistry` (19 named tactics), `FuncInterp` / `FuncEntry` in EUF, `Z3SortKind` / `Z3Sort`, `substitute` (BV+Array+Apply coverage), `Z3Pattern` + quantifier pattern APIs
+- **Real LBD scoring**: `compute_lbd_from_literals` replaces stub — CDCL now uses genuine Literal Block Distance from finalized 1-UIP learned clauses
+- **ML conflict hook**: `BranchingHeuristic::on_conflict_var` defaulted hook wired to `MLBranchingHeuristic` via `MLEnhancedVSIDS::update_conflict`
+- **LRU caches**: `AggressiveSimplifier` memo cache (4 096 cap), `EufSolver` explanation cache (1 024 cap), theory combiner lemma cache (bounded to `max_lemma_cache_size`)
+- **CLI peak memory**: Linux `VmHWM` high-water-mark now reported correctly
+- **Big-M primal simplex**: `SimplexSolver` gains Big-M phase-1 for LP feasibility
+- **Dead code policy**: Module-level `#![allow(dead_code)]` removed from 40+ modules; `algebraic_number.rs` (446 lines) deleted
+- **Tests**: 6,735 passing (16 skipped, 0 failures); 0 clippy warnings
+- **SLoC**: ~419,576 code lines across ~1,012 Rust files
+
 ### May 18, 2026 - TacticRegistry Wired, Real LBD, EUF FuncInterp, Z3 Sort/Subst/Patterns (v0.2.2 Pass 6)
 
 - **TacticRegistry wired into Z3 compat**: `z3_compat_ext2.rs::apply_named_tactic` now delegates to `oxiz_core::tactic::default_registry()` via a `OnceLock`-cached static; reachable tactic surface grew from 5 to 19 named tactics (adds aggressive-simplify, bvarray2uf, elim-uncnstr, solve-eqs, nnf, tseitin-cnf, fm, arith-bounds, factor, pb2bv, lia2card, nla2bv, split, ctx-solver-simplify canonical name + ctx-simplify backward-compat alias)
@@ -690,8 +703,8 @@ oxiz-core (foundation)
 ---
 
 **Status**: Production Ready
-**Current Version**: v0.2.1
-**Tests**: 6,415 passing | **LoC**: 442,034 total / 408,320 code | **Files**: 978 | **Clippy**: 0 warnings
+**Current Version**: v0.2.2
+**Tests**: 6,735 passing (16 skipped) | **LoC**: ~419,576 code | **Files**: 1,012+ | **Clippy**: 0 warnings
 **Next Milestone**: v0.3.0 - Performance Parity + SMT-COMP (Target: June 2026)
 **Long-term Goal**: v1.0.0 - Industry-Ready SMT Solver (Target: Q4 2026)
 

@@ -12,12 +12,12 @@ OxiZ is a high-performance Satisfiability Modulo Theories (SMT) solver written e
 
 **Pure Rust is a fundamental requirement** - no C/C++ dependencies, no FFI bindings, just clean, safe Rust code.
 
-### Implementation Status (v0.2.1)
+### Implementation Status (v0.2.2)
 
 OxiZ is under active development with core theories at production quality:
 
-- **Pure Rust Implementation**: 408,320 lines of production Rust code
-- **Unit Tests**: 6,415 tests passing (100% pass rate)
+- **Pure Rust Implementation**: 419,576 lines of production Rust code
+- **Unit Tests**: 6,735 tests passing (100% pass rate)
 - **Z3 Parity**: 100.0% accuracy across 88 benchmarks (8/8 logics at 100%) ✅
 - **Production Ready**: All core theory solvers validated against Z3
 
@@ -95,6 +95,9 @@ OxiZ is under active development with core theories at production quality:
 - **Proof Generation** - DRAT, Alethe, LFSC, Coq/Lean/Isabelle export
 - **Optimization** - MaxSAT, OMT with Pareto optimization
 - **Model Checking** - CHC solving with PDR/IC3
+- **Z3 API Compatibility** - `TacticRegistry`, `FuncInterp`, sort/substitution/pattern APIs
+- **ML-Guided Heuristics** - Real LBD scoring, conflict hooks, LRU caches wired to ML subsystem
+- **Recursive BV Encoding** - Full nested bit-vector term encoding with structured conflict diagnostics
 
 ## Milestone: 100% Z3 Parity Achieved ✅
 
@@ -128,13 +131,13 @@ Starting from 64.8% (57/88), we systematically fixed:
 
 This milestone validates OxiZ as a production-ready SMT solver implementation in Pure Rust.
 
-## Project Statistics (v0.2.1)
+## Project Statistics (v0.2.2)
 
 | Metric | Value |
 |--------|-------|
-| Rust Lines of Code | 408,320 |
-| Total Lines (with docs) | 442,034 |
-| Total Tests | 6,415 passing |
+| Rust Lines of Code | 419,576 |
+| Total Lines (with docs) | ~457,000 |
+| Total Tests | 6,735 passing |
 | Z3 Parity | **100.0% (88/88)** ✅ |
 | Perfect Logics | **8/8 tested (QF_LIA, QF_LRA, QF_NIA, QF_S, QF_BV, QF_FP, QF_DT, QF_A)** |
 | Crates | 17 |
@@ -194,21 +197,21 @@ For optimal performance, we recommend:
 ```toml
 # Add to your Cargo.toml
 [dependencies]
-oxiz = "0.2.1"  # Default includes solver
+oxiz = "0.2.2"  # Default includes solver
 ```
 
 Or with specific features:
 
 ```toml
 [dependencies]
-oxiz = { version = "0.2.1", features = ["nlsat", "optimization"] }
+oxiz = { version = "0.2.2", features = ["nlsat", "optimization"] }
 ```
 
 For all features:
 
 ```toml
 [dependencies]
-oxiz = { version = "0.2.1", features = ["full"] }
+oxiz = { version = "0.2.2", features = ["full"] }
 ```
 
 ### Building from Source
