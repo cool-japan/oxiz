@@ -34,8 +34,8 @@ pub struct BvSolver {
     term_to_bv: FxHashMap<TermId, BvVar>,
     /// Pending assertions
     assertions: Vec<(TermId, bool)>,
-    /// Context stack
-    context_stack: Vec<usize>,
+    /// Context stack: each entry stores (assertions_len, guard_terms_len)
+    context_stack: Vec<(usize, usize)>,
     /// Configuration
     config: BvConfig,
     /// Track unsigned less-than comparisons for conflict detection
@@ -47,6 +47,9 @@ pub struct BvSolver {
     shared_equalities: Vec<EqualityNotification>,
     /// Pending equality notifications received from other theories
     equality_notifications: Vec<EqualityNotification>,
+    /// Constraint-level TermIds recorded by the theory manager for conflict reporting.
+    /// On UNSAT, all recorded terms form a sound (superset) conflict explanation.
+    assertion_guard_terms: Vec<TermId>,
 }
 
 impl Default for BvSolver {
@@ -74,7 +77,30 @@ impl BvSolver {
             ult_cache: FxHashMap::default(),
             shared_equalities: Vec::new(),
             equality_notifications: Vec::new(),
+            assertion_guard_terms: Vec::new(),
         }
+    }
+
+    /// Record a constraint-level TermId that the theory manager is about to assert.
+    ///
+    /// The theory manager calls this before each `assert_const` / `assert_eq` /
+    /// `assert_ult` etc. so that `check()` can return a non-empty conflict clause
+    /// on UNSAT.  The term must be a constraint term that is registered in the
+    /// theory manager's `term_to_var` map, so that `terms_to_conflict_clause`
+    /// can convert it to a SAT literal.
+    pub fn record_constraint_term(&mut self, term: TermId) {
+        // Deduplicate: only add if not already present
+        if !self.assertion_guard_terms.contains(&term) {
+            self.assertion_guard_terms.push(term);
+        }
+    }
+
+    /// Collect all recorded constraint terms as the conflict explanation.
+    ///
+    /// This is a sound superset: the UNSAT is definitely caused by the set of
+    /// all constraints that have been asserted since the last push/reset.
+    fn collect_conflict_terms(&self) -> Vec<TermId> {
+        self.assertion_guard_terms.clone()
     }
 
     /// Create a new bit vector variable
@@ -1453,19 +1479,35 @@ impl Theory for BvSolver {
                 self.sat.backtrack_to_root();
                 Ok(TheoryResult::Sat)
             }
-            SolverResult::Unsat => Ok(TheoryResult::Unsat(Vec::new())),
+            SolverResult::Unsat => {
+                // Return all constraint-level terms recorded via
+                // `record_constraint_term` as the conflict explanation.
+                // This is a sound (superset) conflict clause: the UNSAT is
+                // caused by the conjunction of all asserted constraints.
+                // If no guard terms were recorded (e.g. in unit tests that
+                // call the solver directly), fall back to the assertions list.
+                let conflict = if !self.assertion_guard_terms.is_empty() {
+                    self.collect_conflict_terms()
+                } else {
+                    // Fallback: use terms from the assertions list
+                    self.assertions.iter().map(|(t, _)| *t).collect()
+                };
+                Ok(TheoryResult::Unsat(conflict))
+            }
             SolverResult::Unknown => Ok(TheoryResult::Unknown),
         }
     }
 
     fn push(&mut self) {
-        self.context_stack.push(self.assertions.len());
+        self.context_stack
+            .push((self.assertions.len(), self.assertion_guard_terms.len()));
         self.sat.push();
     }
 
     fn pop(&mut self) {
-        if let Some(len) = self.context_stack.pop() {
-            self.assertions.truncate(len);
+        if let Some((assertions_len, guard_len)) = self.context_stack.pop() {
+            self.assertions.truncate(assertions_len);
+            self.assertion_guard_terms.truncate(guard_len);
             self.sat.pop();
         }
     }
@@ -1478,6 +1520,7 @@ impl Theory for BvSolver {
         self.ult_cache.clear();
         self.shared_equalities.clear();
         self.equality_notifications.clear();
+        self.assertion_guard_terms.clear();
     }
 
     fn get_model(&self) -> Vec<(TermId, TermId)> {
