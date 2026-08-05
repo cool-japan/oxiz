@@ -1,6 +1,6 @@
 {
   "name": "@oxiz/svelte",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Svelte wrapper for OxiZ WASM SMT Solver",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -28,7 +28,7 @@
     "svelte": "^3.0.0 || ^4.0.0"
   },
   "dependencies": {
-    "@cooljapan/oxiz": "^0.3.2"
+    "@cooljapan/oxiz": "^0.3.3"
   },
   "devDependencies": {
     "@sveltejs/package": "^2.0.0",

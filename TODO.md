@@ -714,7 +714,7 @@ Refreshed for v0.3.1 (2026-07-31). The v0.3.0-era entries (hot-path profiling, p
 ---
 
 **Status**: Production Ready
-**Current Version**: v0.3.2
+**Current Version**: v0.3.3 (Unreleased)
 **Tests**: 9,953 passing (all-features, 8 skipped) + 110 doc-tests | **LoC**: 451,853 code (564,303 total) | **Files**: 1,276 | **Clippy**: 0 warnings
 **Z3 Parity**: 168/168 Correct on the extended 19-logic differential suite (0 Wrong / 0 Inconclusive / 0 Timeout / 0 Error, honest comparator vs z3 4.15.4)
 **Next Milestone**: v0.4.0 - JIT specialization, `recfun` support, and the remaining completeness gaps (see "Remaining (post-0.3.0 hardening)")

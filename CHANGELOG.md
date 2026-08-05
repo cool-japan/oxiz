@@ -5,6 +5,8 @@ All notable changes to OxiZ will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.3] - Unreleased
+
 ## [0.3.2] - 2026-08-05
 
 A soundness release driven by an external report. [#25](https://github.com/cool-japan/oxiz/issues/25) showed that the 168-case in-repo conformance suite this project had been calling "z3 parity" was a regression suite, not a differential-testing result — a random 50-instance QF_UF sample the reporter ran against real z3 found a 34% (17/50) disagreement rate. Per project policy none of the 8 pull requests the reporter subsequently opened (#26-#33) were merged — there is no CLA or uniform contribution-provenance guarantee for this project yet — but every one was read in full for its diagnostic value, and every fix below is an independent, from-scratch reimplementation, verified against a regression test derived from a minimal repro that fails on the pre-fix code. ~270 such tests were added in the process. Issue #25 itself stays open: this release closes the specific bugs it led to, not the underlying claim, since plain QF_UF still isn't represented in the 168-benchmark suite (see "Z3 Parity" below).

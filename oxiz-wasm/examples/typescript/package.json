@@ -1,6 +1,6 @@
 {
   "name": "oxiz-wasm-typescript-examples",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "TypeScript examples for OxiZ WASM",
   "type": "module",
   "private": true,

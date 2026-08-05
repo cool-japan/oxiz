@@ -1,6 +1,6 @@
 # oxiz-math
 
-[![Version](https://img.shields.io/badge/version-0.3.2-blue)](https://github.com/cool-japan/oxiz)
+[![Version](https://img.shields.io/badge/version-0.3.3-blue)](https://github.com/cool-japan/oxiz)
 [![Status](https://img.shields.io/badge/status-stable-green)]()
 
 Mathematical foundations for the OxiZ SMT solver.
