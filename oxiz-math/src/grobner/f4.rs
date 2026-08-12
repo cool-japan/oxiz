@@ -227,7 +227,7 @@ impl F4Algorithm {
     /// Compute Gröbner basis using F4.
     pub fn compute_basis(&mut self, generators: Vec<Polynomial>) -> Vec<Polynomial> {
         #[cfg(feature = "std")]
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
 
         if generators.is_empty() {
             return Vec::new();

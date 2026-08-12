@@ -634,14 +634,12 @@ fn enumerable_domain_size(model: &[(String, String, String)]) -> Option<u128> {
     for (_name, sort_name, _value) in model {
         let domain: u128 = if sort_name == "Bool" {
             2
-        } else if let Some(width_str) = sort_name
-            .strip_prefix("(_ BitVec ")
-            .and_then(|s| s.strip_suffix(')'))
-        {
+        } else {
+            let width_str = sort_name
+                .strip_prefix("(_ BitVec ")
+                .and_then(|s| s.strip_suffix(')'))?;
             let width: u32 = width_str.trim().parse().ok()?;
             1u128.checked_shl(width)?
-        } else {
-            return None;
         };
         total = total.checked_mul(domain)?;
     }

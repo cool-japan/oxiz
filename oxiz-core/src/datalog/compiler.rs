@@ -243,7 +243,7 @@ impl RuleCompiler {
 
     /// Compile a rule
     pub fn compile(&self, rule: &Rule) -> CompiledRule {
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
 
         let mut plan = ExecutionPlan::new();
         let mut stats = CompilationStats::default();

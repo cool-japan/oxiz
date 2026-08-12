@@ -16,10 +16,10 @@ use crate::solver::{AtomId, NlsatSolver, SolverResult};
 use crate::types::{Atom, AtomKind, Literal};
 use crate::var_order::{OrderingStrategy, VariableOrdering};
 use oxiz_math::polynomial::{Monomial, MonomialOrder, Polynomial, Term, Var};
+use oxiz_time::{Duration, Instant};
 use rustc_hash::FxHashSet;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
 
 /// Configuration for portfolio-based solving.
 #[derive(Debug, Clone)]

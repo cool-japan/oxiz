@@ -12,10 +12,10 @@ use crate::solver::{RestartStrategy, Solver, SolverConfig, SolverResult};
 #[cfg(test)]
 use crate::literal::Var;
 use core::sync::atomic::{AtomicBool, Ordering};
+use oxiz_time::{Duration, Instant};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant};
 
 /// Result from a portfolio solver thread
 #[derive(Debug, Clone)]

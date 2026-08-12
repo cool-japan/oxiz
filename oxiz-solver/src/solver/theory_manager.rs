@@ -217,7 +217,7 @@ pub(crate) struct TheoryManager<'a> {
     /// conflicts, forcing the search to terminate; the owning `Solver` then
     /// answers `Unknown`.
     #[cfg(feature = "std")]
-    deadline: Option<std::time::Instant>,
+    deadline: Option<oxiz_time::Instant>,
     /// Latest SAT-assignment polarity of each theory-atom variable
     /// (`true` = atom assigned true, `false` = assigned false).  Recorded in
     /// `on_assignment` / lazy `final_check` so that `terms_to_conflict_clause`
@@ -312,7 +312,7 @@ impl<'a> TheoryManager<'a> {
     ) -> Self {
         #[cfg(feature = "std")]
         let deadline = if timeout_ms > 0 {
-            std::time::Instant::now().checked_add(core::time::Duration::from_millis(timeout_ms))
+            oxiz_time::Instant::now().checked_add(core::time::Duration::from_millis(timeout_ms))
         } else {
             None
         };
@@ -393,7 +393,7 @@ impl<'a> TheoryManager<'a> {
         #[cfg(feature = "std")]
         {
             match self.deadline {
-                Some(d) => std::time::Instant::now() >= d,
+                Some(d) => oxiz_time::Instant::now() >= d,
                 None => false,
             }
         }

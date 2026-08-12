@@ -166,7 +166,7 @@ impl InvariantInference {
 
     /// Run invariant inference on a CHC system
     pub fn infer(&mut self, chc: &ChcSystem, manager: &mut TermManager) -> InferenceResult {
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
 
         // Extract predicates that need invariants
         self.target_predicates = self.extract_target_predicates(chc);

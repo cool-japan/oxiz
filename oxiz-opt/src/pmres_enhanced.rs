@@ -397,7 +397,7 @@ impl PmresSolver {
             return;
         }
 
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
         self.stats.cores_analyzed += 1;
 
         // Analyze proof depth and structure

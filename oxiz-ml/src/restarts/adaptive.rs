@@ -94,7 +94,7 @@ impl AdaptiveRestart {
         trail_size: usize,
         decision_level: usize,
     ) -> RestartDecision {
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
 
         // Minimum conflicts check
         if self.conflicts_since_restart < self.config.min_conflicts {

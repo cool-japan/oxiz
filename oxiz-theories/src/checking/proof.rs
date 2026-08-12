@@ -7,8 +7,8 @@ use crate::prelude::FxHashMap;
 #[allow(unused_imports)]
 use crate::prelude::*;
 use oxiz_core::ast::{TermId, TermKind, TermManager};
+use oxiz_time::Instant;
 use std::collections::{HashMap, HashSet};
-use std::time::Instant;
 
 /// Kind of proof step
 #[derive(Debug, Clone, PartialEq, Eq)]

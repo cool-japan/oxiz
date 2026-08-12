@@ -113,7 +113,7 @@ impl CraigInterpolator {
     /// the caller (this leaf-based interpolation system cannot soundly
     /// decompose such a node).
     pub fn extract(&mut self, proof: &Proof) -> Result<InterpolantTerm, InterpolationError> {
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
 
         let root = proof.root().ok_or(InterpolationError::NoRoot)?;
 

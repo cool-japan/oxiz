@@ -8,8 +8,8 @@ use crate::cube::{Cube, CubeResult, CubeStats};
 use crate::prelude::*;
 use crate::solver::{Solver, SolverResult};
 use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use oxiz_time::{Duration, Instant};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 /// Configuration for parallel cube solving.
 #[derive(Debug, Clone)]

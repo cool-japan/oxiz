@@ -644,7 +644,7 @@ mod tests {
 
     #[test]
     fn timeout_tactic_returns_promptly_for_a_non_cooperative_worker() {
-        use std::time::{Duration, Instant};
+        use oxiz_time::{Duration, Instant};
 
         /// Never checks `cancellation_requested()`; simulates a tactic
         /// that cannot be cooperatively cancelled.

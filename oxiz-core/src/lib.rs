@@ -71,6 +71,24 @@
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 
+// The wasm32 clock guard. Every `Instant` / `SystemTime` this crate reads goes
+// through `oxiz-time`, whose types ARE `std::time`'s on every target with a
+// working clock and frozen stubs on wasm32-unknown-unknown (which has none and
+// aborts on `Instant::now()`); see `oxiz_time`'s crate docs.
+//
+// A missing `"oxiz-time/std"` in this crate's `std` feature list would silently
+// hand a *native* build the frozen clock -- timeouts that never fire, timing
+// statistics stuck at zero. Catch that here, at compile time, instead of in
+// production.
+#[cfg(all(
+    feature = "std",
+    not(all(target_arch = "wasm32", target_os = "unknown"))
+))]
+const _: () = assert!(
+    !oxiz_time::IS_FROZEN,
+    "oxiz-time/std must be forwarded from this crate's `std` feature"
+);
+
 pub mod interner;
 pub(crate) mod lru_cache;
 mod prelude;

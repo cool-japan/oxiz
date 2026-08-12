@@ -105,7 +105,7 @@ impl TacticSelector {
 
     /// Select best tactic for a formula
     pub fn select_tactic(&mut self, features: &FormulaFeatures) -> TacticSelection {
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
 
         // Get prediction from model
         let prediction = self.model.predict(&features.features);
@@ -204,7 +204,7 @@ impl TacticSelector {
         let inputs: Vec<Vec<f64>> = self.training_data.iter().map(|(f, _)| f.clone()).collect();
         let targets: Vec<Vec<f64>> = self.training_data.iter().map(|(_, t)| vec![*t]).collect();
 
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
         // The tree refits from scratch from `training_data` each time, so
         // clear its own online buffer first to avoid double-counting samples.
         self.model.clear_training_buffer();

@@ -227,7 +227,7 @@ impl FmAdvancedTactic {
         var: usize,
         system: &ConstraintSystem,
     ) -> ConstraintSystem {
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
 
         // Partition constraints
         let (lower, upper, other) = self.partition_constraints(var, &system.inequalities);

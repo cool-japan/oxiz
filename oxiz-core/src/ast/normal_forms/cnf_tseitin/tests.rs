@@ -388,7 +388,7 @@ fn thirty_nested_iffs_stay_linear() {
     }
 
     let terms_before = manager.len();
-    let started = std::time::Instant::now();
+    let started = oxiz_time::Instant::now();
     let cnf = to_cnf_tseitin(formula, &mut manager);
     let elapsed = started.elapsed();
 

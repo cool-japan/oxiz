@@ -151,12 +151,7 @@ impl EnhancedCoqExporter {
                     .unwrap_or_else(|| format!("axiom_{}", node.id.0));
                 CoqProofTerm::Assumption(ident)
             }
-            ProofStep::Inference {
-                rule,
-                premises: _,
-                conclusion: _,
-                ..
-            } => {
+            ProofStep::Inference { rule, .. } => {
                 // Build proof term based on inference rule
                 self.build_inference_proof_term(rule, premises)
             }

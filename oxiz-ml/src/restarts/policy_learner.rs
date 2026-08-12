@@ -116,7 +116,7 @@ impl RestartPolicyLearner {
 
     /// Predict whether to restart
     pub fn predict_restart(&mut self, features: &RestartFeatures) -> RestartDecision {
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
 
         let prediction = self.model.predict(&features.features);
         let score = prediction.first().copied().unwrap_or(0.0);
@@ -139,7 +139,7 @@ impl RestartPolicyLearner {
             return;
         }
 
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
 
         // Target: 1.0 if beneficial, 0.0 otherwise
         let target = if feedback.was_beneficial { 1.0 } else { 0.0 };

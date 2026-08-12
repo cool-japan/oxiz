@@ -25,6 +25,7 @@ hashbrown.workspace = true
 portable-atomic = { workspace = true }
 portable-atomic-util = { workspace = true }
 oxiz-math = { workspace = true, default-features = false }
+oxiz-time = { workspace = true }
 
 # Optional (std-only)
 # All of these are defined under [workspace.dependencies] (root Cargo.toml)
@@ -57,6 +58,7 @@ std = [
     "num-integer/std",
     "rustc-hash/std",
     "oxiz-math/std",
+    "oxiz-time/std",
 ]
 arena = ["bumpalo"]
 profiling = ["std"]

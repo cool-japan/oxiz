@@ -9,8 +9,8 @@ use crate::dimacs::{DimacsError, DimacsParser};
 use crate::prelude::*;
 use crate::solver::{Solver, SolverConfig, SolverResult};
 use crate::stats_dashboard::{StatsAggregator, StatsDashboard};
+use oxiz_time::{Duration, Instant};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
 
 /// Result of a single benchmark run
 #[derive(Debug, Clone)]
@@ -285,7 +285,7 @@ impl BenchmarkHarness {
 
             report.push_str(&format!(
                 "{:<30} {:>10} {:>12.3} {:>12}\n",
-                &result.instance,
+                result.instance,
                 result_str,
                 result.wall_time.as_secs_f64(),
                 result.stats.solver_stats().conflicts

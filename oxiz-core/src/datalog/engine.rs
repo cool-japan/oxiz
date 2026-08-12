@@ -369,7 +369,7 @@ impl DatalogEngine {
 
     /// Evaluate all rules to fixed-point
     pub fn evaluate(&mut self) -> Result<EvaluationResult, EvaluationError> {
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
 
         // Ensure stratification
         self.stratify().map_err(EvaluationError::Stratification)?;

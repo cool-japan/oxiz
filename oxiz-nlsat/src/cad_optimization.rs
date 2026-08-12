@@ -559,7 +559,7 @@ impl PartialCadBuilder {
             return vec![];
         }
 
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
         let projected = self.hong_projection.project(equations, var);
         self.stats.projection_time_us += start.elapsed().as_micros() as u64;
         self.stats.projection_polys_added += projected.len() as u64;

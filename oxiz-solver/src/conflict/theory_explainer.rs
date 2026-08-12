@@ -148,7 +148,7 @@ impl TheoryExplainer {
         description: Option<String>,
     ) -> TheoryExplanation {
         #[cfg(feature = "std")]
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
 
         let minimized_lits = if self.config.minimize {
             self.minimize_explanation(&lits)
@@ -195,7 +195,7 @@ impl TheoryExplainer {
         description: Option<String>,
     ) -> TheoryExplanation {
         #[cfg(feature = "std")]
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
 
         let minimized_lits = if self.config.minimize {
             self.minimize_explanation(&lits)
@@ -244,7 +244,7 @@ impl TheoryExplainer {
         description: Option<String>,
     ) -> TheoryExplanation {
         #[cfg(feature = "std")]
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
 
         // In full implementation, use Farkas coefficients to generate
         // minimal explanation via linear combination

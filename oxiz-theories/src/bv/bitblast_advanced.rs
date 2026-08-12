@@ -936,7 +936,7 @@ impl AdvancedBitBlaster {
     /// Convert AIG to CNF using Tseitin encoding
     pub fn to_cnf_tseitin(&mut self, sat: &mut SatSolver) -> Result<()> {
         #[cfg(feature = "std")]
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
 
         // Use AIG's built-in CNF conversion
         self.node_to_var = self.aig.to_cnf(sat);
@@ -953,7 +953,7 @@ impl AdvancedBitBlaster {
     /// Convert AIG to CNF using Plaisted-Greenbaum encoding
     pub fn to_cnf_plaisted_greenbaum(&mut self, sat: &mut SatSolver) -> Result<()> {
         #[cfg(feature = "std")]
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
 
         // PG encoding only generates clauses for one polarity
         // This requires polarity information which we track

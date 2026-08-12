@@ -1044,7 +1044,7 @@ mod deep_walk_tests {
         }
         let x_spur = tm.intern_str("x");
 
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
         let mut atoms = Vec::new();
         collect_x_atoms(f, x_spur, &tm, &mut atoms).expect("collect must succeed");
         let neg_inf = inf_rewrite(f, x_spur, false, &mut tm).expect("inf rewrite must succeed");

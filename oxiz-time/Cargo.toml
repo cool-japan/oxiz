@@ -1,0 +1,24 @@
+[package]
+name = "oxiz-time"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Wasm-safe std::time drop-ins (Instant / SystemTime) for the OxiZ SMT solver"
+keywords = ["smt", "wasm", "time", "clock", "no-std"]
+categories = ["wasm", "no-std", "date-and-time"]
+
+# No dependencies, on purpose: this crate sits below `oxiz-math` at the bottom
+# of the workspace DAG, and every other crate depends on it.
+
+[features]
+default = ["std"]
+# `std` selects the real `std::time` types on every target that has a working
+# clock. Turning it off (or building for wasm32-unknown-unknown, which has no
+# clock at all) selects the frozen stubs. See `src/lib.rs`.
+std = []
+
+[lints.clippy]
+unwrap_used = "deny"

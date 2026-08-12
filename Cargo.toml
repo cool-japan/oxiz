@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "oxiz",
+    "oxiz-time",
     "oxiz-core",
     "oxiz-math",
     "oxiz-sat",
@@ -24,6 +25,7 @@ members = [
 # To build oxiz-py: cd oxiz-py && maturin build
 default-members = [
     "oxiz",
+    "oxiz-time",
     "oxiz-core",
     "oxiz-math",
     "oxiz-sat",
@@ -73,6 +75,19 @@ collapsible_if = "allow"
 [workspace.dependencies]
 # Meta crate
 oxiz = { version = "0.3.3", path = "oxiz" }
+
+# Wasm-safe `std::time` drop-ins. Bottom of the workspace DAG (no deps of its
+# own) and depended on by every crate that reads a clock: `std::time::Instant`
+# aborts on wasm32-unknown-unknown, and OxiZ reads it on the main check-sat
+# path. See oxiz-time/src/lib.rs.
+#
+# `default-features = false` here matches the other core crates, so a consumer
+# that writes `{ workspace = true }` inherits *no* std. Every crate in this
+# workspace therefore states its own intent explicitly -- either
+# `features = ["std"]` on its dependency line, or `"oxiz-time/std"` in its own
+# `std` feature list. Getting that wrong is caught at compile time by the
+# `const _: () = assert!(!oxiz_time::IS_FROZEN)` guard each consumer carries.
+oxiz-time = { version = "0.3.3", path = "oxiz-time", default-features = false }
 
 # Core crates (default-features = false so downstream can control std)
 oxiz-core = { version = "0.3.3", path = "oxiz-core", default-features = false }

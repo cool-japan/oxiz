@@ -277,13 +277,7 @@ fn collect_files(inputs: &[PathBuf], recursive: bool) -> Vec<PathBuf> {
                 if let Ok(set) = builder.build() {
                     let base_dir = input
                         .parent()
-                        .and_then(|p| {
-                            if p.as_os_str().is_empty() {
-                                None
-                            } else {
-                                Some(p)
-                            }
-                        })
+                        .filter(|&p| !p.as_os_str().is_empty())
                         .unwrap_or_else(|| Path::new("."));
 
                     let walker = if recursive {

@@ -977,9 +977,9 @@ impl EMatchEngine {
                     if node_func != func.raw() {
                         return None;
                     }
-                    let node_args = match solver.node_args(ground_node) {
-                        Some(a) => a.clone(),
-                        None => return None,
+                    let node_args = {
+                        let a = solver.node_args(ground_node)?;
+                        a.clone()
                     };
                     if node_args.len() != args.len() {
                         return None;

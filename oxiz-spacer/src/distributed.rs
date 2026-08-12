@@ -41,12 +41,12 @@ use crate::pdr::{Spacer, SpacerConfig, SpacerError, SpacerResult, SpacerStats};
 use crate::pob::{Pob, PobId};
 use crate::portfolio::Strategy;
 use oxiz_core::{TermId, TermManager};
+use oxiz_time::{Duration, Instant};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
 use thiserror::Error;
 
 /// Errors that can occur in distributed solving
@@ -558,6 +558,15 @@ fn collect_verdict(
     timeout: Option<Duration>,
     cancel: &Arc<AtomicBool>,
 ) -> (Option<SpacerResult>, Option<SpacerError>) {
+    // `Instant` here is `oxiz_time::Instant` (= `std::time::Instant` off
+    // wasm32-unknown-unknown). This is the one place in the workspace where the
+    // frozen wasm clock would degrade more than a heuristic: with time stuck at
+    // zero, `d.saturating_duration_since(now)` re-arms the *full* timeout on
+    // every iteration, so the aggregate wait could reach `n * timeout` instead
+    // of `timeout`. It still terminates -- the loop is bounded by `remaining`
+    // and by `recv_timeout`'s own (real, OS-side) clock. Unreachable in
+    // practice: this module needs OS threads and `std::sync::mpsc`, neither of
+    // which exists on wasm32-unknown-unknown.
     let deadline = timeout.map(|t| Instant::now() + t);
     let mut remaining = n;
     let mut first_err: Option<SpacerError> = None;

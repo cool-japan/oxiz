@@ -171,7 +171,7 @@ impl UipAnalyzer {
         decision_level: u32,
     ) -> UipAnalysisResult {
         #[cfg(feature = "std")]
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
         self.stats.conflicts_analyzed += 1;
 
         // Select strategy

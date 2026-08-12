@@ -13,6 +13,7 @@ categories = ["algorithms", "development-tools::testing"]
 [dependencies]
 oxiz-core = { workspace = true, features = ["std"] }
 oxiz-solver = { workspace = true, features = ["std"] }
+oxiz-time = { workspace = true, features = ["std"] }
 smallvec.workspace = true
 rustc-hash = { workspace = true, features = ["std"] }
 thiserror = { workspace = true, features = ["std"] }

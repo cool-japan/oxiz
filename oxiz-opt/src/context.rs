@@ -639,19 +639,19 @@ impl OptContext {
     /// solver calls (binary search, Pareto enumeration, ...) needs this additional
     /// wall-clock cap so the whole call — not just one solve inside it — actually
     /// stops within roughly `timeout_ms`.
-    fn deadline(&self) -> Option<std::time::Instant> {
+    fn deadline(&self) -> Option<oxiz_time::Instant> {
         if self.config.timeout_ms == 0 {
             return None;
         }
         // A `checked_add` overflow (astronomically large timeout) degrades to "no
         // deadline" rather than panicking.
-        std::time::Instant::now()
+        oxiz_time::Instant::now()
             .checked_add(core::time::Duration::from_millis(self.config.timeout_ms))
     }
 
     /// True once `deadline` (if any) has passed.
-    fn deadline_passed(deadline: Option<std::time::Instant>) -> bool {
-        deadline.is_some_and(|d| std::time::Instant::now() >= d)
+    fn deadline_passed(deadline: Option<oxiz_time::Instant>) -> bool {
+        deadline.is_some_and(|d| oxiz_time::Instant::now() >= d)
     }
 
     /// Check satisfiability (ignoring soft constraints and objectives)
@@ -1061,7 +1061,7 @@ impl OptContext {
         &mut self,
         obj_term: TermId,
         kind: ObjectiveKind,
-        deadline: Option<std::time::Instant>,
+        deadline: Option<oxiz_time::Instant>,
     ) -> SingleObjOutcome {
         let minimize = matches!(kind, ObjectiveKind::Minimize);
         // 2^40 is far larger than any realistic finite optimum yet small enough
@@ -1188,7 +1188,7 @@ impl OptContext {
         &mut self,
         obj_term: TermId,
         kind: ObjectiveKind,
-        deadline: Option<std::time::Instant>,
+        deadline: Option<oxiz_time::Instant>,
     ) -> SingleObjOutcome {
         let minimize = matches!(kind, ObjectiveKind::Minimize);
 

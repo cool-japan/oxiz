@@ -257,7 +257,7 @@ impl FpIntervalPropagator {
     /// Propagate intervals through addition: z = x + y.
     pub fn propagate_add(&mut self, x: TermId, y: TermId, z: TermId) {
         #[cfg(feature = "std")]
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
 
         let interval_x = self.get_interval(x);
         let interval_y = self.get_interval(y);
@@ -275,7 +275,7 @@ impl FpIntervalPropagator {
     /// Propagate intervals through multiplication: z = x * y.
     pub fn propagate_mul(&mut self, x: TermId, y: TermId, z: TermId) {
         #[cfg(feature = "std")]
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
 
         let interval_x = self.get_interval(x);
         let interval_y = self.get_interval(y);

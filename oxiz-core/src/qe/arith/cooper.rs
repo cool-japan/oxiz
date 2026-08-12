@@ -1527,7 +1527,7 @@ mod deep_walk_tests {
             f = tm.mk_xor(f, atom_y);
         }
 
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
         let mut elim = CooperEliminator::new();
         let result = elim
             .eliminate_exists("x".to_string(), f, &mut tm)

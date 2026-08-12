@@ -68,7 +68,7 @@ impl OfflineTrainer {
         model: &mut M,
         dataset: &DataSet,
     ) -> Result<TrainingResult, ModelError> {
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
 
         // Split dataset
         let (train_set, val_set) = dataset.split(1.0 - self.config.validation_split);

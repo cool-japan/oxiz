@@ -473,10 +473,9 @@ impl BitBlaster {
             TermKind::Var(_) => {
                 if term.sort == bool_sort {
                     Blasted::Bool(term_id)
-                } else if let Some(width) = Self::bv_width(manager, term.sort) {
-                    Blasted::Bits(self.fresh_bits(term_id, width, manager))
                 } else {
-                    return None;
+                    let width = Self::bv_width(manager, term.sort)?;
+                    Blasted::Bits(self.fresh_bits(term_id, width, manager))
                 }
             }
             TermKind::BitVecConst { value, width } => {

@@ -607,8 +607,8 @@ mod tests {
         let dir = std::env::temp_dir().join(format!(
             "oxiz_proof_lrat_check_files_{}_{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
+            oxiz_time::SystemTime::now()
+                .duration_since(oxiz_time::UNIX_EPOCH)
                 .map(|d| d.as_nanos())
                 .unwrap_or(0)
         ));
@@ -642,8 +642,8 @@ mod tests {
         std::env::temp_dir().join(format!(
             "oxiz_proof_lrat_check_{tag}_{}_{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
+            oxiz_time::SystemTime::now()
+                .duration_since(oxiz_time::UNIX_EPOCH)
                 .map(|d| d.as_nanos())
                 .unwrap_or(0)
         ))

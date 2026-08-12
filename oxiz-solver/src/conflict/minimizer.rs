@@ -101,7 +101,7 @@ impl ConflictMinimizer {
     /// Returns the minimized clause (subset of input).
     pub fn minimize(&mut self, conflict: &[Lit]) -> Vec<Lit> {
         #[cfg(feature = "std")]
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
         let original_size = conflict.len();
 
         // Ensure stamp vector is large enough

@@ -72,7 +72,7 @@ impl MLEnhancedVSIDS {
             return None;
         }
 
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
 
         // Get VSIDS decision
         let vsids_var = self.select_vsids(candidates);

@@ -6,9 +6,9 @@
 use crate::prelude::*;
 use crate::{Clause, Solver, SolverResult};
 use core::sync::atomic::{AtomicBool, Ordering};
+use oxiz_time::{Duration, Instant};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
 
 /// Configuration for portfolio solving.
 #[derive(Debug, Clone)]

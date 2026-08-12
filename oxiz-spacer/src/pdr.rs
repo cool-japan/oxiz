@@ -761,7 +761,7 @@ impl<'a> Spacer<'a> {
             return Ok(self.terms.mk_not(post));
         }
 
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
         let cube = self.mic_generalize_cube(pred, post, level)?;
         self.stats.generalization_time_us = self
             .stats

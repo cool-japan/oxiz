@@ -176,7 +176,7 @@ impl EagerArrayExpander {
         }
 
         #[cfg(feature = "std")]
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
 
         // Create element variables
         let mut elements = FxHashMap::default();

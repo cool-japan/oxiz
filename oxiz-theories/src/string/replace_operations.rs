@@ -538,7 +538,7 @@ impl ReplaceAnalyzer {
         };
 
         let second = if pattern.is_empty() {
-            format!("{}{}", replacement, &first)
+            format!("{}{}", replacement, first)
         } else {
             first.replacen(pattern, replacement, 1)
         };

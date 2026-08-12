@@ -14,6 +14,7 @@ categories = ["algorithms", "mathematics"]
 oxiz-core = { workspace = true, features = ["std"] }
 oxiz-sat = { workspace = true, features = ["std"] }
 oxiz-solver = { workspace = true, features = ["std"] }
+oxiz-time = { workspace = true, features = ["std"] }
 num-rational = { workspace = true, features = ["std"] }
 num-bigint = { workspace = true, features = ["std"] }
 num-traits = { workspace = true, features = ["std"] }

@@ -344,11 +344,9 @@ impl ModelBuilder<'_> {
         }
 
         loop {
-            let step = match frames.last_mut() {
-                Some(top) => top.advance(&mut values, carry.take()),
-                // Only the finishing arm below empties the stack, and it
-                // returns; reaching here would mean the driver lost its root.
-                None => return None,
+            let step = {
+                let top = frames.last_mut()?;
+                top.advance(&mut values, carry.take())
             };
 
             let finished = match step {
@@ -368,9 +366,9 @@ impl ModelBuilder<'_> {
                 }
                 Step::Done(result) => result,
                 Step::Combine(kind) => {
-                    let base = match frames.last() {
-                        Some(top) => top.base,
-                        None => return None,
+                    let base = {
+                        let top = frames.last()?;
+                        top.base
                     };
                     self.combine_eager(kind, &values[base..])
                 }

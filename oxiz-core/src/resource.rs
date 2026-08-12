@@ -7,7 +7,7 @@ use crate::config::ResourceLimits;
 #[allow(unused_imports)]
 use crate::prelude::*;
 use crate::statistics::Statistics;
-use std::time::{Duration, Instant};
+use oxiz_time::{Duration, Instant};
 
 /// Resource manager for enforcing limits
 #[derive(Debug)]

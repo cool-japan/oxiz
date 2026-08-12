@@ -6,7 +6,7 @@ use super::{CheckResult, CheckerStats, Literal, TheoryChecker};
 #[allow(unused_imports)]
 use crate::prelude::*;
 use oxiz_core::ast::TermId;
-use std::time::Instant;
+use oxiz_time::Instant;
 
 /// Bitvector theory checker
 #[derive(Debug)]

@@ -704,12 +704,10 @@ impl NlsatSolver {
         let mut sub_poly = factor.poly.clone();
         for v in factor.poly.vars() {
             if v != var {
-                if let Some(val) = self.assignment.arith_value(v) {
-                    sub_poly = sub_poly.substitute(v, &Polynomial::constant(val.clone()));
-                } else {
-                    // Another variable is unassigned: no constraint yet.
-                    return None;
-                }
+                // `?`: another variable is unassigned, so there is no
+                // constraint yet.
+                let val = self.assignment.arith_value(v)?;
+                sub_poly = sub_poly.substitute(v, &Polynomial::constant(val.clone()));
             }
         }
 

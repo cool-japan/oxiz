@@ -265,16 +265,16 @@ impl OmtObjective {
 /// `OmtConfig::timeout_ms` — previously accepted into the config but never
 /// read anywhere in this module — actually bounds each search loop instead
 /// of running until `max_iterations` regardless of elapsed time.
-fn omt_deadline(timeout_ms: u64) -> Option<std::time::Instant> {
+fn omt_deadline(timeout_ms: u64) -> Option<oxiz_time::Instant> {
     if timeout_ms == 0 {
         return None;
     }
-    std::time::Instant::now().checked_add(core::time::Duration::from_millis(timeout_ms))
+    oxiz_time::Instant::now().checked_add(core::time::Duration::from_millis(timeout_ms))
 }
 
 /// True once `deadline` (if any) has passed.
-fn omt_deadline_passed(deadline: Option<std::time::Instant>) -> bool {
-    deadline.is_some_and(|d| std::time::Instant::now() >= d)
+fn omt_deadline_passed(deadline: Option<oxiz_time::Instant>) -> bool {
+    deadline.is_some_and(|d| oxiz_time::Instant::now() >= d)
 }
 
 impl OmtSolver {
@@ -958,7 +958,7 @@ mod tests {
             }
         };
 
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
         let result = solver.optimize_binary_search(0, checker);
         let elapsed = start.elapsed();
 
@@ -1003,7 +1003,7 @@ mod tests {
             Some(point)
         };
 
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
         let result = solver.optimize_linear_search(0, checker);
         let elapsed = start.elapsed();
 
@@ -1048,7 +1048,7 @@ mod tests {
             Some(point)
         };
 
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
         let result = solver.optimize_geometric_search(0, checker);
         let elapsed = start.elapsed();
 

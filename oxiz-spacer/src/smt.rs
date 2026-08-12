@@ -240,7 +240,7 @@ impl<'a> SmtSolver<'a> {
 
     /// Check satisfiability
     pub fn check_sat(&mut self) -> Result<bool, SmtError> {
-        use std::time::Instant;
+        use oxiz_time::Instant;
 
         self.stats.num_queries += 1;
         let start = Instant::now();
@@ -499,7 +499,7 @@ impl<'a> SmtSolver<'a> {
     /// variable -- not the real value of the predicate's argument in the
     /// reachable state the model actually describes.
     fn extract_model(&mut self, pred: PredId) -> Model {
-        use std::time::Instant;
+        use oxiz_time::Instant;
 
         let start = Instant::now();
 

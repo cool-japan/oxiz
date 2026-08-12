@@ -175,7 +175,7 @@ impl Card2BvTactic {
 
     /// Encode cardinality constraint to bitvector.
     pub fn encode(&mut self, constraint: &CardinalityConstraint) -> EncodingResult {
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
 
         let result = match constraint {
             CardinalityConstraint::AtMost { lits, k } => self.encode_at_most(lits, *k),

@@ -341,7 +341,7 @@ impl VariableEliminator {
         *clauses = new_clauses;
 
         // Update occurrence map
-        for (_, indices) in occurrence_map.iter_mut() {
+        for indices in occurrence_map.values_mut() {
             *indices = indices
                 .iter()
                 .filter_map(|&old_idx| old_to_new.get(&old_idx).copied())

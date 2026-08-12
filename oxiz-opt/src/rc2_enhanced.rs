@@ -247,7 +247,7 @@ impl EnhancedRc2Solver {
             return;
         }
 
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
         let original_size = core.len();
 
         let mut trimmed = Vec::new();
@@ -400,7 +400,7 @@ impl EnhancedRc2Solver {
         core: &[Lit],
         _weight: Weight,
     ) -> Result<(), MaxSatError> {
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
 
         // Find soft clause IDs in core
         let mut core_soft_ids: Vec<u32> = Vec::new();

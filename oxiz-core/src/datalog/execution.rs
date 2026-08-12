@@ -6,9 +6,9 @@ use crate::prelude::HashMap;
 #[allow(unused_imports)]
 use crate::prelude::*;
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use oxiz_time::{Duration, Instant};
 use parking_lot::RwLock;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use super::relation::RelationId;
 use super::rule::RuleId;

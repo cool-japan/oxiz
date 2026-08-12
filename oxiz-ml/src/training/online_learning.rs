@@ -84,7 +84,7 @@ impl OnlineLearner {
             return Ok(0.0);
         }
 
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
 
         let mut total_loss = 0.0;
 

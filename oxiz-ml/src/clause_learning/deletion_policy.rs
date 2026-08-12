@@ -128,7 +128,7 @@ impl DeletionPolicy {
         let num_to_delete = ((clauses.len() - self.config.target_size) as f64
             * self.config.deletion_fraction) as usize;
 
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
 
         // Compute priorities for all clauses
         let mut priorities: Vec<(ClauseId, f64, bool)> = clauses

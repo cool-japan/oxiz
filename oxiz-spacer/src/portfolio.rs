@@ -9,7 +9,7 @@
 use crate::chc::ChcSystem;
 use crate::pdr::{Spacer, SpacerConfig, SpacerError, SpacerResult};
 use oxiz_core::TermManager;
-use std::time::{Duration, Instant};
+use oxiz_time::{Duration, Instant};
 use thiserror::Error;
 
 /// Errors that can occur in the portfolio solver

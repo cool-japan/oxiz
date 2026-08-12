@@ -136,7 +136,7 @@ impl BranchingLearner {
             return None;
         }
 
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
 
         // Epsilon-greedy exploration
         if self.should_explore() {
@@ -204,7 +204,7 @@ impl BranchingLearner {
             return;
         }
 
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
 
         let reward = feedback.reward_score();
         self.stats.record_reward(reward);

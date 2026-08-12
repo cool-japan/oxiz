@@ -159,7 +159,7 @@ impl GroebnerPreprocessor {
     /// (p = 0) and returns a simplified equivalent system.
     pub fn preprocess(&mut self, equations: &[Polynomial]) -> PreprocessResult {
         self.stats.invocations += 1;
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
 
         if !self.config.enabled {
             self.stats.skipped += 1;

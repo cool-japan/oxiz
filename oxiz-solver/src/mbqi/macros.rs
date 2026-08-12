@@ -52,7 +52,7 @@ macro_rules! mbqi_trace {
 macro_rules! mbqi_time {
     ($name:expr, $block:block) => {{
         #[cfg(feature = "std")]
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
         let result = $block;
         #[cfg(feature = "std")]
         {

@@ -154,7 +154,7 @@ pub struct ResourceMonitor {
     pub theory_checks: u64,
     /// Start time (only meaningful with std)
     #[cfg(feature = "std")]
-    start_time: Option<std::time::Instant>,
+    start_time: Option<oxiz_time::Instant>,
 }
 
 impl ResourceMonitor {
@@ -164,7 +164,7 @@ impl ResourceMonitor {
         Self {
             #[cfg(feature = "std")]
             start_time: if limits.timeout.is_some() {
-                Some(std::time::Instant::now())
+                Some(oxiz_time::Instant::now())
             } else {
                 None
             },
@@ -185,7 +185,7 @@ impl ResourceMonitor {
         #[cfg(feature = "std")]
         {
             self.start_time = if self.limits.timeout.is_some() {
-                Some(std::time::Instant::now())
+                Some(oxiz_time::Instant::now())
             } else {
                 None
             };

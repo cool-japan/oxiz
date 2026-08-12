@@ -118,7 +118,7 @@ impl PolynomialGcd {
     /// Compute GCD of two polynomials.
     pub fn gcd(&mut self, a: &Polynomial, b: &Polynomial) -> Polynomial {
         #[cfg(feature = "std")]
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
 
         // Handle special cases
         if a.is_zero() {

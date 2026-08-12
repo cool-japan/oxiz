@@ -12,9 +12,9 @@ use oxiz_core::ast::traversal::collect_free_vars_including_patterns;
 use oxiz_core::ast::{TermId, TermKind, TermManager};
 use oxiz_core::interner::Spur;
 use oxiz_core::sort::{SortId, SortKind};
-use smallvec::SmallVec;
 #[cfg(feature = "std")]
-use std::time::{Duration, Instant};
+use oxiz_time::{Duration, Instant};
+use smallvec::SmallVec;
 
 use super::conflict_driven::ConflictScores;
 use super::counterexample::CounterExampleGenerator;

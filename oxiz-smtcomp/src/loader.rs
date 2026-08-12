@@ -682,12 +682,11 @@ impl ParseCache {
     ) -> Option<Arc<Benchmark>> {
         let mut guard = self.lock_inner()?;
         // Borrow checker: we need to compare the stored key, then conditionally pop.
-        if let Some(entry) = guard.get(path) {
+        {
+            let entry = guard.get(path)?;
             if entry.mtime == expected_mtime && entry.size == expected_size {
                 return Some(Arc::clone(&entry.benchmark));
             }
-        } else {
-            return None;
         }
         // Stale: evict so a subsequent insert refreshes it.
         guard.pop(path);

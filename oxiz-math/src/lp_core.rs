@@ -482,7 +482,7 @@ impl LPSolver {
     /// Solve the LP/MIP
     pub fn solve(&mut self) -> LPResult {
         #[cfg(feature = "std")]
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
 
         let result = if self.has_integers() {
             self.solve_mip()
@@ -569,7 +569,7 @@ impl LPSolver {
     /// Solve MIP using branch-and-bound
     fn solve_mip(&mut self) -> LPResult {
         #[cfg(feature = "std")]
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
         let mut node_count = 0;
 
         // Solve root relaxation

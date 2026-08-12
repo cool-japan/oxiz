@@ -10,7 +10,7 @@ use crate::frames::LemmaId;
 use crate::pdr::SpacerStats;
 use crate::pob::PobId;
 use oxiz_core::TermId;
-use std::time::{Duration, Instant};
+use oxiz_time::{Duration, Instant};
 
 /// Tracing level for diagnostics
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

@@ -213,7 +213,7 @@ impl LengthPropagator {
     /// Returns true if new information was propagated.
     pub fn propagate(&mut self) -> bool {
         #[cfg(feature = "std")]
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
         let mut changed = false;
 
         // Process each constraint

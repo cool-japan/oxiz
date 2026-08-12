@@ -522,10 +522,9 @@ impl TheoryCoordinator {
         let mut combined_model = FxHashMap::default();
 
         for solver in self.theories.values() {
-            if let Some(model) = solver.get_model() {
+            {
+                let model = solver.get_model()?;
                 combined_model.extend(model);
-            } else {
-                return None;
             }
         }
 

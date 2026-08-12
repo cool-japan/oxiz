@@ -33,6 +33,21 @@
 //! working features; each retains a header note explaining the triage. They
 //! remain compiled and tested so they can be wired in later without rework.
 
+// The wasm32 clock guard. Every `Instant` / `SystemTime` this crate reads goes
+// through `oxiz-time`, whose types ARE `std::time`'s on every target with a
+// working clock and frozen stubs on wasm32-unknown-unknown (which has none and
+// aborts on `Instant::now()`); see `oxiz_time`'s crate docs.
+//
+// This crate is std-only and depends on `oxiz-time` with `features = ["std"]`,
+// so a native build must get the real clock. Dropping that feature would
+// silently freeze it -- timeouts that never fire, timing statistics stuck at
+// zero. Catch that here, at compile time, instead of in production.
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+const _: () = assert!(
+    !oxiz_time::IS_FROZEN,
+    "oxiz-time must be depended on with features = [\"std\"] here"
+);
+
 pub mod assignment;
 pub(crate) mod assumptions;
 pub(crate) mod asymmetric_literal_addition;

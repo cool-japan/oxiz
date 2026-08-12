@@ -892,11 +892,8 @@ impl StringSolver {
             match atom {
                 StringAtom::Const(s) => result.push_str(s),
                 StringAtom::Var(v) => {
-                    if let Some(s) = self.assignments.get(v) {
-                        result.push_str(s);
-                    } else {
-                        return None;
-                    }
+                    let s = self.assignments.get(v)?;
+                    result.push_str(s);
                 }
             }
         }

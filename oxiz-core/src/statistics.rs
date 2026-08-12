@@ -5,7 +5,7 @@
 
 #[allow(unused_imports)]
 use crate::prelude::*;
-use std::time::{Duration, Instant};
+use oxiz_time::{Duration, Instant};
 
 /// Statistics for solver performance tracking
 #[derive(Debug, Clone, Default)]

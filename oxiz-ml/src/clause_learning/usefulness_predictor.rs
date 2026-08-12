@@ -129,7 +129,7 @@ impl UsefulnessPredictor {
 
     /// Predict clause usefulness
     pub fn predict_usefulness(&mut self, features: &ClauseFeatures) -> UsefulnessPrediction {
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
 
         let prediction = self.model.predict(&features.features);
         let score = prediction.first().copied().unwrap_or(0.5);
@@ -152,7 +152,7 @@ impl UsefulnessPredictor {
             return;
         }
 
-        let start = std::time::Instant::now();
+        let start = oxiz_time::Instant::now();
 
         // Compute target based on actual usefulness
         let usage_rate = if feedback.age > 0 {

@@ -1,10 +1,10 @@
 //! Shared profiling utilities for cross-crate hot-path instrumentation.
 
+use oxiz_time::Instant;
 use portable_atomic::AtomicU64;
 use portable_atomic::Ordering;
 use std::fmt;
 use std::sync::OnceLock;
-use std::time::Instant;
 
 const CATEGORY_COUNT: usize = 10;
 
