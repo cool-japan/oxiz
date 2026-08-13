@@ -14,6 +14,14 @@
 //!
 //! Verdicts are cross-checked against Z3 semantics conceptually; no external
 //! solver is invoked.
+//!
+//! ## Feature gate
+//!
+//! The whole file exercises `oxiz_theories::nlsat`, which exists only under the
+//! `nlsat` feature (on by default) -- that feature is what pulls the
+//! `oxiz-nlsat` crate into the graph. A `--no-default-features --features std`
+//! build has no such module, so this file compiles to nothing there.
+#![cfg(feature = "nlsat")]
 
 use num_rational::Rational64;
 use oxiz_core::ast::TermManager;

@@ -28,7 +28,7 @@
 //!
 //! | Module | Feature Flag | Description |
 //! |--------|--------------|-------------|
-//! | `nlsat` | `nlsat` | Nonlinear real arithmetic solver |
+//! | `nlsat` | `nlsat` | Nonlinear real/integer arithmetic solver (default-on) |
 //! | `opt` | `optimization` | MaxSMT and optimization |
 //! | `spacer` | `spacer` | CHC solver for program verification |
 //! | `proof` | `proof` | Proof generation and checking |
@@ -132,12 +132,30 @@
 //! | Feature | Description | Default |
 //! |---------|-------------|---------|
 //! | `std` | Standard library support | Yes |
-//! | `nlsat` | Nonlinear real arithmetic (implies std) | |
+//! | `nlsat` | Nonlinear real/integer arithmetic (implies std) | **Yes** |
 //! | `optimization` | MaxSMT and optimization (implies std) | |
 //! | `spacer` | CHC solver (implies std) | |
 //! | `proof` | Proof generation (implies std) | |
 //! | `standard` | All common features except SPACER | |
 //! | `full` | All features | |
+//!
+//! ### Turning `nlsat` off
+//!
+//! `nlsat` is on by default, so nothing about a plain `oxiz = "0.3"` build
+//! changed when the `oxiz-nlsat` crate became optional in 0.3.3. Dropping it —
+//! `default-features = false, features = ["std"]` — removes that crate from the
+//! dependency graph entirely, which is worth roughly 12 % of a `wasm32` module
+//! and is why the knob exists.
+//!
+//! The cost is completeness on nonlinear **real** arithmetic: a QF_NRA goal
+//! that needs the cell-decomposition core answers `unknown` instead of
+//! `sat`/`unsat`, including one it could have refuted. QF_NIA is unaffected —
+//! its verdicts come from a static pattern detector and two witness-verified
+//! model searches that live outside `oxiz-nlsat` — and no verdict ever becomes
+//! wrong: the concession goes through the same honest-`Unknown` gate this
+//! solver already uses for String and FP atoms it has no complete theory for.
+//! See `oxiz-solver`'s `nlsat` feature docs and
+//! `oxiz-solver/tests/nlsat_feature_gate.rs`.
 //!
 //! ## Theory Support
 //!

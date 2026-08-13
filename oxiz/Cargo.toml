@@ -37,7 +37,12 @@ oxiz-proof = { workspace = true, optional = true }
 num-bigint = { workspace = true, features = ["std"] }
 
 [features]
-default = ["std"]
+# `nlsat` joins the default set here so the meta crate's out-of-the-box
+# behaviour is unchanged: before it existed, `std` reached `oxiz-theories/std`,
+# which pulled `oxiz-nlsat` in unconditionally, so a plain `oxiz = "0.3.2"`
+# already decided nonlinear arithmetic. What is new in the default build is
+# only the `oxiz::nlsat` re-export of a crate that was always being compiled.
+default = ["std", "nlsat"]
 std = [
     "oxiz-core/std",
     "oxiz-math/std",
@@ -45,7 +50,13 @@ std = [
     "oxiz-theories/std",
     "oxiz-solver/std",
 ]
-nlsat = ["dep:oxiz-nlsat", "std"]
+# Nonlinear real/integer arithmetic: the `oxiz::nlsat` re-export *and* the
+# solving path that uses it -- `oxiz-theories/nlsat` is what pulls the crate
+# into the theory layer, `oxiz-solver/nlsat` compiles the dispatch back in.
+# Turning it off (`default-features = false, features = ["std"]`) drops the
+# `oxiz-nlsat` crate from the build entirely; QF_NRA/QF_NIA goals then answer
+# `unknown` instead of being decided.
+nlsat = ["dep:oxiz-nlsat", "oxiz-theories/nlsat", "oxiz-solver/nlsat", "std"]
 optimization = ["dep:oxiz-opt", "std"]
 spacer = ["dep:oxiz-spacer", "std"]
 proof = ["dep:oxiz-proof", "std"]

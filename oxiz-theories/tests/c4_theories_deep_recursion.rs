@@ -14,10 +14,15 @@
 //! depths pin *together* is a bytes-per-frame threshold, never either number on
 //! its own; see [`WORKER_STACK`].
 
-use oxiz_core::ast::{TermId, TermManager};
+use oxiz_core::ast::TermId;
+// Only the `nlsat` section below builds real terms; every other walk here
+// constructs raw `TermId`s directly.
+#[cfg(feature = "nlsat")]
+use oxiz_core::ast::TermManager;
 use oxiz_theories::combination::TheoryCombiner;
 use oxiz_theories::euf::ProofStep;
 use oxiz_theories::euf::{EMatchEngine, Pattern, QuantifiedFormula, Trigger, VarId};
+#[cfg(feature = "nlsat")]
 use oxiz_theories::nlsat::{TermPolyTranslator, term_is_nonlinear};
 use oxiz_theories::set::{SetExpr, SetSolver, SetSort};
 use oxiz_theories::string::sequence::{IntExpr, SeqExpr, SeqRewriter};
@@ -138,9 +143,16 @@ fn shared_regex_dag_hashing_is_not_exponential() {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // nlsat — term_is_nonlinear, TermPolyTranslator::translate
+//
+// This section alone is behind `#[cfg(feature = "nlsat")]`: `oxiz_theories::
+// nlsat`, and the `oxiz-nlsat` crate its translator hands polynomials to, are
+// compiled only under that feature (on by default). Every other walk in this
+// file is unconditional, so a `--no-default-features --features std` build
+// still gets the full depth guarantee for the theories it kept.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// A `((x + 1) + 1) + 1 …` chain nested `levels` deep.
+#[cfg(feature = "nlsat")]
 fn deep_arith_chain(manager: &mut TermManager, levels: usize) -> TermId {
     let int_sort = manager.sorts.int_sort;
     let x = manager.mk_var("x", int_sort);
@@ -152,6 +164,7 @@ fn deep_arith_chain(manager: &mut TermManager, levels: usize) -> TermId {
     term
 }
 
+#[cfg(feature = "nlsat")]
 #[test]
 fn deep_arith_term_nonlinearity_check_returns() {
     const LEVELS: usize = 12_500;
@@ -164,6 +177,7 @@ fn deep_arith_term_nonlinearity_check_returns() {
     assert!(!nonlinear);
 }
 
+#[cfg(feature = "nlsat")]
 #[test]
 fn deep_arith_term_translation_returns() {
     const LEVELS: usize = 12_500;

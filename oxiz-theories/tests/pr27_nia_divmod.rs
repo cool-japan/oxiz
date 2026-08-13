@@ -24,6 +24,14 @@
 //! `incomplete` when `translate` returned `None` for the `div`/`mod`
 //! sub-term) and the caller fell back to CDCL(T), which cannot handle the
 //! nonlinear part either — so these formulas answered `unknown` end to end.
+//!
+//! ## Feature gate
+//!
+//! The whole file exercises `oxiz_theories::nlsat`, which exists only under the
+//! `nlsat` feature (on by default) -- that feature is what pulls the
+//! `oxiz-nlsat` crate into the graph. A `--no-default-features --features std`
+//! build has no such module, so this file compiles to nothing there.
+#![cfg(feature = "nlsat")]
 
 use oxiz_core::ast::TermManager;
 use oxiz_theories::nlsat::{NlDispatchResult, dispatch_nia_constraints};

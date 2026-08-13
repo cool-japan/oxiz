@@ -18,6 +18,7 @@ use num_rational::Rational64;
 use num_traits::{One, ToPrimitive, Zero};
 use oxiz_core::ast::{TermId, TermKind, TermManager};
 use oxiz_theories::nl_eval::{Interpretation, holds_under};
+#[cfg(feature = "nlsat")]
 use oxiz_theories::nlsat::{NlDispatchResult, dispatch_nia_constraints, dispatch_nra_constraints};
 use smallvec::SmallVec;
 
@@ -95,47 +96,73 @@ impl Solver {
     /// behaviour before witnesses existed. What must never happen — and does
     /// not — is publishing a model that has not been re-checked against the
     /// assertions it claims to satisfy.
+    ///
+    /// # Without the `nlsat` feature
+    ///
+    /// The cell-decomposition step below is compiled out — it is the only
+    /// caller of `oxiz_theories::nlsat`, which is the only route to the
+    /// `oxiz-nlsat` crate. Everything else in this function is unchanged, and
+    /// because the two searches under it are gated on QF_NIA the loss is not
+    /// symmetric between the two logics:
+    ///
+    /// * **QF_NIA** answers exactly as before on this tree. The searches still
+    ///   run and their `sat` is still a re-verified witness; the `unsat`s that
+    ///   look like they came from here in fact came from `check_core`'s
+    ///   `check_nonlinear_constraints`, which is also unaffected.
+    /// * **QF_NRA** loses every nonlinear verdict. There is nothing left below
+    ///   to reach, so a goal that needed a cell decomposition — including one
+    ///   that is provably `unsat`, such as `x*x < 0` — is conceded.
+    ///
+    /// Whatever this function declines to decide meets `check_core`'s
+    /// `arith_atoms_need_theory` gate and is answered `unknown` — never
+    /// guessed by the SAT layer. `oxiz-solver/tests/nlsat_feature_gate.rs`
+    /// pins each of those claims in the build it applies to.
     pub(super) fn dispatch_nl_solver(&mut self, manager: &mut TermManager) -> Option<SolverResult> {
         let logic = self.logic.as_deref()?;
 
         let is_nia = logic.contains("NIA") || (logic.contains("NIRA") && !logic.contains("NRA"));
         let is_nra = logic.contains("NRA") && !is_nia;
 
-        let dispatched = if is_nia {
-            dispatch_nia_constraints(&self.assertions, manager, true)
-        } else if is_nra {
-            dispatch_nra_constraints(&self.assertions, manager)
-        } else {
+        if !is_nia && !is_nra {
             return None;
-        };
+        }
 
-        if let Some(dispatched) = dispatched {
-            return match dispatched {
-                NlDispatchResult::Sat(witness) => {
-                    // The verdict is the dispatcher's, decided by its own trust
-                    // conditions; installing a model is a separate, best-effort
-                    // step that may decline a witness it cannot represent.
-                    let adopted = self.adopt_nl_witness(&witness, manager);
-                    // Declining for representational reasons (an Int-sorted
-                    // term with a fractional witness, a real with no exact
-                    // narrow form) is ordinary. Declining because the witness
-                    // does not *satisfy the assertions* is not: the dispatcher
-                    // has just claimed `Sat` on the strength of that very
-                    // witness, so a re-check that disagrees means one of the
-                    // two is wrong. Release behaviour is unchanged — the
-                    // verdict stands, modelless — but a debug build must not
-                    // let a signal that strong pass in silence.
-                    debug_assert!(
-                        adopted
-                            || witness.num_count() == 0
-                            || holds_under(&self.assertions, manager, &witness),
-                        "the cell-decomposition dispatcher reported Sat with a witness \
-                         that does not satisfy the assertions"
-                    );
-                    Some(SolverResult::Sat)
-                }
-                NlDispatchResult::Unsat => Some(SolverResult::Unsat),
+        #[cfg(feature = "nlsat")]
+        {
+            let dispatched = if is_nia {
+                dispatch_nia_constraints(&self.assertions, manager, true)
+            } else {
+                dispatch_nra_constraints(&self.assertions, manager)
             };
+
+            if let Some(dispatched) = dispatched {
+                return match dispatched {
+                    NlDispatchResult::Sat(witness) => {
+                        // The verdict is the dispatcher's, decided by its own trust
+                        // conditions; installing a model is a separate, best-effort
+                        // step that may decline a witness it cannot represent.
+                        let adopted = self.adopt_nl_witness(&witness, manager);
+                        // Declining for representational reasons (an Int-sorted
+                        // term with a fractional witness, a real with no exact
+                        // narrow form) is ordinary. Declining because the witness
+                        // does not *satisfy the assertions* is not: the dispatcher
+                        // has just claimed `Sat` on the strength of that very
+                        // witness, so a re-check that disagrees means one of the
+                        // two is wrong. Release behaviour is unchanged — the
+                        // verdict stands, modelless — but a debug build must not
+                        // let a signal that strong pass in silence.
+                        debug_assert!(
+                            adopted
+                                || witness.num_count() == 0
+                                || holds_under(&self.assertions, manager, &witness),
+                            "the cell-decomposition dispatcher reported Sat with a witness \
+                             that does not satisfy the assertions"
+                        );
+                        Some(SolverResult::Sat)
+                    }
+                    NlDispatchResult::Unsat => Some(SolverResult::Unsat),
+                };
+            }
         }
 
         // The cell-decomposition core had no verdict, which is where the

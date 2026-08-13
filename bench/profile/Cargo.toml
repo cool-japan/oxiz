@@ -13,8 +13,13 @@ num-rational = { workspace = true, default-features = false, features = ["num-bi
 oxiz-core = { workspace = true, default-features = false, features = ["profiling"] }
 oxiz-proof = { workspace = true, features = ["profiling"] }
 oxiz-sat = { workspace = true, default-features = false, features = ["profiling"] }
-oxiz-solver = { workspace = true, default-features = false, features = ["profiling"] }
-oxiz-theories = { workspace = true, default-features = false, features = ["profiling"] }
+# `"nlsat"` is named explicitly, not inherited. The workspace dependency table
+# sets `default-features = false`, so this line's feature list is the whole
+# feature set this crate gets; before `nlsat` was split out of `oxiz-theories`'s
+# `std`, "std" alone carried the nonlinear (QF_NRA/QF_NIA) solver in. Naming it
+# keeps this crate deciding exactly the logics it decided before.
+oxiz-solver = { workspace = true, default-features = false, features = ["profiling", "nlsat"] }
+oxiz-theories = { workspace = true, default-features = false, features = ["profiling", "nlsat"] }
 rustc-hash = { workspace = true }
 
 [dev-dependencies]

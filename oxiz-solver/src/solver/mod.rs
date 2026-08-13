@@ -76,8 +76,13 @@ pub struct Solver {
     /// vanish in front of the assertion it explains.  See
     /// [`DerivedReasons`](theory_manager::DerivedReasons).
     pub(super) derived_reasons: theory_manager::DerivedReasons,
-    /// NLSAT solver for nonlinear arithmetic (QF_NIA/QF_NRA)
-    #[cfg(feature = "std")]
+    /// NLSAT solver for nonlinear arithmetic (QF_NIA/QF_NRA).
+    ///
+    /// Present only under the `nlsat` feature: without it `oxiz_theories::nlsat`
+    /// -- and the `oxiz-nlsat` crate behind it -- is not compiled, and this
+    /// solver answers `unknown` on goals it would have decided (see
+    /// `check_nlsat::dispatch_nl_solver`).
+    #[cfg(feature = "nlsat")]
     pub(super) nlsat: Option<oxiz_theories::nlsat::NlsatTheory>,
     /// MBQI solver for quantified formulas
     pub(super) mbqi: MBQIIntegration,
@@ -452,7 +457,7 @@ impl Solver {
             arith: ArithSolver::lra(),
             bv: BvSolver::new(),
             derived_reasons: theory_manager::DerivedReasons::default(),
-            #[cfg(feature = "std")]
+            #[cfg(feature = "nlsat")]
             nlsat: None,
             mbqi: MBQIIntegration::new(),
             ematch_engine: EmatchingEngine::new(EmatchingConfig::default()),
@@ -1144,7 +1149,7 @@ impl Solver {
         // three theory solvers at its entry and re-derives their state from the
         // SAT trail, so nothing between this `push` and the next verdict can
         // observe the scope, and `pop` resets regardless.
-        #[cfg(feature = "std")]
+        #[cfg(feature = "nlsat")]
         if let Some(nlsat) = &mut self.nlsat {
             nlsat.push();
         }
@@ -1382,7 +1387,7 @@ impl Solver {
             // for a level it is already at — in particular it does not disturb
             // the propagation head that `sat.pop()` deliberately rewound.
             self.rebase_theory_state();
-            #[cfg(feature = "std")]
+            #[cfg(feature = "nlsat")]
             if let Some(nlsat) = &mut self.nlsat {
                 nlsat.pop();
             }
@@ -1412,7 +1417,7 @@ impl Solver {
         self.ematch_engine = EmatchingEngine::new(EmatchingConfig::default());
         self.has_quantifiers = false;
         self.quantifier_uf_funcs.clear();
-        #[cfg(feature = "std")]
+        #[cfg(feature = "nlsat")]
         {
             self.nlsat = None;
         }

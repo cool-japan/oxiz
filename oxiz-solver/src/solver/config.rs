@@ -115,23 +115,46 @@ impl Solver {
         // Switch ArithSolver based on logic
         // QF_NIA and QF_NRA use NLSAT solver for nonlinear arithmetic
         if logic.contains("NIA") {
-            // Nonlinear integer arithmetic - use NLSAT with integer mode
-            #[cfg(feature = "std")]
+            // Nonlinear integer arithmetic - use NLSAT with integer mode.
+            //
+            // Without the `nlsat` feature there is no NLSAT to install. The
+            // linear fallback below is still set, and QF_NIA keeps the two
+            // procedures that never lived in `oxiz-nlsat` — the static UNSAT
+            // patterns and the witness-verified model searches — so on this
+            // tree it decides the same goals either way. Anything none of them
+            // reaches is caught by `check_core`'s `arith_atoms_need_theory`
+            // gate and answered `unknown`.
+            #[cfg(feature = "nlsat")]
             {
                 self.nlsat = Some(oxiz_theories::nlsat::NlsatTheory::new(true));
             }
             self.arith = ArithSolver::lia(); // Keep LIA as fallback for linear constraints
-            #[cfg(feature = "tracing")]
+            #[cfg(all(feature = "tracing", feature = "nlsat"))]
             tracing::info!("Using NLSAT solver for QF_NIA (nonlinear integer arithmetic)");
+            #[cfg(all(feature = "tracing", not(feature = "nlsat")))]
+            tracing::info!(
+                "QF_NIA requested but this build has no `nlsat` feature: linear \
+                 integer arithmetic, plus the static UNSAT patterns and the \
+                 witness-verified model searches; anything they cannot reach \
+                 answers unknown"
+            );
         } else if logic.contains("NRA") {
-            // Nonlinear real arithmetic - use NLSAT with real mode
-            #[cfg(feature = "std")]
+            // Nonlinear real arithmetic - use NLSAT with real mode. This is
+            // the logic that actually loses something when `nlsat` is off: the
+            // model searches named above are gated on QF_NIA, so a *real*
+            // nonlinear goal has nothing left to decide it and is conceded.
+            #[cfg(feature = "nlsat")]
             {
                 self.nlsat = Some(oxiz_theories::nlsat::NlsatTheory::new(false));
             }
             self.arith = ArithSolver::lra(); // Keep LRA as fallback for linear constraints
-            #[cfg(feature = "tracing")]
+            #[cfg(all(feature = "tracing", feature = "nlsat"))]
             tracing::info!("Using NLSAT solver for QF_NRA (nonlinear real arithmetic)");
+            #[cfg(all(feature = "tracing", not(feature = "nlsat")))]
+            tracing::info!(
+                "QF_NRA requested but this build has no `nlsat` feature: linear \
+                 real arithmetic only, every nonlinear goal will answer unknown"
+            );
         } else if logic.contains("LIA") || logic.contains("IDL") {
             // Integer arithmetic logic (QF_LIA, LIA, QF_AUFLIA, QF_IDL, etc.)
             self.arith = ArithSolver::lia();

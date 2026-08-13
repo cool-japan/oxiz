@@ -610,6 +610,14 @@ fn test_reset_assertions_keeps_declarations() {
     );
 }
 
+// The one test in this file that needs the `nlsat` feature, and it needs it by
+// construction: its subject is that `(reset-assertions)` preserves the *NLSAT
+// installation* the logic selected, so it can only be written as an assertion
+// about a verdict NLSAT alone produces. Without the feature there is nothing to
+// install and nothing to preserve, and both scripts below correctly answer
+// `unknown` — which `oxiz-solver/tests/nlsat_feature_gate.rs` pins separately.
+// Everything else in this file is feature-independent and stays unconditional.
+#[cfg(feature = "nlsat")]
 #[test]
 fn test_reset_assertions_keeps_logic_selected_theory() {
     // The logic selects the arithmetic engine (`QF_NRA` installs NLSAT).

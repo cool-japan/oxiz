@@ -284,7 +284,28 @@ impl<'a> Lexer<'a> {
             }
             _ => {
                 let sym = self.read_symbol_chars();
-                TokenKind::Symbol(sym)
+                if sym.is_empty() {
+                    // `first` can neither start nor continue an SMT-LIB simple
+                    // symbol, so `read_symbol_chars` consumed nothing. Handing
+                    // back the empty `Symbol("")` it produced would leave
+                    // `self.pos` exactly where it was, and every later
+                    // `next_token` would mint the same zero-width token at the
+                    // same offset for ever — a caller scanning to `Eof` (the
+                    // parser's balanced-paren skip, say) never terminates.
+                    // Consume exactly the one offending character and record
+                    // it, the way the bare `#` case above does.
+                    self.pos += first.len_utf8();
+                    self.errors.push(LexError {
+                        message: format!(
+                            "unexpected character U+{:04X} cannot start a token",
+                            u32::from(first)
+                        ),
+                        pos: start,
+                    });
+                    TokenKind::Symbol(self.input[start..self.pos].to_string())
+                } else {
+                    TokenKind::Symbol(sym)
+                }
             }
         };
 
@@ -678,6 +699,72 @@ mod tests {
         let (value, errored) = lex_string_lit("\"a\\u{62}c\\u0064e\"");
         assert_eq!(value, "abcde");
         assert!(!errored);
+    }
+
+    /// Drain `input` with a hard step budget, returning the tokens read and
+    /// whether any lexical error was recorded.
+    ///
+    /// The budget is the point: a `next_token` that fails to advance `self.pos`
+    /// yields the same zero-width token for ever, and a test that simply loops
+    /// until `Eof` would hang the whole test binary instead of failing. This
+    /// one fails.
+    fn lex_until_eof(input: &str) -> (Vec<TokenKind>, bool) {
+        const MAX_STEPS: usize = 1000;
+
+        let mut lexer = Lexer::new(input);
+        let mut kinds = Vec::new();
+        for _ in 0..MAX_STEPS {
+            let Some(token) = lexer.next_token() else {
+                break;
+            };
+            let done = token.kind == TokenKind::Eof;
+            kinds.push(token.kind);
+            if done {
+                return (kinds, lexer.has_errors());
+            }
+        }
+        panic!("lexing {input:?} did not terminate within {MAX_STEPS} tokens");
+    }
+
+    #[test]
+    fn test_unlexable_character_terminates_with_an_error() {
+        // Every one of these is neither alphanumeric nor one of the symbol
+        // punctuation characters, so `read_symbol_chars` reads nothing at all.
+        // Before the fix the catch-all arm turned that into a `Symbol("")` at
+        // an unchanged position, and the token stream never reached `Eof`.
+        for input in [
+            "\u{0}", ",", "[", "]", "{", "}", "\\", "'", "`", "\u{7f}", "\u{1}",
+        ] {
+            let (kinds, errored) = lex_until_eof(input);
+            assert!(errored, "input {input:?} must record a lexical error");
+            assert_eq!(kinds.last(), Some(&TokenKind::Eof), "input {input:?}");
+            assert!(kinds.len() >= 2, "input {input:?} must yield a real token");
+        }
+    }
+
+    #[test]
+    fn test_unlexable_character_at_command_head_still_terminates() {
+        // The shape that hung the wasm build: an unlexable byte in command-head
+        // position, with a well-formed script around it.
+        let (kinds, errored) = lex_until_eof("(\u{0}check-sat)(check-sat)");
+        assert!(errored, "an unlexable head character must be reported");
+        assert_eq!(kinds.last(), Some(&TokenKind::Eof));
+        assert!(
+            kinds
+                .iter()
+                .any(|k| matches!(k, TokenKind::Symbol(s) if s == "check-sat")),
+            "lexing must make progress past the offending character: {kinds:?}"
+        );
+    }
+
+    #[test]
+    fn test_lexing_stays_exact_for_well_formed_input() {
+        // Control: the new error path must not fire on ordinary scripts.
+        let (_, errored) = lex_until_eof("(set-logic QF_LIA)(assert (= x 1))(check-sat)");
+        assert!(
+            !errored,
+            "a well-formed script must record no lexical error"
+        );
     }
 
     #[test]

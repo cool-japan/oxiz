@@ -52,3 +52,32 @@ fn parse_script_accepts_a_lexically_well_formed_script() {
         "a lexically well-formed script must not be rejected as malformed"
     );
 }
+
+#[test]
+fn parse_script_rejects_an_unlexable_character_instead_of_hanging() {
+    // A character that can neither start nor continue a symbol (here a NUL, but
+    // `,` `[` `\` `'` and U+007F behave identically) used to make the lexer
+    // return a zero-width `Symbol("")` at an unchanged position for ever, and
+    // the parser's balanced-paren skip then spun on it — a real infinite loop,
+    // with no timeout on wasm32. It must now be a plain lexical error.
+    for source in [
+        "(\u{0}check-sat)",
+        "(check-sat)(,foo)",
+        "(check-sat)([foo)",
+        "(check-sat)(\\foo)",
+        "(check-sat)('foo)",
+        "(check-sat)(\u{7f}foo)",
+    ] {
+        let mut manager = TermManager::new();
+        match parse_script(source, &mut manager) {
+            Err(OxizError::ParseError { message, .. }) => {
+                assert!(
+                    message.contains("lexical error"),
+                    "expected a lexical error for {source:?}, got: {message}"
+                );
+            }
+            Err(other) => panic!("expected a ParseError for {source:?}, got {other:?}"),
+            Ok(_) => panic!("{source:?} must not parse successfully"),
+        }
+    }
+}

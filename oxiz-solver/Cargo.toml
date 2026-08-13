@@ -29,7 +29,9 @@ rayon = { workspace = true, optional = true }
 oxiz-proof = { workspace = true, optional = true }
 
 [features]
-default = ["std", "property-tests"]
+# `nlsat` is on by default: an existing consumer that says nothing keeps the
+# nonlinear dispatch it had before the feature existed. See its entry below.
+default = ["std", "property-tests", "nlsat"]
 std = [
     "oxiz-core/std",
     "oxiz-sat/std",
@@ -44,6 +46,30 @@ std = [
     "oxiz-proof",
     "oxiz-time/std",
 ]
+# Nonlinear real/integer arithmetic (QF_NRA / QF_NIA / QF_NIRA). Forwards to
+# `oxiz-theories/nlsat`, which is what actually pulls the `oxiz-nlsat` crate in.
+#
+# With it OFF the `NlsatTheory` field and the cell-decomposition dispatch in
+# `solver::check_nlsat` are compiled out. `check_core`'s honesty gate
+# (`arith_atoms_need_theory`) then answers `unknown` for any goal left holding
+# an arithmetic atom no theory could take -- which is what a nonlinear atom
+# becomes once the dispatch is gone.
+#
+# Three procedures that are NOT in `oxiz-nlsat` stay compiled in either way:
+# the static UNSAT pattern detector (`check_nonlinear_constraints`) and the two
+# model searches (`nl_repair_search`, `nl_ground_reduce`), whose every `sat` is
+# re-verified against the untouched assertions in exact `BigRational`
+# arithmetic before it is reported. So the cost is completeness, never
+# soundness -- and it is not uniform: measured on this tree, QF_NIA answers
+# identically with and without the feature (the searches are gated on it),
+# while QF_NRA loses every nonlinear verdict to `unknown`, `unsat` ones
+# included. `oxiz-solver/tests/nlsat_feature_gate.rs` pins both halves.
+#
+# A consumer that wants everything except nonlinear arithmetic writes:
+#   oxiz-solver = { version = "0.3.3", default-features = false, features = ["std"] }
+# Note that dropping the defaults also drops `property-tests`; a test build
+# that wants it back asks for `features = ["std", "property-tests"]`.
+nlsat = ["oxiz-theories/nlsat", "std"]
 parallel-theories = ["rayon"]
 property-tests = []
 profiling = [

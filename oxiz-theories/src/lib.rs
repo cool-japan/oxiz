@@ -123,7 +123,14 @@ pub mod nl_eval;
 pub mod nl_ground_reduce;
 #[cfg(feature = "std")]
 pub mod nl_repair_search;
-#[cfg(feature = "std")]
+/// Nonlinear arithmetic via the `oxiz-nlsat` cell-decomposition core.
+///
+/// Gated on `nlsat` (which implies `std`) rather than on `std` alone: this is
+/// the only module in the crate that reaches the `oxiz-nlsat` dependency, so
+/// it is also the only one a build that drops that dependency has to lose.
+/// Its neighbours above — `nl_eval`, `nl_ground_reduce`, `nl_repair_search` —
+/// are self-contained and stay available in every `std` build.
+#[cfg(feature = "nlsat")]
 pub mod nlsat;
 #[cfg(feature = "std")]
 pub mod sls;

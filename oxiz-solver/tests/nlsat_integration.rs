@@ -219,8 +219,19 @@ fn test_nia_factored_product_xp1_ym2_sat() {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // QF_NRA tests — nonlinear real arithmetic
+//
+// Three of these need the `nlsat` feature and are marked individually rather
+// than as a block, because the fourth (`test_nra_x_squared_eq_2_sat`) does not:
+// it already accepts `Unknown`, which is what *both* builds answer for an
+// irrational root. The rule for the marks below is the one measured in
+// `oxiz-solver/tests/nlsat_feature_gate.rs`: QF_NRA is the logic that loses its
+// nonlinear verdicts when `oxiz-nlsat` is not compiled, because the two
+// witness-verified model searches that survive are gated on QF_NIA. The QF_NIA
+// group above therefore carries no marks at all and must keep passing in both
+// builds — it is the no-regression evidence.
 // ─────────────────────────────────────────────────────────────────────────────
 
+#[cfg(feature = "nlsat")]
 #[test]
 fn test_nra_x_squared_lt_0_unsat() {
     // x * x < 0 → UNSAT (no real squared is negative)
@@ -269,6 +280,7 @@ fn test_nra_x_squared_eq_2_sat() {
     );
 }
 
+#[cfg(feature = "nlsat")]
 #[test]
 fn test_nra_circle_inside_sat() {
     // x * x + y * y < 1 → SAT (e.g. x=0, y=0 is inside unit circle)
@@ -295,6 +307,7 @@ fn test_nra_circle_inside_sat() {
     );
 }
 
+#[cfg(feature = "nlsat")]
 #[test]
 fn test_nra_polynomial_x2_minus_2x_plus_1_sat() {
     // x^2 - 2*x + 1 = 0  ↔  (x-1)^2 = 0  → SAT (x=1)
@@ -327,6 +340,19 @@ fn test_nra_polynomial_x2_minus_2x_plus_1_sat() {
 // Push / pop tests
 // ─────────────────────────────────────────────────────────────────────────────
 
+// The one QF_NIA test that needs `nlsat`, and it is worth saying why, since
+// every other QF_NIA test in this file passes without it.
+//
+// The level-2 step asserts `x*x = 4 ∧ x < 0 ∧ x > 0` is UNSAT, and the comment
+// inside it is right that the contradiction is purely linear. What it needs the
+// dispatcher for is *ordering*: `check_core` consults its
+// `arith_atoms_need_theory` honesty gate before the CDCL(T) search, and with
+// `x*x = 4` in scope and no theory able to take it, that gate answers `Unknown`
+// — correctly, since nothing has proven anything yet. Only `dispatch_nl_solver`
+// runs ahead of the gate, so without it the linear conflict is never reached.
+// The verdict is conceded, never wrong; the OFF build's version of this
+// sequence is pinned in `oxiz-solver/tests/nlsat_feature_gate.rs`.
+#[cfg(feature = "nlsat")]
 #[test]
 fn test_nia_push_pop_backtrack() {
     let mut ctx = Context::new();

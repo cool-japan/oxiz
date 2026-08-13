@@ -140,7 +140,7 @@ impl super::Solver {
             arith: _,           // SCOPED: reset by `rebase_theory_state`
             bv: _,              // SCOPED: reset by `rebase_theory_state`
             derived_reasons: _, // SCOPED: pruned with the theory scopes it explains, cleared by `rebase_theory_state` with the three solvers
-            #[cfg(feature = "std")]
+            #[cfg(feature = "nlsat")]
                 nlsat: _, // SCOPED: NlsatTheory::push/pop
             mbqi: _,            // SNAPSHOT: num_mbqi_quantifiers
             ematch_engine: _,   // SNAPSHOT: num_ematch_quantifiers

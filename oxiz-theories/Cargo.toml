@@ -26,16 +26,24 @@ portable-atomic-util = { workspace = true }
 
 # Optional (std-only)
 egg = { workspace = true, optional = true }
+# Behind the `nlsat` feature (see [features]); named with `dep:` there, so this
+# line does not also create an implicit `oxiz-nlsat` feature.
 oxiz-nlsat = { workspace = true, optional = true }
 
 [features]
-default = ["std"]
+# `nlsat` is on by default, so a consumer that says nothing keeps exactly the
+# theory set it had before this feature existed. It is separated out of `std`
+# rather than folded into it because the two answer different questions: `std`
+# is "does this target have an allocator and an OS", `nlsat` is "does this
+# build need to decide nonlinear arithmetic". A size-sensitive consumer -- the
+# wasm32 case this was cut for -- wants the first without the second, and
+# writes `default-features = false, features = ["std"]`.
+default = ["std", "nlsat"]
 std = [
     "oxiz-core/std",
     "oxiz-sat/std",
     "oxiz-math/std",
     "egg",
-    "oxiz-nlsat",
     "tracing",
     "tracing/std",
     "num-rational/std",
@@ -44,6 +52,22 @@ std = [
     "rustc-hash/std",
     "oxiz-time/std",
 ]
+# Nonlinear real/integer arithmetic (QF_NRA / QF_NIA / QF_NIRA), via the
+# `oxiz-nlsat` cell-decomposition core. Implies `std`: `crate::nlsat` is built
+# on `crate::nl_eval` and the `oxiz-nlsat` crate, both of which are std-only.
+#
+# Turning it OFF removes the `crate::nlsat` module entirely. Nothing silently
+# degrades: `oxiz-solver` compiles out its dispatch into this module and its
+# existing honesty gate answers `unknown` for a goal whose nonlinear atoms no
+# theory could take, exactly as it already does for String and FP atoms it
+# cannot decide. The search-based procedures (`nl_repair_search`,
+# `nl_ground_reduce`) and the exact evaluator (`nl_eval`) do *not* depend on
+# `oxiz-nlsat` and stay available either way -- they can only turn `unknown`
+# into a re-verified `sat`, never manufacture a verdict. `oxiz-solver` gates
+# them on QF_NIA, which is why that logic answers identically with the feature
+# on or off and QF_NRA is where the completeness is actually spent; both halves
+# are measured in `oxiz-solver/tests/nlsat_feature_gate.rs`.
+nlsat = ["dep:oxiz-nlsat", "std"]
 profiling = ["std", "oxiz-core/profiling", "oxiz-sat/profiling"]
 
 [dev-dependencies]

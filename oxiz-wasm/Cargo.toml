@@ -20,11 +20,14 @@ wasm-opt = false
 
 [features]
 # full: all features enabled — default for development / server-side builds
-full = ["proof", "interpolation", "spacer", "ml_branching", "wasm_bench"]
+full = ["proof", "interpolation", "spacer", "ml_branching", "wasm_bench", "nlsat"]
 # minimal: size-optimized build — excludes proof/interpolation/spacer/ml/benchmarks
-# Expected size reduction: ~35–45% vs full (removes proof DAG, Spacer PDR engine,
-# Craig interpolation infrastructure, MBQI-ML heuristics, and wasm bench harness).
-# Core solver, all 19 theory solvers, and SMT-LIB2 parser are always included.
+# and, as of 0.3.3, the nonlinear (QF_NRA/QF_NIA) solver.
+# Read the size note in `src/feature_registry.rs` before quoting a reduction:
+# `nlsat` is the only one of the six that gates any code today, and it is the
+# only one with a measured number behind it.
+# The core solver, the linear theory solvers and the SMT-LIB2 parser are always
+# included.
 minimal = []
 
 # Individual optional feature flags (used by `full` and selectable à-la-carte)
@@ -33,6 +36,13 @@ interpolation = []   # Craig interpolation
 spacer        = []   # Spacer PDR (property-directed reachability)
 ml_branching  = []   # Machine-learning guided branching heuristics
 wasm_bench    = []   # WASM-internal benchmark harness
+# Nonlinear real/integer arithmetic, via the `oxiz-nlsat` crate. Listed in
+# `full` and therefore in `default`, so an existing consumer's build is
+# unchanged. Leaving it out — `--no-default-features --features minimal` —
+# drops `oxiz-nlsat` from the dependency graph entirely; QF_NRA nonlinear goals
+# then answer `unknown` instead of being decided, and QF_NIA is unaffected. See
+# `oxiz-solver`'s own `nlsat` entry for the full account of what that costs.
+nlsat         = ["oxiz-solver/nlsat"]
 
 # Default: full feature set
 default = ["full"]
@@ -42,6 +52,10 @@ crate-type = ["cdylib"]
 
 [dependencies]
 oxiz-core = { workspace = true, features = ["std"] }
+# `nlsat` is NOT named here: this is the one crate in the workspace that
+# forwards it as a feature of its own (see `[features]` above), because a
+# browser bundle is exactly the consumer that may want to drop it. `full` — and
+# so `default` — turns it back on, so nothing about an existing build changes.
 oxiz-solver = { workspace = true, features = ["std"] }
 wasm-bindgen = { workspace = true }
 wasm-bindgen-futures.workspace = true
