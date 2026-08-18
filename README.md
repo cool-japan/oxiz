@@ -41,7 +41,7 @@ See [CHANGELOG.md](CHANGELOG.md#032---2026-08-05) for the rest (`define-fun` arg
 ### New capability
 A CaDiCaL-style SAT search loop ships on by default: VMTF branching is now actually wired into decisions (previously dead code) alongside VSIDS/CHB/LRB, with focused/stable mode alternation, restart-trail reuse, and phase-based rephasing. An opt-in SAT inprocessing toolkit (failed-literal probing, bounded variable elimination, equivalent-literal substitution, gate-congruence closure) ships alongside online LRAT proof production and a new pure-Rust LRAT checker. QF_NIA/QF_NRA nonlinear solving is on by default: an exact `BigRational` evaluator double-checks every candidate model, with stochastic model-repair search and array/UF grammar reduction as fallbacks when the core dispatcher can't decide.
 
-Issue #25 itself stays open: this release closes the specific bugs it led to, not the broader claim, since plain QF_UF still isn't part of the 168-benchmark parity suite (see "Z3 Parity" below).
+Issue #25 raised a broader concern than the specific bugs above: plain QF_UF still isn't part of the 168-benchmark parity suite, so that gap — and the harness work needed to close it — is tracked in TODO.md rather than in the issue tracker (see "Z3 Parity" below).
 
 ## What's New in 0.3.1 (2026-07-31)
 
