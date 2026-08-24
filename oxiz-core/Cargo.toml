@@ -33,18 +33,31 @@ oxiz-time = { workspace = true }
 lasso = { workspace = true, optional = true, features = ["multi-threaded"] }
 bumpalo = { workspace = true, features = ["collections"], optional = true }
 winnow = { workspace = true, optional = true }
+# Behind the `scripting` feature (see [features]); named with `dep:` there, so
+# this line does not also create an implicit `rhai` feature. An implicit one
+# would be a trap rather than a courtesy: `features = ["rhai"]` would pull the
+# crate -- and the MPL-2.0 `smartstring` it depends on -- into the licence
+# graph while `ScriptableTactic` stayed compiled out, which is the exact
+# combination this feature exists to make impossible.
 rhai = { workspace = true, features = ["sync"], optional = true }
 wide = { workspace = true, optional = true }
 rayon = { workspace = true, optional = true }
 parking_lot = { workspace = true, optional = true }
 
 [features]
-default = ["std"]
+# `scripting` is on by default, so a consumer that says nothing keeps exactly
+# the API surface it had before this feature existed. It is separated out of
+# `std` rather than folded into it because the two answer different questions:
+# `std` is "does this target have an allocator and an OS", `scripting` is "does
+# this build let users write tactics in Rhai". A consumer that only encodes
+# goals and calls `check-sat` -- the QF_LIA case this was cut for -- wants the
+# first without the second, and writes
+# `default-features = false, features = ["std"]`.
+default = ["std", "scripting"]
 std = [
     "lasso",
     "bumpalo",
     "winnow",
-    "rhai",
     "wide",
     "rayon",
     "parking_lot",
@@ -60,6 +73,19 @@ std = [
     "oxiz-math/std",
     "oxiz-time/std",
 ]
+# User-defined tactics written in Rhai, i.e. `tactic::ScriptableTactic` and
+# nothing else -- it is the only item in the crate that touches the engine.
+# Implies `std`: the whole `tactic` module is std-only.
+#
+# Turning it OFF removes that one type; every other tactic, probe and
+# combinator is untouched, and no solving path degrades, because nothing in the
+# workspace constructs a `ScriptableTactic` (a script string has to come from
+# the consumer). What it buys is a smaller dependency graph and, for anyone who
+# vets licences, a **permissive-only** one: `rhai` reaches `smartstring`, which
+# is MPL-2.0, and that is the only copyleft crate OxiZ has ever pulled in. A
+# downstream whose `cargo deny check licenses` allows Apache/MIT/BSD/ISC/Zlib
+# only writes `default-features = false, features = ["std"]` and passes.
+scripting = ["dep:rhai", "std"]
 arena = ["bumpalo"]
 profiling = ["std"]
 property-tests = []

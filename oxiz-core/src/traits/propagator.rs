@@ -237,7 +237,11 @@ impl PropagatorManager {
     /// Returns the combined propagation result.
     pub fn propagate_all(&mut self) -> PropagationResult {
         // Sort queue by priority (highest first)
-        self.queue.sort_by_key(|item| std::cmp::Reverse(item.0));
+        // `::core::`, not `std::`: this module is compiled on `no_std` too, and
+        // `Reverse` lives in `core::cmp` on every configuration. Fully
+        // qualified because `crate::tactic::core` makes a bare `core` path
+        // ambiguous to a reader.
+        self.queue.sort_by_key(|item| ::core::cmp::Reverse(item.0));
 
         let mut result = PropagationResult::empty();
 

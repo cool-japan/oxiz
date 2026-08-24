@@ -55,10 +55,14 @@ pub use pb2bv::{Pb2BvTactic, StatelessPb2BvTactic};
 pub use propagate::{PropagateValuesTactic, StatelessPropagateValuesTactic};
 pub use simplify::{SimplifyTactic, StatelessSimplifyTactic};
 pub use solve_eqs::{
-    CondTactic, FailIfTactic, FourierMotzkinTactic, NnfTactic, ScriptableTactic, SolveEqsTactic,
-    StatelessCnfTactic, StatelessFourierMotzkinTactic, StatelessNnfTactic, StatelessSolveEqsTactic,
-    TseitinCnfTactic, WhenTactic,
+    CondTactic, FailIfTactic, FourierMotzkinTactic, NnfTactic, SolveEqsTactic, StatelessCnfTactic,
+    StatelessFourierMotzkinTactic, StatelessNnfTactic, StatelessSolveEqsTactic, TseitinCnfTactic,
+    WhenTactic,
 };
+// Split out of the list above because it is the only item in the crate that
+// reaches `rhai`; see the `scripting` feature in oxiz-core/Cargo.toml.
+#[cfg(feature = "scripting")]
+pub use solve_eqs::ScriptableTactic;
 pub use split::{SplitTactic, StatelessSplitTactic};
 
 // Re-export probe types
@@ -92,7 +96,12 @@ pub use lia2card::{
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{TermId, TermKind, TermManager};
+    use crate::ast::{TermKind, TermManager};
+    // Only the `ScriptableTactic` tests build goals out of raw ids; the rest
+    // go through a `TermManager`. Gated with them so a `--no-default-features
+    // --features std` test build stays warning-free.
+    #[cfg(feature = "scripting")]
+    use crate::ast::TermId;
     use crate::error::Result;
 
     #[test]
@@ -1212,6 +1221,7 @@ mod tests {
     // ========================================================================
 
     #[test]
+    #[cfg(feature = "scripting")]
     fn test_scriptable_tactic_basic() {
         let script = r#"
             #{result: "unchanged", assertions: assertions}
@@ -1231,6 +1241,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "scripting")]
     fn test_scriptable_tactic_return_sat() {
         let script = r#"
             #{result: "sat"}
@@ -1248,6 +1259,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "scripting")]
     fn test_scriptable_tactic_return_unsat() {
         let script = r#"
             #{result: "unsat"}
@@ -1268,6 +1280,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "scripting")]
     fn test_scriptable_tactic_return_unknown() {
         let script = r#"
             #{result: "unknown"}
@@ -1288,6 +1301,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "scripting")]
     fn test_scriptable_tactic_modify_assertions() {
         let script = r#"
             // Filter out assertion with ID 2
@@ -1324,6 +1338,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "scripting")]
     fn test_scriptable_tactic_compilation_error() {
         let script = r#"
             // Invalid Rhai syntax
@@ -1341,6 +1356,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "scripting")]
     fn test_scriptable_tactic_access_assertions() {
         let script = r#"
             // Check assertion count
@@ -1375,6 +1391,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "scripting")]
     fn test_scriptable_tactic_complex_logic() {
         let script = r#"
             // Remove duplicate assertion IDs

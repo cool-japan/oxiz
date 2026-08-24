@@ -1226,12 +1226,20 @@ impl Tactic for StatelessFourierMotzkinTactic {
 // ============================================================================
 // Scriptable Tactic (Rhai-based)
 // ============================================================================
+//
+// Everything from here to the end of `impl Tactic for ScriptableTactic` is
+// behind the `scripting` Cargo feature (ON by default) -- it is the only code
+// in the crate that reaches `rhai`. See oxiz-core/Cargo.toml for why that is
+// its own feature rather than part of `std`.
 
 /// A tactic that executes user-defined Rhai scripts
 ///
 /// This allows users to create custom simplification strategies by writing
 /// Rhai scripts. The scripts have access to goal assertions and can return
 /// simplified goals or solve results.
+///
+/// Requires the `scripting` Cargo feature (enabled by default). With it off
+/// this type does not exist; every other tactic in this module is unaffected.
 ///
 /// # Example Script
 ///
@@ -1246,6 +1254,7 @@ impl Tactic for StatelessFourierMotzkinTactic {
 ///     #{result: "unchanged", assertions: assertions}
 /// }
 /// ```
+#[cfg(feature = "scripting")]
 #[derive(Debug)]
 pub struct ScriptableTactic {
     engine: rhai::Engine,
@@ -1254,6 +1263,7 @@ pub struct ScriptableTactic {
     description: String,
 }
 
+#[cfg(feature = "scripting")]
 impl ScriptableTactic {
     /// Create a new scriptable tactic with the given Rhai script
     ///
@@ -1366,6 +1376,7 @@ impl ScriptableTactic {
     }
 }
 
+#[cfg(feature = "scripting")]
 impl Tactic for ScriptableTactic {
     fn name(&self) -> &str {
         &self.name
