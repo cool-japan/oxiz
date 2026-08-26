@@ -2,6 +2,55 @@
 //!
 //! This module provides tools for visualizing proof trees in various formats,
 //! including DOT (Graphviz), ASCII art, and structured text.
+//!
+//! # Cost of each format
+//!
+//! Every renderer here walks the proof with an explicit heap stack, so none of
+//! them is bounded by the call stack. What they differ in is how many bytes
+//! they emit and how much each pending work item retains, as a function of the
+//! proof's depth `d`:
+//!
+//! | Format | Output bytes | Retained per pending frame |
+//! |---|---|---|
+//! | [`VisualizationFormat::Dot`] | Theta(nodes + edges) | O(1) |
+//! | [`VisualizationFormat::IndentedText`] | Theta(d^2) | O(1) |
+//! | [`VisualizationFormat::Json`] | Theta(d^2) | O(1) |
+//! | [`VisualizationFormat::AsciiTree`] | Theta(d^2) | O(d) |
+//!
+//! The right-hand column is per *frame*; the live heap is that times the stack
+//! height. Three of the walks stack one frame per node whose turn has not come
+//! yet, so their height is the number of un-rendered siblings along the current
+//! path — Theta(1) on a chain, Theta(d) on a binary tree of depth `d`, O(nodes)
+//! in general. [`VisualizationFormat::Json`] also stacks the closing `}` and
+//! `]` of every ancestor still open, so its height is Theta(d) in every shape.
+//!
+//! `AsciiTree` is the one format whose live heap is superlinear in the depth:
+//! on a branching proof it holds Theta(d) frames each owning its own O(d)
+//! prefix, i.e. Theta(d^2) live. The other three hold O(1) per frame in every
+//! shape, so `Json` is Theta(d) live and the other two are O(nodes).
+//!
+//! The quadratic *output* of the three tree formats is inherent to
+//! indent-by-depth rendering: a node `d` levels down prefixes every line it
+//! emits with `2*d` characters. That is output volume only — a caller
+//! streaming to a file or a pipe never holds it — and the only way to bound it
+//! is to cap the indent, which changes the rendered format. The cost is
+//! documented here rather than silently changed.
+//!
+//! `AsciiTree`'s extra live cost is not a plain indent and cannot be
+//! reconstructed from the depth: its prefix records, for each ancestor,
+//! whether that ancestor was a last child (`" "` vs `"\u{2502}"`), so each
+//! stacked frame owns its own grown copy. `Json` used to be quadratic-live for
+//! a different and avoidable reason — its delimiters were pre-rendered
+//! `String`s stacked below the child, which made even a *chain* quadratic; see
+//! `JsonFrame`.
+//!
+//! [`VisualizationFormat::Dot`] additionally keeps a `visited` set of every
+//! node it has emitted, so it is Theta(nodes) live regardless of shape — that
+//! set is what lets it render the DAG once instead of re-expanding it.
+//!
+//! On a heavily *shared* DAG the three tree formats repeat each shared premise
+//! once per path reaching it, which is exponential in the worst case.
+//! [`VisualizationFormat::Dot`] renders the DAG itself and does not.
 
 use crate::proof::{Proof, ProofNode, ProofNodeId, ProofStep};
 use std::collections::HashSet;
@@ -21,8 +70,43 @@ pub enum VisualizationFormat {
     Json,
 }
 
+/// A structural delimiter line emitted by the iterative JSON writer.
+///
+/// Only the delimiter *token* is stored; the indentation is rendered at pop
+/// time from the frame's indent level (see [`JsonFrame::Delim`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum JsonDelim {
+    /// `[`-array terminator closing a `"premises"` list.
+    CloseBracket,
+    /// Premise object terminator followed by another premise.
+    CloseBraceComma,
+    /// Premise object terminator for the last premise in a list.
+    CloseBrace,
+    /// Premise object opener.
+    OpenBrace,
+}
+
+impl JsonDelim {
+    /// The delimiter token, without any indentation.
+    fn token(self) -> &'static str {
+        match self {
+            Self::CloseBracket => "]",
+            Self::CloseBraceComma => "},",
+            Self::CloseBrace => "}",
+            Self::OpenBrace => "{",
+        }
+    }
+}
+
 /// Work item for the iterative JSON writer.
-#[derive(Debug)]
+///
+/// Every variant is `Copy` and fixed-size on purpose: a frame must not own an
+/// indent-bearing `String`. The delimiters used to be materialized eagerly
+/// with the full indent baked in and pushed *below* the child frame, so a
+/// chain of depth d kept three O(d)-length strings alive per ancestor level —
+/// Theta(d^2) live heap (~14 GB at depth 60,000), which no output sink could
+/// avoid. Storing `(indent, kind)` makes the retained stack Theta(d).
+#[derive(Debug, Clone, Copy)]
 enum JsonFrame {
     /// Render the node's object body at the given indent/depth.
     Node {
@@ -33,9 +117,19 @@ enum JsonFrame {
         /// Distance from the visualization root (for `max_depth`).
         depth: usize,
     },
-    /// Emit a pre-rendered structural line (brace, bracket, separator).
-    Literal(String),
+    /// Emit a structural line (brace, bracket, separator) at `indent`.
+    Delim {
+        /// Indentation level for the delimiter token.
+        indent: usize,
+        /// Which delimiter to emit.
+        kind: JsonDelim,
+    },
 }
+
+/// A `JsonFrame` that owned a `String` would reintroduce the Theta(depth^2)
+/// live heap described above, and an owned field is exactly what makes a frame
+/// need dropping. Pinned here so the regression cannot compile.
+const _: () = assert!(!std::mem::needs_drop::<JsonFrame>());
 
 /// Proof visualizer.
 #[derive(Debug)]
@@ -182,6 +276,11 @@ impl ProofVisualizer {
     /// printed once under each of them, exactly as the recursive version did.
     /// On a heavily shared proof DAG that output is exponentially large — use
     /// [`VisualizationFormat::Dot`], which renders the DAG itself, instead.
+    ///
+    /// This is also the most expensive format on a *deep* proof: Theta(depth^2)
+    /// output bytes always, and Theta(depth^2) live heap once the proof
+    /// branches (see the module-level cost table). Bounding either one would
+    /// change the rendered tree, so the cost is documented rather than capped.
     fn visualize_ascii_tree<W: Write>(&self, proof: &Proof, writer: &mut W) -> io::Result<()> {
         if let Some(root) = proof.root() {
             self.write_ascii_node(proof, root, writer, String::new(), true, 0)?;
@@ -190,6 +289,18 @@ impl ProofVisualizer {
     }
 
     /// Iterative (explicit heap stack) ASCII-tree rendering.
+    ///
+    /// Each stacked frame owns the box-drawing prefix for its own line, grown
+    /// by two characters per level. A chain pops and pushes one frame at a time
+    /// so the stack stays a single O(d) prefix, but a branching proof of depth
+    /// `d` keeps Theta(d) frames alive at once and so holds Theta(d^2) bytes.
+    ///
+    /// Unlike the JSON writer's indents, this prefix is *not* a function of the
+    /// depth alone — it records for every ancestor whether that ancestor was a
+    /// last child — so it cannot be re-derived at pop time from an integer.
+    /// Deliberately left as-is: the alternative is to stack the ancestor
+    /// `is_last` bits (a bitset, O(d) total rather than O(d) per frame) and
+    /// rebuild the prefix per line, trading live heap for a slower render.
     fn write_ascii_node<W: Write>(
         &self,
         proof: &Proof,
@@ -252,6 +363,11 @@ impl ProofVisualizer {
     }
 
     /// Iterative (explicit heap stack) indented-text rendering.
+    ///
+    /// A frame carries only its indent *level*, so it is O(1) however deep it
+    /// sits — but the indent itself is re-rendered per line, which makes the
+    /// output Theta(depth^2) bytes. That is volume a streaming caller never
+    /// retains, and capping the indent would change the format, so it stands.
     fn write_indented_node<W: Write>(
         &self,
         proof: &Proof,
@@ -316,6 +432,13 @@ impl ProofVisualizer {
     /// `max_depth` becomes `{"truncated": true}`, and the trailing-comma
     /// bookkeeping counts only the premises actually emitted, so the output is
     /// always parseable.
+    ///
+    /// The stack keeps the closing `}` and `]` of every ancestor still open, so
+    /// it is Theta(depth) frames deep even on a chain. Each frame is O(1) —
+    /// a delimiter carries an indent *level*, not a rendered indent string (see
+    /// [`JsonDelim`]) — so the live heap is Theta(depth), not Theta(depth^2).
+    /// The output remains Theta(depth^2) bytes, as for every indent-by-depth
+    /// format here.
     fn write_json_node<W: Write>(
         &self,
         proof: &Proof,
@@ -332,8 +455,9 @@ impl ProofVisualizer {
 
         while let Some(frame) = stack.pop() {
             let (current, current_indent, current_depth) = match frame {
-                JsonFrame::Literal(line) => {
-                    writeln!(writer, "{}", line)?;
+                JsonFrame::Delim { indent, kind } => {
+                    // The indent is rendered here, not stored in the frame.
+                    writeln!(writer, "{}{}", "  ".repeat(indent), kind.token())?;
                     continue;
                 }
                 JsonFrame::Node { id, indent, depth } => (id, indent, depth),
@@ -393,20 +517,29 @@ impl ProofVisualizer {
                     if !present.is_empty() {
                         writeln!(writer, "{}\"premises\": [", indent_str)?;
                         let last_index = present.len().saturating_sub(1);
-                        stack.push(JsonFrame::Literal(format!("{}]", indent_str)));
+                        stack.push(JsonFrame::Delim {
+                            indent: current_indent,
+                            kind: JsonDelim::CloseBracket,
+                        });
                         for (i, &premise_id) in present.iter().enumerate().rev() {
                             let close = if i < last_index {
-                                format!("{}  }},", indent_str)
+                                JsonDelim::CloseBraceComma
                             } else {
-                                format!("{}  }}", indent_str)
+                                JsonDelim::CloseBrace
                             };
-                            stack.push(JsonFrame::Literal(close));
+                            stack.push(JsonFrame::Delim {
+                                indent: current_indent + 1,
+                                kind: close,
+                            });
                             stack.push(JsonFrame::Node {
                                 id: premise_id,
                                 indent: current_indent + 2,
                                 depth: current_depth + 1,
                             });
-                            stack.push(JsonFrame::Literal(format!("{}  {{", indent_str)));
+                            stack.push(JsonFrame::Delim {
+                                indent: current_indent + 1,
+                                kind: JsonDelim::OpenBrace,
+                            });
                         }
                     }
                 }
@@ -734,5 +867,316 @@ mod tests {
         let formatted = viz.format_conclusion(&long);
         assert_eq!(formatted, long);
         assert!(!formatted.contains("..."));
+    }
+
+    /// Render `proof` as JSON into a `String`, for the byte-exact goldens.
+    fn render_json(proof: &Proof, viz: &ProofVisualizer) -> String {
+        let mut out = Vec::new();
+        viz.visualize(proof, VisualizationFormat::Json, &mut out)
+            .expect("test operation should succeed");
+        String::from_utf8(out).expect("json output should be utf-8")
+    }
+
+    /// A three-level proof with a two-premise node at two different indents,
+    /// so every delimiter the writer can emit (`{`, `}`, `},`, `]`) appears at
+    /// more than one indent level.
+    fn nested_proof() -> Proof {
+        let mut proof = Proof::new();
+        let a = proof.add_axiom("a");
+        let b = proof.add_axiom("b");
+        let c = proof.add_axiom("c");
+        let ab = proof.add_inference("and", vec![a, b], "(and a b)");
+        let abc = proof.add_inference("and", vec![ab, c], "(and (and a b) c)");
+        let _root = proof.add_inference("not", vec![abc], "(not (and (and a b) c))");
+        proof
+    }
+
+    /// Byte-exact pin of the JSON rendering.
+    ///
+    /// The delimiter frames used to be `String`s with the indent already baked
+    /// in; they now carry an indent *level* rendered at pop time. The whole
+    /// point of that change is that it is invisible in the output, and a
+    /// `contains`-style assertion would not notice an off-by-one in the indent
+    /// of a `}` or a `]`. Hence the full text.
+    #[test]
+    fn test_visualize_json_nested_output_is_byte_exact() {
+        let expected = r#"{
+  "type": "proof",
+  "node_count": 6,
+  "depth": 3,
+  "root": {
+    "id": "p5",
+    "type": "inference",
+    "rule": "not",
+    "conclusion": "(not (and (and a b) c))",
+    "premises": [
+      {
+        "id": "p4",
+        "type": "inference",
+        "rule": "and",
+        "conclusion": "(and (and a b) c)",
+        "premises": [
+          {
+            "id": "p3",
+            "type": "inference",
+            "rule": "and",
+            "conclusion": "(and a b)",
+            "premises": [
+              {
+                "id": "p0",
+                "type": "axiom",
+                "conclusion": "a"
+              },
+              {
+                "id": "p1",
+                "type": "axiom",
+                "conclusion": "b"
+              }
+            ]
+          },
+          {
+            "id": "p2",
+            "type": "axiom",
+            "conclusion": "c"
+          }
+        ]
+      }
+    ]
+  }
+}
+"#;
+        assert_eq!(
+            render_json(&nested_proof(), &ProofVisualizer::new()),
+            expected
+        );
+    }
+
+    /// Byte-exact pin of the `max_depth` path: the truncation marker replaces
+    /// the node body but the surrounding braces and bracket are still emitted,
+    /// at the indents the untruncated node would have used.
+    #[test]
+    fn test_visualize_json_truncated_output_is_byte_exact() {
+        let mut proof = Proof::new();
+        let mut current = proof.add_axiom("p0");
+        for level in 1..=5 {
+            current = proof.add_inference("step", vec![current], format!("p{level}"));
+        }
+
+        let expected = r#"{
+  "type": "proof",
+  "node_count": 6,
+  "depth": 5,
+  "root": {
+    "id": "p5",
+    "type": "inference",
+    "rule": "step",
+    "conclusion": "p5",
+    "premises": [
+      {
+        "id": "p4",
+        "type": "inference",
+        "rule": "step",
+        "conclusion": "p4",
+        "premises": [
+          {
+            "truncated": true
+          }
+        ]
+      }
+    ]
+  }
+}
+"#;
+        assert_eq!(
+            render_json(&proof, &ProofVisualizer::new().with_max_depth(2)),
+            expected
+        );
+    }
+
+    /// Byte-exact pin of an inference with no premises at all: no `"premises"`
+    /// key and therefore none of the delimiter frames.
+    ///
+    /// Note the trailing comma after `"conclusion"`, which makes this
+    /// particular output *not* valid JSON. That is a pre-existing defect of the
+    /// zero-premise case (the conclusion line is written with a comma on the
+    /// assumption that a `"premises"` key follows); it is pinned here as
+    /// current behaviour, not endorsed.
+    #[test]
+    fn test_visualize_json_inference_without_premises_is_byte_exact() {
+        let mut proof = Proof::new();
+        let _ = proof.add_inference("assume", vec![], "nothing");
+
+        let expected = r#"{
+  "type": "proof",
+  "node_count": 1,
+  "depth": 1,
+  "root": {
+    "id": "p0",
+    "type": "inference",
+    "rule": "assume",
+    "conclusion": "nothing",
+  }
+}
+"#;
+        assert_eq!(render_json(&proof, &ProofVisualizer::new()), expected);
+    }
+
+    /// Byte-exact pin of the dangling-premise path: ids that resolve to no node
+    /// are dropped, and the comma bookkeeping runs over the surviving premises
+    /// only, so the single survivor gets a plain `}` rather than a `},`.
+    #[test]
+    fn test_visualize_json_dangling_premises_are_omitted_byte_exact() {
+        let mut proof = Proof::new();
+        let k = proof.add_axiom("k");
+        let _ = proof.add_inference("mix", vec![ProofNodeId(999), k, ProofNodeId(998)], "mixed");
+
+        let expected = r#"{
+  "type": "proof",
+  "node_count": 2,
+  "depth": 1,
+  "root": {
+    "id": "p1",
+    "type": "inference",
+    "rule": "mix",
+    "conclusion": "mixed",
+    "premises": [
+      {
+        "id": "p0",
+        "type": "axiom",
+        "conclusion": "k"
+      }
+    ]
+  }
+}
+"#;
+        assert_eq!(render_json(&proof, &ProofVisualizer::new()), expected);
+    }
+
+    /// A `Write` sink that keeps counters instead of bytes.
+    ///
+    /// The deep-rendering test below must not collect its output into a
+    /// `String` or a `Vec`: the JSON output is Theta(depth^2) bytes by design,
+    /// so buffering it would measure output volume rather than the live heap
+    /// the test is actually about (and would cost gigabytes).
+    #[derive(Debug, Default)]
+    struct CountingSink {
+        /// Total bytes written.
+        bytes: usize,
+        /// Number of `\n` bytes written.
+        lines: usize,
+    }
+
+    impl Write for CountingSink {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.bytes += buf.len();
+            self.lines += buf.iter().filter(|&&b| b == b'\n').count();
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// A single-premise chain of `depth` inferences over one axiom, with
+    /// fixed-width conclusions so the rendered size is a closed form of the
+    /// depth alone.
+    fn fixed_width_chain(depth: usize) -> Proof {
+        let mut proof = Proof::new();
+        let mut current = proof.add_axiom("c000000");
+        for level in 1..=depth {
+            current = proof.add_inference("step", vec![current], format!("c{level:06}"));
+        }
+        proof
+    }
+
+    /// Exact (bytes, lines) of `fixed_width_chain(depth)` rendered as JSON with
+    /// ids suppressed.
+    ///
+    /// Derived from the format, not from a recording, so it is sensitive to the
+    /// indent level of every line — including the delimiter lines, whose indent
+    /// is now computed at pop time. The `14 * indent` term is what a uniform
+    /// off-by-one in a delimiter's indent would perturb.
+    fn expected_chain_json_size(depth: usize) -> (usize, usize) {
+        // Header emitted by `visualize_json` before the root node body.
+        let header = format!(
+            "{{\n  \"type\": \"proof\",\n  \"node_count\": {},\n  \"depth\": {},\n  \"root\": {{\n",
+            depth + 1,
+            depth
+        )
+        .len();
+        // Closing `  }` and `}`.
+        let footer = "  }\n}\n".len();
+
+        let mut bytes = header + footer;
+        let mut lines = 5 + 2;
+
+        for level in 0..depth {
+            // Inference node: 5 lines at this indent (`type`, `rule`,
+            // `conclusion`, `"premises": [`, `]`) and 2 at one deeper (`{`,
+            // `}`), for 14 indent characters per level plus 82 fixed bytes.
+            let indent = 2 + 2 * level;
+            bytes += 14 * indent + 86;
+            lines += 7;
+        }
+
+        // Axiom leaf: `type` and `conclusion` only, no trailing comma.
+        let leaf_indent = 2 + 2 * depth;
+        bytes += 4 * leaf_indent + 41;
+        lines += 2;
+
+        (bytes, lines)
+    }
+
+    /// Cross-check of [`expected_chain_json_size`] against real renderings, so
+    /// the deep test below is pinned to the format rather than to arithmetic
+    /// that could drift with it.
+    #[test]
+    fn test_chain_json_size_formula_matches_rendering() {
+        for depth in 1..=6 {
+            let proof = fixed_width_chain(depth);
+            let rendered = render_json(&proof, &ProofVisualizer::new().with_show_ids(false));
+            assert_eq!(
+                (rendered.len(), rendered.lines().count()),
+                expected_chain_json_size(depth),
+                "size formula disagrees with the rendering at depth {depth}:\n{rendered}"
+            );
+        }
+    }
+
+    /// Regression: the JSON writer must retain only Theta(depth), not
+    /// Theta(depth^2).
+    ///
+    /// The closing `]` / `}` / `},` and the opening `{` used to be built as
+    /// fully-indented `String`s and pushed *below* the child frame, so a chain
+    /// of depth d kept three O(d)-length strings alive per ancestor level —
+    /// about 6*d^2 bytes, or ~15 GB at depth 60,000. That is live heap no sink
+    /// can avoid, and it is what drove a 32 GB test process.
+    ///
+    /// The depth here is deliberately moderate. The *output* is inherently
+    /// Theta(depth^2) (about 1.4 GB at 10,000, streamed to the counting sink
+    /// and discarded), so a depth of 60,000 would take tens of gigabytes of
+    /// formatting work no matter how little is retained — the quadratic that
+    /// remains is documented at module level, not tested. What this test pins
+    /// is that the render completes, and that every line — delimiters included
+    /// — lands at exactly the indent the format calls for even 10,000 levels
+    /// down. The absence of an owning frame is pinned separately, at compile
+    /// time, by the `needs_drop` assertion on `JsonFrame`.
+    #[test]
+    fn test_visualize_json_deep_chain_is_linear_in_live_heap() {
+        const DEPTH: usize = 10_000;
+
+        let proof = fixed_width_chain(DEPTH);
+        let mut sink = CountingSink::default();
+        ProofVisualizer::new()
+            .with_show_ids(false)
+            .visualize(&proof, VisualizationFormat::Json, &mut sink)
+            .expect("test operation should succeed");
+
+        assert_eq!(
+            (sink.bytes, sink.lines),
+            expected_chain_json_size(DEPTH),
+            "deep rendering does not match the format's closed-form size"
+        );
     }
 }

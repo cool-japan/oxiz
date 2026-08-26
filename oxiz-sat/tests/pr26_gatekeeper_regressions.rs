@@ -29,6 +29,11 @@ use oxiz_sat::{Lit, Solver, SolverConfig, SolverError, SolverResult, Var};
 fn els_enabled_solver() -> Solver {
     Solver::with_config(SolverConfig {
         enable_equiv_substitution: true,
+        // The lucky phase would answer `Sat` on this small instance
+        // before equivalent-literal substitution ever ran, leaving the mechanism
+        // under test with nothing to show (see
+        // `SolverConfig::enable_lucky_phase`).
+        enable_lucky_phase: false,
         ..SolverConfig::default()
     })
 }
@@ -36,6 +41,11 @@ fn els_enabled_solver() -> Solver {
 fn bve_enabled_solver() -> Solver {
     Solver::with_config(SolverConfig {
         enable_bve: true,
+        // The lucky phase would answer `Sat` on this small instance
+        // before BVE ever ran, leaving the mechanism
+        // under test with nothing to show (see
+        // `SolverConfig::enable_lucky_phase`).
+        enable_lucky_phase: false,
         ..SolverConfig::default()
     })
 }

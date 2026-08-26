@@ -6,8 +6,31 @@
 //! - Vivification (clause strengthening)
 //! - Blocked clause elimination
 //! - Equivalent literal substitution
+//!
+//! # Standalone preprocessor — not the wired production path
+//!
+//! This module is self-contained down to its data model: it defines its *own*
+//! [`Lit`] (a signed `i32` in DIMACS convention), [`Var`], [`ClauseId`] and
+//! [`Clause`] types, none of which are the crate's
+//! [`crate::Lit`] / [`crate::Var`] / [`crate::clause::Clause`]. It therefore
+//! cannot be dropped into [`crate::Solver`] without a full translation layer
+//! in both directions, and its `bounded_variable_elimination` — like
+//! [`crate::preprocessing::variable_elimination`] — records no model
+//! reconstruction data, so a formula it eliminated variables from cannot have
+//! a model reported for it.
+//!
+//! What actually runs inside the solver:
+//! `Solver::bounded_variable_elimination` (`solver/bve.rs`) for variable
+//! elimination, `Preprocessor::subsumption_elimination` for subsumption,
+//! `Solver::self_subsuming_resolution` for strengthening, and
+//! `Solver::vivify_clauses` for vivification — all reached from
+//! `Solver::solve` / `Solver::inprocess`.
+//!
+//! Retained as a complete, dependency-free CNF preprocessing pipeline usable
+//! on a plain `Vec<Clause>` (for offline experiments and as a cross-check
+//! oracle), and exercised by this module's own tests.
 
-#![allow(missing_docs)] // Under development - documentation in progress
+#![allow(missing_docs)] // Standalone experimental pipeline, see the note above.
 #[allow(unused_imports)]
 use crate::prelude::*;
 

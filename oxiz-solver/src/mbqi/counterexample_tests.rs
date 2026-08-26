@@ -408,6 +408,9 @@ fn evaluate_deep_implies_chain_returns_on_small_stack() {
 /// level and no native frames.
 #[test]
 fn evaluate_deeply_nested_exists_returns_on_small_stack() {
+    // STACK-1MIB: deliberately 1 MiB, not swept to 128 KiB — depth is
+    // 2_000 (sub-10,000), well under the scaling threshold used elsewhere
+    // in this crate. See TODO.md "v0.3.2 backlog".
     std::thread::Builder::new()
         .stack_size(1 << 20)
         .spawn(|| {

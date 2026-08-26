@@ -1,6 +1,6 @@
 # OxiZ TODO
 
-Last Updated: 2026-08-05
+Last Updated: 2026-08-26
 
 ---
 
@@ -11,7 +11,7 @@ Last Updated: 2026-08-05
 
 > Original v0.2.0 announcement, retained verbatim for historical record: "OxiZ has achieved **100% correctness parity with Z3** across all 88 benchmark tests spanning 8 core SMT-LIB logics. This validates OxiZ as a **production-ready Pure Rust SMT solver**."
 
-**Superseded by the v0.2.4 honest re-audit.** The comparator that produced the table below counted an `Unknown` answer as a match (`bench/z3_parity/src/comparator.rs` — see the now-fixed `[x]` finding under "Production-Readiness Audit Findings" below), so "100%" was reachable by declining to answer rather than by matching Z3's verdict. The comparator used from 0.2.4 onward never counts `Unknown` as a match. The current, honestly-measured status lives in "Current Statistics" below, with the tracked per-environment snapshots `bench/z3_parity/results.<os>-<arch>.json` (currently `results.macos-aarch64.json` and `results.linux-x86_64.json`) as the authoritative source — every one of them must agree on the verdict of every benchmark (`oxiz_result`, `z3_result`, `match_status`), only the timings may differ between machines, and `bench/z3_parity/tests/cross_env_verdict_agreement.rs` enforces exactly that; the un-suffixed `results.json` is git-ignored local scratch output and is not evidence. As of this release, **168/168 Correct** on the extended 19-logic suite (the three quantified logics that were still below 100% at v0.3.0 — `UFLIA`/`UFLRA`/`AUFLIA` — are now all at 100%) and **88/88 Correct** on this original 8-logic/88-benchmark quickstart core, both under the honest comparator that never counts `Unknown` as a match. This is a claim about the differential parity suite, not a blanket claim of 100% Z3 compatibility.
+**Superseded by the v0.2.4 honest re-audit.** The comparator that produced the table below counted an `Unknown` answer as a match (`bench/z3_parity/src/comparator.rs` — see the now-fixed `[x]` finding under "Production-Readiness Audit Findings" below), so "100%" was reachable by declining to answer rather than by matching Z3's verdict. The comparator used from 0.2.4 onward never counts `Unknown` as a match. The current, honestly-measured status lives in "Current Statistics" below, with the tracked per-environment snapshot `bench/z3_parity/results.<os>-<arch>.json` as the authoritative source — only `results.macos-aarch64.json` is currently in the tree, with `results.linux-x86_64.json` to join it once a Linux environment's run is committed. The methodology's agreement rule (every tracked snapshot must agree on the verdict of every benchmark — `oxiz_result`, `z3_result`, `match_status` — with only the timings expected to differ between machines) is enforced by `bench/z3_parity/tests/cross_env_verdict_agreement.rs` on every `cargo test`, but with a single snapshot in the tree that check is currently vacuous, not yet exercised across environments; the un-suffixed `results.json` is git-ignored local scratch output and is not evidence. As of this release, **170/170 Correct** on the extended 19-logic suite (the three quantified logics that were still below 100% at v0.3.0 — `UFLIA`/`UFLRA`/`AUFLIA` — are now all at 100%; the suite grew 168→170 in 0.3.3 with two new symbolic-`RoundingMode` QF_FP benchmarks, and no verdict moved on any of the 168 pre-existing benchmarks) and **88/88 Correct** on this original 8-logic/88-benchmark quickstart core, both under the honest comparator that never counts `Unknown` as a match. This is a claim about the differential parity suite, not a blanket claim of 100% Z3 compatibility.
 
 ### Z3 Parity Results (as originally reported, v0.2.0 — see supersession note above)
 
@@ -55,7 +55,7 @@ Recounted at the 0.3.1 release (2026-07-31) directly from the checkboxes under "
 - **Rust Lines of Code (code)**: 451,853 code lines across 1,276 files (tokei, `--exclude target`; 37,877 comment lines, 74,573 blanks)
 - **Total Rust Lines (with docs/tests)**: 564,303 (grand total across all languages: 600,702 lines in 1,483 files)
 - **Tests**: 9,953 (workspace, nextest, all-features, all passing; 8 skipped, 0 failures) plus 110 passing doc-tests (`cargo test --doc --workspace --all-features`, 0 failures)
-- **Z3 Parity (extended suite, 168 benchmarks / 19 logics, against installed z3 4.15.4)**: **168 Correct / 0 Wrong / 0 Inconclusive / 0 Timeout / 0 Error** — **100% of the differential parity suite**, with all 19 logic families at 100% Correct (AUFLIA 10/10, AUFLIRA 5/5, QF_ABV 5/5, QF_ALIA 5/5, QF_AUFBV 5/5, QF_AUFLIA 5/5, QF_NIRA 5/5, QF_UFLIA 5/5, QF_UFLRA 5/5, UFLIA 20/20, UFLRA 10/10, qf_a 10/10, qf_bv 15/15, qf_dt 10/10, qf_fp 10/10, qf_lia 16/16, qf_lra 16/16, qf_nia 1/1, qf_s 10/10 — see the tracked per-environment snapshots `bench/z3_parity/results.<os>-<arch>.json`, which must agree on every benchmark's verdict and differ only in timings; `results.json` itself is git-ignored scratch output of the last local run). Measured under the honest comparator, which never counts `Unknown` as a match, against a real `z3 4.15.4` binary; verified over three consecutive full runs on an idle machine plus a fourth run after the repeated-check-sat resource work. This is a claim about this benchmark suite — **not** a blanket claim of 100% Z3 compatibility as a general property. Closed in 0.3.1: the last quantified-logic gaps (`AUFLIA` 7→10/10, `UFLIA` 14→20/20, `UFLRA` 5→10/10) via MBQI finite-range quantifier expansion (AUFLIA), Skolem witness synthesis + CEGAR (UFLIA), and symbolic model certification over Reals + quasi-macro detection (UFLRA); the three former 60s timeouts now solve in ~1ms.
+- **Z3 Parity (extended suite, 170 benchmarks / 19 logics, against installed z3 4.15.4)**: **170 Correct / 0 Wrong / 0 Inconclusive / 0 Timeout / 0 Error** — **100% of the differential parity suite**, with all 19 logic families at 100% Correct (AUFLIA 10/10, AUFLIRA 5/5, QF_ABV 5/5, QF_ALIA 5/5, QF_AUFBV 5/5, QF_AUFLIA 5/5, QF_NIRA 5/5, QF_UFLIA 5/5, QF_UFLRA 5/5, UFLIA 20/20, UFLRA 10/10, qf_a 10/10, qf_bv 15/15, qf_dt 10/10, qf_fp 12/12, qf_lia 16/16, qf_lra 16/16, qf_nia 1/1, qf_s 10/10 — see the tracked per-environment snapshot `bench/z3_parity/results.<os>-<arch>.json`; only `results.macos-aarch64.json` is currently in the tree, so the cross-environment agreement rule (every tracked snapshot must agree on every benchmark's verdict, differing only in timings) applies once a second snapshot exists rather than being exercised today; `results.json` itself is git-ignored scratch output of the last local run). Measured under the honest comparator, which never counts `Unknown` as a match, against a real `z3 4.15.4` binary; verified over three consecutive full runs on an idle machine plus a fourth run after the repeated-check-sat resource work. This is a claim about this benchmark suite — **not** a blanket claim of 100% Z3 compatibility as a general property. Closed in 0.3.1: the last quantified-logic gaps (`AUFLIA` 7→10/10, `UFLIA` 14→20/20, `UFLRA` 5→10/10) via MBQI finite-range quantifier expansion (AUFLIA), Skolem witness synthesis + CEGAR (UFLIA), and symbolic model certification over Reals + quasi-macro detection (UFLRA); the three former 60s timeouts now solve in ~1ms. Grew 168→170 in 0.3.3: two new symbolic-`RoundingMode` QF_FP benchmarks (`qf_fp` 10/10→12/12); no verdict moved on any of the 168 pre-existing benchmarks, and none of the fifteen SMT-LIB soundness fixes from the 0.3.3 issue-tracker sweep are visible in this suite (a curated suite already at 100% cannot show a soundness gain — see the Issue-tracker intake section).
 - **Workspace Crates**: 17 members (16 default-members; `oxiz-py` is excluded because it needs maturin, and `fuzz` is a separate harness outside the workspace)
 - **todo!/unimplemented! macros**: 0 outside test code (all Rust crates)
 - **Clippy Warnings**: 0 (`cargo clippy --workspace --all-targets --all-features`, clean in both dev and release profiles; `clippy::unwrap_used` denied in all 17 member crates)
@@ -75,7 +75,7 @@ OxiZ is not just a Z3 port - it surpasses Z3 in critical areas:
 4. **Native Parallelism** - Rayon portfolio solving, work-stealing
 5. **Memory Safety** - Pure Rust, no FFI, guaranteed safety
 6. **Craig Interpolation** - McMillan, Pudlak, Huang algorithms with theory support
-7. **Verified Z3 Parity on the Differential Suite** - 88/88 on the 8-logic quickstart suite, 168/168 on the extended 19-logic suite with 0 Wrong / 0 Inconclusive / 0 Timeout / 0 Error (honest comparator, never counts `Unknown` as a match — see Current Statistics; scoped to the benchmark suite, not a blanket claim of 100% Z3 compatibility)
+7. **Verified Z3 Parity on the Differential Suite** - 88/88 on the 8-logic quickstart suite, 170/170 on the extended 19-logic suite with 0 Wrong / 0 Inconclusive / 0 Timeout / 0 Error (honest comparator, never counts `Unknown` as a match — see Current Statistics; scoped to the benchmark suite, not a blanket claim of 100% Z3 compatibility)
 8. **EasySolver API** - Builder pattern, one-liner solving for common use cases
 9. **Arena Allocator** - Custom bumpalo-backed AST allocator (feature-gated)
 10. **Parallel Theory Checking** - Rayon-based, feature-gated
@@ -688,35 +688,28 @@ oxiz-core (foundation)
 
 ## Next Immediate Actions
 
-Refreshed for v0.3.1 (2026-07-31). The v0.3.0-era entries (hot-path profiling, performance-regression infrastructure, extended theory coverage, SMT-COMP entry preparation, Python/WASM bindings) are all delivered — see the checked items under "Post-Parity Priorities" and the Roadmap below.
+Refreshed for v0.3.3 (2026-08-26). The v0.3.0-era entries (hot-path profiling, performance-regression infrastructure, extended theory coverage, SMT-COMP entry preparation, Python/WASM bindings) are all delivered — see the checked items under "Post-Parity Priorities" and the Roadmap below.
 
 1. **v0.3.2 backlog — deep-recursion test OOM investigation** (see "v0.3.2 backlog (added 2026-07-31, from the deep-recursion test OOM investigation)")
 
-2. **Empirical performance-parity verification** (EP-6e, v0.4.0)
-   - Run the `--export-history` / `geomean-gate` harness end-to-end and confirm geomean ≤ 1.2x Z3 across the QF_* logics
+2. **Empirical performance-parity verification** (EP-6e) — run in 0.3.3, no longer hardware-gated: Z3 4.15.4 is installed and the `--export-history` / `geomean-gate` harness executed end-to-end. The result is a methodology finding, not a ≤1.2x measurement: `run_oxiz` is an in-process call while `run_z3` spawns a subprocess (`find_z3` probes with `z3 --version` *inside* the timed call), so every recorded `z3_time` charges at least one full process spawn on top of the solve — the fastest `z3_time` in the current snapshot is 7.4ms (spawn cost) against a fastest `oxiz_time` of 0.196ms (a function call). Per this repo's standing rule (README, "Performance"), no solver-vs-solver speed ratio is published from that data. What remains open is deciding how to measure this meaningfully (e.g. an in-process Z3 binding, or comparing against a fixed per-call baseline), not re-running the existing harness.
 
 3. **JIT-style specialization for hot theory operations** (v0.4.0)
    - Requires an IR + codegen layer; the only remaining pending item in the performance track
 
-4. **Remaining frontend/feature gaps** (see "Remaining (post-0.3.0 hardening)")
-   - Recursive function definitions (Z3 `recfun`) end-to-end
-   - `RoundingMode`/`RegLan` as first-class `SortKind` variants (cross-crate change)
-   - NLSAT algebraic-number model witnesses (completeness, not soundness)
-   - `mk_bv_concat`'s release-build width default (needs a `Result`-returning signature change)
+4. **Remaining frontend/feature gaps** (see "Remaining (post-0.3.0 hardening)") — recursive functions end-to-end, NLSAT algebraic-number witnesses, and `mk_bv_concat`'s release-build width default all landed in 0.3.3 (see CHANGELOG.md). One gap remains:
+   - `RegLan` as a first-class `SortKind` variant — still honestly rejected in nullary-declaration position; 0.3.3 only corrected the parser's rejection *message* (it no longer claims the sublanguage "is not yet implemented" — `RegLan` is reserved because `TermManager` interns regex terms at a built-in `Uninterpreted("RegLan")` sort, not because the operators are missing), matching the accuracy bar `RoundingMode`'s own message now meets after becoming first-class.
 
-5. **Test-infrastructure follow-ups**
-   - Runtime-cost review for enabling the `property-tests` suites by default
-
-6. **Ecosystem Growth**
+5. **Ecosystem Growth**
    - Integration with symbolic-execution tools and verification frameworks (re-scope once a specific target is chosen)
    - SMT-COMP 2026 submission once the portal opens
 
 ---
 
 **Status**: Production Ready
-**Current Version**: v0.3.3 (Unreleased)
+**Current Version**: v0.3.3 (2026-08-26)
 **Tests**: 9,953 passing (all-features, 8 skipped) + 110 doc-tests | **LoC**: 451,853 code (564,303 total) | **Files**: 1,276 | **Clippy**: 0 warnings
-**Z3 Parity**: 168/168 Correct on the extended 19-logic differential suite (0 Wrong / 0 Inconclusive / 0 Timeout / 0 Error, honest comparator vs z3 4.15.4)
+**Z3 Parity**: 170/170 Correct on the extended 19-logic differential suite (0 Wrong / 0 Inconclusive / 0 Timeout / 0 Error, honest comparator vs z3 4.15.4)
 **Next Milestone**: v0.4.0 - JIT specialization, `recfun` support, and the remaining completeness gaps (see "Remaining (post-0.3.0 hardening)")
 **Long-term Goal**: v1.0.0 - Industry-Ready SMT Solver (Target: Q4 2026)
 
@@ -724,10 +717,10 @@ Refreshed for v0.3.1 (2026-07-31). The v0.3.0-era entries (hot-path profiling, p
 
 ## Proposed follow-ups
 
-- **JIT-style specialization** (root TODO.md:158) — defer to v0.4.0 (oversized: requires IR + codegen layer).
-- **SMT-COMP 2026 participation** (root TODO.md:238) — gated on SMT-COMP submission portal (opens ~May 2026).
-- **Symbolic execution tool integration** (root TODO.md:239) — vague; re-scope after user selects target (KLEE/angr/S2E).
-- **Verification framework integration** (root TODO.md:240) — vague; re-scope after user selects target (Frama-C/CBMC/SeaHorn).
+- **JIT-style specialization** (root TODO.md:169) — defer to v0.4.0 (oversized: requires IR + codegen layer).
+- **SMT-COMP 2026 participation** (root TODO.md:306) — gated on SMT-COMP submission portal (opens ~May 2026).
+- **Symbolic execution tool integration** (root TODO.md:307) — vague; re-scope after user selects target (KLEE/angr/S2E).
+- **Verification framework integration** (root TODO.md:308) — vague; re-scope after user selects target (Frama-C/CBMC/SeaHorn).
 
 ## v0.3.2 backlog (added 2026-07-31, from the deep-recursion test OOM investigation)
 
@@ -967,7 +960,7 @@ A full `cargo nextest run --all-features` on a 14.6 GB developer machine was ter
 
 ### P3 — Unverified Major
 
-- [ ] `GAP` — Recursive function definitions (Z3 recfun) unusable end-to-end *(scope: z3-gap)*
+- [x] `GAP` — Recursive function definitions (Z3 recfun) unusable end-to-end *(scope: z3-gap)* — **(fixed in 0.3.3: `define-fun-rec`/`define-funs-rec` are parsed (`oxiz-core/src/smtlib/parser/recfun.rs`, new) and discharged by fuel-bounded unfolding (`oxiz-solver/src/context/recfun.rs` + `recfun/eval.rs`, new); mutual recursion works via a two-pass parse. `sat` needs a saturation or model-recomputation certificate, `unsat` is immediate since the instantiated problem is a relaxation; fuel exhaustion is an honest `unknown`. 21 tests in `oxiz-solver/tests/recfun_e2e.rs`.)**
 - [x] `oxiz-solver/src/context.rs:741` — set_option ignores every option except produce-proofs/produce-unsat-cores *(scope: z3-gap)*
 - [x] `oxiz-solver/src/context.rs:850` — get-model prints wrong sort/value for BitVec, Array, FP, and uninterpreted constants *(scope: z3-gap)* — **(fixed: BitVec values and sort names in 0.3.0; FP literals, nested `(Array ..)` values and uninterpreted-sort witnesses in 0.3.1 — see the "Remaining" section entry for details)**
 - [x] `oxiz-core/src/ematching/code_tree.rs:894` — E-matching code-tree backtracking stub drops matches *(scope: z3-gap)* — **(fixed: execute_from stub replaced with a full recursive interpreter (run(ip, current_term, ...)); Choice first-branch matches are no longer dropped (wave2b core-tactics, TODO-939))**
@@ -1025,7 +1018,7 @@ A full `cargo nextest run --all-features` on a 14.6 GB developer machine was ter
 - [x] `oxiz-theories/src/datatype/solver.rs:579` — DatatypeSolver::pop() restores only constraints; constructor tags and app maps leak across backtracking *(scope: theories-rest)* — **(fixed: DatatypeSolver::pop() restored only constraints — DtTrailEntry now unwinds constructor/selector/recognizer/excluded maps)**
 - [x] `oxiz-theories/src/combination.rs:893` — verify_model always returns true; complete_model and extract_assignments are identity stubs *(scope: theories-rest)* — **(fixed: verify_model always returned true — verify_model now cross-theory checks with real union-find extract_assignments; complete_model remains an honest documented identity pass-through)**
 - [x] `bench/z3_parity/src/comparator.rs:25` — Parity comparator counts Unknown-vs-any-answer as 'Correct', so 100% parity is achievable by always answering unknown *(scope: test-gap)*
-- [ ] `oxiz-solver/tests/property_based.rs:6` — Entire oxiz-solver (and oxiz-core) property-based suites are disabled by default behind a non-default 'property-tests' feature *(scope: test-gap)*
+- [x] `oxiz-solver/tests/property_based.rs:6` — Entire oxiz-solver (and oxiz-core) property-based suites are disabled by default behind a non-default 'property-tests' feature *(scope: test-gap)* — **(fixed: `oxiz-solver`'s `property-tests` feature was already default-on; `oxiz-core`'s joined its default set in 0.3.3 — `default = ["std", "scripting", "property-tests"]` — after a runtime-cost review found the suites add 89 tests in 0.08s, not the reason they were off.)**
 - [x] `oxiz-solver/tests/property_tests/backtrack_properties.rs:96` — Property tests accept Unknown for both SAT-expected and UNSAT-expected outcomes — an always-Unknown solver passes the suite *(scope: test-gap)* — **(fixed: property tests accepted Unknown for both outcomes — now strict prop_assert_eq!(result, Sat), no Unknown anywhere)**
 - [x] `oxiz-solver/tests/property_tests/model_properties.rs:32` — All model-validity property tests are vacuously guarded by 'if result == Sat' and never assert the result itself *(scope: test-gap)* — **(fixed: model-validity property tests were vacuously guarded — now assert result==Sat then model.is_some(), not a vacuous if-guard)**
 - [x] `oxiz-solver/tests/mbqi_tests/integration_tests.rs:37` — MBQI 'integration tests' are dead code (not referenced by any mod) and vacuous — quantifier instantiation has no end-to-end solving test *(scope: test-gap)* — **(fixed: MBQI 'integration tests' were dead code — now wired via audit_sweep_solver.rs with a real end-to-end UNSAT-via-instantiation test)**
@@ -1125,8 +1118,8 @@ A full `cargo nextest run --all-features` on a 14.6 GB developer machine was ter
 
 **core-rest**:
 - [x] `oxiz-core/src/qe/datatype/case_analysis.rs:164` — Datatype case analysis returns N copies of the original formula yet reports complete: true — **(fixed: case_analysis.rs now always reports complete:false with a warning doc comment, removing the false complete:true soundness claim)**
-- [ ] `oxiz-core/src/theories/datatype.rs:273` — DatatypeTheory::axiom_to_term emits mk_true/mk_false placeholders instead of real axioms
-- [ ] `oxiz-core/src/theories/bitvector.rs:309` — oxiz-core BV and FP theory solvers are decorative: propagate/check_for_conflicts do nothing
+- [x] `oxiz-core/src/theories/datatype.rs:273` — DatatypeTheory::axiom_to_term emits mk_true/mk_false placeholders instead of real axioms — **(fixed in 0.3.3: all five `oxiz-core::theories` modules now implement `Theory` with real fixpoint propagation and conflict detection over a shared union-find; `axiom_to_term` returns `Option<TermId>` and builds real premises. Still has zero internal callers — this submodule is not wired into any `oxiz-solver` solve path, and the module's own `# Scope` doc says so: "none of these theories is a decision procedure". Do not read this as affecting verdicts.)**
+- [x] `oxiz-core/src/theories/bitvector.rs:309` — oxiz-core BV and FP theory solvers are decorative: propagate/check_for_conflicts do nothing — **(fixed in 0.3.3: `BitVectorTheory`/`FloatingPointTheory` (and `ArrayTheory`/`DatatypeTheory`/`StringTheory`) now do constant folding, operator congruence, and real fixpoint propagation/conflict detection instead of a no-op `{ self.propagations += 1; Vec::new() }`. Still uncalled from any `oxiz-solver` path — see the note above.)**
 - [x] `oxiz-core/src/model/completion.rs:128` — Model completion assigns wrong-sorted defaults: variables get Uninterpreted values, sorts guessed by magic ids — **(fixed: completion.rs complete_term now uses t.sort (the actual sort) via factory.default_value instead of guessing a magic SortId)**
 - [x] `oxiz-core/src/qe/qe_lite.rs:140` — QeLiteSolver eliminates a quantifier only when the body is literally `true` — **(fixed: QeLiteSolver now performs real cheap QE (unused-variable elimination, equality substitution, etc.) instead of only succeeding when the body is literally true (wave2 qe-arith, P4-1097))**
 - [x] `oxiz-core/src/smtlib/printer/model.rs:55` — Model printer emits syntactically invalid output for function interpretations — **(fixed: printer/model.rs write_function_interpretation now emits a valid (define-fun name (params) sort ite-chain))**
@@ -1182,7 +1175,7 @@ A full `cargo nextest run --all-features` on a 14.6 GB developer machine was ter
 
 **panic-audit**:
 - [x] `oxiz-core/src/qe/bv/simplification.rs:156` — QE BvSimplifier constant folding shifts 1u64 by width with no >=64 guard — **(fixed: QE BvSimplifier constant folding now guards 1u64 << width for width >= 64)**
-- [ ] `oxiz-core/src/ast/manager/builder.rs:931` — mk_bv_concat silently defaults unknown operand widths to 32
+- [x] `oxiz-core/src/ast/manager/builder.rs:931` — mk_bv_concat silently defaults unknown operand widths to 32 — **(fixed in 0.3.3, breaking change: `mk_bv_concat` is removed; `try_mk_bv_concat(&mut self, lhs, rhs) -> Result<TermId>` (`builder.rs:1235`) returns `OxizError::SortMismatchSimple` instead of fabricating a width. `oxiz-py` now raises `ValueError`; `oxiz-solver`'s `z3_compat` BV::concat stays infallible but interns at the correct sort computed from its own tracked widths.)**
 - [x] `oxiz-cli/src/main.rs:661` — CLI aborts via expect on stdin I/O errors (panic=abort profile) — **(fixed: CLI no longer aborts via expect() on stdin I/O errors)**
 - [x] `rustc-ice-2026-04-25T11_26_41-70917.txt:1` — Two rustc ICE dumps committed at repo root; caused by disk exhaustion, and they leak developer paths — **(fixed: committed rustc ICE dump files removed from the repo root)**
 
@@ -1287,33 +1280,34 @@ Genuinely still-open items as of the 0.3.0 hardening pass (2026-07-21), after th
 - [ ] **SMT-COMP 2026 submission portal** — the entry package is complete (`Track` enum, per-track `starexec_run_*` scripts, `scripts/package_smtcomp.sh`); actual submission is gated on the SMT-COMP portal opening.
 - [ ] **SMT-LIB 3.0 standard** (`oxiz-smtcomp/TODO.md`) — the standard itself is unreleased; nothing to implement against yet.
 - [ ] **Symbolic-execution / verification-framework integration** (root TODO.md — KLEE/angr/S2E, Frama-C/CBMC/SeaHorn) — too vague to scope without a user-selected target; re-scope once a specific integration target is chosen.
-- [ ] **EP-6e empirical Z3-parity geomean check** (root TODO.md v0.3.0 roadmap) — the harness (`--export-history`, `geomean-gate` CI step) is built and wired; running it needs a Z3-equipped machine, deferred to the next pass with Z3 available.
 - [ ] **v1.0.0 milestone criteria** (root TODO.md — full Z3 API compatibility, performance at/better than Z3, comprehensive documentation, stable API guarantees, industry adoption ready) — Q4 2026 target, not yet due; tracked as a milestone umbrella, not a per-release gap.
 
 ### (b) Deliberately deferred capabilities (with reasons)
 
-- [ ] **`RoundingMode`/`RegLan` as first-class `SortKind` variants** — currently honestly rejected by the parser (`SORT-BUILTIN-01`) rather than silently degraded to a fresh uninterpreted sort; a real first-class variant needs `oxiz-core/src/sort/mod.rs`'s exhaustively-matched `SortKind` enum touched across `oxiz-core` *and* `oxiz-solver` (cross-crate), deferred to a dedicated wave.
-- [ ] **NLSAT algebraic-number model witnesses** — `SturmSequence::isolate_roots` now correctly determines *feasibility* for irrational-root regions (the former wrong-`Unsat` P0 bug is fixed), but building an actual algebraic-number witness *value* for the model is not yet implemented, so genuinely irrational-only-feasible sets return `Unknown` instead of `Sat` (e.g. some `real_*`/`array_*` parity benchmarks). This is a completeness gap, not a soundness one.
+- [x] **`RoundingMode` as a first-class `SortKind` variant** — **(landed in 0.3.3: `SortKind::RoundingMode` is real, eagerly interned by `SortManager::new` at `SortId(3)`; the five modes are nullary `Var` terms so EUF decides equalities with no theory-dispatch change. Cardinality enforced by a closure axiom per declared constant plus one distinctness axiom per solve, both asserted through `Solver::assert` so they never appear in `(get-assertions)`. A symbolic mode inside an `fp.*` operator expands to a 5-way `ite`, made sound by binder relativization of `forall`/`exists` over a `RoundingMode` variable. Accepted only in nullary declaration position — as an array/function/datatype-field sort it is a parse error naming the position, rather than silently treating the sort as infinite again. 14 tests in `oxiz-solver/tests/rounding_mode_first_class.rs` plus 2 new `qf_fp` parity benchmarks.)**
+- [ ] **`RegLan` as a first-class `SortKind` variant** — still honestly rejected by the parser (`SORT-BUILTIN-01`) in nullary-declaration position rather than silently degraded to a fresh uninterpreted sort; a real first-class variant needs `oxiz-core/src/sort/mod.rs`'s exhaustively-matched `SortKind` enum touched across `oxiz-core` *and* `oxiz-solver` (cross-crate), still deferred to a dedicated wave. 0.3.3 corrected only the rejection *message* (it no longer claims the sublanguage "is not yet implemented" — every `re.*`/`str.to_re`/`str.in_re` operator already works and `qf_s` has been 10/10 since 0.3.0; the name is reserved because `TermManager` interns regex terms at a built-in `Uninterpreted("RegLan")` sort, and the message now says that and lists the working operators).
+- [x] **NLSAT algebraic-number model witnesses** — **(landed in 0.3.3: an irrational root is now a model, not an `Unknown` — `(assert (= (* x x) 2.0))` in QF_NRA answers `sat` and prints a `root-obj` term matching z3 4.15.4's spelling rule. New carrier type in `oxiz-theories/src/nl_witness.rs` (integer coefficients, root index, isolating interval); `NlDispatchResult::Sat` carries either a rational `Interpretation` or an algebraic map, never both. Two honest gaps remain, both tested: the polynomial printed is the defining one, not the minimal one (z3 factors, OxiZ doesn't), and `(get-value ((* x x)))` over an algebraic constant echoes the term rather than computing `2.0`. The refusal boundary is one algebraic value at a time — a second algebraic value in the same model, or any root atom in the instance, still returns `Unknown` rather than guess. 9 tests in `oxiz-solver/tests/nra_algebraic_model.rs`, plus 5 root-isolation correctness fixes in `oxiz-nlsat`.)**
 - [x] **MBQI forall-exists / existential Skolemization** — **(closed in 0.3.1: the certifier now builds existential witnesses — Skolem witness synthesis with CEGAR refinement (UFLIA), finite-range quantifier expansion (AUFLIA), and symbolic model certification over the Reals (UFLRA); macro-form quantifiers are handled by quasi-macro detection instead of falling back to `Unknown`. All AUFLIA/UFLIA/UFLRA parity benchmarks now return a certified verdict matching z3.)**
-- [ ] **NIA Gomory cuts** — `add_cutting_plane` is a pinned, documented no-op (never mutates the shared solver): `NlsatSolver` is CAD-based with no simplex tableau to derive a sound cut row from, mirroring `oxiz-theories`'s LIA branch-and-bound, which disables cuts for the identical reason.
+- [ ] **NIA Gomory cuts (NLSAT)** — `add_cutting_plane` is still a pinned, documented no-op (never mutates the shared solver): `NlsatSolver` is CAD-based with no simplex tableau to derive a sound cut row from. **Correction (0.3.3): the parenthetical this item used to carry — "mirroring `oxiz-theories`'s LIA branch-and-bound, which disables cuts for the identical reason" — is no longer true.** `oxiz-theories`'s own LIA Gomory/GMI cut generators (`arithmetic/lia/cuts.rs`) were real but had zero callers; a new root cutting-plane loop (`lia/branching.rs`) now runs them as step 0 of `LiaSolver::check`, *before* any branch-and-bound `push` (so a simplex `Err` there is an integer-infeasibility proof and the cuts' slack rows can never be popped away by a branch). Branch-and-bound itself deliberately stays cut-free — a branch-local cut needs retraction wiring that does not exist yet, recorded as follow-up. `enable_gomory_cuts` defaults `true` outside `TheoryConfig::small()`. This box stays open only for the NLSAT half.
+- [ ] **Empirical performance-parity target (EP-6e)** — no longer externally blocked: Z3 4.15.4 is installed and the `--export-history`/`geomean-gate` harness ran in 0.3.3. The result is a methodology finding, not a measurement: `run_oxiz` is an in-process call while `run_z3` spawns a subprocess (with `find_z3` probing via `z3 --version` *inside* the timed call), so every recorded `z3_time` charges at least one process spawn on top of the solve — the fastest `z3_time` in the current snapshot is 7.4ms against a fastest `oxiz_time` of 0.196ms. Per README's standing rule, no solver-vs-solver speed ratio is published from that data. What's deferred now is redesigning the comparison (or retiring the ≤1.2x target), not re-running the existing harness on a Z3-equipped machine.
 - [ ] **JIT-style specialization for hot theory operations** (root TODO.md, originally planned 2026-04-19) — deferred to v0.4.0; requires an IR + codegen layer, out of scope for incremental releases.
 - [ ] **GPU acceleration** (`oxiz-smtcomp/TODO.md`) — removed as out-of-scope for the Pure-Rust policy: the `cuda`/`opencl`/`vulkan` feature flags in `oxiz-sat` were confirmed fully dead (zero references anywhere in the workspace) and deleted entirely this release, rather than left as inert stubs. Not planned going forward.
 - [ ] **Distributed execution across multiple machines** (`oxiz-smtcomp/TODO.md`; `oxiz-spacer/src/distributed.rs`) — still future. This release upgraded `oxiz-spacer`'s distributed PDR from a single-process sequential fallback to a genuine multi-**thread** parallel portfolio (independent `TermManager`+`ChcSystem` per worker, `mpsc` + `Arc<AtomicBool>` cancellation; lemmas are documented as NOT shared across workers), but true multi-**machine** coordination (a wire protocol, e.g. over `websocket.rs`) has not been started.
-- [ ] **Property-based test suites not default-on** (`oxiz-solver/tests/property_based.rs`, `oxiz-core` equivalents) — the `property-tests` Cargo feature stays off by default pending a runtime-cost review (proptest suites can be slow); the suites themselves were tightened this release (strict `Sat`/`Unsat` assertions replacing `Unknown`-tolerant checks in `conflict_properties`/`propagation_properties` still pending for the remaining level-0-decidable cases).
+- [x] **Property-based test suites not default-on** (`oxiz-solver/tests/property_based.rs`, `oxiz-core` equivalents) — **(fixed in 0.3.3: `oxiz-core`'s `property-tests` feature joined its default set, matching what `oxiz-solver` already had — `default = ["std", "scripting", "property-tests"]` — after the runtime-cost review found the suites cost 89 tests in 0.08s, which is not the reason they were off.)** Still pending: tightening the remaining level-0-decidable `conflict_properties`/`propagation_properties` cases from `Unknown`-tolerant to strict `Sat`/`Unsat` assertions.
 
 ### (c) Confirmed-open findings (no wave addressed these; file:line)
 
 - [x] `oxiz-solver/src/context.rs:850` — get-model printed "?" for FP, Array, and uninterpreted-constant values (sort names and BitVec values were fixed in 0.3.0) — **(fixed in 0.3.1: model rendering moved to `oxiz-solver/src/context/model_fmt.rs` + `sort_name.rs`, both driven by explicit heap stacks, and now emits real SMT-LIB values for FP literals, nested `(Array ..)` sorts (as `((as const (Array ..)) v)`) and uninterpreted-sort witnesses. The `?` placeholder survives only for genuinely uninhabited or cyclically-defined datatype sorts, where it is the honest answer rather than a wrong value — see the module doc and its regression tests.)**
 - [x] `oxiz-solver/src/context.rs:885` — `:named` assertion annotations never reached the solver; `get-unsat-core`/`get-assignment` were non-functional end-to-end for named assertions — **(fixed: `Command::AssertNamed` threads the label through `Context::assert_named` into the solver, and as of 0.3.1 assertion names are recorded *unconditionally*, so `(get-unsat-core)` also works when `:produce-unsat-cores` is enabled mid-session rather than only before the first named assert.)**
 - [x] `oxiz-solver/src/context.rs:762` — `:print-success` honesty (get-option default) was fixed first; the print-success *mode itself* is now implemented too — **(fixed: `print_success_enabled()` gates a `success` acknowledgement emitted by `execute_script` after every command that succeeds without producing its own response, including `exit`, per SMT-LIB 2.6.)**
-- [ ] `GAP` (z3-gap) — recursive function definitions (Z3 `recfun`) are still unusable end-to-end; honestly rejected by the parser rather than silently wrong, but a genuine missing feature.
+- [x] `GAP` (z3-gap) — recursive function definitions (Z3 `recfun`) are still unusable end-to-end; honestly rejected by the parser rather than silently wrong, but a genuine missing feature. — **(fixed in 0.3.3: see the recfun entry under "(b) Deliberately deferred capabilities" above and CHANGELOG.md's "Added" section for the full design — fuel-bounded unfolding with saturation/model-recomputation certificates for `sat`, immediate `unsat` since the instantiated problem is a relaxation.)**
 - [x] `oxiz-core/src/ast/manager/query.rs:835` — `free_vars` counted quantifier-bound variables as free — **(fixed: `free_vars` is now an iterative walk over `free_vars_with`, tracking a `(name, sort) -> depth` bound map so binders are respected, with a `free_vars_including_patterns` variant for the callers that decide about variable *names* (capture-avoiding substitution's fresh-name choice, MBQI's grounding guard).)**
-- [ ] `oxiz-core/src/theories/datatype.rs:273` / `oxiz-core/src/theories/bitvector.rs:309` — `oxiz-core`'s secondary BV/FP/datatype "theories" submodule is still decorative (`propagate`/`check_for_conflicts` are no-ops, `axiom_to_term` emits placeholders). This submodule has no internal callers — the real, wired BV/FP/datatype theories live in `oxiz-theories` and are what `oxiz-solver` actually uses.
+- [x] `oxiz-core/src/theories/datatype.rs:273` / `oxiz-core/src/theories/bitvector.rs:309` — `oxiz-core`'s secondary BV/FP/datatype "theories" submodule is still decorative (`propagate`/`check_for_conflicts` are no-ops, `axiom_to_term` emits placeholders). This submodule has no internal callers — the real, wired BV/FP/datatype theories live in `oxiz-theories` and are what `oxiz-solver` actually uses. — **(fixed in 0.3.3: all five modules — `ArrayTheory`, `BitVectorTheory`, `DatatypeTheory`, `FloatingPointTheory`, `StringTheory` — now implement `Theory` with real fixpoint propagation, conflict detection, and an explanation chain, backed by a shared union-find (`theories/eq_classes.rs`, new). `axiom_to_term` returns `Option<TermId>` and builds real premises. Still has no internal callers — this remains "deliberately incomplete, and none of these theories is a decision procedure" per the module's own new `# Scope` doc, and nothing in this fix is wired into a solve path. Do not read this as affecting verdicts.)**
 - [x] `oxiz-core/src/tactic/core/goal_refinement.rs:210` — orphaned 695-line file, not referenced by any module tree — **(fixed: the dead file was deleted; `oxiz-core/src/tactic/core/mod.rs` records why it is gone.)**
 - [x] `oxiz-core/src/tactic/core/ctx_solver_simplify.rs:224` — confirmed-dead 580-line placeholder with fake `TermId` and always-false oracles — **(fixed: the dead file was deleted; the live, sound `oxiz-core/src/tactic/ctx_simplify.rs` with real dead-branch ITE elimination is the only context-simplification tactic left.)**
 - [x] `oxiz-core/src/tactic/combinators.rs:352` — `TimeoutTactic` leaked its worker thread after a timeout with no cancellation — **(fixed: an `Arc<AtomicBool>` cancellation flag is installed into the worker's thread-local slot, a cooperative tactic observes it through `cancellation_requested()`, and the worker handle is always eventually joined rather than abandoned.)**
 - [x] `oxiz-proof/src/simplify.rs:251` — `combine_inference_chains` was a no-op (the in-place-rewrite soundness half was fixed earlier via `record_simplification`) — **(fixed: it now computes premise dependent-counts, folds only single-consumer hops whose target is not itself being folded this pass (so a 3-node chain never orphans its head), and rebuilds the proof with a premise ID remap; multi-hop chains collapse across successive passes.)**
-- [ ] `oxiz-core/src/ast/manager/builder.rs:931` — `mk_bv_concat` still silently defaults an unresolvable operand width to 32 in **release** builds; this release added a `debug_assert!` that catches the ill-typed case loudly in every debug/test build, but a full fix needs a `Result`-returning signature change that ripples into `oxiz-py`/`oxiz-solver` call sites, deferred to a cross-crate wave.
+- [x] `oxiz-core/src/ast/manager/builder.rs:931` — `mk_bv_concat` still silently defaults an unresolvable operand width to 32 in **release** builds; this release added a `debug_assert!` that catches the ill-typed case loudly in every debug/test build, but a full fix needs a `Result`-returning signature change that ripples into `oxiz-py`/`oxiz-solver` call sites, deferred to a cross-crate wave. — **(fixed in 0.3.3, breaking change: the cross-crate wave landed. `mk_bv_concat` is removed; `try_mk_bv_concat(&mut self, lhs, rhs) -> Result<TermId>` (`builder.rs:1235`) returns `OxizError::SortMismatchSimple` naming both operand sorts instead of fabricating one. `oxiz-py`'s `PyTermManager.mk_bv_concat` raises `ValueError`; `oxiz-solver`'s `z3_compat::BV::concat` stays infallible (Z3 C-API contract) but interns at the correct sort computed from the wrapper's own tracked widths. The two other call sites that used the infallible fallback — `TermManager` substitution rebuild and e-matching apply — now call `try_mk_bv_concat(a, b).unwrap_or(id)`, declining to apply an ill-typed map rather than fabricating a width.)**
 - [x] `oxiz-core/src/smtlib/lexer.rs:238` — leading-zero numerals are rejected, `(_ bvN w)` supports values beyond `i64`, and the last piece — the top-level driver not consulting `self.lexer.errors()` — is closed too — **(fixed: `oxiz-core/src/smtlib/parser/mod.rs` now rejects the script with a `ParseError` carrying the first recorded lexical error once the input is consumed, instead of silently solving a corrupted problem.)**
 - [x] `docs/smtcomp2026_participation.md` — flagged as showing a stale "6,031 unit tests" count and re-introducing the banned "100% Z3 parity (168/168)" claim — **(fixed: the dedicated docs pass at 0.3.0 found the file already used the honest 8,079-test/141-Correct wording rather than the flagged stale text, and re-measured all parity/test-count figures to that release's 154/168-Correct, 8,119-test numbers; re-measured again for 0.3.1 to 168/168-Correct and 9,668 tests. No "100% Z3 parity" overall claim present.)**
 - [x] `oxiz/README.md:90` — still documents a nonexistent `solver` feature flag and a stale version alongside a "production-ready" parity claim (docs, out of this task's scope) — **(re-verified: current `oxiz/README.md` shows `Version: 0.3.0`, explicitly notes the core solver "is not gated behind a `solver` feature", and contains no "production-ready" parity claim; already resolved by the time this item was re-checked)**
@@ -1329,7 +1323,7 @@ repository — only the `oz` column describes upstream behaviour.
 
 ### Confirmed against the 0.3.3 tree
 
-- [ ] **#35 — No CaDiCaL-style "lucky" pre-solve phase.** `git grep -i lucky -- oxiz-sat` is
+- [x] **#35 — No CaDiCaL-style "lucky" pre-solve phase.** `git grep -i lucky -- oxiz-sat` is
   empty and no equivalent exists under another name. Both entry points (`solver/mod.rs:779
   solve`, `mod.rs:1188 solve_with_assumptions`) go from a single unit-propagation pass straight
   into the CDCL loop, because all four pre-loop inprocessing mechanisms
@@ -1337,13 +1331,13 @@ repository — only the `oz` column describes upstream behaviour.
   `enable_gate_congruence`) are `false` in `SolverConfig::default()` and in all 9 presets in
   `config_presets.rs`. Reported symptom: simon-r18-0 / r21-1 / r23-1 time out at 30s where
   CaDiCaL finishes in under 5ms. Add the trivial / ordered / horn polarity scans ahead of
-  search, then re-benchmark that family.
+  search, then re-benchmark that family. — **(fixed in 0.3.3: new `oxiz-sat/src/solver/lucky.rs` tries six scans — all-true, all-false, forward/backward greedy, Horn least model, dual-Horn greatest model — before search starts, each verified against the live original clauses before being installed; `enable_lucky_phase` defaults `true` in all ten presets. Wired into `Solver::solve` and `solve_with_assumptions`, deliberately not into `solve_with_theory`. No speedup figure is claimed — the new benchmark example computes numbers at runtime and records none. 14 integration tests incl. a 400-instance differential sweep plus 12 unit tests.)**
 
-- [ ] **#37 — Release profile is size-tuned, and benchmarks inherit it.** `Cargo.toml:213-218`
+- [x] **#37 — Release profile is size-tuned, and benchmarks inherit it.** `Cargo.toml:213-218`
   sets `opt-level = "z"`; `[profile.bench]` (`:220-222`) inherits `release` unchanged, so even
   benchmark numbers come from size-optimized code. No speed-tuned profile exists anywhere in the
   repo. Decide deliberately: either flip `release` to `opt-level = 3`, or add a `release-speed`
-  profile and point `bench` — and any published timing claim or SMT-COMP build — at it.
+  profile and point `bench` — and any published timing claim or SMT-COMP build — at it. — **(fixed in 0.3.3, took the second option: a new `[profile.release-speed]` (`opt-level = 3`, thin LTO, 16 codegen units) inherits from `release` and `[profile.bench]` now inherits from that; `[profile.release]` itself is untouched (still size-tuned for the wasm module). Use `release-speed` for benchmarks, published timing claims, and SMT-COMP builds.)**
 
 - [ ] **#39 — No simplex-relaxation CDCL(T) engine for QF_NIA.** No `nia_cdcl` / `cdcl_nia_search`
   symbol or file anywhere. The nonlinear-integer path is CAD-based (`oxiz-theories/src/nlsat.rs`
@@ -1353,22 +1347,22 @@ repository — only the `oz` column describes upstream behaviour.
   simplex tableau (NIA Gomory cuts are a pinned no-op for the same reason). Large effort, new
   engine.
 
-- [ ] **#40 — Refuted models are discarded instead of blocked.** `oxiz-solver/src/solver/check_core.rs:302`
+- [x] **#40 — Refuted models are discarded instead of blocked.** `oxiz-solver/src/solver/check_core.rs:302`
   returns `SolverResult::Unknown` the moment `model_refutes_assertions` trips, discarding both
   the model and the unsat core. The same block already contains two working "detect bad model,
   add lemma, `continue`" paths *after* it: non-convex LIA case-splitting (`:325`) and array-lemma
   refinement (`:365`, bounded at 256 rounds). Because the bail is checked first, a model that
   could have been repaired by either never reaches them. Add a bounded blocking-clause path at
   `:302` in the same shape; `oxiz-sat/src/allsat.rs:468 create_blocking_clause` is prior art for
-  the clause construction.
+  the clause construction. — **(fixed in 0.3.3: new `oxiz-solver/src/solver/model_blocking.rs`, `SolverConfig::enable_model_blocking`/`max_model_blocking_rounds` (on, 64-round budget, everywhere except `minimal`). The refutation gate now runs *below* the two repair paths instead of above them, and a refuted candidate is excluded via a search-restricting blocking clause and retried rather than immediately conceding `Unknown`. The blocking clause is not a lemma, so while one is live an `Unsat` from the SAT core means "no model outside the excluded region" — all three sites that could surface that (`check_core`, the equality-skeleton fast path, `check_sat_only`) demote it to `Unknown` and null the model/core. 6 integration + 10 unit tests.)**
 
-- [ ] **#42 — Whole trail cloned on every theory-check iteration.** `oxiz-sat/src/solver/search_ext.rs:117`
+- [x] **#42 — Whole trail cloned on every theory-check iteration.** `oxiz-sat/src/solver/search_ext.rs:117`
   calls `self.trail.assignments().to_vec()` inside the theory-propagation loop and then iterates
   only the unprocessed suffix; the loop re-enters itself at `:212`, re-cloning the now-longer
   trail each time. `TheoryCallback::on_assignment(&mut self, lit)` (`oxiz-sat/src/solver/mod.rs:98`)
   binds `&mut self` to the theory object rather than the solver, so it structurally cannot mutate
   the trail. Cheapest safe fix: clone only `assignments[safe_start..]`. Borrowing in place also
-  reads as sound but wants a compile check.
+  reads as sound but wants a compile check. — **(fixed in 0.3.3, performance only — not a soundness fix: `solve_with_theory`'s inner loop now reads `&self.trail.assignments()[safe_start..]` in place under a scoped immutable borrow (`search_ext.rs:142`, loop at `:50`), which is possible precisely because `on_assignment` never needs `&mut Solver`. Delivery semantics unchanged, pinned by a new regression test asserting no duplicate delivery within a quiescent stretch.)**
 
 - [ ] **#43 — `Clause` has no size guard and spills past four literals.** `oxiz-sat/src/clause.rs:46-67`
   is `#[repr(align(64))]` with `lits: SmallVec<[Lit; 4]>`, and `Lit` is a `u32` newtype
@@ -1381,7 +1375,7 @@ repository — only the `oz` column describes upstream behaviour.
 
 ### Confirmed with corrections — the gap is real but not the shape reported
 
-- [ ] **#36 — The BVE + subsumption stack is unreachable in every shipped configuration.**
+- [x] **#36 — The BVE + subsumption stack is unreachable in every shipped configuration.**
   Contrary to the report, `Preprocessor::subsumption_elimination`
   (`oxiz-sat/src/preprocessing_core.rs:285`) *is* a real whole-database forward-subsumption pass
   over non-learned clauses, wired at `solver/mod.rs:876` (immediately after BVE) and at
@@ -1391,30 +1385,30 @@ repository — only the `oz` column describes upstream behaviour.
   both on, and `oxiz-solver` constructs the SAT solver via plain `Solver::new()` throughout —
   so neither sweep ever fires in normal use. Either make the stack reachable or remove it; a
   preprocessing pass that no configuration can run is worse than none, because it reads as
-  covered.
-- [ ] **#36 — Self-subsuming resolution is absent crate-wide.** `subsumption_elimination` only
+  covered. — **(fixed in 0.3.3: `oxiz_solver::SolverConfig::enable_bve` is new (`true` in `thorough`, `false` elsewhere) and maps onto the SAT flag; `oxiz_sat`'s `Industrial` and `CaDiCaL` presets now enable it too. Safe because the pass already refused to run under incremental `push`, proof tracing, non-zero decision level, or alongside equivalent-literal substitution, and BVE only ever runs from `Solver::solve`, never `solve_with_theory` — no theory lemma can be blocked by an eliminated variable on the SMT route. The one reachable rough edge — mixing `check_sat_only` with later incremental asserts can hit `SolverError::EliminatedVariableReintroduction` — is named in the field doc and turns later verdicts `Unknown` until `reset()` rather than risking a wrong answer, which is why `balanced` leaves it off.)**
+- [x] **#36 — Self-subsuming resolution is absent crate-wide.** `subsumption_elimination` only
   ever sets `other_clause.deleted = true` (`preprocessing_core.rs:326-330`) and never removes a
   single literal, and `oxiz-sat/src/big.rs` has no subsumption logic at all, so BIG-based clause
   strengthening does not exist under any name. Add it as its own item.
   Two smaller defects in the existing pass while it is being touched: the inner loop only tests
   earlier-index-subsumes-later, so a later, shorter clause never subsumes an earlier, longer one;
   and `build_occurrences` is computed at `:287` but never read in that loop, making the pass a
-  naive O(n^2) all-pairs scan rather than the occurrence-accelerated one it appears to be.
+  naive O(n^2) all-pairs scan rather than the occurrence-accelerated one it appears to be. — **(fixed in 0.3.3: new `oxiz-sat/src/solver/self_subsumption.rs` does real occurrence-driven self-subsuming resolution (collect-then-apply, re-verified against the live database before each application). `enable_self_subsumption` defaults `true` but runs from `Solver::inprocess`, so it is inert wherever `enable_inprocessing` is `false` — including `oxiz_sat::SolverConfig::default()` and 5 of 10 presets; live in `Industrial`/`Cryptographic`/`Hardware`/`Conservative`/`CaDiCaL` and via `oxiz-solver`'s `balanced`/`thorough`. The two smaller defects (order-sensitivity fixed by `>` guard instead of `>=`, `build_occurrences` now actually consulted) are also fixed, plus a `panic` on a higher-numbered variable found only once BVE made the path reachable. 8+5 integration and 10 unit tests incl. a 200-round randomized diff against a naive reference.)**
 
-- [ ] **#38 — Re-measure `enable_lazy_hyper_binary` as a tuning decision, not a soundness fix.**
+- [x] **#38 — Re-measure `enable_lazy_hyper_binary` as a tuning decision, not a soundness fix.**
   The flag is `true` in `SolverConfig::default()` (`oxiz-sat/src/solver/config.rs:210`), and the
   `is_false()` guard the report asks for is already present
   (`oxiz-sat/src/solver/propagate.rs:261`), with the whole pass additionally gated off below
   decision level 2 and while proof tracing is active (`:229`). What remains is the reported ~12x
   conflict blowup. Re-measure on the simon / mrpp / QF_UF quasigroup families and set the default
-  deliberately.
-- [ ] **#38 — Fix our own stale docstring.** `oxiz-sat/src/solver/propagate.rs:212-213` reads
+  deliberately. — **(re-measured in 0.3.3, not re-tuned: the reported ~12x blow-up is nowhere in the data — no family's on/off conflict-ratio median reaches 2x in either direction (guarded chains 0.98, random 3-SAT n=150/n=200 0.97/1.00, PHP 1.00, QG3 1.06, quasigroup completion orders 7-15 bit-identical 30/30). `enable_lazy_hyper_binary` keeps its `true` default and every per-preset value unchanged — nothing was flipped, because nothing in the data justifies changing it. The pass also rarely earns its keep (0.02-0.2% of scans produce a clause). One real code change: the BIG propagation path no longer calls the hyper-binary check where a binary clause is already provably present (`propagate.rs:69-78`) — conflicts/propagations/decisions are bit-identical on every swept instance while 6-83% of scans disappear depending on family. Provenance caveat: the sweep harnesses are `#[ignore]`d and check determinism/verdict-invariance/counter-sanity only, never a ratio bound — the percentages above are prose from one manual run, not a machine-checked gate.)**
+- [x] **#38 — Fix our own stale docstring.** `oxiz-sat/src/solver/propagate.rs:212-213` reads
   "on by default and in 6 of the 9 presets". The real count is **7 of the 10** `ConfigPreset`
   variants — on in Default, Industrial, Cryptographic, Hardware, Conservative, Glucose, CaDiCaL;
   off in Random, Aggressive, MiniSat. The comment counts only the 9 preset functions that assign
   the field explicitly and silently omits `Default`, which `all_presets()` does return. The
   reporter quoted our figure, so this comment propagated its own error into an external bug
-  report.
+  report. — **(fixed in 0.3.3: the docstring now names all ten presets instead of quoting the wrong "6 of 9" figure.)**
 
 - [ ] **#41 — Wire `theory_aware_branching` before building anything on top of it.** No
   `bump_decision_hint` API exists, as reported. But the flag such a feature would extend is
@@ -1448,34 +1442,45 @@ repository — only the `oz` column describes upstream behaviour.
   Reword it, or close the gap above and make it true.
 - [ ] **#25 — QF_UF differential coverage is dormant, not absent.** `Logic::QfUf` exists in
   `bench/z3_parity/src/generator.rs:77,93` and `tests/difftest_smoke.rs` generates roughly 25
-  QF_UF cases per run, even though QF_UF has zero files in the curated 168-benchmark corpus.
+  QF_UF cases per run, even though QF_UF has zero files in the curated 170-benchmark corpus.
   Fixing the workspace gap above turns that dormant coverage real — directly responsive to the
   original report, since QF_UF is the fragment that was actually benchmarked.
 
-### Reported soundness disagreements — recorded, NOT reproduced locally
+### Reported soundness disagreements — obtained and fixed, except #47
 
-@0kenx reports these as differential disagreements against Z3 4.16.0 over the SMT-LIB
-non-incremental corpus, all of the shape `z3=unsat, oxiz=sat` (false sat). **None has been
-reproduced here.** The SMT-LIB competition corpus is not present on the development machine and
-none of the cited `.smt2` files exist locally, so these entries record a report, not a confirmed
-defect. The locally installed Z3 is 4.15.4 (the pinned parity baseline); the reporter used
+@0kenx reported these as differential disagreements against Z3 4.16.0 over the SMT-LIB
+non-incremental corpus, all of the shape `z3=unsat, oxiz=sat` (false sat) — seventeen `.smt2`
+files across #44-#50. **Fifteen were obtained in 0.3.3 and run against the 0.3.2 tree; all
+fifteen answered `sat`, most inside a second, confirming the reports.** Eight independent
+soundness defects (plus one latency fix) came out of diagnosing them, and none of the fifteen
+answers `sat` any more — see CHANGELOG.md's 0.3.3 entry, "Soundness fixes (wrong `sat`
+corrected)", for the full root-cause writeups; the durable evidence is 43 in-repo regression
+tests built from minimal repros (`oxiz-solver/tests/{arith_diseq_soundness,
+array_store_extensionality, qf_nia_relaxation}.rs`) plus the in-module suites named per fix,
+since the competition corpus itself is not vendored here. **This does not mean all fifteen now
+reach a decided verdict**: `xs_8_13`, `vhard7`, the two larger `ring_2exp*` files
+(`ring_2exp6_9vars_0ite_unsat`, `ring_2exp14_9vars_0ite_unsat`), and
+`storecomm_t1_pp_nf_ni_00050_001` now time out rather than answer — a timeout is a refusal, not
+a wrong answer, and the search-performance work they'd need is deliberately deferred. **The two
+QF_BV files cited in #47 were never obtained, so #47 alone stays unreproduced** and its box
+stays open. The locally installed Z3 is 4.15.4 (the pinned parity baseline); the reporter used
 4.16.0.
 
-To verify any of them: obtain the file from the upstream SMT-LIB distribution and compare
+To verify #47: obtain the files from the upstream SMT-LIB distribution and compare
 `z3 -smt2 <file>` against `oxiz -q <file>`. `bench/z3_parity`'s `run_z3` / `run_oxiz` already
 accept an arbitrary path, so no new harness is required.
 
-- [ ] **#44 — QF_AUFLIA (arrays + UF + LIA).** The cluster is mostly `storecomm_*`, which points
+- [x] **#44 — QF_AUFLIA (arrays + UF + LIA).** The cluster is mostly `storecomm_*`, which points
   at an array-axiom or EUF-congruence gap rather than search noise. Primary repro:
   `non-incremental/QF_AUFLIA/storecomm/storecomm_t3_np_sf_ni_00010_001.cvc.smt2`. Also cited:
   `storecomm_t1_pp_nf_ni_00020_001`, `storecomm_t1_pp_nf_ni_00020_008`,
   `storecomm_t1_pp_nf_ni_00050_001`, `storecomm_t3_pp_nf_ai_00020_001`, and
-  `non-incremental/QF_AUFLIA/20170829-Rodin/smt8591958557635707797.smt2`.
+  `non-incremental/QF_AUFLIA/20170829-Rodin/smt8591958557635707797.smt2`. — **(fixed in 0.3.3: two array-axiom gaps, exactly as the cluster suggested — a formula built only out of `store` never instantiated extensionality (`track_theory_vars.rs:273` only set the array-axiom gate from the `Select` arm, never `Store`), and exhausting the 20,000-instance axiom budget was reported as "every axiom satisfied" instead of `Unknown` (`array_axioms.rs`). `storecomm_t3_np_sf_ni_00010_001` and `smt8591958557635707797` confirmed re-measured to `unsat`; `storecomm_t1_pp_nf_ni_00050_001` now times out (not decided, but no longer a wrong `sat`).)**
 
-- [ ] **#45 — QF_LIA `rings/`.** `non-incremental/QF_LIA/rings/ring_2exp8_3vars_2ite_unsat.smt2`,
-  plus `ring_2exp6_9vars_0ite_unsat.smt2` and `ring_2exp14_9vars_0ite_unsat.smt2`.
+- [x] **#45 — QF_LIA `rings/`.** `non-incremental/QF_LIA/rings/ring_2exp8_3vars_2ite_unsat.smt2`,
+  plus `ring_2exp6_9vars_0ite_unsat.smt2` and `ring_2exp14_9vars_0ite_unsat.smt2`. — **(fixed in 0.3.3: `ring_2exp8_3vars_2ite_unsat` confirmed re-measured to `unsat`; the two larger 9-variable files now time out instead (not decided, no longer wrong). Root causes were general soundness fixes, not ring-specific — see the intro's CHANGELOG pointer.)**
 
-- [ ] **#46 — QF_UFLIA `Wisa` / `wisas`, with a root-cause hypothesis worth checking first.**
+- [x] **#46 — QF_UFLIA `Wisa` / `wisas`, with a root-cause hypothesis worth checking first.**
   Repros: `non-incremental/QF_UFLIA/wisas/xs_8_13.smt2`,
   `non-incremental/QF_UFLIA/mathsat/Wisa/xs-06-15-4-1-4-1.smt2`, and
   `.../Wisa/xs-08-20-3-2-4-5.smt2`. The reporter's analysis, worth verifying against our own
@@ -1487,19 +1492,19 @@ accept an arbitrary path, so no new harness is required.
   and implement in-house: derive the term's LP-implied integer range by minimising and then
   maximising it over the simplex feasible region, and use that as the fallback bound source for
   UF arguments the interval fixpoint cannot bound. `[ceil(min), floor(max)]` over-approximates
-  the true integer range, so a case-split built from it cannot exclude a reachable value.
+  the true integer range, so a case-split built from it cannot exclude a reachable value. — **(fixed in 0.3.3, exactly the hypothesized root cause and design: new module `oxiz-solver/src/solver/int_range_lp.rs` asserts every decision-level-0 arithmetic atom into a throwaway rational LP with one column per distinct term, minimises/maximises the target column, and rounds inward — a bound is taken only from a proved `Optimal`, never `Unbounded`/`Unknown`/`Infeasible`. `xs-08-20-3-2-4-5` confirmed re-measured to `unsat`; `xs_8_13` now times out (not decided, no longer wrong). Bounded at 4,096 atoms/columns and 48 LP queries per round, 8 inline tests.)**
 
 - [ ] **#47 — QF_BV.** `non-incremental/QF_BV/sage/app9/bench_679.smt2` and
   `non-incremental/QF_BV/bruttomesso/core/ext_con_064_002_0512.smt2` (extract/concat family; the
-  latter reportedly needs roughly 7-10s, so a 5s timeout hides it).
+  latter reportedly needs roughly 7-10s, so a 5s timeout hides it). — **Still unreproduced as of 0.3.3: unlike #44-#46/#48-#50, these two QF_BV files were never obtained, so this box stays open pending the corpus.**
 
-- [ ] **#48 — QF_ANIA.**
-  `non-incremental/QF_ANIA/20211213-GrandProduct-Ozdemir/sound/diff/3.smt2`.
+- [x] **#48 — QF_ANIA.**
+  `non-incremental/QF_ANIA/20211213-GrandProduct-Ozdemir/sound/diff/3.smt2`. — **(fixed in 0.3.3: no longer `sat` — now answers an honest `unknown`, not a decided verdict but no longer wrong. This is nonlinear integer arithmetic over arrays, which no current engine in the tree decides.)**
 
-- [ ] **#49 — QF_IDL.** `non-incremental/QF_IDL/job_shop/jobshop4-2-2-2-4-4-11.smt2`.
+- [x] **#49 — QF_IDL.** `non-incremental/QF_IDL/job_shop/jobshop4-2-2-2-4-4-11.smt2`. — **(fixed in 0.3.3: confirmed re-measured to `unsat`.)**
 
-- [ ] **#50 — QF_UFIDL.** `non-incremental/QF_UFIDL/mathsat/EufLaArithmetic/vhard/vhard7.smt2`
-  (EUF plus difference logic).
+- [x] **#50 — QF_UFIDL.** `non-incremental/QF_UFIDL/mathsat/EufLaArithmetic/vhard/vhard7.smt2`
+  (EUF plus difference logic). — **(fixed in 0.3.3: no longer `sat` — now times out (not decided, no longer wrong).)**
 
 ### Repository workflow
 

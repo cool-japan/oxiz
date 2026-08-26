@@ -93,6 +93,20 @@ impl<'a> ChcCompParser<'a> {
                 debug!("check-sat command (ignored in CHC parsing)");
                 Ok(())
             }
+            Command::DefineFunsRec(defs) => {
+                // Never fall into the catch-all below. A recursive definition
+                // is the only constraint on the symbol it defines, and this
+                // translator has no way to express one as a Horn clause, so
+                // ignoring it would keep every `(f x)` occurrence while
+                // dropping every constraint on `f` — silently solving a
+                // strictly weaker CHC system.
+                let names: Vec<&str> = defs.iter().map(|d| d.name.as_str()).collect();
+                Err(ChcCompError::Unsupported(format!(
+                    "recursive function definitions are not supported in CHC input \
+                     (define-fun-rec/define-funs-rec: {})",
+                    names.join(", ")
+                )))
+            }
             _ => {
                 // Ignore other commands
                 Ok(())
@@ -397,6 +411,29 @@ mod tests {
     fn test_chccomp_parser_creation() {
         let mut terms = TermManager::new();
         let _parser = ChcCompParser::new(&mut terms);
+    }
+
+    /// A recursive definition must be an explicit error, never ignored.
+    ///
+    /// The parser stopped rejecting `define-fun-rec` at the SMT-LIB level, so
+    /// without a dedicated arm the command would fall into `process_command`'s
+    /// catch-all: every `(f x)` occurrence would survive into the CHC system
+    /// while the only constraint on `f` was dropped, and the resulting system
+    /// would be solved confidently and wrongly.
+    #[test]
+    fn recursive_definitions_are_rejected_not_ignored() {
+        let mut terms = TermManager::new();
+        let mut parser = ChcCompParser::new(&mut terms);
+        let input = "(set-logic HORN)\
+                     (define-fun-rec len ((n Int)) Int (ite (<= n 0) 0 (+ 1 (len (- n 1)))))\
+                     (assert (= (len 3) 3))";
+        let err = parser
+            .parse(input)
+            .expect_err("a recursive definition must not be silently ignored");
+        assert!(
+            matches!(err, ChcCompError::Unsupported(ref m) if m.contains("len")),
+            "the error must name the unsupported definition, got {err:?}"
+        );
     }
 
     #[test]

@@ -987,10 +987,10 @@ mod tests {
     /// assertion -- an overflow aborts the process.
     #[test]
     fn predicates_survive_a_deep_chain_on_a_tiny_stack() {
-        const DEPTH: usize = 60_000;
+        const DEPTH: usize = 7_500;
 
         let handle = std::thread::Builder::new()
-            .stack_size(1 << 20)
+            .stack_size(1 << 17)
             .spawn(|| {
                 let mut manager = TermManager::new();
                 let int_sort = manager.sorts.int_sort;

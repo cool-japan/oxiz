@@ -7,16 +7,16 @@
 use super::*;
 use crate::ast::TermManager;
 
-/// Run `f` to completion on a dedicated thread with a 1 MiB stack --
+/// Run `f` to completion on a dedicated thread with a 128 KiB stack --
 /// deliberately far smaller than the default (several-MiB) main-thread
 /// stack -- and return whatever it returns. Mirrors
-/// `ast/manager/query/tests.rs`'s `run_on_1mib_stack`: a stack overflow
+/// `ast/manager/query/tests.rs`'s `run_on_small_stack`: a stack overflow
 /// aborts the whole process rather than failing a single test gracefully,
 /// so for the deep-nesting tests below, the call *returning at all* is
 /// itself part of what is being asserted.
-fn run_on_1mib_stack<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
+fn run_on_small_stack<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
     std::thread::Builder::new()
-        .stack_size(1 << 20)
+        .stack_size(1 << 17)
         .spawn(f)
         .expect("spawning the constrained-stack test thread should succeed")
         .join()
@@ -347,7 +347,7 @@ mod shallow_pinned_outputs {
 }
 
 // ===========================================================================
-// Deep-structure regression tests: built iteratively, run on a 1 MiB stack.
+// Deep-structure regression tests: built iteratively, run on a 128 KiB stack.
 // The call returning at all is part of the assertion; the result must also
 // be exactly correct, not merely "didn't crash".
 // ===========================================================================
@@ -355,7 +355,7 @@ mod shallow_pinned_outputs {
 mod deep_structures_on_tiny_stack {
     use super::*;
 
-    const DEPTH: usize = 100_000;
+    const DEPTH: usize = 12_500;
 
     #[test]
     fn to_cnf_survives_deep_double_negation_chain() {
@@ -366,40 +366,40 @@ mod deep_structures_on_tiny_stack {
         // output-size one; see the module doc comment on why the two are
         // kept separate).
         assert_eq!(DEPTH % 2, 0, "test assumes an even depth");
-        let result = run_on_1mib_stack(|| {
+        let result = run_on_small_stack(|| {
             let mut m = TermManager::new();
             let x = m.mk_var("x", m.sorts.bool_sort);
             let chain = deep_not_chain(&mut m, x, DEPTH);
             let cnf = to_cnf(chain, &mut m);
             cnf == x
         });
-        assert!(result, "Not^100000(x) must simplify to exactly x");
+        assert!(result, "Not^12500(x) must simplify to exactly x");
     }
 
     #[test]
     fn to_dnf_survives_deep_double_negation_chain() {
         assert_eq!(DEPTH % 2, 0, "test assumes an even depth");
-        let result = run_on_1mib_stack(|| {
+        let result = run_on_small_stack(|| {
             let mut m = TermManager::new();
             let x = m.mk_var("x", m.sorts.bool_sort);
             let chain = deep_not_chain(&mut m, x, DEPTH);
             let dnf = to_dnf(chain, &mut m);
             dnf == x
         });
-        assert!(result, "Not^100000(x) must simplify to exactly x");
+        assert!(result, "Not^12500(x) must simplify to exactly x");
     }
 
     #[test]
     fn to_nnf_survives_deep_double_negation_chain() {
         assert_eq!(DEPTH % 2, 0, "test assumes an even depth");
-        let result = run_on_1mib_stack(|| {
+        let result = run_on_small_stack(|| {
             let mut m = TermManager::new();
             let x = m.mk_var("x", m.sorts.bool_sort);
             let chain = deep_not_chain(&mut m, x, DEPTH);
             let nnf = to_nnf(chain, &mut m);
             nnf == x
         });
-        assert!(result, "Not^100000(x) must simplify to exactly x");
+        assert!(result, "Not^12500(x) must simplify to exactly x");
     }
 
     #[test]
@@ -424,7 +424,7 @@ mod deep_structures_on_tiny_stack {
         // limit (this is exactly the shape that used to overflow before
         // conversion) while keeping the O(depth^2) rebuild tractable.
         const AND_CHAIN_DEPTH: usize = 8_000;
-        let result = run_on_1mib_stack(|| {
+        let result = run_on_small_stack(|| {
             let mut m = TermManager::new();
             let bool_sort = m.sorts.bool_sort;
             let x0 = m.mk_var("and_chain_0", bool_sort);
@@ -439,7 +439,7 @@ mod deep_structures_on_tiny_stack {
     fn is_nnf_survives_deep_and_chain_and_reports_true() {
         // Every level is `And(bare_var, rest)`, which is valid NNF at every
         // level, so the whole chain must be reported as NNF.
-        let result = run_on_1mib_stack(|| {
+        let result = run_on_small_stack(|| {
             let mut m = TermManager::new();
             let bool_sort = m.sorts.bool_sort;
             let leaf = m.mk_var("and_chain_leaf", bool_sort);
@@ -459,7 +459,7 @@ mod deep_structures_on_tiny_stack {
         // (in particular, its term_depth) must match the input's exactly --
         // Skolemization must be a complete no-op here, not merely
         // "returned without crashing".
-        let (input_depth, result_depth) = run_on_1mib_stack(|| {
+        let (input_depth, result_depth) = run_on_small_stack(|| {
             let mut m = TermManager::new();
             let zero = m.mk_int(0);
             let body_var = m.mk_var("body_var", m.sorts.int_sort);
@@ -482,7 +482,7 @@ mod deep_structures_on_tiny_stack {
         // layer removed, leaving just the innermost body with fresh
         // constants substituted in).
         //
-        // Depth is smaller than the other tests' 100,000 here for the same
+        // Depth is smaller than the other tests' 12,500 here for the same
         // kind of reason as `simplify_boolean`'s test above, but via a
         // different mechanism: `eliminate_universal_impl` calls
         // `TermManager::substitute` once *per Forall layer eliminated*, and
@@ -498,7 +498,7 @@ mod deep_structures_on_tiny_stack {
         // still far beyond any plausible native stack limit while keeping
         // the O(depth^2) substitute cost tractable.
         const ELIMINATE_CHAIN_DEPTH: usize = 3_000;
-        let (input_depth, result_depth, result_is_forall) = run_on_1mib_stack(|| {
+        let (input_depth, result_depth, result_is_forall) = run_on_small_stack(|| {
             let mut m = TermManager::new();
             let zero = m.mk_int(0);
             let body_var = m.mk_var("body_var", m.sorts.int_sort);

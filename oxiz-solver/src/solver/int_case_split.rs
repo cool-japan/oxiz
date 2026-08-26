@@ -34,18 +34,30 @@
 //! The disjunction restates a range the formula's own unconditional facts
 //! already impose, so every model of the input satisfies it and no model is
 //! lost. "Unconditional" is doing real work in that sentence, and it is why
-//! the derivation reads only atoms that are (i) assigned `true` (ii) at
-//! decision level 0 and (iii) constrain a **single** term.
+//! the derivation reads only atoms that are (i) assigned `true` and (ii) at
+//! decision level 0: together those mean the formula forced the atom on its
+//! own, so it survives every backtrack and holds in every model.
 //!
-//! Conditions (i) and (ii) together mean the formula forced the atom on its
-//! own: nothing was decided, so it survives every backtrack and holds in every
-//! model. Condition (iii) rules out reading a bound off one term and
-//! transferring it to another through a multi-term fact. Such a transfer looks
-//! sound — the fact really does hold — but the *bound* it produces depends on
-//! what the other terms are currently believed to be, which is a property of
-//! the branch being explored rather than of the formula. Baking that into a
-//! lemma that outlives the branch is exactly how a satisfiable instance
-//! acquires a spurious `unsat`.
+//! Two derivations run over exactly those atoms, and both are used.
+//!
+//! The **single-atom reading** below ([`Solver::root_level_int_domains`])
+//! additionally requires each atom to constrain a *single* term. That is not
+//! frugality: reading a bound off one term and transferring it to another
+//! through a multi-term fact needs to know what the other terms are, and
+//! inside a search that knowledge belongs to the branch being explored rather
+//! than to the formula. Baking a branch-local bound into a lemma that outlives
+//! the branch is exactly how a satisfiable instance acquires a spurious
+//! `unsat`.
+//!
+//! The **LP relaxation** ([`super::int_range_lp`]) lifts the single-term
+//! restriction the only way that stays sound: it asserts *all* the level-0
+//! facts simultaneously into a scratch tableau and reads the target term's
+//! proved optima off that. Nothing is transferred from a branch, because the
+//! tableau contains no branch — only facts that hold in every model — and
+//! every approximation it makes (dropped integrality, aliased columns, strict
+//! bounds read at their open endpoint) widens the resulting interval rather
+//! than narrowing it. See that module for the argument in full. Whichever
+//! derivation bounds a side more tightly wins, since both are sound.
 //!
 //! One further guard is belt-and-braces rather than load-bearing: if the
 //! candidate model the core just produced puts a term outside the range
@@ -68,6 +80,7 @@ use rustc_hash::FxHashMap;
 use std::ops::RangeInclusive;
 
 use super::Solver;
+use super::int_range_lp::RootLevelLp;
 use super::trail::TrailOp;
 use super::types::{ArithConstraintType, Constraint, ParsedArithConstraint};
 use oxiz_core::ast::TermId;
@@ -75,12 +88,26 @@ use oxiz_core::ast::TermId;
 /// Wall-clock ceiling on the *first* solve, past which no refinement round is
 /// attempted at all.
 ///
-/// OxiZ tuning decision. A round throws the search away and redoes it, so on
-/// an instance that was already slow it roughly doubles the wall clock in
-/// exchange for closing a gap that instance probably does not have. The
-/// failure mode this exists to catch — a fast, confident, wrong `sat` — sits
-/// comfortably under this.
-pub(super) const REFINEMENT_TIME_CEILING_MS: u64 = 5000;
+/// OxiZ tuning decision. A round throws the search away and redoes it, so the
+/// ceiling buys a bounded slowdown (roughly a doubling) on instances that get
+/// no benefit, in exchange for the chance to correct a wrong `sat`.
+///
+/// It was 5s, chosen when the only refinement was the single-atom reading,
+/// whose targets are found in milliseconds — "a fast, confident, wrong `sat`"
+/// really did describe every instance it could help. The LP relaxation
+/// ([`super::int_range_lp`]) changed that. The QF_UFLIA `Wisa` instances it
+/// exists for are wrong `sat`s that take a *minute* to reach the first
+/// candidate model, so at 5s the refinement was built, correct, and never
+/// reached: `xs-08-20-3-2-4-5` answers `sat` at 258s with the gate at 5s, and
+/// `unsat` at 254s with the gate raised — the refinement costs almost nothing
+/// there, it was simply forbidden from running.
+///
+/// 120s is set against that measurement: high enough that a minute-scale
+/// candidate model still gets its one refinement round, low enough that a
+/// genuinely long search is not doubled. A wrong verdict is a much worse
+/// outcome than a slow one, and the round budget
+/// ([`MAX_REFINEMENT_ROUNDS`]) caps the downside at one extra search.
+pub(super) const REFINEMENT_TIME_CEILING_MS: u64 = 120_000;
 
 /// How many discard-and-re-solve rounds one `check` may spend.
 ///
@@ -97,6 +124,15 @@ const MAX_REFINEMENT_ROUNDS: u32 = 1;
 /// a tight cap risks spending the round on terms that were never the problem
 /// and leaving the one that was untouched.
 const MAX_TERMS_PER_ROUND: usize = 48;
+
+/// How many terms one round may ask the LP relaxation about.
+///
+/// OxiZ tuning decision. Each query is two full `optimize_linexpr` calls over
+/// the whole level-0 tableau, and the round can only spend
+/// [`MAX_TERMS_PER_ROUND`] splits however many answers come back — so querying
+/// past that budget buys nothing and can cost a great deal on a formula with
+/// thousands of shared terms. Set to the split budget itself.
+const MAX_LP_QUERIES_PER_ROUND: usize = MAX_TERMS_PER_ROUND;
 
 /// The widest domain still worth enumerating, measured as `high - low`.
 ///
@@ -238,7 +274,30 @@ impl Solver {
             self.assert_value_disjunction(term, values, manager);
         }
         self.case_split_rounds += 1;
+        // The round ran: every target got its disjunction, so the re-solve
+        // about to happen *does* branch on those domains and its verdict is
+        // trustworthy again.
+        self.case_split_skipped_targets = false;
         true
+    }
+
+    /// Record that a refinement round was declined by the affordability
+    /// ceiling while this candidate model still had terms worth splitting.
+    ///
+    /// Deriving the targets is cheap relative to the re-solve the round was
+    /// declined to avoid (one LP build plus at most
+    /// [`MAX_LP_QUERIES_PER_ROUND`] optimisations, against a whole second
+    /// search), and it is the only way to distinguish "this candidate is
+    /// fully branched" from "I could not afford to check" — which is the
+    /// difference between a `Sat` that may be reported and one that may not.
+    /// Nothing is asserted here, so the caller owes no re-solve.
+    pub(super) fn note_unaffordable_case_split(&mut self) {
+        if !self.arith.is_integer() || self.case_split_rounds >= MAX_REFINEMENT_ROUNDS {
+            return;
+        }
+        if !self.collect_split_targets().is_empty() {
+            self.case_split_skipped_targets = true;
+        }
     }
 
     /// The terms worth splitting this round, each with the values to enumerate.
@@ -251,9 +310,15 @@ impl Solver {
     /// again something CDCL cannot branch on without an atom for it. Running
     /// both through one candidate set means the domain derivation, the
     /// per-term deduplication and the round budget are written once.
+    ///
+    /// Terms the single-atom reading leaves unbounded get a second chance from
+    /// [`RootLevelLp`], which reads all the level-0 facts *together* instead of
+    /// one at a time. That tableau is only built if some term actually needs
+    /// it, and it is shared by every term that does.
     fn collect_split_targets(&self) -> Vec<(TermId, RangeInclusive<i64>)> {
         let domains = self.root_level_int_domains();
         let mut targets: Vec<(TermId, RangeInclusive<i64>)> = Vec::new();
+        let mut unresolved: Vec<TermId> = Vec::new();
         for &term in self
             .numeric_uf_arg_terms
             .iter()
@@ -266,20 +331,81 @@ impl Solver {
                 .get(&term)
                 .and_then(|domain| domain.enumerable(MAX_ENUMERABLE_SPAN))
             else {
+                unresolved.push(term);
                 continue;
             };
-            // The model the core just built is the authority on this term. A
-            // range that excludes it means this pass derived something the
-            // theory solver disagrees with, and declining is the cheap, safe
-            // response to a disagreement neither side can be shown to win.
-            if let Some(in_model) = self.arith.value(term).and_then(|v| v.to_i64())
-                && !values.contains(&in_model)
-            {
-                continue;
+            if let Some(values) = self.accept_range(term, values) {
+                targets.push((term, values));
             }
-            targets.push((term, values));
+        }
+
+        if unresolved.is_empty() {
+            return targets;
+        }
+        // The round can only *use* `MAX_TERMS_PER_ROUND` splits, and each LP
+        // query is two full simplex optimisations, so querying every unresolved
+        // term would pay an unbounded price for a bounded benefit. Sorting by
+        // term id keeps which terms get asked stable across runs of the same
+        // query.
+        unresolved.sort_unstable();
+        unresolved.truncate(MAX_LP_QUERIES_PER_ROUND);
+        let Some(mut relaxation) = self.build_root_level_lp() else {
+            return targets;
+        };
+        for term in unresolved {
+            let (low, high) = relaxation.integer_bounds(term);
+            // Start from whatever the single-atom reading did manage to learn:
+            // both derivations are sound, so keeping the tighter side of each
+            // is sound too, and a one-sided single-atom bound plus a one-sided
+            // LP bound can together be enumerable when neither is alone.
+            let mut domain = domains.get(&term).copied().unwrap_or_else(IntDomain::open);
+            domain.narrow_with(IntDomain { low, high });
+            let Some(values) = domain.enumerable(MAX_ENUMERABLE_SPAN) else {
+                continue;
+            };
+            if let Some(values) = self.accept_range(term, values) {
+                targets.push((term, values));
+            }
         }
         targets
+    }
+
+    /// Hand back `values` unless the candidate model puts `term` outside it.
+    ///
+    /// The model the core just built is the authority on this term. A range
+    /// that excludes it means this pass derived something the theory solver
+    /// disagrees with, and declining is the cheap, safe response to a
+    /// disagreement neither side can be shown to win.
+    fn accept_range(
+        &self,
+        term: TermId,
+        values: RangeInclusive<i64>,
+    ) -> Option<RangeInclusive<i64>> {
+        if let Some(in_model) = self.arith.value(term).and_then(|v| v.to_i64())
+            && !values.contains(&in_model)
+        {
+            return None;
+        }
+        Some(values)
+    }
+
+    /// The LP relaxation of every level-0 arithmetic fact, or `None` when there
+    /// is nothing to relax or the formula is past [`RootLevelLp`]'s size caps.
+    ///
+    /// A numeric equality is parsed with [`ArithConstraintType::Le`] as a
+    /// placeholder (see the encoder's `TermKind::Eq` arm), so the recorded
+    /// `Constraint` is what distinguishes `=` from `<=` and has to travel with
+    /// each atom.
+    fn build_root_level_lp(&self) -> Option<RootLevelLp> {
+        let atoms: Vec<(&ParsedArithConstraint, bool)> = self
+            .root_level_true_atoms()
+            .map(|(var, parsed)| {
+                let pins_exactly =
+                    matches!(self.var_to_constraint.get(&var), Some(Constraint::Eq(_, _)));
+                (parsed, pins_exactly)
+            })
+            .collect();
+        RootLevelLp::build(&atoms)
     }
 
     /// Assert `(or (= term v) …)` over `values` and remember that `term` has
@@ -654,5 +780,90 @@ mod tests {
             high: Some(i64::MAX),
         };
         assert!(enormous.enumerable(MAX_ENUMERABLE_SPAN).is_none());
+    }
+
+    /// An unaffordable refinement round must mark the candidate unverified.
+    ///
+    /// This is the whole load-dependence fix in one assertion. The ceiling is
+    /// a wall-clock test, so whether the round runs depends on how busy the
+    /// machine is; if declining it silently left the candidate looking fully
+    /// branched, the same query would answer `unsat` on an idle box and `sat`
+    /// under load. `note_unaffordable_case_split` is what the `check_core`
+    /// gate calls instead of short-circuiting the split away, and it must set
+    /// the flag whenever targets existed.
+    ///
+    /// The formula below is satisfiable, so the search really does stop at a
+    /// candidate model with a live split target (an `unsat` one would be
+    /// refuted outright and never reach the gate). What is being pinned is the
+    /// bookkeeping, not this formula's verdict.
+    #[test]
+    fn an_unaffordable_round_marks_the_candidate_unverified() {
+        use oxiz_core::ast::TermManager;
+
+        // `a` is pinned to `{2, 3}` and used as a UF argument: a shared term
+        // with a narrow domain, i.e. exactly what `collect_split_targets`
+        // looks for.
+        let mut solver = Solver::new();
+        // LIA mode: the refinement is integer-only, and `Solver::new` starts in
+        // the real-arithmetic default.
+        solver.set_logic("QF_UFLIA");
+        let mut tm = TermManager::new();
+        let int_sort = tm.sorts.int_sort;
+        let a = tm.mk_var("a", int_sort);
+        let two = tm.mk_int(2);
+        let three = tm.mk_int(3);
+        let ge = tm.mk_ge(a, two);
+        let le = tm.mk_le(a, three);
+        solver.assert(ge, &mut tm);
+        solver.assert(le, &mut tm);
+        let fa = tm.mk_apply("f", vec![a], int_sort);
+        let zero = tm.mk_int(0);
+        let fa_ge = tm.mk_ge(fa, zero);
+        solver.assert(fa_ge, &mut tm);
+
+        let _ = solver.check(&mut tm);
+        // Rewind the refinement bookkeeping to the state the ceiling creates:
+        // a candidate model whose round has not been spent. `case_split_terms`
+        // is cleared too, since a term already split is deliberately not a
+        // target a second time.
+        solver.case_split_rounds = 0;
+        solver.case_split_skipped_targets = false;
+        solver.case_split_terms.clear();
+
+        solver.note_unaffordable_case_split();
+        assert!(
+            solver.case_split_skipped_targets,
+            "a declined round with live targets must mark the candidate unverified"
+        );
+    }
+
+    /// The converse: with nothing to split, a declined round leaves the
+    /// candidate alone. Otherwise every slow `sat` in the solver would be
+    /// downgraded to `unknown` and the gate would cost far more than it buys.
+    #[test]
+    fn an_unaffordable_round_with_no_targets_changes_nothing() {
+        use oxiz_core::ast::TermManager;
+
+        // Pure arithmetic, no uninterpreted function: no shared term, so
+        // `collect_split_targets` finds nothing.
+        let mut solver = Solver::new();
+        // Same LIA mode as the test above, so this really is exercising "no
+        // targets" rather than the integer-mode guard.
+        solver.set_logic("QF_UFLIA");
+        let mut tm = TermManager::new();
+        let int_sort = tm.sorts.int_sort;
+        let x = tm.mk_var("x", int_sort);
+        let zero = tm.mk_int(0);
+        let ge = tm.mk_ge(x, zero);
+        solver.assert(ge, &mut tm);
+        let _ = solver.check(&mut tm);
+        solver.case_split_rounds = 0;
+        solver.case_split_skipped_targets = false;
+
+        solver.note_unaffordable_case_split();
+        assert!(
+            !solver.case_split_skipped_targets,
+            "no targets means nothing was skipped"
+        );
     }
 }

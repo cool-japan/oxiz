@@ -4,6 +4,7 @@
 //! and cylindrical algebraic decomposition (CAD) projection for feasibility.
 
 use super::NlsatSolver;
+use super::witness_algebraic::AlgebraicWitness;
 use crate::cad::SturmSequence;
 use crate::interval_set::IntervalSet;
 use crate::types::{Atom, AtomKind, BoolVar, IneqAtom, Literal};
@@ -26,10 +27,14 @@ use rustc_hash::{FxHashMap, FxHashSet};
 ///   variable are jointly infeasible over the reals (verified exactly via Sturm
 ///   root isolation). The attached literals form a valid theory lemma
 ///   (`¬l_1 ∨ … ∨ ¬l_k`) that can be learned and back-jumped over.
-/// * `IrrationalOnly` – the true real feasible region is non-empty but contains
-///   no rational point (e.g. `x^2 = 2`). We cannot represent an algebraic
-///   witness in the current rational assignment, so the honest answer is
-///   `Unknown` rather than a fabricated model or a wrong `Unsat`.
+/// * `AlgebraicValue` – the true real feasible region is non-empty but contains
+///   no rational point (e.g. `x^2 = 2`), and an exact real-algebraic witness
+///   for it *was* found. See `solver/witness_algebraic.rs`.
+/// * `IrrationalOnly` – as above, but no algebraic witness could be produced
+///   *and* emptiness could not be proved either: the exact sign machinery ran
+///   out of refinement budget, or a second algebraic value would have been
+///   needed. The honest answer is `Unknown` rather than a fabricated model or
+///   a wrong `Unsat`.
 /// * `GreedyEmpty` – the intersection is empty but involves a constraint that
 ///   couples this variable with earlier-assigned variables, so emptiness is
 ///   conditional on those (greedy) choices and cannot be turned into a valid
@@ -52,9 +57,24 @@ pub(super) enum ArithDecision {
         /// Whether the region left no freedom (a provably unique value).
         forced: bool,
     },
+    /// An exact real-algebraic witness. Committed by
+    /// `NlsatSolver::commit_arith_witness_point`.
+    ///
+    /// Unlike `Value` this carries no region. A region travels with a rational
+    /// witness so the ledger can draw *replacement* points from it, and the
+    /// region an algebraic witness comes from is by construction one that
+    /// holds no satisfying rational at all — every point the ledger could take
+    /// from it is already known to fail. `solver/resample.rs` records this kind
+    /// of witness as offering no replacement, so there is nothing for a region
+    /// to be used for.
+    AlgebraicValue {
+        /// The committed witness.
+        point: crate::cad::CadPoint,
+    },
     /// Provably infeasible over the reals; carries a valid conflict lemma.
     ProvedEmpty(Vec<Literal>),
-    /// Feasible over the reals but with no rational witness (algebraic only).
+    /// Feasible over the reals, no rational witness, and no algebraic one
+    /// could be *proved* either.
     IrrationalOnly,
     /// Empty under the current greedy assignment; not provably a global lemma.
     GreedyEmpty,
@@ -191,7 +211,17 @@ impl NlsatSolver {
                 return ArithDecision::ProvedEmpty(regions.blame);
             }
             // Real solutions exist but none are rational (algebraic only).
-            return ArithDecision::IrrationalOnly;
+            // Try for an exact real-algebraic witness before conceding: the
+            // candidate walk over the cells of the sign-invariant
+            // decomposition is a decision procedure for this (pure) case, so
+            // exhausting it without a satisfying cell is a *proof* of
+            // emptiness, not a shrug. `Unknown` survives only for the cases
+            // the exact machinery genuinely cannot decide.
+            return match self.sample_algebraic_witness(var) {
+                AlgebraicWitness::Found(point) => ArithDecision::AlgebraicValue { point },
+                AlgebraicWitness::NoRealPoint(lemma) => ArithDecision::ProvedEmpty(lemma),
+                AlgebraicWitness::Inconclusive => ArithDecision::IrrationalOnly,
+            };
         }
 
         // Emptiness is conditional on earlier greedy variable choices (the

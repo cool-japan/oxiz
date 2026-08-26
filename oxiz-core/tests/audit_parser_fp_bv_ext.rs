@@ -12,11 +12,16 @@
 //!   recognized and correctly typed.
 //! - FP-CONV-SIB-01: `fp.to_real`, the `(fp sign exp sig)` literal, and the
 //!   indexed FP special-value constants must be recognized.
-//! - SORT-BUILTIN-01: `RoundingMode`/`RegLan` must not silently become
-//!   ordinary uninterpreted sorts.
+//! - SORT-BUILTIN-01: `RoundingMode` and `RegLan` must not silently become
+//!   ordinary uninterpreted sorts. The two reserved names have since diverged:
+//!   `RoundingMode` became a first-class sort and is now *declarable* (these
+//!   tests pin the acceptance, the case split a symbolic mode compiles into,
+//!   and the honest errors for the positions no closure axiom can reach),
+//!   while `RegLan` stays reserved because it names the built-in sort every
+//!   regular-expression term is interned at.
 //! - R1: `parse_sort` must not overflow the stack on deeply nested sorts.
-//! - todo-1151: `mk_bv_concat` must not silently fabricate a width for a
-//!   non-bit-vector operand.
+//! - todo-1151: `try_mk_bv_concat` must not silently fabricate a width for a
+//!   non-bit-vector operand — it returns a sort error instead.
 //! - todo-1174: the lexer must reject leading-zero numerals and must not
 //!   truncate `(_ bvN M)` literal values to `i64`.
 
@@ -448,18 +453,227 @@ fn fp_special_value_constants_are_recognized() {
 // uninterpreted sorts.
 // ---------------------------------------------------------------------------
 
-#[test]
-fn rounding_mode_sort_is_honestly_rejected_not_silently_uninterpreted() {
+/// Parse a script that must fail, returning the lowercased error text.
+fn parse_error(script: &str) -> String {
     let mut manager = TermManager::new();
-    let err = parse_script("(declare-const m RoundingMode)", &mut manager)
-        .expect_err("declaring a RoundingMode-sorted constant must not silently succeed");
-    let msg = format!("{err:?}").to_lowercase();
+    let err = parse_script(script, &mut manager)
+        .expect_err("script was expected to be rejected, but it parsed");
+    format!("{err:?}").to_lowercase()
+}
+
+/// `RoundingMode` is a first-class sort: a constant may be declared at it.
+///
+/// This replaces the old pin asserting the *opposite*. Back then rounding
+/// modes existed only as literals baked into `fp.*` operators at parse time,
+/// so a `RoundingMode`-sorted symbol could not be represented at all and an
+/// honest rejection was the best available answer. It is now
+/// `SortKind::RoundingMode`, and its five inhabitants are nullary `Var` terms.
+#[test]
+fn rounding_mode_sort_is_declarable() {
+    let mut manager = TermManager::new();
+    let commands = parse_script("(declare-const m RoundingMode)", &mut manager)
+        .expect("a RoundingMode-sorted constant must be declarable");
+    let [Command::DeclareConst(name, sort)] = commands.as_slice() else {
+        panic!("expected a single declare-const, got {commands:?}");
+    };
+    assert_eq!(name, "m");
+    // The sort *string* is what `Command::DeclareConst` carries to the solver,
+    // where `Context::parse_sort_name` resolves it back. If the two spellings
+    // ever disagree, the declared constant and its occurrences in terms end up
+    // at different `SortId`s — and, since `mk_var` hash-conses on
+    // `(name, sort)`, become two unrelated terms.
+    assert_eq!(sort, "RoundingMode");
+}
+
+/// Both spellings of a mode denote the *same term*, not merely equal ones.
+///
+/// `mk_rounding_mode` interns under the canonical long name, so the short
+/// alias resolves to that identical `TermId` — which is what lets EUF decide
+/// `(= m RNE)` against a mode written either way with no extra axiom.
+#[test]
+fn short_and_long_rounding_mode_spellings_intern_to_one_term() {
+    let (manager, asserts) = parse_asserts(
+        "(declare-const m RoundingMode)
+         (assert (= m RNE))
+         (assert (= m roundNearestTiesToEven))
+         (assert (= m RTZ))",
+    );
+    let [short, long, other] = asserts.as_slice() else {
+        panic!("expected three assertions, got {}", asserts.len());
+    };
+    assert_eq!(
+        short, long,
+        "RNE and roundNearestTiesToEven must intern to the same term"
+    );
+    assert_ne!(short, other, "RNE and RTZ must stay different terms");
+
+    // And the mode term itself carries the reserved sort, spelled long.
+    let TermKind::Eq(_, mode) = manager.get(*short).expect("assertion").kind else {
+        panic!("expected an equality");
+    };
+    let node = manager.get(mode).expect("mode term");
     assert!(
-        msg.contains("roundingmode"),
-        "error should mention RoundingMode: {msg}"
+        manager
+            .sorts
+            .get(node.sort)
+            .is_some_and(oxiz_core::sort::Sort::is_rounding_mode)
+    );
+    let TermKind::Var(spur) = node.kind else {
+        panic!("a rounding mode must be a nullary Var, got {:?}", node.kind);
+    };
+    assert_eq!(manager.resolve_str(spur), "roundNearestTiesToEven");
+}
+
+/// The positions whose finiteness no closure axiom can reach are rejected —
+/// honestly, naming the v1 limitation rather than claiming the sort is
+/// unsupported.
+///
+/// Accepting any of these would silently give `RoundingMode` the behaviour of
+/// an *infinite* free sort: `(distinct (g 1) .. (g 6))` over
+/// `(declare-fun g (Int) RoundingMode)` would answer `sat`.
+#[test]
+fn rounding_mode_is_rejected_where_no_closure_axiom_can_reach() {
+    for (script, position) in [
+        ("(declare-fun g (Int) RoundingMode)", "result sort"),
+        ("(declare-fun h (RoundingMode) Int)", "argument sort"),
+        ("(declare-const a (Array Int RoundingMode))", "array range"),
+        ("(declare-const b (Array RoundingMode Int))", "array domain"),
+        (
+            "(declare-datatype Box ((box (unbox RoundingMode))))",
+            "datatype field sort",
+        ),
+    ] {
+        let msg = parse_error(script);
+        assert!(
+            msg.contains("roundingmode"),
+            "{position}: error should name the sort: {msg}"
+        );
+        assert!(
+            msg.contains("nullary"),
+            "{position}: error should say nullary declaration position is the supported one: {msg}"
+        );
+        assert!(
+            msg.contains(&position.to_lowercase()),
+            "{position}: error should name the offending position: {msg}"
+        );
+    }
+}
+
+/// The nullary spelling of `declare-fun` is a constant, so it is accepted.
+#[test]
+fn nullary_declare_fun_at_rounding_mode_is_accepted() {
+    let mut manager = TermManager::new();
+    parse_script(
+        "(declare-fun m () RoundingMode)(assert (= m RTZ))",
+        &mut manager,
+    )
+    .expect("a nullary declare-fun at RoundingMode is a constant declaration");
+}
+
+/// A symbolic rounding mode compiles into a five-way `ite` case split whose
+/// leaves are ordinary concrete `FpAdd` nodes — so the floating-point theory
+/// never has to know that a symbolic mode exists.
+#[test]
+fn symbolic_rounding_mode_expands_to_a_five_way_case_split() {
+    let (manager, asserts) = parse_asserts(
+        "(declare-const m RoundingMode)
+         (declare-const x (_ FloatingPoint 8 24))
+         (declare-const y (_ FloatingPoint 8 24))
+         (declare-const z (_ FloatingPoint 8 24))
+         (assert (= z (fp.add m x y)))",
+    );
+    let [assertion] = asserts.as_slice() else {
+        panic!("expected one assertion");
+    };
+    let TermKind::Eq(_, rhs) = manager.get(*assertion).expect("assertion").kind else {
+        panic!("expected an equality");
+    };
+
+    // Walk the else-chain: four `ite` levels, then a bare `FpAdd` — the
+    // unguarded final branch the closure axiom is what makes sound.
+    let mut modes = Vec::new();
+    let mut current = rhs;
+    loop {
+        match &manager.get(current).expect("case-split node").kind {
+            TermKind::Ite(_, then_branch, else_branch) => {
+                let TermKind::FpAdd(rm, _, _) = manager.get(*then_branch).expect("branch").kind
+                else {
+                    panic!("each taken branch must be a concrete fp.add");
+                };
+                modes.push(rm);
+                current = *else_branch;
+            }
+            TermKind::FpAdd(rm, _, _) => {
+                modes.push(*rm);
+                break;
+            }
+            other => panic!("unexpected node in the case split: {other:?}"),
+        }
+    }
+    assert_eq!(
+        modes,
+        oxiz_core::ast::RoundingMode::ALL.to_vec(),
+        "the split must cover all five modes, in order, with RTZ as the final else"
     );
 }
 
+/// A `RoundingMode` quantifier binder is *relativized* at parse time.
+///
+/// Nothing else can do it: the solver's closure axiom attaches to declared
+/// constants, and a bound variable has no declaration. Without relativization
+/// `forall` would range over an unconstrained free sort — strictly stronger
+/// than "for all five modes" — and `exists` could witness with a value that is
+/// no rounding mode at all.
+#[test]
+fn rounding_mode_binders_are_relativized_to_the_five_modes() {
+    let (manager, asserts) = parse_asserts(
+        "(declare-const p Bool)
+         (assert (forall ((m RoundingMode)) p))
+         (assert (exists ((m RoundingMode)) p))
+         (assert (forall ((i Int)) p))",
+    );
+    let [universal, existential, untouched] = asserts.as_slice() else {
+        panic!("expected three assertions");
+    };
+
+    // forall: the body became `(=> closure p)`.
+    let TermKind::Forall { body, .. } = manager.get(*universal).expect("forall").kind else {
+        panic!("expected a forall");
+    };
+    assert!(
+        matches!(manager.get(body).expect("body").kind, TermKind::Implies(..)),
+        "a relativized forall body must be an implication"
+    );
+
+    // exists: the body became `(and closure p)`.
+    let TermKind::Exists { body, .. } = manager.get(*existential).expect("exists").kind else {
+        panic!("expected an exists");
+    };
+    assert!(
+        matches!(manager.get(body).expect("body").kind, TermKind::And(_)),
+        "a relativized exists body must be a conjunction"
+    );
+
+    // A non-RoundingMode binder is left exactly as it was: the body is the
+    // bare `p`, with no guard wrapped around it.
+    let TermKind::Forall { body, .. } = manager.get(*untouched).expect("forall").kind else {
+        panic!("expected a forall");
+    };
+    assert!(
+        matches!(manager.get(body).expect("body").kind, TermKind::Var(_)),
+        "a non-RoundingMode binder must not be relativized"
+    );
+}
+
+/// `RegLan` stays un-declarable, and the message says *why* honestly.
+///
+/// The rejection is load-bearing, not a "not implemented" placeholder:
+/// `RegLan` names the built-in sort every regular-expression term is interned
+/// at (`TermManager::reglan_sort`), so letting a user declare a symbol of that
+/// sort would alias a free constant into the regex encoding's own namespace.
+/// The message must therefore not claim the sublanguage is missing — it is
+/// fully supported, as [`reglan_reserved_name_does_not_disable_re_operators`]
+/// asserts on the very next lines.
 #[test]
 fn reglan_sort_is_honestly_rejected_not_silently_uninterpreted() {
     let mut manager = TermManager::new();
@@ -467,6 +681,60 @@ fn reglan_sort_is_honestly_rejected_not_silently_uninterpreted() {
         .expect_err("declaring a RegLan-sorted constant must not silently succeed");
     let msg = format!("{err:?}").to_lowercase();
     assert!(msg.contains("reglan"), "error should mention RegLan: {msg}");
+    assert!(
+        msg.contains("reserved"),
+        "error must say the name is reserved, not that the theory is missing: {msg}"
+    );
+    assert!(
+        !msg.contains("not yet implemented") && !msg.contains("not implemented"),
+        "the re.* sublanguage IS implemented; the message must not claim otherwise: {msg}"
+    );
+}
+
+/// The counterpart of the rejection above: reserving the *name* must leave the
+/// regular-language operators themselves fully usable. `re.++`, `str.to_re`
+/// and `re.allchar` still parse under `str.in_re`, each interned at the
+/// reserved `RegLan` sort.
+#[test]
+fn reglan_reserved_name_does_not_disable_re_operators() {
+    let (manager, asserts) = parse_asserts(
+        r#"(declare-const s String)
+           (assert (str.in_re s (re.++ (str.to_re "a") re.allchar)))"#,
+    );
+    let [membership] = asserts.as_slice() else {
+        panic!("expected exactly one assertion, got {}", asserts.len());
+    };
+    let TermKind::StrInRe(_, re) = manager.get(*membership).expect("assert term").kind else {
+        panic!("expected a str.in_re membership atom");
+    };
+
+    // The regex operand is a `RegLan`-sorted `re.++` node whose two arguments
+    // are `str.to_re` and `re.allchar`, all at the same reserved sort.
+    let concat = manager.get(re).expect("regex operand");
+    let reglan_sort = concat.sort;
+    match &manager.sorts.get(reglan_sort).expect("regex sort").kind {
+        SortKind::Uninterpreted(spur) => assert_eq!(
+            manager.resolve_str(*spur),
+            "RegLan",
+            "regex nodes must carry the reserved RegLan sort"
+        ),
+        other => panic!("regex node must be RegLan-sorted, got {other:?}"),
+    }
+    let TermKind::Apply { func, ref args } = concat.kind else {
+        panic!("expected an re.++ Apply node, got {:?}", concat.kind)
+    };
+    assert_eq!(manager.resolve_str(func), "re.++");
+    let [to_re, allchar] = args.as_slice() else {
+        panic!("re.++ must have two operands, got {}", args.len());
+    };
+    for (arg, expected) in [(to_re, "str.to_re"), (allchar, "re.allchar")] {
+        let node = manager.get(*arg).expect("regex argument");
+        assert_eq!(node.sort, reglan_sort, "{expected} must be RegLan-sorted");
+        let TermKind::Apply { func, .. } = node.kind else {
+            panic!("expected {expected} Apply node, got {:?}", node.kind)
+        };
+        assert_eq!(manager.resolve_str(func), expected);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -510,7 +778,7 @@ fn moderately_nested_array_sort_still_parses() {
 }
 
 // ---------------------------------------------------------------------------
-// todo-1151: mk_bv_concat must not silently fabricate a width for a
+// todo-1151: try_mk_bv_concat must not silently fabricate a width for a
 // non-bit-vector operand.
 // ---------------------------------------------------------------------------
 
@@ -519,25 +787,61 @@ fn bv_concat_computes_exact_combined_width_for_valid_operands() {
     let mut m = TermManager::new();
     let a = m.mk_bitvec(0i64, 5);
     let b = m.mk_bitvec(0i64, 3);
-    let concat = m.mk_bv_concat(a, b);
+    let concat = m
+        .try_mk_bv_concat(a, b)
+        .expect("two bit-vector operands must concat");
     assert_eq!(sort_kind(&m, concat), SortKind::BitVec(8));
 }
 
-// `mk_bv_concat` guards this with `debug_assert!`, which is compiled out in
-// release builds (where the documented `32`-width fallback takes over
-// instead). The test therefore only exists when debug assertions are on —
-// gating it here rather than weakening the assertion keeps the debug-profile
-// check exactly as strict as it was.
-#[cfg(debug_assertions)]
+// A non-bit-vector operand is now a returned error rather than a
+// `debug_assert!`. That is strictly stronger than the assertion it replaces:
+// the check no longer disappears under `--release` (where the old code fell
+// back to a fabricated `32 + 8 = 40`-bit result), so this test needs no
+// `cfg(debug_assertions)` gate and covers release builds too.
 #[test]
-#[should_panic(expected = "mk_bv_concat")]
-fn bv_concat_debug_asserts_on_non_bitvector_operand() {
+fn bv_concat_rejects_non_bitvector_operand() {
     let mut m = TermManager::new();
     let int_term = m.mk_int(5);
     let bv_term = m.mk_bitvec(3i64, 8);
-    // A non-bitvector operand must be caught loudly in debug builds rather
-    // than silently combined into a fabricated `32 + 8 = 40`-bit result.
-    let _ = m.mk_bv_concat(int_term, bv_term);
+    let err = m
+        .try_mk_bv_concat(int_term, bv_term)
+        .expect_err("an Int operand must be rejected, not widened to a fabricated 40 bits");
+    let rendered = err.to_string();
+    // The message must name both operand sorts, so a caller can tell which
+    // side was wrong.
+    assert!(
+        rendered.contains("Int") && rendered.contains("BitVec(8)"),
+        "error should name both operand sorts, got: {rendered}"
+    );
+}
+
+// The same guarantee at the parser level: an ill-typed `concat` or indexed
+// bit-vector operator must surface as a parse error instead of interning a
+// term at a fabricated width. These run identically in debug and release.
+#[test]
+fn parser_rejects_ill_typed_bitvector_operators() {
+    for script in [
+        // `concat` with a non-bit-vector operand: used to intern a
+        // fabricated 32 + 8 = 40-bit term.
+        "(declare-const x Int)(declare-const y (_ BitVec 8))(assert (= (concat x y) y))",
+        // `zero_extend` prepends zeros via concat.
+        "(declare-const x Int)(assert (= ((_ zero_extend 4) x) x))",
+        // `repeat` folds the operand into itself via concat.
+        "(declare-const x Int)(assert (= ((_ repeat 3) x) x))",
+    ] {
+        let mut m = TermManager::new();
+        let err = parse_script(script, &mut m)
+            .err()
+            .unwrap_or_else(|| panic!("ill-typed bit-vector application must fail: {script}"));
+        // Assert the *specific* error, not merely that something failed:
+        // a bare `is_err()` would also pass if some unrelated upstream guard
+        // rejected the script, leaving the concat width fabrication untested.
+        let rendered = err.to_string();
+        assert!(
+            rendered.contains("concat") && rendered.contains("Int"),
+            "expected the concat sort error naming the Int operand for {script}, got: {rendered}"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------

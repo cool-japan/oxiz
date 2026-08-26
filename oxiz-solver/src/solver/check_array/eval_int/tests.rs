@@ -1093,6 +1093,10 @@ fn a_two_step_alias_cycle_is_not_evaluable() {
 /// smallest input that reaches the cycle from `check_array_constraints`.
 #[test]
 fn a_cyclic_alias_assertion_does_not_abort_the_array_check() {
+    // STACK-1MIB: deliberately 1 MiB, not swept to 128 KiB — the alias
+    // graph here is a small fixed shape (a single cycle), sub-10,000-depth
+    // by a huge margin, so 1 MiB is intentionally generous. See TODO.md
+    // "v0.3.2 backlog".
     let observed = std::thread::Builder::new()
         .stack_size(1 << 20)
         .spawn(|| {

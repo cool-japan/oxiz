@@ -297,15 +297,13 @@ impl Solver {
         // Hand MBQI only the quantifiers this assertion actually entails.
         self.register_asserted_quantifiers(term_to_encode, manager);
 
-        // Encode the assertion immediately
+        // Encode the assertion immediately.  Every numeric `Eq` atom inside
+        // `term_to_encode` receives its trichotomy from
+        // `Solver::add_numeric_trichotomy` during this call — see that method
+        // for why the split lives on the atom rather than in a syntactic
+        // pre-pass over the assertion.
         let lit = self.encode(term_to_encode, manager);
         self.sat.add_clause([lit]);
-
-        // For Not(Eq(a,b)) assertions on arithmetic terms, eagerly add the
-        // arithmetic disequality split (a<b OR a>b) so that ArithSolver assigns
-        // distinct values from the very first SAT solve iteration.  Without this,
-        // the ArithSolver may not enforce disequalities correctly.
-        self.add_arith_diseq_split(term_to_encode, manager);
 
         self.record_assertion_identity(term, None, index);
     }
@@ -380,12 +378,11 @@ impl Solver {
         // Hand MBQI only the quantifiers this assertion actually entails.
         self.register_asserted_quantifiers(term_to_encode, manager);
 
-        // Encode the assertion immediately
+        // Encode the assertion immediately.  As in `Solver::assert`, the
+        // numeric `Eq` atoms get their trichotomy from
+        // `Solver::add_numeric_trichotomy` inside this `encode` call.
         let lit = self.encode(term_to_encode, manager);
         self.sat.add_clause([lit]);
-
-        // Eagerly add arith diseq split for Not(Eq(a,b)) assertions
-        self.add_arith_diseq_split(term_to_encode, manager);
 
         self.record_assertion_identity(term, Some(name.to_string()), index);
     }
@@ -1026,6 +1023,69 @@ impl Solver {
                         ) {
                             self.var_to_parsed_arith.insert(var, parsed);
                         }
+
+                        // Give this atom its trichotomy `(a = b) OR (a < b) OR
+                        // (a > b)` right here, at the one place every numeric
+                        // `Eq` atom is guaranteed to pass through.
+                        //
+                        // The theory layer has no other way to hear about a
+                        // *negative* numeric equality: `TheoryManager::
+                        // process_constraint`'s `Constraint::Eq` arm reaches
+                        // `ArithSolver::assert_eq` only under `is_positive`,
+                        // and its negative branch speaks to EUF and BV alone
+                        // (`ArithSolver` has no `assert_neq` -- a disequality
+                        // is not a convex constraint and the tableau cannot
+                        // hold one). So an `Eq` the SAT core assigns *false*
+                        // constrains nothing at all: the LP is free to hand
+                        // both sides the same value and the search reports a
+                        // model that violates the very disequality it just
+                        // committed to. That is the false-`sat` on the
+                        // `QF_LIA`/`QF_IDL`/`QF_UFLIA`/`QF_AUFLIA` family.
+                        //
+                        // The clause is a *tautology* over a total order, so
+                        // emitting it unconditionally is sound in any Boolean
+                        // context -- it adds no constraint of its own, it only
+                        // makes the case split explicit for the SAT core.
+                        // (Emitting the unguarded split `(a < b) OR (a > b)`
+                        // instead would NOT be: for `(or p (not (= x 0)))` it
+                        // would force `x != 0` even in models that satisfy the
+                        // formula through `p`.) Once the context forces
+                        // `(a = b)` false, unit propagation leaves
+                        // `(a < b) OR (a > b)` and whichever strict atom the
+                        // core picks *does* reach the tableau through the
+                        // ordinary `Constraint::Lt`/`Gt` path.
+                        //
+                        // Doing it here rather than in a syntactic pre-pass
+                        // over the assertion is what makes it complete. The
+                        // four walks this replaced (`add_arith_diseq_split`,
+                        // `add_arith_trichotomy_clause`,
+                        // `add_arith_eq_trichotomy` and the never-called
+                        // `add_arith_diseq_splits_for_sat_model`, all now
+                        // deleted) looked for `Not(Eq(..))`/`Distinct(..)` and
+                        // enumerated only a handful of connectives, so an `Eq`
+                        // reachable only through a shape they did not
+                        // enumerate (`Xor`, an `Implies` antecedent, a nested
+                        // `Eq`, a `Let`) stayed a free Boolean. `encode_depth`
+                        // is the single funnel every numeric `Eq` atom --
+                        // asserted, MBQI-instantiated or axiom-generated --
+                        // must pass to get a SAT variable at all, so attaching
+                        // the split to the atom removes the dependence on
+                        // *where* it sits.
+                        //
+                        // Removing those walks also removed an unbounded cost:
+                        // each ran with only a *per-call* `visited` set and no
+                        // cross-call ledger, so every one of the five MBQI /
+                        // E-matching call sites re-emitted literal-identical
+                        // trichotomy clauses on every round, and
+                        // `oxiz_sat::Solver::add_clause` does not deduplicate.
+                        // Each of those sites called `encode` on the very same
+                        // term one line earlier, so this arm had already
+                        // emitted the clause they duplicated.
+                        //
+                        // `encoded_terms` memoises this arm per term, so the
+                        // three clauses are emitted once per atom, and the
+                        // literals reuse atoms `encode` creates anyway.
+                        self.add_numeric_trichotomy(term, var, *lhs, *rhs, manager, depth);
                     }
 
                     // A non-Bool `ite` in either operand denotes a
@@ -1398,232 +1458,85 @@ impl Solver {
         }
     }
 
-    /// Scan all Constraint::Eq entries in var_to_constraint that are currently
-    /// assigned False by the SAT model and add arithmetic splits `(lhs < rhs)
-    /// OR (lhs > rhs)` for each.  This ensures ArithSolver knows about
-    /// disequalities that arise from SAT-level implication propagation (e.g.
-    /// from MBQI-generated instantiations like `(=> (= f(a) f(b)) (= a b))`).
-    #[allow(dead_code)]
-    pub(super) fn add_arith_diseq_splits_for_sat_model(&mut self, manager: &mut TermManager) {
-        use super::types::Constraint;
-        use oxiz_sat::LBool;
-
-        let pairs: Vec<(TermId, TermId)> = self
-            .var_to_constraint
-            .iter()
-            .filter_map(|(&var, constraint)| {
-                if let Constraint::Eq(lhs, rhs) = constraint {
-                    // Only Int or Real sorts
-                    let lhs_is_numeric = manager.get(*lhs).is_some_and(|lt| {
-                        lt.sort == manager.sorts.int_sort || lt.sort == manager.sorts.real_sort
-                    });
-                    if lhs_is_numeric && self.sat.model_value(var) == LBool::False {
-                        Some((*lhs, *rhs))
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        for (lhs, rhs) in pairs {
-            let lt_term = manager.mk_lt(lhs, rhs);
-            let gt_term = manager.mk_gt(lhs, rhs);
-            // Only add if the clause isn't already a tautology or unit-forced
-            let lt_lit = self.encode(lt_term, manager);
-            let gt_lit = self.encode(gt_term, manager);
-            self.sat.add_clause([lt_lit, gt_lit]);
-        }
-    }
-
-    /// Add the arithmetic trichotomy clause `(a = b) OR (a < b) OR (a > b)` for
-    /// an Int/Real operand pair, so that a disequality forced by the Boolean
-    /// structure reaches the `ArithSolver` as a strict ordering constraint.
+    /// Attach the trichotomy `(a = b) OR (a < b) OR (a > b)` to a numeric `Eq`
+    /// **atom** that [`Solver::encode_depth`] has just given the SAT variable
+    /// `eq_var`.
     ///
-    /// No-op for non-numeric operands (EUF/BV disequalities are handled by their
-    /// own theory).  The clause is valid for every total order, hence safe to
-    /// add unconditionally; the three literals reuse the atoms `encode` already
-    /// created, so nothing new is asserted about the problem.
-    fn add_arith_trichotomy_clause(&mut self, lhs: TermId, rhs: TermId, manager: &mut TermManager) {
-        let is_numeric = manager
-            .get(lhs)
-            .is_some_and(|t| t.sort == manager.sorts.int_sort || t.sort == manager.sorts.real_sort);
-        if !is_numeric {
+    /// This is the **single owner** of arithmetic-disequality enforcement.  It
+    /// replaced four overlapping syntactic walks — `add_arith_diseq_split`,
+    /// `add_arith_trichotomy_clause`, `add_arith_eq_trichotomy` and the never
+    /// called `add_arith_diseq_splits_for_sat_model` — which were deleted with
+    /// it, not merely demoted.  See the call site in the `TermKind::Eq` arm for
+    /// the full rationale; in short:
+    ///
+    /// * `ArithSolver` has no `assert_neq` and cannot have a useful one — `a
+    ///   != b` is not convex, so it has no representation as tableau bounds.
+    ///   The standard CDCL(T) answer is to make the case split explicit and
+    ///   let the SAT core choose the disjunct, which is exactly this clause.
+    /// * Because it is a *tautology* over a total order it is sound in every
+    ///   Boolean context, so it can be emitted from the atom itself without
+    ///   knowing anything about the polarity the atom will be used under.  It
+    ///   adds no constraint; it only ensures that when the core does force
+    ///   `(a = b)` false, some strict atom becomes unit and reaches the
+    ///   tableau through the ordinary `Constraint::Lt`/`Constraint::Gt` path.
+    ///
+    /// # Incrementality
+    ///
+    /// The three clauses go into the SAT core at the current scope, so
+    /// `Solver::pop` retracts them with `sat.pop()` like every other clause
+    /// this arm emits.  Emission is guarded by
+    /// [`Solver::numeric_trichotomy_atoms`], journalled as
+    /// [`TrailOp::NumericTrichotomyAdded`], so the mark is dropped by the same
+    /// `pop` that drops the clause and the next encode re-emits both together.
+    ///
+    /// The guard is *required*, not an optimisation.  The Tseitin memo cannot
+    /// serve as one: it is retracted per entry on `pop` and deliberately
+    /// bypassed when a term is re-encoded under a widened polarity, so this arm
+    /// runs again for an atom whose trichotomy is already in the database.
+    /// Without the ledger that appended a literal-identical clause over
+    /// identical variables — which `oxiz_sat::Solver::add_clause` does not
+    /// deduplicate — once per `(push)(pop)` pair, growing without bound.
+    /// `scope_rebase_tests::a_no_op_push_pop_between_checks_does_not_re_encode_
+    /// the_goal` caught exactly that.
+    ///
+    /// A ledger *here* is safe in a way one beside the tableau would not be:
+    /// it is keyed by term and scoped to the assertion stack, the same stack
+    /// `sat.pop()` unwinds.  A lazily-recorded disequality set living next to
+    /// the arithmetic solver would instead have to stay in step with the
+    /// theory solvers' scope stack, which tracks CDCL *decision levels* rather
+    /// than assertion scopes (see `Solver::pop`) — and that mismatch is the
+    /// class of bug this whole change exists to remove.
+    ///
+    /// Skipped when `mk_eq` folds the pair to a constant (syntactically equal
+    /// operands): the clause would be trivially satisfied and carry nothing.
+    fn add_numeric_trichotomy(
+        &mut self,
+        eq_term: TermId,
+        eq_var: Var,
+        lhs: TermId,
+        rhs: TermId,
+        manager: &mut TermManager,
+        depth: u32,
+    ) {
+        // A folded `Eq` never reaches this arm (the encoder dispatches on
+        // `TermKind::Eq`), but `mk_lt`/`mk_gt` below would still build atoms
+        // for an identical pair, and `(a = a) OR (a < a) OR (a > a)` carries
+        // nothing.
+        if lhs == rhs {
             return;
         }
-        let eq_term = manager.mk_eq(lhs, rhs);
-        // `mk_eq` folds a syntactically identical pair to `true`; the clause is
-        // then trivially satisfied and carries no information.
-        if manager
-            .get(eq_term)
-            .is_some_and(|t| matches!(t.kind, TermKind::True | TermKind::False))
-        {
+        if !self.numeric_trichotomy_atoms.insert(eq_term) {
             return;
         }
+        self.trail
+            .push(TrailOp::NumericTrichotomyAdded { term: eq_term });
         let lt_term = manager.mk_lt(lhs, rhs);
         let gt_term = manager.mk_gt(lhs, rhs);
-        let eq_lit = self.encode(eq_term, manager);
-        let lt_lit = self.encode(lt_term, manager);
-        let gt_lit = self.encode(gt_term, manager);
-        self.sat.add_clause([eq_lit, lt_lit, gt_lit]);
-    }
-
-    /// Walk a term and give every arithmetic disequality source —
-    /// `Not(Eq(a, b))` and `Distinct(a, b, ...)` — the trichotomy clause
-    /// `(a = b) OR (a < b) OR (a > b)`, so the ArithSolver knows about the
-    /// disequality and doesn't assign both sides equal values.
-    ///
-    /// The clause is a *tautology* over a totally ordered sort, so it can be
-    /// added regardless of the Boolean context the disequality sits in.  When
-    /// the context forces `a = b` to false (an asserted `not (= a b)` or a
-    /// pairwise disequality of an asserted `distinct`), unit propagation leaves
-    /// `(a < b) OR (a > b)` and the `ArithSolver` receives a genuine strict
-    /// ordering constraint instead of silently ignoring the disequality.
-    ///
-    /// Emitting the *unguarded* split `(a < b) OR (a > b)` instead would be
-    /// unsound: for `(or p (not (= x 0)))` it forces `x != 0` even when the
-    /// formula is satisfied through `p`.
-    ///
-    /// The walk is an explicit-stack DFS preorder (children left-to-right),
-    /// never native recursion: it runs on MBQI instantiation results, which
-    /// are produced *during* `check` and never pass the assert-time
-    /// `term_exceeds_encode_depth` gate, and instantiation can compose depth
-    /// round over round — so the reachable depth is input-controlled and the
-    /// `()` return type leaves no honest way to cap it.  The visited set
-    /// bounds re-expansion of shared DAG nodes (work), not chain depth.
-    pub(super) fn add_arith_diseq_split(&mut self, term: TermId, manager: &mut TermManager) {
-        let mut visited: FxHashSet<TermId> = FxHashSet::default();
-        let mut stack: Vec<TermId> = vec![term];
-
-        while let Some(current) = stack.pop() {
-            if !visited.insert(current) {
-                continue;
-            }
-
-            let Some(t) = manager.get(current).cloned() else {
-                continue;
-            };
-
-            match &t.kind {
-                TermKind::Not(inner) => {
-                    let inner_id = *inner;
-                    if let Some(inner_t) = manager.get(inner_id).cloned()
-                        && let TermKind::Eq(lhs, rhs) = &inner_t.kind
-                    {
-                        self.add_arith_trichotomy_clause(*lhs, *rhs, manager);
-                    }
-                    // Also descend into the inner term.
-                    stack.push(inner_id);
-                }
-                TermKind::Distinct(args) => {
-                    // `distinct` expands to pairwise disequalities in `encode`; the
-                    // theory layer only learns about each pair through the strict
-                    // ordering atoms introduced here.
-                    let args_clone: Vec<TermId> = args.iter().copied().collect();
-                    for i in 0..args_clone.len() {
-                        for j in (i + 1)..args_clone.len() {
-                            self.add_arith_trichotomy_clause(args_clone[i], args_clone[j], manager);
-                        }
-                    }
-                }
-                TermKind::And(args) | TermKind::Or(args) => {
-                    // Reverse push so children pop — and their clauses are
-                    // emitted — left-to-right, as the recursive DFS did.
-                    for &arg in args.iter().rev() {
-                        stack.push(arg);
-                    }
-                }
-                TermKind::Implies(_, rhs) => {
-                    // Descend into the consequent -- that's where the disequality
-                    // typically lives in quantifier instantiation lemmas
-                    stack.push(*rhs);
-                }
-                TermKind::Ite(_, then_br, else_br) => {
-                    stack.push(*else_br);
-                    stack.push(*then_br);
-                }
-                _ => {}
-            }
-        }
-    }
-
-    /// Add trichotomy clauses `Eq(a,b) OR Lt(a,b) OR Gt(a,b)` for every
-    /// arithmetic `Eq(a,b)` sub-term in the given MBQI instantiation result.
-    ///
-    /// This ensures that when the SAT solver assigns an arithmetic Eq to false
-    /// (disequality), the ArithSolver learns a strict ordering constraint
-    /// (Lt or Gt) and doesn't assign equal values.
-    ///
-    /// Only called for MBQI instantiation results, not for all assertions,
-    /// to avoid blowing up the clause database on non-quantified problems.
-    ///
-    /// Explicit-stack DFS preorder for the same reason as
-    /// [`Solver::add_arith_diseq_split`]: instantiation results never pass the
-    /// assert-time depth gate, and `()` has no honest cap channel.
-    pub(super) fn add_arith_eq_trichotomy(&mut self, term: TermId, manager: &mut TermManager) {
-        let mut visited: FxHashSet<TermId> = FxHashSet::default();
-        let mut stack: Vec<TermId> = vec![term];
-
-        while let Some(current) = stack.pop() {
-            if !visited.insert(current) {
-                continue;
-            }
-
-            let Some(t) = manager.get(current).cloned() else {
-                continue;
-            };
-
-            match &t.kind {
-                TermKind::Eq(lhs, rhs) => {
-                    let lhs_is_numeric = manager.get(*lhs).is_some_and(|lt| {
-                        lt.sort == manager.sorts.int_sort || lt.sort == manager.sorts.real_sort
-                    });
-                    // Only add trichotomy when at least one side is an
-                    // uninterpreted function application (Apply). This is the
-                    // pattern that appears in injectivity / congruence axioms
-                    // where f(a)=f(b) needs to be split into f(a)<f(b) or
-                    // f(a)>f(b) when the equality is false.
-                    // Avoid Select terms -- the array theory handles those.
-                    let lhs_is_apply = manager
-                        .get(*lhs)
-                        .is_some_and(|lt| matches!(lt.kind, TermKind::Apply { .. }));
-                    let rhs_is_apply = manager
-                        .get(*rhs)
-                        .is_some_and(|rt| matches!(rt.kind, TermKind::Apply { .. }));
-                    if lhs_is_numeric && (lhs_is_apply || rhs_is_apply) {
-                        let (l, r) = (*lhs, *rhs);
-                        // Add trichotomy: Eq(a,b) OR Lt(a,b) OR Gt(a,b)
-                        let eq_var = self.get_or_create_var(current);
-                        let eq_lit = Lit::pos(eq_var);
-                        let lt_term = manager.mk_lt(l, r);
-                        let gt_term = manager.mk_gt(l, r);
-                        let lt_lit = self.encode(lt_term, manager);
-                        let gt_lit = self.encode(gt_term, manager);
-                        self.sat.add_clause([eq_lit, lt_lit, gt_lit]);
-                    }
-                }
-                TermKind::Not(arg) => {
-                    stack.push(*arg);
-                }
-                TermKind::And(args) | TermKind::Or(args) => {
-                    // Reverse push so children pop left-to-right, preserving
-                    // the recursive version's clause-emission order.
-                    for &arg in args.iter().rev() {
-                        stack.push(arg);
-                    }
-                }
-                TermKind::Implies(lhs, rhs) => {
-                    stack.push(*rhs);
-                    stack.push(*lhs);
-                }
-                TermKind::Ite(_, then_br, else_br) => {
-                    stack.push(*else_br);
-                    stack.push(*then_br);
-                }
-                _ => {}
-            }
-        }
+        // Encode through `encode_depth` (not `encode`) so the two strict atoms
+        // inherit this atom's depth budget rather than restarting at zero:
+        // `encode_depth_exceeded` must stay honest on a deep instantiation.
+        let lt_lit = self.encode_depth(lt_term, manager, depth + 1);
+        let gt_lit = self.encode_depth(gt_term, manager, depth + 1);
+        self.sat.add_clause([Lit::pos(eq_var), lt_lit, gt_lit]);
     }
 }

@@ -742,15 +742,15 @@ mod tests {
         // Regression: `contains_var` used to recurse natively once per level
         // of term nesting with no depth guard at all. Built iteratively
         // (never recursively, which would overflow before the assertion
-        // runs) and run inside a thread with a deliberately small 1 MiB
+        // runs) and run inside a thread with a deliberately small 128 KiB
         // stack: the call returning at all is part of the assertion, but the
         // boolean answer must also be exactly correct in both directions —
         // `var` present at the very bottom of the chain (true), and a
         // different variable that never occurs anywhere in it (false).
-        const DEPTH: usize = 100_000;
+        const DEPTH: usize = 12_500;
 
         let (found_x, found_absent_y) = std::thread::Builder::new()
-            .stack_size(1 << 20)
+            .stack_size(1 << 17)
             .spawn(move || {
                 let mut tm = TermManager::new();
                 let int_sort = tm.sorts.int_sort;

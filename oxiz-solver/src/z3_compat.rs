@@ -39,7 +39,7 @@ use std::rc::Rc;
 use num_bigint::BigInt;
 use num_rational::Rational64;
 
-use oxiz_core::ast::{TermId, TermManager};
+use oxiz_core::ast::{TermId, TermKind, TermManager};
 use oxiz_core::sort::SortId;
 
 use crate::Context;
@@ -816,10 +816,25 @@ impl BV {
     /// Bitvector concatenation: `concat lhs rhs`.
     ///
     /// The result width is `lhs.width + rhs.width`.
+    ///
+    /// This stays infallible to keep the Z3 C-API contract. That is sound
+    /// here because the wrapper tracks operand widths itself: when the
+    /// builder declines to resolve the operand sorts, this interns the node
+    /// at the *correct* sort computed from those tracked widths, rather than
+    /// letting a builder fabricate one. The `build!` macro cannot express a
+    /// two-step fallback under one borrow, so it is inlined.
     #[must_use]
     pub fn concat(ctx: &Z3Context, lhs: &BV, rhs: &BV) -> Self {
         let width = lhs.width + rhs.width;
-        let id = build!(ctx, mk_bv_concat, lhs.id, rhs.id);
+        let mut tm = ctx.tm.borrow_mut();
+        let id = match tm.try_mk_bv_concat(lhs.id, rhs.id) {
+            Ok(id) => id,
+            Err(_) => {
+                let s = tm.sorts.bitvec(width);
+                tm.intern_term(TermKind::BvConcat(lhs.id, rhs.id), s)
+            }
+        };
+        drop(tm);
         Self { id, width }
     }
 

@@ -593,6 +593,9 @@ mod tests {
     #[test]
     fn test_binary_minimization_returns_on_small_stack() {
         const N: u32 = 1024;
+        // STACK-1MIB: deliberately 1 MiB, not swept to 128 KiB — nests
+        // only log2(1024) = 10 levels (sub-10,000-depth), so 1 MiB is
+        // intentionally generous. See TODO.md "v0.3.2 backlog".
         let handle = std::thread::Builder::new()
             .stack_size(1 << 20)
             .spawn(|| {

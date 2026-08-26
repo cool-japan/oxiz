@@ -53,7 +53,17 @@ impl ConfigPreset {
 
     /// Default balanced configuration
     fn default_config() -> SolverConfig {
-        SolverConfig::default()
+        SolverConfig {
+            // Pinned rather than inherited: the preset docs (and
+            // `Solver::check_hyper_binary_resolution`'s) state which presets
+            // run lazy hyper-binary resolution, and that statement must not
+            // silently change when the struct default is retuned. This one
+            // agrees with today's `SolverConfig::default()` on purpose — see
+            // the measurement recorded at
+            // `SolverConfig::enable_lazy_hyper_binary`.
+            enable_lazy_hyper_binary: true,
+            ..SolverConfig::default()
+        }
     }
 
     /// Industrial/structured problems configuration
@@ -63,6 +73,7 @@ impl ConfigPreset {
     /// - Glucose-style restarts
     /// - Aggressive inprocessing
     /// - LRB branching heuristic
+    /// - Bounded variable elimination (see the `enable_bve` comment below)
     fn industrial_config() -> SolverConfig {
         SolverConfig {
             restart_interval: 100,
@@ -93,15 +104,38 @@ impl ConfigPreset {
             // changing observable solve behavior even though the verdict
             // itself never changes. Opt-in until a caller wants that shape.
             enable_failed_literal_probing: false,
-            // BVE / equivalent-literal substitution / gate congruence all
-            // remove variables from the live formula and are therefore only
-            // sound at the base assertion level with no incremental `push`
-            // in scope (see the doc comments on `SolverConfig`). Left
-            // opt-in in every preset until a caller has confirmed that shape
-            // and explicitly asked for the extra preprocessing power.
-            enable_bve: false,
+            // BVE **on**. Industrial/structured instances are exactly the
+            // class SatELite-style variable elimination was designed for:
+            // encodings of circuits, schedules and product configurations
+            // carry large numbers of low-degree definitional variables whose
+            // clauses fold away without growing the formula, and this preset
+            // already commits to the base-assertion-level, non-incremental
+            // shape BVE requires (aggressive inprocessing, no proof tracing
+            // assumed). `Solver::bounded_variable_elimination` still declines
+            // on its own whenever that shape does not hold — an active
+            // incremental `push`, DRAT/LRAT tracing, or a non-zero decision
+            // level — so turning it on here costs nothing in the
+            // configurations where it would be unsound. Equivalent-literal
+            // substitution stays off because BVE defers entirely to it when
+            // both are set (see `SolverConfig::enable_bve`), which would make
+            // this flip inert.
+            enable_bve: true,
             enable_equiv_substitution: false,
             enable_gate_congruence: false,
+            // On in every preset: self-subsuming resolution neither removes a
+            // variable nor needs model reconstruction, so it carries none of
+            // the three fields above's base-assertion-level restriction. It
+            // still only runs when `enable_inprocessing` is set, so the
+            // presets that turn inprocessing off get it for free as a no-op.
+            enable_self_subsumption: true,
+            // On in every preset, matching `SolverConfig::default()`: the
+            // lucky phase runs entirely in scratch buffers, never touches the
+            // clause database or the trail, and verifies every candidate
+            // against the original clauses before reporting it — so it cannot
+            // change a verdict in any configuration, and the only cost on the
+            // instances it fails to solve is a few linear sweeps. See
+            // `SolverConfig::enable_lucky_phase`.
+            enable_lucky_phase: true,
         }
     }
 
@@ -145,12 +179,31 @@ impl ConfigPreset {
             // BVE / equivalent-literal substitution / gate congruence all
             // remove variables from the live formula and are therefore only
             // sound at the base assertion level with no incremental `push`
-            // in scope (see the doc comments on `SolverConfig`). Left
-            // opt-in in every preset until a caller has confirmed that shape
-            // and explicitly asked for the extra preprocessing power.
+            // in scope (see the doc comments on `SolverConfig`). Left off in
+            // this preset; the `Industrial` and `CaDiCaL` presets, whose
+            // problem classes and imitated tool both call for it, turn
+            // `enable_bve` on (see their bodies for the reasoning).
             enable_bve: false,
             enable_equiv_substitution: false,
             enable_gate_congruence: false,
+            // On in every preset: self-subsuming resolution neither removes a
+            // variable nor needs model reconstruction, so it carries none of
+            // the three fields above's base-assertion-level restriction. It
+            // still only runs when `enable_inprocessing` is set, so the
+            // presets that turn inprocessing off get it for free as a no-op.
+            enable_self_subsumption: true,
+            // On here too, despite this preset's problem class being the
+            // one least likely to hit: a uniform-random instance is
+            // essentially never satisfied by a structural guess like
+            // "all variables true". Left on anyway because the cost is a
+            // couple of linear sweeps against a search that will run for
+            // millions of propagations, and because "random" is a preset
+            // *name*, not a guarantee about the instance — a caller that
+            // picks it for a generated formula which happens to be
+            // all-positive or Horn gets the answer for free. Turn it off
+            // explicitly when measuring the search itself. See
+            // `SolverConfig::enable_lucky_phase`.
+            enable_lucky_phase: true,
         }
     }
 
@@ -194,12 +247,27 @@ impl ConfigPreset {
             // BVE / equivalent-literal substitution / gate congruence all
             // remove variables from the live formula and are therefore only
             // sound at the base assertion level with no incremental `push`
-            // in scope (see the doc comments on `SolverConfig`). Left
-            // opt-in in every preset until a caller has confirmed that shape
-            // and explicitly asked for the extra preprocessing power.
+            // in scope (see the doc comments on `SolverConfig`). Left off in
+            // this preset; the `Industrial` and `CaDiCaL` presets, whose
+            // problem classes and imitated tool both call for it, turn
+            // `enable_bve` on (see their bodies for the reasoning).
             enable_bve: false,
             enable_equiv_substitution: false,
             enable_gate_congruence: false,
+            // On in every preset: self-subsuming resolution neither removes a
+            // variable nor needs model reconstruction, so it carries none of
+            // the three fields above's base-assertion-level restriction. It
+            // still only runs when `enable_inprocessing` is set, so the
+            // presets that turn inprocessing off get it for free as a no-op.
+            enable_self_subsumption: true,
+            // On in every preset, matching `SolverConfig::default()`: the
+            // lucky phase runs entirely in scratch buffers, never touches the
+            // clause database or the trail, and verifies every candidate
+            // against the original clauses before reporting it — so it cannot
+            // change a verdict in any configuration, and the only cost on the
+            // instances it fails to solve is a few linear sweeps. See
+            // `SolverConfig::enable_lucky_phase`.
+            enable_lucky_phase: true,
         }
     }
 
@@ -243,12 +311,27 @@ impl ConfigPreset {
             // BVE / equivalent-literal substitution / gate congruence all
             // remove variables from the live formula and are therefore only
             // sound at the base assertion level with no incremental `push`
-            // in scope (see the doc comments on `SolverConfig`). Left
-            // opt-in in every preset until a caller has confirmed that shape
-            // and explicitly asked for the extra preprocessing power.
+            // in scope (see the doc comments on `SolverConfig`). Left off in
+            // this preset; the `Industrial` and `CaDiCaL` presets, whose
+            // problem classes and imitated tool both call for it, turn
+            // `enable_bve` on (see their bodies for the reasoning).
             enable_bve: false,
             enable_equiv_substitution: false,
             enable_gate_congruence: false,
+            // On in every preset: self-subsuming resolution neither removes a
+            // variable nor needs model reconstruction, so it carries none of
+            // the three fields above's base-assertion-level restriction. It
+            // still only runs when `enable_inprocessing` is set, so the
+            // presets that turn inprocessing off get it for free as a no-op.
+            enable_self_subsumption: true,
+            // On in every preset, matching `SolverConfig::default()`: the
+            // lucky phase runs entirely in scratch buffers, never touches the
+            // clause database or the trail, and verifies every candidate
+            // against the original clauses before reporting it — so it cannot
+            // change a verdict in any configuration, and the only cost on the
+            // instances it fails to solve is a few linear sweeps. See
+            // `SolverConfig::enable_lucky_phase`.
+            enable_lucky_phase: true,
         }
     }
 
@@ -292,12 +375,27 @@ impl ConfigPreset {
             // BVE / equivalent-literal substitution / gate congruence all
             // remove variables from the live formula and are therefore only
             // sound at the base assertion level with no incremental `push`
-            // in scope (see the doc comments on `SolverConfig`). Left
-            // opt-in in every preset until a caller has confirmed that shape
-            // and explicitly asked for the extra preprocessing power.
+            // in scope (see the doc comments on `SolverConfig`). Left off in
+            // this preset; the `Industrial` and `CaDiCaL` presets, whose
+            // problem classes and imitated tool both call for it, turn
+            // `enable_bve` on (see their bodies for the reasoning).
             enable_bve: false,
             enable_equiv_substitution: false,
             enable_gate_congruence: false,
+            // On in every preset: self-subsuming resolution neither removes a
+            // variable nor needs model reconstruction, so it carries none of
+            // the three fields above's base-assertion-level restriction. It
+            // still only runs when `enable_inprocessing` is set, so the
+            // presets that turn inprocessing off get it for free as a no-op.
+            enable_self_subsumption: true,
+            // On in every preset, matching `SolverConfig::default()`: the
+            // lucky phase runs entirely in scratch buffers, never touches the
+            // clause database or the trail, and verifies every candidate
+            // against the original clauses before reporting it — so it cannot
+            // change a verdict in any configuration, and the only cost on the
+            // instances it fails to solve is a few linear sweeps. See
+            // `SolverConfig::enable_lucky_phase`.
+            enable_lucky_phase: true,
         }
     }
 
@@ -341,12 +439,27 @@ impl ConfigPreset {
             // BVE / equivalent-literal substitution / gate congruence all
             // remove variables from the live formula and are therefore only
             // sound at the base assertion level with no incremental `push`
-            // in scope (see the doc comments on `SolverConfig`). Left
-            // opt-in in every preset until a caller has confirmed that shape
-            // and explicitly asked for the extra preprocessing power.
+            // in scope (see the doc comments on `SolverConfig`). Left off in
+            // this preset; the `Industrial` and `CaDiCaL` presets, whose
+            // problem classes and imitated tool both call for it, turn
+            // `enable_bve` on (see their bodies for the reasoning).
             enable_bve: false,
             enable_equiv_substitution: false,
             enable_gate_congruence: false,
+            // On in every preset: self-subsuming resolution neither removes a
+            // variable nor needs model reconstruction, so it carries none of
+            // the three fields above's base-assertion-level restriction. It
+            // still only runs when `enable_inprocessing` is set, so the
+            // presets that turn inprocessing off get it for free as a no-op.
+            enable_self_subsumption: true,
+            // On in every preset, matching `SolverConfig::default()`: the
+            // lucky phase runs entirely in scratch buffers, never touches the
+            // clause database or the trail, and verifies every candidate
+            // against the original clauses before reporting it — so it cannot
+            // change a verdict in any configuration, and the only cost on the
+            // instances it fails to solve is a few linear sweeps. See
+            // `SolverConfig::enable_lucky_phase`.
+            enable_lucky_phase: true,
         }
     }
 
@@ -386,12 +499,27 @@ impl ConfigPreset {
             // BVE / equivalent-literal substitution / gate congruence all
             // remove variables from the live formula and are therefore only
             // sound at the base assertion level with no incremental `push`
-            // in scope (see the doc comments on `SolverConfig`). Left
-            // opt-in in every preset until a caller has confirmed that shape
-            // and explicitly asked for the extra preprocessing power.
+            // in scope (see the doc comments on `SolverConfig`). Left off in
+            // this preset; the `Industrial` and `CaDiCaL` presets, whose
+            // problem classes and imitated tool both call for it, turn
+            // `enable_bve` on (see their bodies for the reasoning).
             enable_bve: false,
             enable_equiv_substitution: false,
             enable_gate_congruence: false,
+            // On in every preset: self-subsuming resolution neither removes a
+            // variable nor needs model reconstruction, so it carries none of
+            // the three fields above's base-assertion-level restriction. It
+            // still only runs when `enable_inprocessing` is set, so the
+            // presets that turn inprocessing off get it for free as a no-op.
+            enable_self_subsumption: true,
+            // On in every preset, matching `SolverConfig::default()`: the
+            // lucky phase runs entirely in scratch buffers, never touches the
+            // clause database or the trail, and verifies every candidate
+            // against the original clauses before reporting it — so it cannot
+            // change a verdict in any configuration, and the only cost on the
+            // instances it fails to solve is a few linear sweeps. See
+            // `SolverConfig::enable_lucky_phase`.
+            enable_lucky_phase: true,
         }
     }
 
@@ -431,18 +559,34 @@ impl ConfigPreset {
             // BVE / equivalent-literal substitution / gate congruence all
             // remove variables from the live formula and are therefore only
             // sound at the base assertion level with no incremental `push`
-            // in scope (see the doc comments on `SolverConfig`). Left
-            // opt-in in every preset until a caller has confirmed that shape
-            // and explicitly asked for the extra preprocessing power.
+            // in scope (see the doc comments on `SolverConfig`). Left off in
+            // this preset; the `Industrial` and `CaDiCaL` presets, whose
+            // problem classes and imitated tool both call for it, turn
+            // `enable_bve` on (see their bodies for the reasoning).
             enable_bve: false,
             enable_equiv_substitution: false,
             enable_gate_congruence: false,
+            // On in every preset: self-subsuming resolution neither removes a
+            // variable nor needs model reconstruction, so it carries none of
+            // the three fields above's base-assertion-level restriction. It
+            // still only runs when `enable_inprocessing` is set, so the
+            // presets that turn inprocessing off get it for free as a no-op.
+            enable_self_subsumption: true,
+            // On in every preset, matching `SolverConfig::default()`: the
+            // lucky phase runs entirely in scratch buffers, never touches the
+            // clause database or the trail, and verifies every candidate
+            // against the original clauses before reporting it — so it cannot
+            // change a verdict in any configuration, and the only cost on the
+            // instances it fails to solve is a few linear sweeps. See
+            // `SolverConfig::enable_lucky_phase`.
+            enable_lucky_phase: true,
         }
     }
 
     /// CaDiCaL-style configuration
     ///
-    /// Based on CaDiCaL SAT solver parameters
+    /// Based on CaDiCaL SAT solver parameters, including its default-on
+    /// bounded variable elimination (see the `enable_bve` comment below).
     fn cadical_config() -> SolverConfig {
         SolverConfig {
             restart_interval: 100,
@@ -473,15 +617,33 @@ impl ConfigPreset {
             // changing observable solve behavior even though the verdict
             // itself never changes. Opt-in until a caller wants that shape.
             enable_failed_literal_probing: false,
-            // BVE / equivalent-literal substitution / gate congruence all
-            // remove variables from the live formula and are therefore only
-            // sound at the base assertion level with no incremental `push`
-            // in scope (see the doc comments on `SolverConfig`). Left
-            // opt-in in every preset until a caller has confirmed that shape
-            // and explicitly asked for the extra preprocessing power.
-            enable_bve: false,
+            // BVE **on**, because the tool this preset imitates runs it: in
+            // CaDiCaL, `elim` (bounded variable elimination) is enabled by
+            // default and is one of the main reasons its preprocessing
+            // reduces industrial formulas as much as it does. A "CaDiCaL-style"
+            // preset with variable elimination switched off would not be
+            // CaDiCaL-style at all. `Solver::bounded_variable_elimination`
+            // keeps its own guards (base assertion level only, never while a
+            // proof is traced), so this only takes effect in the
+            // configurations where it is sound. Equivalent-literal
+            // substitution stays off because BVE defers entirely to it when
+            // both are set (see `SolverConfig::enable_bve`), which would make
+            // this flip inert.
+            enable_bve: true,
             enable_equiv_substitution: false,
             enable_gate_congruence: false,
+            // On in every preset: self-subsuming resolution neither removes a
+            // variable nor needs model reconstruction, so it carries none of
+            // the three fields above's base-assertion-level restriction. It
+            // still only runs when `enable_inprocessing` is set, so the
+            // presets that turn inprocessing off get it for free as a no-op.
+            enable_self_subsumption: true,
+            // On, and here it is not merely inherited from the default: the
+            // lucky phase is a port of CaDiCaL's own `lucky.cpp`, which that
+            // solver runs by name before search. The preset that imitates
+            // CaDiCaL is the last place it should be switched off. See
+            // `SolverConfig::enable_lucky_phase`.
+            enable_lucky_phase: true,
         }
     }
 

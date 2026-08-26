@@ -391,6 +391,16 @@ impl Solver {
         }
         self.learned_clause_ids
             .retain(|&id| self.clauses.get(id).is_some_and(|c| !c.deleted));
+
+        // Every watcher in the index is brand new, but the assignments that
+        // would have fired them are already on the trail and already
+        // propagated. Without rewinding the propagation head, a clause whose
+        // rewritten form is unit under the *current* level-0 assignment has no
+        // future watch event left to notice it — a "hanging unit" that unit
+        // propagation never fires on. Rewinding is free of risk:
+        // re-propagating an already-assigned literal is a no-op (see
+        // `Trail::reset_propagation_head`).
+        self.trail.reset_propagation_head();
     }
 }
 

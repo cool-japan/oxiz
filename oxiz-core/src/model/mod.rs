@@ -32,7 +32,7 @@ pub use evaluator::{EvalCache, EvalResult, ModelEvaluator};
 pub use factory::{ValueFactory, ValueFactoryConfig};
 pub use implicant::{ImplicantConfig, ImplicantExtractor, PrimeImplicant};
 
-use crate::ast::TermId;
+use crate::ast::{RoundingMode, TermId};
 use crate::interner::Spur;
 use crate::prelude::HashMap;
 #[allow(unused_imports)]
@@ -73,6 +73,13 @@ pub enum Value {
     Datatype(u32, Vec<Value>),
     /// Floating-point value (sign, exponent, mantissa)
     FloatingPoint(bool, u64, u64),
+    /// One of the five IEEE 754 rounding modes.
+    ///
+    /// [`SortKind::RoundingMode`] is a *finite* built-in sort, so its values
+    /// are named constants, not abstract domain elements. Modelling them as
+    /// [`Value::Uninterpreted`] would print a `@uc_RoundingMode_0`-style
+    /// witness and compare unequal to the very mode it stands for.
+    RoundingMode(RoundingMode),
     /// Uninterpreted value (id for unique representation)
     Uninterpreted(u64),
     /// Undefined (no assignment)
@@ -134,6 +141,7 @@ impl Value {
             Value::BitVec(w, v) => Value::BitVec(*w, *v),
             Value::String(s) => Value::String(s.clone()),
             Value::FloatingPoint(sign, exp, mant) => Value::FloatingPoint(*sign, *exp, *mant),
+            Value::RoundingMode(rm) => Value::RoundingMode(*rm),
             Value::Uninterpreted(id) => Value::Uninterpreted(*id),
             // The two compound variants are rebuilt by `Clone` from their
             // already-cloned children; reaching here would drop them.
@@ -274,6 +282,7 @@ impl PartialEq for Value {
                 (Value::FloatingPoint(s1, e1, m1), Value::FloatingPoint(s2, e2, m2)) => {
                     s1 == s2 && e1 == e2 && m1 == m2
                 }
+                (Value::RoundingMode(x), Value::RoundingMode(y)) => x == y,
                 (Value::Uninterpreted(x), Value::Uninterpreted(y)) => x == y,
                 (Value::Undefined, Value::Undefined) => true,
                 _ => false,
@@ -370,6 +379,7 @@ impl core::fmt::Debug for Value {
                 DebugStep::Node(Value::FloatingPoint(sign, exp, mant)) => {
                     write!(f, "FloatingPoint({sign:?}, {exp:?}, {mant:?})")?;
                 }
+                DebugStep::Node(Value::RoundingMode(rm)) => write!(f, "RoundingMode({rm:?})")?,
                 DebugStep::Node(Value::Uninterpreted(id)) => write!(f, "Uninterpreted({id:?})")?,
                 DebugStep::Node(Value::Undefined) => f.write_str("Undefined")?,
             }
@@ -478,6 +488,10 @@ impl Value {
                 SortKind::String => break Value::String(String::new()),
                 SortKind::BitVec(width) => break Value::BitVec(width, 0),
                 SortKind::FloatingPoint { .. } => break Value::FloatingPoint(false, 0, 0),
+                // `RoundingMode` is finite and inhabited, so unlike the
+                // opaque sorts below it *does* have a canonical default:
+                // round-to-nearest-ties-to-even, the IEEE 754 default mode.
+                SortKind::RoundingMode => break Value::RoundingMode(RoundingMode::RNE),
                 SortKind::Array { range, .. } => {
                     array_levels += 1;
                     current = range;
@@ -558,6 +572,11 @@ impl core::fmt::Display for Value {
                     exp,
                     mant
                 )
+            }
+            // The canonical long spelling, which is what `get-model` prints
+            // and what SMT-LIB accepts back as input.
+            Value::RoundingMode(rm) => {
+                write!(f, "{}", crate::ast::TermManager::rounding_mode_name(*rm))
             }
             Value::Uninterpreted(id) => write!(f, "u{}", id),
             Value::Undefined => write!(f, "undefined"),
@@ -865,16 +884,16 @@ mod tests {
     /// the process instead. `SortManager::array` is `pub` and interns in
     /// constant stack, so an embedder can reach any depth.
     ///
-    /// Runs on a 1 MiB stack; the assertion is that the call returns.
+    /// Runs on a 128 KiB stack; the assertion is that the call returns.
     #[test]
     fn test_default_for_sort_survives_a_deeply_nested_array_sort() {
         let handle = std::thread::Builder::new()
-            .stack_size(1 << 20)
+            .stack_size(1 << 17)
             .spawn(|| {
                 let mut sorts = SortManager::new();
                 let int_sort = sorts.int_sort;
                 let mut sort = int_sort;
-                for _ in 0..100_000 {
+                for _ in 0..12_500 {
                     sort = sorts.array(int_sort, sort);
                 }
                 let value = Value::default_for_sort(sort, &sorts);
@@ -889,7 +908,7 @@ mod tests {
             .expect("spawn");
         let (levels, innermost_is_int_zero) =
             handle.join().expect("worker thread must not overflow");
-        assert_eq!(levels, 100_000);
+        assert_eq!(levels, 12_500);
         assert!(innermost_is_int_zero);
     }
 
@@ -1013,7 +1032,7 @@ mod tests {
     // Regression tests for: "`Value` recurses structurally, so a deep value
     // aborts the process". Every case builds its value with an *iterative*
     // loop — a recursive helper would overflow before the assertion ran — and
-    // runs on a thread with an explicitly small (1 MiB) stack, the size an
+    // runs on a thread with an explicitly small (128 KiB) stack, the size an
     // embedder's worker thread typically gets. A stack overflow aborts the
     // whole process rather than failing a test, so "the case returned at all"
     // *is* the assertion; the value checks on top of that make sure the
@@ -1023,10 +1042,10 @@ mod tests {
     // on this shape somewhere between 20 000 and 40 000 levels.
 
     /// Stack size every deep case runs under.
-    const SMALL_STACK: usize = 1 << 20;
+    const SMALL_STACK: usize = 1 << 17;
 
     /// A depth well past anything a native-stack recursion could survive.
-    const DEEP: usize = 200_000;
+    const DEEP: usize = 25_000;
 
     /// Run `body` on a thread with a deliberately small stack.
     ///

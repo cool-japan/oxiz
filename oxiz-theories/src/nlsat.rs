@@ -19,15 +19,18 @@
 //! - Integer solver: oxiz-nlsat::nia::NiaSolver
 
 use crate::nl_eval::Interpretation;
+use crate::nl_witness::{AlgebraicValue, NlWitnessValue};
 #[allow(unused_imports)]
 use crate::prelude::*;
 use crate::theory::{Theory, TheoryId, TheoryResult};
 use num_bigint::BigInt;
+use num_integer::Integer;
 use num_rational::BigRational;
 use num_traits::{ToPrimitive, Zero};
 use oxiz_core::ast::{TermId, TermKind, TermManager};
 use oxiz_core::error::Result;
 use oxiz_math::polynomial::Polynomial;
+use oxiz_nlsat::cad::CadPoint;
 use oxiz_nlsat::nia::{NiaConfig, NiaSolver, VarType};
 use oxiz_nlsat::solver::{NlsatSolver, SolverResult};
 use oxiz_nlsat::types::AtomKind;
@@ -50,19 +53,61 @@ use std::collections::HashMap;
 /// that decided the problem without pinning every leaf leaves the rest open),
 /// so a caller installing it must verify before publishing it; see
 /// [`crate::nl_eval::holds_under`].
+///
+/// # The two witness channels are exclusive, never blended
+///
+/// `witness` speaks [`Interpretation`]'s value language, which is rational.
+/// A real cell decomposition can produce a value no rational equals (`√2` for
+/// `x² = 2`), and `algebraic` is the channel for exactly that case — see
+/// [`crate::nl_witness`].
+///
+/// At most one of the two is ever populated for a given `Sat`:
+///
+/// * every variable rational → `witness` holds them, `algebraic` is empty
+///   (byte-for-byte the behaviour that predates the algebraic channel);
+/// * some variable irrational → `algebraic` holds **every** variable,
+///   rationals included, and `witness` is left *empty*.
+///
+/// The second half of that split is what keeps the caller safe. An
+/// `algebraic` map covering only the irrational variables would leave the
+/// rest to be filled in from sort defaults by whatever reports the model,
+/// producing an assignment that satisfies nothing; and a `witness` populated
+/// alongside it would be partial in a way `holds_under` reads as *false*,
+/// tripping `oxiz-solver`'s debug assertion on a perfectly correct `sat`.
+/// Populating exactly one, completely, avoids both.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NlDispatchResult {
-    /// The constraint set is satisfiable, witnessed by this interpretation.
-    Sat(Box<Interpretation>),
+    /// The constraint set is satisfiable, witnessed by these values.
+    Sat {
+        /// The rational witness. Empty when `algebraic` is populated.
+        witness: Box<Interpretation>,
+        /// Exact values for *every* variable of the problem, populated only
+        /// when at least one of them is irrational. Empty otherwise.
+        algebraic: FxHashMap<TermId, NlWitnessValue>,
+    },
     /// The constraint set is unsatisfiable.
     Unsat,
 }
 
 impl NlDispatchResult {
-    /// A `Sat` whose witness is `interp`.
+    /// A `Sat` whose witness is `interp`, with no algebraic values.
     #[must_use]
     pub fn sat(interp: Interpretation) -> Self {
-        Self::Sat(Box::new(interp))
+        Self::Sat {
+            witness: Box::new(interp),
+            algebraic: FxHashMap::default(),
+        }
+    }
+
+    /// A `Sat` witnessed entirely by exact values, at least one of which is
+    /// irrational. The rational channel is left empty; see the type's docs
+    /// for why the two are never populated together.
+    #[must_use]
+    pub fn sat_algebraic(algebraic: FxHashMap<TermId, NlWitnessValue>) -> Self {
+        Self::Sat {
+            witness: Box::new(Interpretation::empty()),
+            algebraic,
+        }
     }
 
     /// A `Sat` carrying no values at all — for a procedure that established
@@ -72,11 +117,21 @@ impl NlDispatchResult {
         Self::sat(Interpretation::empty())
     }
 
-    /// The witness, or `None` for `Unsat`.
+    /// The rational witness, or `None` for `Unsat`.
     #[must_use]
     pub fn witness(&self) -> Option<&Interpretation> {
         match self {
-            Self::Sat(interp) => Some(interp),
+            Self::Sat { witness, .. } => Some(witness),
+            Self::Unsat => None,
+        }
+    }
+
+    /// The exact-value witness, empty unless this `Sat` needed the algebraic
+    /// channel. `None` for `Unsat`.
+    #[must_use]
+    pub fn algebraic_witness(&self) -> Option<&FxHashMap<TermId, NlWitnessValue>> {
+        match self {
+            Self::Sat { algebraic, .. } => Some(algebraic),
             Self::Unsat => None,
         }
     }
@@ -845,7 +900,7 @@ fn extract_poly_atoms(
 ///
 /// Returns:
 /// - `Some(NlDispatchResult::Unsat)` if the system is provably UNSAT,
-/// - `Some(NlDispatchResult::Sat(_))` with a witness if a model was found,
+/// - `Some(NlDispatchResult::Sat { .. })` with a witness if a model was found,
 /// - `None` when neither could be established (the caller answers `unknown`).
 ///
 /// This is the cell-decomposition core, and it is the only nonlinear
@@ -979,17 +1034,171 @@ fn witness_from_translator(translator: &TermPolyTranslator<'_>) -> Interpretatio
 }
 
 /// The real-arithmetic analogue of [`witness_from_translator`].
+///
+/// **All-or-nothing**, unlike its integer sibling. The NLSAT solver may now
+/// witness a real variable with an exact algebraic number (`x = √2` for
+/// `x² = 2`), which `Model::arith_value` reports as absent because no rational
+/// stands for it. Pinning the *other* variables and leaving that one out would
+/// produce a witness that is partial in a way the caller cannot detect and
+/// that `crate::nl_eval::holds_under` would evaluate to `false` — turning a
+/// correct `sat` into a re-check failure, and tripping the debug assertion in
+/// `oxiz-solver`'s `check_nlsat` that exists to catch a dispatcher claiming
+/// `Sat` on a witness that does not hold.
+///
+/// The contract is therefore: a witness this solver cannot represent simply
+/// leaves the model unset. The verdict is unaffected — it is the dispatcher's,
+/// decided by its own trust conditions — and an empty interpretation is
+/// exactly what a caller needs to see to know it must not publish values.
+///
+/// The algebraic value itself is *not* lost: it is reported through the
+/// separate exact-value channel that [`algebraic_witness_from_real_translator`]
+/// builds, which is what `(get-model)` renders as `root-obj`. The two channels
+/// stay disjoint exactly as described on [`NlDispatchResult`].
 fn witness_from_real_translator(translator: &RealPolyTranslator<'_>) -> Interpretation {
     let mut interp = Interpretation::empty();
     let Some(model) = translator.nlsat.get_model() else {
         return interp;
     };
     for (&term, &poly_var) in &translator.var_cache {
-        if let Some(value) = model.arith_value(poly_var) {
-            interp.pin_num(term, value.clone());
-        }
+        let Some(value) = model.arith_value(poly_var) else {
+            return Interpretation::empty();
+        };
+        interp.pin_num(term, value.clone());
     }
     interp
+}
+
+/// The exact-value witness, for the real models [`witness_from_real_translator`]
+/// has to decline.
+///
+/// Returns an **empty** map — meaning "this channel does not apply, use the
+/// rational one" — in all of these cases:
+///
+/// * there is no model at all;
+/// * every variable's value is rational (the rational channel covers it, and
+///   populating both would blend two witness sources for one model);
+/// * any variable is missing from the model, or carries an algebraic point
+///   whose defining polynomial this code cannot put into `root-obj` normal
+///   form (not univariate, or degree 0).
+///
+/// The last case is the load-bearing one: the map is **all-or-nothing**. A map
+/// covering some variables would be completed with sort defaults by whatever
+/// renders the model, publishing an assignment that satisfies nothing. Refusing
+/// wholesale restores the modelless-but-correct `sat` this function replaced,
+/// which is always a safe answer.
+fn algebraic_witness_from_real_translator(
+    translator: &RealPolyTranslator<'_>,
+) -> FxHashMap<TermId, NlWitnessValue> {
+    let empty = FxHashMap::default;
+    let Some(model) = translator.nlsat.get_model() else {
+        return empty();
+    };
+    let mut values: FxHashMap<TermId, NlWitnessValue> = FxHashMap::default();
+    let mut saw_algebraic = false;
+    for (&term, &poly_var) in &translator.var_cache {
+        let Some(point) = model.arith_point(poly_var) else {
+            return empty();
+        };
+        let value = match point {
+            CadPoint::Rational(value) => NlWitnessValue::Rational(value.clone()),
+            CadPoint::Algebraic {
+                lo,
+                hi,
+                poly,
+                index,
+            } => {
+                let Some(coefficients) = root_obj_coefficients(poly) else {
+                    return empty();
+                };
+                saw_algebraic = true;
+                NlWitnessValue::Algebraic(AlgebraicValue {
+                    coefficients,
+                    root_index: *index,
+                    lower: lo.clone(),
+                    upper: hi.clone(),
+                })
+            }
+        };
+        values.insert(term, value);
+    }
+    if saw_algebraic { values } else { empty() }
+}
+
+/// Put a `CadPoint::Algebraic` defining polynomial into `root-obj` normal
+/// form: integer coefficients indexed by degree, primitive, positive leading
+/// coefficient.
+///
+/// `None` when the polynomial is not a univariate polynomial of degree ≥ 1,
+/// which is the only shape `root-obj` can spell. (An algebraic point's
+/// polynomial is a *univariate specialisation* produced by the CAD lifting
+/// step, so this should always succeed; refusing rather than asserting keeps
+/// a future change to that invariant a lost model instead of a wrong one.)
+///
+/// # Why normalising after the fact is sound
+///
+/// `root_index` was determined against the polynomial as isolated, and the
+/// three operations here — clearing denominators, dividing out the integer
+/// content, negating for a positive leading coefficient — are multiplication
+/// by a nonzero rational. That changes no root and reorders none, so the
+/// index still selects the same number. See [`AlgebraicValue`].
+fn root_obj_coefficients(poly: &Polynomial) -> Option<Vec<BigInt>> {
+    let vars = poly.vars();
+    let &[var] = vars.as_slice() else {
+        return None;
+    };
+    let degree = poly.degree(var) as usize;
+    if degree == 0 {
+        return None;
+    }
+
+    // Rational coefficients, indexed by degree.
+    let mut rational = vec![BigRational::zero(); degree + 1];
+    for term in poly.terms() {
+        let power = match term.monomial.vars() {
+            [] => 0usize,
+            [vp] if vp.var == var => vp.power as usize,
+            // A monomial mentioning another variable contradicts `vars()`
+            // above; treat it as unrenderable rather than dropping it.
+            _ => return None,
+        };
+        let slot = rational.get_mut(power)?;
+        *slot = &*slot + &term.coeff;
+    }
+
+    // Clear denominators: multiply through by the LCM of them.
+    let mut denominator_lcm = BigInt::from(1);
+    for coefficient in &rational {
+        denominator_lcm = denominator_lcm.lcm(coefficient.denom());
+    }
+    let mut integral: Vec<BigInt> = rational
+        .iter()
+        .map(|coefficient| coefficient.numer() * (&denominator_lcm / coefficient.denom()))
+        .collect();
+
+    // Divide out the content.
+    let mut content = BigInt::from(0);
+    for coefficient in &integral {
+        content = content.gcd(coefficient);
+    }
+    if content.is_zero() {
+        // Every coefficient zero: the zero polynomial has no isolated root.
+        return None;
+    }
+    for coefficient in &mut integral {
+        *coefficient /= &content;
+    }
+
+    // Force a positive leading coefficient.
+    let leading = integral.last()?;
+    if leading.is_zero() {
+        return None;
+    }
+    if leading < &BigInt::from(0) {
+        for coefficient in &mut integral {
+            *coefficient = -&*coefficient;
+        }
+    }
+    Some(integral)
 }
 
 /// Re-evaluate every atom `dispatch_nia_constraints` asserted against the
@@ -1201,9 +1410,18 @@ pub fn dispatch_nra_constraints(
     }
 
     match translator.nlsat.solve() {
-        SolverResult::Sat if sat_is_trustworthy => Some(NlDispatchResult::sat(
-            witness_from_real_translator(&translator),
-        )),
+        SolverResult::Sat if sat_is_trustworthy => {
+            // Exactly one of the two witness channels, never both — see
+            // `NlDispatchResult`. The algebraic one applies only when some
+            // variable's value is irrational, and then it carries the whole
+            // model; otherwise the rational one does, unchanged.
+            let algebraic = algebraic_witness_from_real_translator(&translator);
+            Some(if algebraic.is_empty() {
+                NlDispatchResult::sat(witness_from_real_translator(&translator))
+            } else {
+                NlDispatchResult::sat_algebraic(algebraic)
+            })
+        }
         SolverResult::Unsat if unsat_is_trustworthy => Some(NlDispatchResult::Unsat),
         SolverResult::Sat | SolverResult::Unsat | SolverResult::Unknown => None,
     }
@@ -1350,6 +1568,101 @@ mod tests {
 
     fn rat(n: i64) -> BigRational {
         BigRational::from_integer(n.into())
+    }
+
+    // ── `root-obj` polynomial normal form ─────────────────────────────────────
+
+    /// Build a univariate polynomial in variable 0 from `numerator/denominator`
+    /// pairs indexed by degree.
+    fn poly(coefficients: &[(i64, i64)]) -> Polynomial {
+        let rationals: Vec<BigRational> = coefficients
+            .iter()
+            .map(|&(n, d)| BigRational::new(n.into(), d.into()))
+            .collect();
+        Polynomial::univariate(0, &rationals)
+    }
+
+    fn ints(values: &[i64]) -> Vec<BigInt> {
+        values.iter().copied().map(BigInt::from).collect()
+    }
+
+    /// The plain case: `x² − 2` is already in normal form.
+    #[test]
+    fn root_obj_coefficients_keeps_a_primitive_polynomial() {
+        assert_eq!(
+            root_obj_coefficients(&poly(&[(-2, 1), (0, 1), (1, 1)])),
+            Some(ints(&[-2, 0, 1]))
+        );
+    }
+
+    /// Denominators are cleared: `x² − 1/2` becomes `2x² − 1`, which is what
+    /// `z3 4.15.4` prints for `x² = 1/2` — `(root-obj (+ (* 2 (^ x 2)) (- 1)) 1)`.
+    #[test]
+    fn root_obj_coefficients_clears_denominators() {
+        assert_eq!(
+            root_obj_coefficients(&poly(&[(-1, 2), (0, 1), (1, 1)])),
+            Some(ints(&[-1, 0, 2]))
+        );
+    }
+
+    /// The integer content is divided out: `2x² − 4` becomes `x² − 2`, which
+    /// is what z3 prints for `2x² = 4`.
+    #[test]
+    fn root_obj_coefficients_divides_out_the_content() {
+        assert_eq!(
+            root_obj_coefficients(&poly(&[(-4, 1), (0, 1), (2, 1)])),
+            Some(ints(&[-2, 0, 1]))
+        );
+    }
+
+    /// A negative leading coefficient is negated away: `−x² + 2` becomes
+    /// `x² − 2`, which is what z3 prints for `2 − x² = 0`.
+    #[test]
+    fn root_obj_coefficients_forces_a_positive_leading_coefficient() {
+        assert_eq!(
+            root_obj_coefficients(&poly(&[(2, 1), (0, 1), (-1, 1)])),
+            Some(ints(&[-2, 0, 1]))
+        );
+    }
+
+    /// All three normalisations at once: `−(3/2)x² + 3` → `x² − 2`.
+    #[test]
+    fn root_obj_coefficients_composes_all_three_normalisations() {
+        assert_eq!(
+            root_obj_coefficients(&poly(&[(3, 1), (0, 1), (-3, 2)])),
+            Some(ints(&[-2, 0, 1]))
+        );
+    }
+
+    /// Interior zero coefficients are preserved by *degree index*, not
+    /// squeezed out — the renderer relies on the index being the exponent.
+    #[test]
+    fn root_obj_coefficients_are_indexed_by_degree() {
+        // x⁵ − 3x − 1
+        assert_eq!(
+            root_obj_coefficients(&poly(&[(-1, 1), (-3, 1), (0, 1), (0, 1), (0, 1), (1, 1)])),
+            Some(ints(&[-1, -3, 0, 0, 0, 1]))
+        );
+    }
+
+    /// A polynomial `root-obj` cannot spell is refused rather than mangled:
+    /// the caller then reports no model at all, which is always safe.
+    #[test]
+    fn root_obj_coefficients_refuses_unrenderable_polynomials() {
+        // Constant: no roots to index.
+        assert_eq!(root_obj_coefficients(&poly(&[(7, 1)])), None);
+        // Zero polynomial: every point is a root, none is isolated.
+        assert_eq!(root_obj_coefficients(&Polynomial::zero()), None);
+        // Multivariate: `x·y − 1` has no univariate `root-obj` form.
+        use oxiz_math::polynomial::{Monomial, MonomialOrder, Term};
+        let xy = Polynomial::from_terms(
+            vec![
+                Term::new(rat(1), Monomial::from_powers([(0, 1), (1, 1)])),
+                Term::new(rat(-1), Monomial::unit()),
+            ],
+            MonomialOrder::default(),
+        );
+        assert_eq!(root_obj_coefficients(&xy), None);
     }
 
     // ── Theory trait tests ────────────────────────────────────────────────────
@@ -1591,7 +1904,7 @@ mod tests {
         let result = dispatch_nia_constraints(&[eq], &manager, true);
         // SAT or Unknown (unknown means solver fell through)
         assert!(
-            matches!(result, Some(NlDispatchResult::Sat(_)) | None),
+            matches!(result, Some(NlDispatchResult::Sat { .. }) | None),
             "x*x=4 should be SAT or unknown, got {:?}",
             result
         );

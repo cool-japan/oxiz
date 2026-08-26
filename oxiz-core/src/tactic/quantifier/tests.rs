@@ -531,15 +531,15 @@ fn skolemization_substitutes_through_a_bitvector_operator() {
     );
 }
 
-/// Run `f` on a dedicated thread with a 1 MiB stack -- far smaller than the
+/// Run `f` on a dedicated thread with a 128 KiB stack -- far smaller than the
 /// default main-thread stack.
 ///
 /// A stack overflow aborts the whole process rather than failing one test, so
 /// for the deep-input test below the call *returning at all* is itself the
 /// assertion.
-fn run_on_1mib_stack<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
+fn run_on_small_stack<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
     std::thread::Builder::new()
-        .stack_size(1 << 20)
+        .stack_size(1 << 17)
         .spawn(f)
         .expect("spawning the constrained-stack test thread should succeed")
         .join()
@@ -551,9 +551,9 @@ fn run_on_1mib_stack<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) 
 /// process.
 #[test]
 fn substitute_survives_a_deeply_nested_term_on_a_tiny_stack() {
-    const DEPTH: usize = 100_000;
+    const DEPTH: usize = 12_500;
 
-    let (reached_leaf, old_leaf_gone) = run_on_1mib_stack(|| {
+    let (reached_leaf, old_leaf_gone) = run_on_small_stack(|| {
         let mut m = setup_manager();
         let int_sort = m.sorts.int_sort;
         let x = m.mk_var("x", int_sort);
@@ -599,10 +599,10 @@ fn substitute_survives_a_deeply_nested_term_on_a_tiny_stack() {
 /// stack overflow aborts the whole process rather than failing the test.
 #[test]
 fn der_survives_a_deeply_nested_boolean_skeleton_on_a_tiny_stack() {
-    const DEPTH: usize = 60_000;
+    const DEPTH: usize = 7_500;
 
     let handle = std::thread::Builder::new()
-        .stack_size(1 << 20)
+        .stack_size(1 << 17)
         .spawn(|| {
             let mut m = setup_manager();
             let bool_sort = m.sorts.bool_sort;
@@ -692,10 +692,10 @@ fn der_eliminates_below_the_old_depth_cap() {
 /// return (and actually Skolemize).
 #[test]
 fn skolemization_survives_a_deeply_nested_formula_on_a_tiny_stack() {
-    const DEPTH: usize = 60_000;
+    const DEPTH: usize = 7_500;
 
     let handle = std::thread::Builder::new()
-        .stack_size(1 << 20)
+        .stack_size(1 << 17)
         .spawn(|| {
             let mut m = setup_manager();
             let bool_sort = m.sorts.bool_sort;

@@ -18,6 +18,8 @@ pub(super) mod encode;
 pub(super) mod encode_guards;
 pub(super) mod eq_skeleton;
 pub(super) mod int_case_split;
+pub(super) mod int_range_lp;
+pub(super) mod model_blocking;
 pub(super) mod model_builder;
 pub(super) mod model_eval;
 pub(super) mod pigeonhole;
@@ -140,6 +142,45 @@ pub struct Solver {
     pub(super) assumption_vars: FxHashMap<u32, Var>,
     /// Model (if sat)
     pub(super) model: Option<Model>,
+    /// Exact model values for the nonlinear-real variables that [`Model`]
+    /// cannot hold — the `(get-model)` side-channel for algebraic witnesses.
+    ///
+    /// # Why a side-channel and not a `Model` entry
+    ///
+    /// [`Model`] maps a term to a *term*, and the value language of the term
+    /// graph is `Rational64`. `√2` — the only value satisfying `x² = 2` — has
+    /// no term, and inventing a `TermKind` for it would ripple through every
+    /// exhaustive match over `TermKind` in the workspace for the sake of a
+    /// value that is never computed with, only printed. More importantly it
+    /// would put a non-rational into the value language that
+    /// `Solver::model_refutes_assertions` and
+    /// `oxiz_theories::nl_eval::holds_under` evaluate in, both of which are
+    /// soundness gates. So the ordinary `Model` stays exactly as rational as
+    /// it was, and the exact value travels beside it.
+    ///
+    /// Nothing re-checks these values here, and nothing needs to: the cell
+    /// decomposition that produced them already verified the point against
+    /// every assigned atom inside `oxiz-nlsat`, and no gate in this crate
+    /// consumes them — `(get-model)` / `(get-value ..)` are the only readers.
+    ///
+    /// # Populated all-or-nothing
+    ///
+    /// Non-empty only when a `Sat` from the real cell decomposition needed the
+    /// algebraic channel, and then it covers **every** variable of that
+    /// problem, rationals included (see
+    /// [`oxiz_theories::nlsat::NlDispatchResult`]). A partial map would let
+    /// `Context::get_model` fill the rest in from sort defaults and print an
+    /// assignment satisfying nothing.
+    ///
+    /// # Lifetime
+    ///
+    /// A `RESULT`: it describes the last `check`'s model exactly as `model`
+    /// does, and is dropped by the same [`Self::invalidate_results`] hook, so
+    /// a value cannot survive the `assert`/`push`/`pop` that invalidated the
+    /// verdict it belongs to. `dispatch_nl_solver` additionally clears it on
+    /// entry, so a `check` that reaches a *different* nonlinear procedure
+    /// cannot inherit the previous one's values.
+    pub(super) nl_algebraic_values: FxHashMap<TermId, oxiz_theories::nl_witness::NlWitnessValue>,
     /// Unsat core (if unsat)
     pub(super) unsat_core: Option<UnsatCore>,
     /// Context stack for push/pop
@@ -258,6 +299,25 @@ pub struct Solver {
     /// mentioning a term that is *not* in here has no theory semantics and
     /// `check` must answer `Unknown`.
     pub(super) arith_defined_terms: FxHashSet<TermId>,
+    /// Numeric `Eq` atoms that have already been given their trichotomy clause
+    /// `(a = b) OR (a < b) OR (a > b)` by [`Solver::add_numeric_trichotomy`].
+    ///
+    /// The clause is what makes an arithmetic *disequality* reach the theory
+    /// solver at all (see that method), and it must be emitted exactly once per
+    /// atom. The Tseitin memo (`encoded_terms`) cannot be relied on for that:
+    /// it is retracted per entry on `pop` and is also *bypassed* whenever a
+    /// term is re-encoded under a widened polarity, so the `TermKind::Eq` arm
+    /// runs again for an atom whose trichotomy is already in the database. Left
+    /// unguarded that re-emitted a literal-identical clause over identical
+    /// variables — which `oxiz_sat::Solver::add_clause` has no duplicate
+    /// detection for — once per `(push)(pop)` pair, unbounded (exactly the
+    /// growth `scope_rebase_tests::a_no_op_push_pop_between_checks_does_not_
+    /// re_encode_the_goal` exists to catch).
+    ///
+    /// Journalled on the trail as [`TrailOp::NumericTrichotomyAdded`] so a
+    /// `pop` drops the mark together with the clause it stands for, and the
+    /// next encode re-emits both.
+    pub(super) numeric_trichotomy_atoms: FxHashSet<TermId>,
     /// Ground datatype-axiom instances (exhaustiveness, exclusivity,
     /// reconstruction, selector-over-constructor, congruence, acyclicity)
     /// already added to the SAT core as lemmas, keyed by the interned lemma
@@ -268,6 +328,19 @@ pub struct Solver {
     /// strict subset of the theory, so `Unsat` is still trustworthy but a `Sat`
     /// must be reported as `Unknown`.
     pub(super) dt_axioms_incomplete: bool,
+    /// Set to `true` when the *array* axiom budget
+    /// ([`array_axioms::MAX_ARRAY_AXIOM_INSTANCES`]) ran out before every
+    /// applicable instance had been asserted, exactly mirroring
+    /// [`Solver::dt_axioms_incomplete`].
+    ///
+    /// Hitting the cap means `instantiate_array_axioms` returned `false` — its
+    /// "the candidate model satisfies every axiom" answer — for a reason that
+    /// has nothing to do with the model.  `check_core` reads that `false` as
+    /// permission to report `Sat`, so without this flag an exhausted budget
+    /// turns straight into a fabricated verdict.  `Unsat` derived from a subset
+    /// of the axioms is still `Unsat`; a `Sat` is a guess and is reported as
+    /// `Unknown`.
+    pub(super) array_axioms_incomplete: bool,
     /// Terms that the *current* assertion stack pins to a concrete integer,
     /// i.e. `t` appears in some top-level `(assert (= t <literal>))`.
     ///
@@ -325,6 +398,53 @@ pub struct Solver {
     /// are already split, so a later `check` on a still-unresolved goal must
     /// be able to spend its own round budget again.
     pub(super) case_split_rounds: u32,
+    /// Set when a candidate `Sat` had case-split targets that were never
+    /// actually branched on, because the affordability gate in `check_core`
+    /// declined the refinement round.
+    ///
+    /// The gate compares the first solve's wall clock against
+    /// [`int_case_split::REFINEMENT_TIME_CEILING_MS`], so without this flag the
+    /// *verdict* depends on how fast the machine happened to be: the same
+    /// query answered `unsat` on an idle box and `sat` under load, because the
+    /// refinement that would have refuted the candidate was skipped. A budget
+    /// may cost completeness, never soundness — so a skipped round downgrades
+    /// `Sat` to `Unknown` exactly as [`Solver::dt_axioms_incomplete`] and
+    /// [`Solver::array_axioms_incomplete`] do.
+    ///
+    /// Per-search like `case_split_rounds`, and cleared by the round that
+    /// actually runs.
+    pub(super) case_split_skipped_targets: bool,
+    /// How many refuted candidate models have been excluded by
+    /// [`model_blocking::Solver::block_refuted_model`] at the *current* context
+    /// scope, and equivalently how many model-blocking clauses are live in the
+    /// SAT database.
+    ///
+    /// Deliberately **not** per-search (unlike `case_split_rounds`): the
+    /// clauses are permanent in `self.sat` until `Solver::pop` retracts them
+    /// with `self.sat.pop()`, so a counter reset at `check_core` entry would
+    /// let a second `check` report `Unsat` off a database still restricted by
+    /// the first one's blocking clauses — a wrong `unsat`, strictly worse than
+    /// the spurious `Unknown` the whole mechanism exists to remove. It is
+    /// therefore snapshotted in [`trail::ContextState`] (restored by `pop` in
+    /// lockstep with `sat.pop()`), zeroed only by `Solver::reset` (which calls
+    /// `sat.reset()`), and never touched by `invalidate_results`.
+    ///
+    /// Nonzero means "the search space is restricted": see
+    /// [`Solver::blocking_clauses_present`].
+    pub(super) model_blocking_active: usize,
+    /// Test-only event log: one entry per ground candidate model, recording
+    /// whether `self.model` was still populated when `check_core` reached the
+    /// case-split / array-axiom repair paths.
+    ///
+    /// The repairs read the candidate model to decide what needs repairing
+    /// (`instantiate_array_axioms` reads it to skip axiom instances the
+    /// candidate already satisfies), and the refutation gate used to run
+    /// *before* them and clear it. Nothing observable from outside distinguishes
+    /// "the repairs ran on a live model" from "the repairs ran on `None` and
+    /// degenerated into eager instantiation", so the ordering is pinned here
+    /// instead — same device, and same rationale, as `mbqi_round_clauses`.
+    #[cfg(test)]
+    pub(super) repair_paths_saw_model: Vec<bool>,
     /// Index terms of finite-map lookup spines flattened by
     /// [`encode::finite_map_ite`]. Fed into
     /// [`int_case_split::Solver::split_narrow_int_domains`]'s candidate set
@@ -438,6 +558,14 @@ impl Solver {
             } else {
                 None
             },
+            // Bounded variable elimination. Without this line the SAT
+            // engine's BVE pass was unreachable from this crate at any
+            // setting: `oxiz_sat::SolverConfig::enable_bve` is `false` in
+            // `Default` and in every one of the nine `ConfigPreset` bodies,
+            // and nothing here overrode it. See the field's doc comment on
+            // `SolverConfig` for why `thorough()` opts in and `balanced()`
+            // does not.
+            enable_bve: config.enable_bve,
             ..SatConfig::default()
         };
 
@@ -445,8 +573,23 @@ impl Solver {
         // and clause management systems. We pass the configuration but the actual
         // implementation is in oxiz-sat:
         // - Clause minimization (via RecursiveMinimizer)
-        // - Clause subsumption (via SubsumptionChecker)
-        // - Variable elimination (via Preprocessor::variable_elimination)
+        // - Clause subsumption: NOT via oxiz-sat's `SubsumptionChecker` /
+        //   `DynamicSubsumption` types, which are exported but never
+        //   constructed anywhere in the workspace and are retained as
+        //   reference formulations (see their own doc comments). What
+        //   actually runs is inprocessing-driven subsumption inside oxiz-sat
+        //   itself (`Preprocessor::subsumption_elimination`, invoked from
+        //   `Solver::inprocess`), reachable because `enable_inprocessing`
+        //   defaults to `true` in `balanced()`.
+        // - Self-subsuming resolution (clause strengthening): likewise runs
+        //   from `Solver::inprocess`, as `Solver::self_subsuming_resolution`,
+        //   gated by oxiz-sat's `enable_self_subsumption` (on by default).
+        // - Variable elimination: via the SAT engine's own
+        //   `Solver::bounded_variable_elimination`, which keeps the model
+        //   reconstruction data the `Preprocessor::variable_elimination`
+        //   reference implementation does not. Reached through the
+        //   `enable_bve` pass-through above, not through
+        //   `enable_variable_elimination`.
         // - Blocked clause elimination (via Preprocessor::blocked_clause_elimination)
         // - Symmetry breaking (via SymmetryBreaker)
 
@@ -473,6 +616,7 @@ impl Solver {
             named_assertions: Vec::new(),
             assumption_vars: FxHashMap::default(),
             model: None,
+            nl_algebraic_values: FxHashMap::default(),
             unsat_core: None,
             context_stack: Vec::new(),
             trail: Vec::new(),
@@ -504,8 +648,10 @@ impl Solver {
             has_array_ops: false,
             array_axiom_instances: FxHashSet::default(),
             arith_defined_terms: FxHashSet::default(),
+            numeric_trichotomy_atoms: FxHashSet::default(),
             dt_axiom_instances: FxHashSet::default(),
             dt_axioms_incomplete: false,
+            array_axioms_incomplete: false,
             entailed_int_consts: FxHashMap::default(),
             entailed_int_consts_upto: 0,
             #[cfg(test)]
@@ -514,6 +660,10 @@ impl Solver {
             settings_epoch: 0,
             case_split_terms: FxHashSet::default(),
             case_split_rounds: 0,
+            case_split_skipped_targets: false,
+            model_blocking_active: 0,
+            #[cfg(test)]
+            repair_paths_saw_model: Vec::new(),
             lookup_index_terms: FxHashSet::default(),
             eq_transitivity_triangles: FxHashSet::default(),
             equality_skeleton_classes: FxHashMap::default(),
@@ -652,6 +802,25 @@ impl Solver {
         // `Unsat` from a subset of the axioms is still `Unsat`; a `Sat` is a
         // guess and is reported as `Unknown`.
         if result == SolverResult::Sat && self.dt_axioms_incomplete {
+            self.model = None;
+            self.unsat_core = None;
+            return SolverResult::Unknown;
+        }
+        // Same honesty gate for the array axiom budget: an exhausted cap makes
+        // `instantiate_array_axioms` report "no new lemma" for a reason that is
+        // about the budget, not about the model, and `check_core` reads that as
+        // permission to answer `Sat`.
+        if result == SolverResult::Sat && self.array_axioms_incomplete {
+            self.model = None;
+            self.unsat_core = None;
+            return SolverResult::Unknown;
+        }
+        // Same honesty gate for a case-split round the affordability ceiling
+        // declined: the candidate has shared terms whose domains were never
+        // branched on, so this `Sat` is exactly the unverified kind
+        // `int_case_split` exists to refute -- and which of the two verdicts
+        // comes back must not depend on machine speed.
+        if result == SolverResult::Sat && self.case_split_skipped_targets {
             self.model = None;
             self.unsat_core = None;
             return SolverResult::Unknown;
@@ -934,11 +1103,18 @@ impl Solver {
             return SolverResult::Unknown;
         }
 
+        // Soundness gate: an earlier `check` may have left model-blocking
+        // clauses in this same SAT core (see `solver::model_blocking`). They
+        // are a restriction of the search space, not consequences of the
+        // assertions, so an `Unsat` over them is not a refutation of the goal.
+        // The `Sat` side needs no gate: a surviving assignment is a genuine
+        // assignment of the unrestricted clause set.
         match self.sat.solve() {
             SatResult::Sat => {
                 self.build_model(manager);
                 SolverResult::Sat
             }
+            SatResult::Unsat if self.blocking_clauses_present() => SolverResult::Unknown,
             SatResult::Unsat => SolverResult::Unsat,
             SatResult::Unknown => SolverResult::Unknown,
         }
@@ -1020,6 +1196,32 @@ impl Solver {
     #[must_use]
     pub fn model(&self) -> Option<&Model> {
         self.model.as_ref()
+    }
+
+    /// Exact model values for nonlinear-real variables whose witness is not a
+    /// rational — see [`Solver::nl_algebraic_values`](Self::nl_algebraic_values)
+    /// (the field) for the whole contract.
+    ///
+    /// Empty for every model that fits in [`Model`], which is all of them
+    /// except a real cell decomposition that had to answer with an algebraic
+    /// number. Non-empty implies [`Self::model`] is `None`: the two are
+    /// alternatives, not layers.
+    #[must_use]
+    pub fn nl_algebraic_values(
+        &self,
+    ) -> &FxHashMap<TermId, oxiz_theories::nl_witness::NlWitnessValue> {
+        &self.nl_algebraic_values
+    }
+
+    /// The exact value this solver holds for `term`, if the last `check`
+    /// answered it with a nonlinear-real witness. See
+    /// [`Self::nl_algebraic_values`].
+    #[must_use]
+    pub fn nl_algebraic_value(
+        &self,
+        term: TermId,
+    ) -> Option<&oxiz_theories::nl_witness::NlWitnessValue> {
+        self.nl_algebraic_values.get(&term)
     }
 
     /// Congruence-closed function-application entries from the EUF solver for
@@ -1132,6 +1334,8 @@ impl Solver {
             has_array_ops: self.has_array_ops,
             encode_depth_exceeded: self.encode_depth_exceeded,
             dt_axioms_incomplete: self.dt_axioms_incomplete,
+            array_axioms_incomplete: self.array_axioms_incomplete,
+            model_blocking_active: self.model_blocking_active,
         });
         self.sat.push();
         // No EUF / arithmetic scope is opened here on purpose.
@@ -1279,6 +1483,14 @@ impl Solver {
                             // been dropped from the SAT core.
                             self.arith_defined_terms.remove(&term);
                         }
+                        TrailOp::NumericTrichotomyAdded { term } => {
+                            // The trichotomy clause is retracted with the
+                            // scope's clauses, so the mark must go too — or the
+                            // atom would keep looking "already split" while the
+                            // clause that split it is gone, and the arithmetic
+                            // disequality would stop reaching the tableau.
+                            self.numeric_trichotomy_atoms.remove(&term);
+                        }
                         TrailOp::EncodedTermAdded { term, previous } => {
                             // Take back exactly this one memo write.  `None`
                             // means the term's whole encoding was emitted inside
@@ -1339,6 +1551,15 @@ impl Solver {
             self.has_array_ops = state.has_array_ops;
             self.encode_depth_exceeded = state.encode_depth_exceeded;
             self.dt_axioms_incomplete = state.dt_axioms_incomplete;
+            self.array_axioms_incomplete = state.array_axioms_incomplete;
+
+            // Model-blocking clauses added inside the retracted scope go away
+            // with the `self.sat.pop()` below, so the count of live ones has to
+            // roll back with them.  Restoring the push-time value (rather than
+            // zeroing) is what keeps the `Unsat`-downgrade honest across nested
+            // scopes: a clause added *outside* this scope survives the pop and
+            // must keep the verdict downgraded.
+            self.model_blocking_active = state.model_blocking_active;
 
             // The Tseitin memo is retracted per entry, by the
             // `TrailOp::EncodedTermAdded` arm of the undo loop above — not
@@ -1451,13 +1672,19 @@ impl Solver {
         self.encode_depth_exceeded = false;
         self.has_array_ops = false;
         self.array_axiom_instances.clear();
+        self.array_axioms_incomplete = false;
         self.arith_defined_terms.clear();
+        self.numeric_trichotomy_atoms.clear();
         // The assertions that entailed these constants are gone; a survivor
         // would license a finite-range expansion the new formula never asserts.
         self.entailed_int_consts.clear();
         self.entailed_int_consts_upto = 0;
         self.case_split_terms.clear();
         self.case_split_rounds = 0;
+        self.case_split_skipped_targets = false;
+        // `self.sat.reset()` above discarded every clause, the model-blocking
+        // ones included, so the search is unrestricted again.
+        self.model_blocking_active = 0;
         self.lookup_index_terms.clear();
         // The clauses those triangles stand for went with the SAT core the
         // reset discarded, and the classes describe a formula that no longer

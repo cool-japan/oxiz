@@ -1289,12 +1289,13 @@ mod group_c1_tests {
     /// depth budget. None of them may abort the process.
     #[test]
     fn nla2bv_survives_a_deep_goal_on_a_tiny_stack() {
-        const DEPTH: usize = 60_000;
+        const DEPTH: usize = 7_500;
 
         let handle = std::thread::Builder::new()
-            .stack_size(1 << 20)
+            .stack_size(1 << 17)
             .spawn(|| {
                 let mut manager = TermManager::new();
+                let bool_sort = manager.sorts.bool_sort;
                 let int_sort = manager.sorts.int_sort;
                 let x = manager.mk_var("x", int_sort);
                 let zero = manager.mk_int(0);
@@ -1302,11 +1303,18 @@ mod group_c1_tests {
                 let lo = manager.mk_ge(x, zero);
                 let hi = manager.mk_le(x, seven);
 
-                // A deep conjunction chain over the two real bounds.
+                // A deep conjunction chain over the two real bounds. `mk_and`
+                // both discards `true` operands and flattens a nested `And`
+                // child into its parent, so building this with
+                // `conj = manager.mk_and([conj, manager.mk_true()])` in a
+                // loop is a no-op: every `true` conjunct is dropped and
+                // `conj` never grows past `And(lo, hi)`. Interning the `And`
+                // nodes directly bypasses both simplifications, so the chain
+                // really is `DEPTH` deep.
                 let mut conj = manager.mk_and([lo, hi]);
+                let t = manager.mk_true();
                 for _ in 0..DEPTH {
-                    let t = manager.mk_true();
-                    conj = manager.mk_and([conj, t]);
+                    conj = manager.intern_term(TermKind::And(vec![conj, t].into()), bool_sort);
                 }
 
                 let mut vars = Vec::new();

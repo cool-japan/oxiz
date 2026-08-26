@@ -24,6 +24,22 @@ pub enum RoundingMode {
     RTZ,
 }
 
+impl RoundingMode {
+    /// All five IEEE 754 rounding modes, in SMT-LIB declaration order.
+    ///
+    /// This array *is* the cardinality of the `RoundingMode` sort: the
+    /// parser's binder relativization and the solver's closure and
+    /// distinctness axioms all enumerate it, so adding a mode here (there are
+    /// no others in IEEE 754) would extend all three consistently.
+    pub const ALL: [RoundingMode; 5] = [
+        RoundingMode::RNE,
+        RoundingMode::RNA,
+        RoundingMode::RTP,
+        RoundingMode::RTN,
+        RoundingMode::RTZ,
+    ];
+}
+
 /// Unique identifier for a term in the arena
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TermId(pub u32);

@@ -21,6 +21,7 @@
 
 use super::super::lexer::{Token, TokenKind};
 use super::build::operand_plan;
+use super::commands::RmOperand;
 use super::{Attribute, AttributeValue, Parser, parse_decimal_to_rational};
 use crate::ast::{RoundingMode, TermId};
 use crate::error::{OxizError, Result};
@@ -150,7 +151,7 @@ enum Head {
     /// A built-in operator dispatched by name; see `build::operand_plan`.
     Builtin(String),
     /// A floating-point operator whose head carries a rounding mode.
-    FpRounded { op: String, rm: RoundingMode },
+    FpRounded { op: String, rm: RmOperand },
     /// `((_ name i ...) args)`, or the flattened `(_ name i ... args)`.
     Indexed { name: String, indices: Vec<String> },
     /// An indexed floating-point conversion, whose head carries both indices
@@ -158,7 +159,7 @@ enum Head {
     IndexedFpConv {
         name: String,
         indices: Vec<String>,
-        rm: RoundingMode,
+        rm: RmOperand,
     },
     /// The flattened bit-vector extract spelling `(_ extract i j x)`.
     BvExtractFlat { high: u32, low: u32 },
@@ -617,9 +618,38 @@ impl Parser<'_> {
                 for (name, term) in saved {
                     self.bindings.insert(name, term);
                 }
-                let refs: Vec<(&str, TermId)> =
-                    bindings.iter().map(|(n, t)| (n.as_str(), *t)).collect();
-                Ok(self.manager.mk_let(refs, body))
+                // Return the body ALONE — deliberately not `mk_let(bindings, body)`.
+                //
+                // This parser resolves a `let`-bound name by *substitution*, not by
+                // reference: `open_let_frame` inserts `name -> TermId` into
+                // `self.bindings` before the body is parsed, and `parse_symbol`
+                // hands that `TermId` straight back at every occurrence (see the
+                // `self.bindings.get(s)` arm). By the time the frame closes, the
+                // body already *is* the fully expanded term; the value of every
+                // binding is physically present inside it and the bound name
+                // occurs nowhere. A `Let` node wrapped around that body therefore
+                // binds nothing — it is pure decoration.
+                //
+                // Decoration with teeth, though: `TermKind::Let` is a real
+                // capture-avoiding binder everywhere else in the AST layer
+                // (`substitute.rs`, `alpha.rs`, `structural.rs`), so every
+                // consumer that walks a term treats it as an opaque scope and
+                // refuses to descend. `collect_ground_subterms`
+                // (`oxiz-solver/src/solver/encode/bool_euf_encoding.rs`) lists it
+                // alongside `Forall`/`Exists` for exactly that reason. The result
+                // was that a single vacuous wrapper silently disabled every
+                // assert-time pre-pass — `eliminate_nonbool_ite`,
+                // `abstract_compound_bool_args`, `flatten_lookup_spines`,
+                // `purify_numeric_uf_args`, the quantified model gate and the
+                // arithmetic-disequality split — for the whole assertion
+                // beneath it.
+                // Two formulas differing only by an *unused* `(let ((q 0)) ...)`
+                // wrapper got different verdicts, one of them a wrong `sat`.
+                //
+                // Only the parser is changed here. `TermManager::mk_let` keeps
+                // building a genuine `Let` for programmatic construction, where
+                // the body may really contain free occurrences of the bound name.
+                Ok(body)
             }
             Frame::Annot(state) => {
                 let AnnotFrame { term, attrs, .. } = state;
@@ -778,11 +808,74 @@ impl Parser<'_> {
         for (name, sort) in saved.constants {
             self.constants.insert(name, sort);
         }
+        let body = self.relativize_rounding_mode_binders(universal, vars, body);
         let var_refs: Vec<(&str, SortId)> = vars.iter().map(|(n, s)| (n.as_str(), *s)).collect();
         if universal {
             self.manager.mk_forall(var_refs, body)
         } else {
             self.manager.mk_exists(var_refs, body)
+        }
+    }
+
+    /// Restrict a quantifier's `RoundingMode`-sorted variables to the five
+    /// real rounding modes, syntactically, before the binder is built.
+    ///
+    /// The solver's closure axiom (`oxiz-solver`'s `context::rounding_mode`)
+    /// is asserted per *declared constant*; a bound variable has no
+    /// declaration to hang it on, and asserting a closure about a bound name
+    /// at top level would be nonsense. Relativizing the body is the standard
+    /// answer and the only sound one here: without it, `(forall ((m
+    /// RoundingMode)) phi)` would quantify over an unconstrained free sort —
+    /// strictly *stronger* than the intended "for all five modes", so a
+    /// formula true of every real mode could still come back `unsat`; and
+    /// `(exists ((m RoundingMode)) phi)` would be strictly *weaker*, able to
+    /// witness `phi` with a sixth value that is no rounding mode at all.
+    ///
+    /// - `forall`: `body` becomes `(=> (and closure(v1) ... ) body)`
+    /// - `exists`: `body` becomes `(and closure(v1) ... body)`
+    ///
+    /// where `closure(v)` is `(or (= v RNE) (= v RNA) (= v RTP) (= v RTN)
+    /// (= v RTZ))`. Non-`RoundingMode` binders are untouched and the body is
+    /// returned unchanged, so this costs nothing for every other quantifier.
+    ///
+    /// The modes' pairwise *distinctness* is still the solver's job; a
+    /// relativized `forall` is sound without it, and the solver asserts it
+    /// whenever any rounding mode is in play.
+    fn relativize_rounding_mode_binders(
+        &mut self,
+        universal: bool,
+        vars: &[(String, SortId)],
+        body: TermId,
+    ) -> TermId {
+        let rm_sort = self.manager.sorts.rounding_mode_sort;
+        let bound: Vec<String> = vars
+            .iter()
+            .filter(|(_, sort)| *sort == rm_sort)
+            .map(|(name, _)| name.clone())
+            .collect();
+        if bound.is_empty() {
+            return body;
+        }
+
+        let mut guards: Vec<TermId> = Vec::with_capacity(bound.len());
+        for name in &bound {
+            let var = self.manager.mk_var(name, rm_sort);
+            let alternatives: Vec<TermId> = RoundingMode::ALL
+                .iter()
+                .map(|&rm| {
+                    let mode = self.manager.mk_rounding_mode(rm);
+                    self.manager.mk_eq(var, mode)
+                })
+                .collect();
+            guards.push(self.manager.mk_or(alternatives));
+        }
+
+        if universal {
+            let guard = self.manager.mk_and(guards);
+            self.manager.mk_implies(guard, body)
+        } else {
+            guards.push(body);
+            self.manager.mk_and(guards)
         }
     }
 
@@ -1053,21 +1146,21 @@ impl Parser<'_> {
             "exists" => return self.open_binder(false),
             // Floating-point operators taking a leading rounding mode.
             "fp.add" | "fp.sub" | "fp.mul" | "fp.div" => {
-                let rm = self.parse_rounding_mode()?;
+                let rm = self.parse_rounding_mode_operand()?;
                 return Ok(Opened::Frame(Frame::op(
                     Head::FpRounded { op, rm },
                     Plan::Fixed(2),
                 )));
             }
             "fp.sqrt" | "fp.roundToIntegral" => {
-                let rm = self.parse_rounding_mode()?;
+                let rm = self.parse_rounding_mode_operand()?;
                 return Ok(Opened::Frame(Frame::op(
                     Head::FpRounded { op, rm },
                     Plan::Fixed(1),
                 )));
             }
             "fp.fma" => {
-                let rm = self.parse_rounding_mode()?;
+                let rm = self.parse_rounding_mode_operand()?;
                 return Ok(Opened::Frame(Frame::op(
                     Head::FpRounded { op, rm },
                     Plan::Fixed(3),
@@ -1195,6 +1288,26 @@ impl Parser<'_> {
             "re.none" => Ok(self.manager.mk_re_none()),
             "re.all" => Ok(self.manager.mk_re_all()),
             "re.allchar" => Ok(self.manager.mk_re_all_char()),
+            // The five rounding modes of the SMT-LIB `FloatingPoint` theory,
+            // in both their short and long spellings. Both spellings of a mode
+            // route through `mk_rounding_mode`, which interns under the
+            // canonical *long* name, so `RNE` and `roundNearestTiesToEven` are
+            // literally the same `TermId`.
+            //
+            // These sit in the top match, ahead of the declaration tables and
+            // ahead of the strict unknown-symbol reject in the `_` arm: the
+            // names are SMT-LIB-reserved, so no user declaration may shadow
+            // them, and in script mode the `_` arm errors out before any
+            // reserved-name handling could run.
+            "RNE" | "roundNearestTiesToEven" => {
+                Ok(self.manager.mk_rounding_mode(RoundingMode::RNE))
+            }
+            "RNA" | "roundNearestTiesToAway" => {
+                Ok(self.manager.mk_rounding_mode(RoundingMode::RNA))
+            }
+            "RTP" | "roundTowardPositive" => Ok(self.manager.mk_rounding_mode(RoundingMode::RTP)),
+            "RTN" | "roundTowardNegative" => Ok(self.manager.mk_rounding_mode(RoundingMode::RTN)),
+            "RTZ" | "roundTowardZero" => Ok(self.manager.mk_rounding_mode(RoundingMode::RTZ)),
             _ => {
                 // Check bindings first
                 if let Some(&term) = self.bindings.get(s) {
@@ -1327,7 +1440,7 @@ impl Parser<'_> {
 
     /// If the next token is a closing `)`, consume it and return `true`;
     /// otherwise leave the stream untouched and return `false`.
-    fn try_consume_rparen(&mut self) -> bool {
+    pub(super) fn try_consume_rparen(&mut self) -> bool {
         if let Some(token) = self.lexer.peek()
             && matches!(token.kind, TokenKind::RParen)
         {

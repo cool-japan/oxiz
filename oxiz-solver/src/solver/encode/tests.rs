@@ -638,6 +638,9 @@ fn deep_assertion_answers_unknown_on_a_small_stack() {
 /// turn a passing test into a process abort.
 #[test]
 fn encode_at_cap_depth_survives_a_one_mib_stack() {
+    // STACK-1MIB: deliberately 1 MiB, not swept to 128 KiB — deliberately
+    // recursive pass at ENCODE_DEPTH_LIMIT (512), measured to need at
+    // least 384 KiB. See TODO.md "v0.3.2 backlog".
     const STACK_SIZE: usize = 1 << 20; // 1 MiB
 
     let handle = std::thread::Builder::new()
@@ -861,43 +864,25 @@ fn extract_linear_terms_semantic_pins() {
     assert!(constant.is_zero());
 }
 
-/// The two arith-split walks run on MBQI instantiation results, which are
-/// produced mid-`check` and never pass the assert-time depth gate — their
-/// visited sets bound *work* on shared DAGs but not chain depth, so both were
-/// converted to explicit stacks.  A 12 500-deep chain through their recursive
-/// arms must return on a 128 KiB thread.
+/// Semantic pin for the **single owner** of arithmetic-disequality
+/// enforcement, `Solver::add_numeric_trichotomy`.
+///
+/// This replaces two older tests that drove the four syntactic walks
+/// (`add_arith_diseq_split`, `add_arith_trichotomy_clause`,
+/// `add_arith_eq_trichotomy`, `add_arith_diseq_splits_for_sat_model`) directly.
+/// Those walks are deleted: every one of their call sites called `encode` on
+/// the same term one line earlier, so the encoder's `TermKind::Eq` arm had
+/// already emitted the clause they duplicated — unguarded, and therefore again
+/// on every MBQI round.
+///
+/// One of the deleted tests pinned that the walks return on a 128 KiB stack.
+/// That property has no subject any more, and needs no replacement: the walks
+/// were uncapped because their `()` return type had no channel to report a cap,
+/// whereas `encode_depth` stops at `ENCODE_DEPTH_LIMIT` (512) and reports
+/// through `encode_depth_exceeded`, which the tests below and
+/// `check_core`'s gate already cover.
 #[test]
-fn arith_split_walks_survive_a_small_stack() {
-    // Stack and depth scale together (1 MiB/100k -> 128 KiB/12.5k): the
-    // ~10 B-per-frame threshold is the pin, so never raise one alone.
-    const STACK_SIZE: usize = 1 << 17; // 128 KiB
-    const DEPTH: usize = 12_500;
-
-    let handle = std::thread::Builder::new()
-        .stack_size(STACK_SIZE)
-        .spawn(|| {
-            let mut solver = Solver::new();
-            let mut manager = TermManager::new();
-            // `Implies` is a recursive arm of both walks (diseq-split descends
-            // the consequent, trichotomy descends both sides).
-            let deep = build_implies_chain(&mut manager, DEPTH);
-
-            solver.add_arith_diseq_split(deep, &mut manager);
-            solver.add_arith_eq_trichotomy(deep, &mut manager);
-        })
-        .expect("spawning a 128 KiB-stack thread should succeed");
-
-    handle
-        .join()
-        .expect("the arith-split walks must return on a 128 KiB stack instead of overflowing it");
-}
-
-/// Semantic pin for the converted walks: the disequality sources still get
-/// their trichotomy clauses.  `Distinct(x, y, z)` contributes all three
-/// pairs; `not (= x y)` contributes one; a term with neither contributes
-/// nothing.
-#[test]
-fn arith_split_walks_still_emit_trichotomy_clauses() {
+fn numeric_eq_atoms_get_their_trichotomy_from_the_encoder() {
     let mut solver = Solver::new();
     let mut manager = TermManager::new();
     let int_sort = manager.sorts.int_sort;
@@ -905,36 +890,61 @@ fn arith_split_walks_still_emit_trichotomy_clauses() {
     let y = manager.mk_var("y", int_sort);
     let z = manager.mk_var("z", int_sort);
 
-    // Baseline: no disequality source, no clauses.
+    // A bare comparison is not an `Eq` atom, so it gets no trichotomy. It does
+    // still get its own definitional encoding, so pin the *ledger* rather than
+    // the clause count.
     let lt = manager.mk_lt(x, y);
-    solver.add_arith_diseq_split(lt, &mut manager);
-    assert_eq!(
-        solver.sat.num_clauses(),
-        0,
-        "a bare comparison must not trigger any split"
+    solver.encode(lt, &mut manager);
+    assert!(
+        solver.numeric_trichotomy_atoms.is_empty(),
+        "a bare comparison is not an equality and must not be split"
     );
 
-    // One negated equality => exactly one trichotomy clause (3 literals over
-    // atoms `encode` creates on demand; clause count grows by exactly one
-    // clause per pair beyond the atoms' own definitional clauses — assert
-    // growth, not an exact count, to stay robust to atom-encoding details).
+    // `not (= x y)`: encoding descends to the `Eq` atom, which takes its
+    // trichotomy. Assert clause *growth* rather than an exact count, to stay
+    // robust to the strict atoms' own definitional clauses.
     let eq_xy = manager.mk_eq(x, y);
     let neq = manager.mk_not(eq_xy);
     let before = solver.sat.num_clauses();
-    solver.add_arith_diseq_split(neq, &mut manager);
+    solver.encode(neq, &mut manager);
     let after_neq = solver.sat.num_clauses();
     assert!(
         after_neq > before,
         "not (= x y) must contribute a trichotomy clause"
     );
-
-    // Distinct over three variables => three pairs, strictly more clauses.
-    let distinct = manager.mk_distinct(vec![x, y, z]);
-    solver.add_arith_diseq_split(distinct, &mut manager);
     assert!(
-        solver.sat.num_clauses() > after_neq,
+        solver.numeric_trichotomy_atoms.contains(&eq_xy),
+        "the `Eq` atom under the `not` must be on the trichotomy ledger"
+    );
+
+    // Re-encoding the same atom must NOT emit a second, literal-identical
+    // clause: `oxiz_sat::Solver::add_clause` does not deduplicate, and the
+    // unguarded re-emission this ledger prevents is exactly what made the
+    // deleted walks grow the clause database without bound.
+    let after_reencode_start = solver.sat.num_clauses();
+    solver.encode(neq, &mut manager);
+    assert_eq!(
+        solver.sat.num_clauses(),
+        after_reencode_start,
+        "re-encoding an already-split `Eq` atom must add no clauses"
+    );
+
+    // `distinct(x, y, z)` expands to three pairwise `Eq` atoms in the encoder,
+    // so all three pairs land on the ledger through the same single owner.
+    let distinct = manager.mk_distinct(vec![x, y, z]);
+    solver.encode(distinct, &mut manager);
+    assert!(
+        solver.sat.num_clauses() > after_reencode_start,
         "distinct(x, y, z) must contribute its pairwise trichotomy clauses"
     );
+    let eq_xz = manager.mk_eq(x, z);
+    let eq_yz = manager.mk_eq(y, z);
+    for (pair, name) in [(eq_xz, "(= x z)"), (eq_yz, "(= y z)")] {
+        assert!(
+            solver.numeric_trichotomy_atoms.contains(&pair),
+            "{name} from the `distinct` must be on the trichotomy ledger"
+        );
+    }
 }
 
 // =====================================================================
@@ -1055,8 +1065,10 @@ fn check_sat_only_respects_false_and_truncation_flags() {
     // Encoder-refused deep assertion => Unknown, never a guessed Sat.  The
     // assert-time pre-check is an explicit-stack scan and the guard returns
     // before any recursive pass, so no small-stack thread is needed here.
+    // Depth only needs to exceed ENCODE_DEPTH_LIMIT (512); lowered from
+    // 100_000 to cut the crate's test memory floor.
     let mut solver = Solver::new();
-    let deep = build_implies_chain(&mut manager, 100_000);
+    let deep = build_implies_chain(&mut manager, 4_096);
     solver.assert(deep, &mut manager);
     assert!(solver.encode_depth_exceeded);
     assert_eq!(

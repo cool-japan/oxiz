@@ -17,6 +17,10 @@ use crate::prelude::*;
 use num_rational::Rational64;
 use num_traits::{One, ToPrimitive, Zero};
 use oxiz_core::ast::{TermId, TermKind, TermManager};
+// The NIA-over-LP relaxation engine. Note the path: `arithmetic::nla` is
+// `std`-gated, unlike `oxiz_theories::nlsat` below, so this import needs no
+// `cfg` and the engine is present in every build this file compiles in.
+use oxiz_theories::arithmetic::nla::{self, NlaConfig, NlaVerdict};
 use oxiz_theories::nl_eval::{Interpretation, holds_under};
 #[cfg(feature = "nlsat")]
 use oxiz_theories::nlsat::{NlDispatchResult, dispatch_nia_constraints, dispatch_nra_constraints};
@@ -91,27 +95,52 @@ impl Solver {
     /// `Solver`'s own model so a following `(get-model)` / `(get-value ...)`
     /// can answer. The verdict does not depend on whether that succeeds: the
     /// procedures' own trust conditions decide `Sat`, and a witness this
-    /// solver cannot represent (an irrational NRA root, a rational too wide
-    /// for the value type) simply leaves the model unset, which is exactly the
-    /// behaviour before witnesses existed. What must never happen — and does
-    /// not — is publishing a model that has not been re-checked against the
-    /// assertions it claims to satisfy.
+    /// solver cannot represent (a rational too wide for the value type)
+    /// simply leaves the model unset, which is exactly the behaviour before
+    /// witnesses existed. What must never happen — and does not — is
+    /// publishing a model that has not been re-checked against the assertions
+    /// it claims to satisfy.
+    ///
+    /// One kind of witness bypasses `adopt_nl_witness` entirely rather than
+    /// being declined by it: an **irrational** NRA root. `√2` has no term in
+    /// the rational term language a [`Model`] is written in, so the real cell
+    /// decomposition reports it through
+    /// [`Solver::nl_algebraic_values`](Self::nl_algebraic_values) instead —
+    /// the exact-value side-channel `(get-model)` renders as SMT-LIB
+    /// `root-obj`. That channel is filled *instead of* the rational witness
+    /// and covers the whole problem when it is filled at all, so it does not
+    /// weaken the re-check above: there is simply nothing rational to
+    /// re-check, and the point it carries was already verified against every
+    /// assigned atom by the procedure that produced it.
     ///
     /// # Without the `nlsat` feature
     ///
     /// The cell-decomposition step below is compiled out — it is the only
     /// caller of `oxiz_theories::nlsat`, which is the only route to the
-    /// `oxiz-nlsat` crate. Everything else in this function is unchanged, and
-    /// because the two searches under it are gated on QF_NIA the loss is not
-    /// symmetric between the two logics:
+    /// `oxiz-nlsat` crate. Everything else in this function is unchanged. The
+    /// three components under it are `std`-gated rather than `nlsat`-gated and
+    /// so are present in *both* builds:
     ///
-    /// * **QF_NIA** answers exactly as before on this tree. The searches still
-    ///   run and their `sat` is still a re-verified witness; the `unsat`s that
-    ///   look like they came from here in fact came from `check_core`'s
-    ///   `check_nonlinear_constraints`, which is also unaffected.
+    /// * the **NIA-over-LP relaxation engine**
+    ///   (`oxiz_theories::arithmetic::nla`), which answers `unsat` from an LP
+    ///   infeasibility proof and `sat` from a witness re-verified here;
+    /// * the two **model searches** (`nl_repair_search`, `nl_ground_reduce`),
+    ///   which answer `sat` or nothing.
+    ///
+    /// All three are gated on QF_NIA, so the loss is not symmetric between the
+    /// two logics:
+    ///
+    /// * **QF_NIA** answers identically in both builds on this tree. The
+    ///   relaxation engine and the searches still run, and each `sat` is still
+    ///   a witness re-checked against the untouched assertions; the `unsat`s
+    ///   come from that engine's proofs and from `check_core`'s
+    ///   `check_nonlinear_constraints` patterns, neither of which is affected.
     /// * **QF_NRA** loses every nonlinear verdict. There is nothing left below
-    ///   to reach, so a goal that needed a cell decomposition — including one
-    ///   that is provably `unsat`, such as `x*x < 0` — is conceded.
+    ///   to reach — the relaxation engine declines a Real-sorted variable
+    ///   outright, since its case splits (`x ≤ -1 ∨ x = 0 ∨ x ≥ 1`) are
+    ///   tautologies over `Z` and not over `R` — so a goal that needed a cell
+    ///   decomposition, including one that is provably `unsat` such as
+    ///   `x*x < 0`, is conceded.
     ///
     /// Whatever this function declines to decide meets `check_core`'s
     /// `arith_atoms_need_theory` gate and is answered `unknown` — never
@@ -127,6 +156,16 @@ impl Solver {
             return None;
         }
 
+        // The algebraic side-channel belongs to whichever procedure below
+        // answers *this* call. `invalidate_results` already drops it whenever
+        // the assertion stack moves, but a repeated `check` on an unchanged
+        // stack does not go through that hook, and neither does a `check`
+        // whose verdict this time comes from the relaxation engine or a
+        // search rather than from the cell decomposition. Clearing on entry
+        // makes "populated" mean "populated by the procedure that just
+        // answered", with no path that inherits.
+        self.nl_algebraic_values.clear();
+
         #[cfg(feature = "nlsat")]
         {
             let dispatched = if is_nia {
@@ -137,7 +176,33 @@ impl Solver {
 
             if let Some(dispatched) = dispatched {
                 return match dispatched {
-                    NlDispatchResult::Sat(witness) => {
+                    NlDispatchResult::Sat { witness, algebraic } => {
+                        // The exact-value channel, for a real model that has
+                        // no rational form at all (`x² = 2`). It and
+                        // `witness` are alternatives — the dispatcher fills
+                        // exactly one, and the one it fills is complete — so
+                        // taking it wholesale here neither blends two model
+                        // sources nor leaves a hole for `(get-model)` to fill
+                        // in from sort defaults. Nothing needs re-checking:
+                        // the point was verified against every assigned atom
+                        // inside `oxiz-nlsat`, and no gate in this crate
+                        // reads these values (see the field docs).
+                        //
+                        // That exclusivity is a contract of
+                        // `NlDispatchResult`, and `Context::get_model`
+                        // depends on it: it consults the side-channel *before*
+                        // the `Model`, so two populated channels disagreeing
+                        // about a constant would silently publish the
+                        // algebraic one and hide the rational one. Cheap to
+                        // check, and a debug build should not let a future
+                        // dispatcher quietly break it.
+                        debug_assert!(
+                            algebraic.is_empty() || witness.num_count() == 0,
+                            "the nonlinear dispatcher populated both witness \
+                             channels for one Sat; they are alternatives, not \
+                             layers (see NlDispatchResult)"
+                        );
+                        self.nl_algebraic_values = algebraic;
                         // The verdict is the dispatcher's, decided by its own trust
                         // conditions; installing a model is a separate, best-effort
                         // step that may decline a witness it cannot represent.
@@ -151,6 +216,23 @@ impl Solver {
                         // two is wrong. Release behaviour is unchanged — the
                         // verdict stands, modelless — but a debug build must not
                         // let a signal that strong pass in silence.
+                        //
+                        // The `num_count() == 0` arm is load-bearing for QF_NRA
+                        // real-algebraic models, and is guaranteed rather than
+                        // hoped for. A cell decomposition can witness `x² = 2`
+                        // only with `x = √2`, which has no rational form to pin
+                        // here, so `oxiz_theories::nlsat`'s
+                        // `witness_from_real_translator` is all-or-nothing: if
+                        // any variable's value cannot be represented, it returns
+                        // an *empty* interpretation rather than a partial one.
+                        // A partial witness would evaluate to `false` under
+                        // `holds_under` — through no fault of the dispatcher —
+                        // and trip this assertion on a perfectly correct `sat`.
+                        // That is exactly the case the `algebraic` map above
+                        // now covers: `witness` stays empty and the model is
+                        // reported from the side-channel instead, so this arm
+                        // keeps holding and the assertion keeps its teeth for
+                        // the rational witnesses it was written for.
                         debug_assert!(
                             adopted
                                 || witness.num_count() == 0
@@ -165,12 +247,73 @@ impl Solver {
             }
         }
 
-        // The cell-decomposition core had no verdict, which is where the
-        // search-based procedures come in. Both of them answer `Sat` or
-        // nothing -- neither can derive `unsat` -- so running them here can
-        // only turn an `unknown` into a `sat`, never change a verdict the core
-        // had already reached. That is why they run second, and why gating
-        // them off is a budget decision rather than a soundness one.
+        // The cell-decomposition core had no verdict. Next comes the
+        // NIA-over-LP relaxation engine, which *can* derive `unsat` -- unlike
+        // the two searches below it.
+        //
+        // # Why it is slotted here and not earlier
+        //
+        // Placing it *after* the cell-decomposition block means it never sees a
+        // goal that block decided: every verdict CAD reaches is returned above
+        // without this code running at all. So no CAD *verdict* can move, which
+        // is what makes the wiring a completeness gain rather than a parity
+        // risk. Running it *before* CAD -- where it would be cheaper on the
+        // many QF_NIA goals CAD grinds through -- is a recorded follow-up
+        // experiment, and a real one: it would put two procedures' verdicts in
+        // contention on goals both can decide, so it has to be measured against
+        // the parity suite rather than assumed equivalent.
+        //
+        // What this ordering does *not* buy is model stability, and the
+        // distinction matters. This engine sits above the two searches below,
+        // so on a goal CAD declined but a search would have solved, the engine
+        // now answers first and reports *its* witness. Both are re-verified and
+        // both satisfy the assertions, but they need not be the same
+        // assignment -- measured on this tree, `x*y = 6 ∧ x+y = 5` reports
+        // (2, 3) in the default build and (3, 2) in the no-`nlsat` build, where
+        // CAD is absent and the engine is what answers. A test that pins an
+        // exact `(get-value ...)` string for a multi-solution QF_NIA goal is
+        // therefore pinning an implementation detail, not a contract; the ones
+        // in `tests/qf_nia_relaxation.rs` accept any correct root deliberately.
+        //
+        // # Why both verdicts are safe to take
+        //
+        // `Unsat` is proof-backed: `nla` produces it only from an LP
+        // infeasibility closure over constraints each of which is a
+        // consequence over `Z` of the input, with exhaustive case splits (see
+        // that module's soundness contract). A dropped conjunct only ever
+        // *weakens* the problem, so an infeasible relaxation still refutes the
+        // original.
+        //
+        // `Sat` is advisory by that same contract, so it is not taken on
+        // trust: the witness goes through `adopt_nl_witness`, which re-checks
+        // it with `holds_under` against the untouched assertions in exact
+        // `BigRational` arithmetic and installs a model only if it really
+        // satisfies them. That is strictly stricter than the CAD path above,
+        // which reports `Sat` on the dispatcher's own trust conditions and
+        // treats the model install as best-effort. A witness that fails the
+        // re-check here yields no verdict at all and simply falls through.
+        //
+        // This engine is `std`-gated, not `nlsat`-gated, so it is present in
+        // *both* builds -- which is why the QF_NIA half of
+        // `tests/nlsat_feature_gate.rs` stays uncfg'd.
+        if is_nia && self.config.nonlinear_relaxation_engine {
+            match nla::check_assertions(&self.assertions, manager, &NlaConfig::default()) {
+                NlaVerdict::Unsat => return Some(SolverResult::Unsat),
+                NlaVerdict::Sat(witness) => {
+                    if self.adopt_nl_witness(&witness, manager) {
+                        return Some(SolverResult::Sat);
+                    }
+                }
+                NlaVerdict::Unknown => {}
+            }
+        }
+
+        // Failing that, the search-based procedures. Both of them answer `Sat`
+        // or nothing -- neither can derive `unsat` -- so running them here can
+        // only turn an `unknown` into a `sat`, never change a verdict either of
+        // the two procedures above had already reached. That is why they run
+        // last, and why gating them off is a budget decision rather than a
+        // soundness one.
         if !(is_nia && self.config.nonlinear_model_search) {
             return None;
         }

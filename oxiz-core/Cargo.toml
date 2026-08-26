@@ -7,6 +7,7 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 description = "Core AST, Sorts, and Traits for OxiZ SMT Solver"
+readme = "README.md"
 keywords = ["smt", "ast", "logic"]
 categories = ["algorithms", "data-structures"]
 
@@ -53,7 +54,7 @@ parking_lot = { workspace = true, optional = true }
 # goals and calls `check-sat` -- the QF_LIA case this was cut for -- wants the
 # first without the second, and writes
 # `default-features = false, features = ["std"]`.
-default = ["std", "scripting"]
+default = ["std", "scripting", "property-tests"]
 std = [
     "lasso",
     "bumpalo",
@@ -88,6 +89,7 @@ std = [
 scripting = ["dep:rhai", "std"]
 arena = ["bumpalo"]
 profiling = ["std"]
+# On by default: measured 89 tests in 0.08s, 2026-08-25 (mirrors oxiz-solver).
 property-tests = []
 
 [dev-dependencies]

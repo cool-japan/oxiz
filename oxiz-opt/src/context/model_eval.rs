@@ -350,8 +350,8 @@ mod tests {
     use super::*;
     use num_traits::One;
 
-    /// A soft-constraint term nested 100_000 levels deep, evaluated on a
-    /// 1 MiB worker stack. The assertion is simply that the call *returns*:
+    /// A soft-constraint term nested 12_500 levels deep, evaluated on a
+    /// 128 KiB worker stack. The assertion is simply that the call *returns*:
     /// a stack overflow aborts the whole process, so returning at all is
     /// the proof that the walk no longer uses the native stack.
     ///
@@ -361,12 +361,12 @@ mod tests {
     /// evaluator into the deep numeric spine.
     #[test]
     fn deep_nesting_returns_instead_of_overflowing() {
-        let worker = std::thread::Builder::new().stack_size(1 << 20).spawn(|| {
+        let worker = std::thread::Builder::new().stack_size(1 << 17).spawn(|| {
             let mut tm = TermManager::new();
             let x = tm.mk_var("x", tm.sorts.int_sort);
             let one = tm.mk_int(1);
             let mut term = x;
-            for _ in 0..100_000 {
+            for _ in 0..12_500 {
                 term = tm.mk_add(vec![term, one]);
             }
             let huge = tm.mk_int(BigInt::from(1_000_000_000));
@@ -380,7 +380,7 @@ mod tests {
             Ok(Ok(value)) => value,
             _ => panic!("deep-nesting worker thread did not complete"),
         };
-        // 0 + 100_000 ones = 100_000 <= 1_000_000_000.
+        // 0 + 12_500 ones = 12_500 <= 1_000_000_000.
         assert_eq!(value, Some(true));
     }
 

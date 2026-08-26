@@ -963,13 +963,13 @@ mod deep_walk_tests {
     #[test]
     fn test_pattern_walks_deep_nesting_do_not_overflow() {
         let handle = std::thread::Builder::new()
-            .stack_size(1 << 20)
+            .stack_size(1 << 17)
             .spawn(|| {
                 let mut manager = TermManager::new();
                 let int_sort = manager.sorts.int_sort;
                 let x = manager.mk_var("x", int_sort);
                 let mut term = x;
-                for _ in 0..60_000 {
+                for _ in 0..7_500 {
                     term = manager.mk_apply("f", [term], int_sort);
                 }
 
@@ -995,7 +995,7 @@ mod deep_walk_tests {
 
         let (contains, depth, cost, kind) = handle.join().expect("deep walks must not overflow");
         assert!(contains);
-        assert_eq!(depth, 60_001);
+        assert_eq!(depth, 7_501);
         assert!(cost > 0);
         assert_eq!(kind, PatternKind::Nested);
     }

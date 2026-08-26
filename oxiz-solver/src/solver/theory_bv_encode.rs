@@ -750,10 +750,14 @@ mod s8_iterative_tests {
     ///
     /// This depth and [`SMALL_STACK`] were scaled down together by a factor
     /// of 8 (from 60 000 on 1 MiB): what these tests pin is the ~17 bytes of
-    /// stack per level, which no native frame can fit into, and the
-    /// `mk_and`-flattening construction below is quadratic in `DEEP`, so the
-    /// larger pair cost 64x the time and many gigabytes of interner memory
-    /// for identical detection power.  Never raise one without the other.
+    /// stack per level, which no native frame can fit into. `mk_and` flattens
+    /// its arguments (so `acc = mk_and([acc, leaf])` never actually nests,
+    /// and is quadratic to boot) and `mk_not` folds double negation (so
+    /// `acc = mk_not(acc)` oscillates between depth 0 and 1 and never nests
+    /// either), so both the `and`- and `not`-nesting tests below build their
+    /// chains with `TermManager::intern_term` directly, which neither
+    /// flattens/folds nor re-interns already-built prefixes. Never raise one
+    /// of `DEEP`/`SMALL_STACK` without the other.
     const DEEP: usize = 7_500;
 
     /// Worker stack for the deep-nesting tests; see [`DEEP`].
@@ -765,12 +769,18 @@ mod s8_iterative_tests {
             .stack_size(SMALL_STACK)
             .spawn(|| {
                 let mut tm = TermManager::new();
+                let bool_sort = tm.sorts.bool_sort;
                 let bv8 = tm.sorts.bitvec(8);
                 let x = tm.mk_var("x", bv8);
                 let y = tm.mk_var("y", bv8);
                 let mut cond = tm.mk_eq(x, y);
+                // `mk_not` folds double negation (`not(not(p)) == p`), so
+                // looping `cond = tm.mk_not(cond)` oscillates between depth 0
+                // and 1 and never actually nests -- at `DEEP` even, `cond`
+                // ends up identical to the un-negated `eq`. Intern the `Not`
+                // nodes directly so the chain really is `DEEP` deep.
                 for _ in 0..DEEP {
-                    cond = tm.mk_not(cond);
+                    cond = tm.intern_term(TermKind::Not(cond), bool_sort);
                 }
                 let mut bv = BvSolver::new();
                 bit_blast_cond_operands(&mut bv, cond, &tm)
@@ -787,13 +797,17 @@ mod s8_iterative_tests {
             .stack_size(SMALL_STACK)
             .spawn(|| {
                 let mut tm = TermManager::new();
+                let bool_sort = tm.sorts.bool_sort;
                 let bv8 = tm.sorts.bitvec(8);
                 let x = tm.mk_var("x", bv8);
                 let y = tm.mk_var("y", bv8);
                 let leaf = tm.mk_eq(x, y);
                 let mut cond = leaf;
+                // Interned directly (not via `mk_and`, which would flatten
+                // this back into one wide `And`) so the chain really is
+                // `DEEP` deep.
                 for _ in 0..DEEP {
-                    cond = tm.mk_and(vec![cond, leaf]);
+                    cond = tm.intern_term(TermKind::And(vec![cond, leaf].into()), bool_sort);
                 }
                 let mut bv = BvSolver::new();
                 bit_blast_cond_operands(&mut bv, cond, &tm)

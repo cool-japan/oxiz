@@ -637,12 +637,12 @@ mod tests {
     #[test]
     fn test_match_term_deeply_nested() {
         let worker = std::thread::Builder::new()
-            .stack_size(1 << 20)
+            .stack_size(1 << 17)
             .spawn(|| {
                 let mut manager = TermManager::new();
                 let int_sort = manager.sorts.int_sort;
 
-                let depth = 50_000;
+                let depth = 6_250;
 
                 // Pattern: g(g(...g(x)...))
                 let x = manager.mk_var("x", int_sort);

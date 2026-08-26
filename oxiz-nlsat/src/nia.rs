@@ -447,17 +447,21 @@ impl NiaSolver {
                                 );
                             }
                         } else {
-                            // `is_integer_solution` above already rejected
-                            // this model as non-integral (exact rational
-                            // test), yet `select_branching_variable` (which
-                            // now uses the *same* exact test for
-                            // candidacy) found no branchable variable. This
-                            // should be unreachable in practice since both
-                            // checks agree, but if it ever happens this
-                            // node's fate is genuinely unresolved -- it
-                            // must NOT be silently dropped as if it were
-                            // refuted, or the search could wrongly
-                            // conclude Unsat once the stack empties.
+                            // `is_integer_solution` above rejected this model
+                            // as non-integral, yet `select_branching_variable`
+                            // (which uses the same exact rational test for
+                            // candidacy) found no branchable variable. That
+                            // happens for real when the relaxation pinned an
+                            // integer-typed variable to an exact *algebraic*
+                            // point: irrational, so certainly not an integer,
+                            // but with no rational value to take a floor and
+                            // ceiling of, so nothing to branch on either.
+                            // Branching on an algebraic point's approximation
+                            // is a later phase. Either way this node's fate is
+                            // genuinely unresolved -- it must NOT be silently
+                            // dropped as if it were refuted, or the search
+                            // could wrongly conclude Unsat once the stack
+                            // empties.
                             fully_explored = false;
                             continue;
                         }
@@ -592,6 +596,17 @@ impl NiaSolver {
                 continue; // Skip real variables
             }
 
+            // An exact real-algebraic witness (`√2`) is irrational, so it is
+            // never an integer -- and `arith_value` deliberately reports it as
+            // absent (see `oxiz_nlsat::solver::Model`). Without this check the
+            // loop below would skip the variable and read "no rational value"
+            // as "no integrality violation", making QF_NIA `x*x = 2` come back
+            // Sat. The relaxation being algebraically satisfiable says nothing
+            // about the integer problem.
+            if model.arith_point(var).is_some_and(|p| !p.is_rational()) {
+                return false;
+            }
+
             if let Some(value) = model.arith_value(var)
                 && !value.is_integer()
             {
@@ -652,14 +667,18 @@ impl NiaSolver {
     /// [`NlsatSolver`] is a CAD-based nonlinear decision procedure, not a
     /// simplex/LP engine, so it has no tableau to derive a real Gomory row
     /// from; producing one would require building a separate LP-relaxation
-    /// subsystem, which is out of scope here. `oxiz-theories`'s LIA
-    /// branch-and-bound (`lia/branching.rs`) faces the identical situation
-    /// and, for the identical reason ("the available cut generators are
-    /// placeholders that do not derive valid inequalities from the
-    /// tableau"), deliberately does not generate cuts either -- this
-    /// mirrors that precedent instead of fabricating unsound ones.
-    /// Branch-and-bound alone (see `Self::branch_and_bound`) remains
-    /// sound and, for bounded problems, complete without cutting planes.
+    /// subsystem, which is out of scope here. `oxiz-theories`'s LIA solver
+    /// (`lia/cuts.rs`) is a different situation: it does maintain a real
+    /// simplex tableau, and its GMI/Chvatal-Gomory cut generator derives
+    /// genuine tableau-backed inequalities from it, wired into
+    /// `LiaSolver::check` as root-node cuts. That machinery has no
+    /// counterpart here -- there is no tableau in this module to feed it --
+    /// so `add_cutting_plane` stays a documented no-op rather than
+    /// fabricating an unsound cut from a non-tableau "row". The
+    /// tableau-backed nonlinear cut engine, when one lands, is expected at
+    /// `oxiz_theories::arithmetic::nla`; until then, branch-and-bound alone
+    /// (see `Self::branch_and_bound`) remains sound and, for bounded
+    /// problems, complete without cutting planes here.
     ///
     /// Kept as a callable method (rather than deleted outright) so
     /// `NiaConfig::enable_cutting_planes` remains a harmless, meaningful
@@ -837,6 +856,7 @@ mod tests {
         let model = Model {
             bool_values: std::collections::HashMap::new(),
             arith_values,
+            ..Default::default()
         };
         assert!(!solver.add_cutting_plane(&model));
         assert_eq!(solver.stats().cutting_planes, 0);
@@ -1049,6 +1069,7 @@ mod tests {
         let model1 = Model {
             bool_values: std::collections::HashMap::new(),
             arith_values: model1_values,
+            ..Default::default()
         };
         // Still fractional under the round-1 bound -> must be selectable
         // again (this is exactly what the old `branched_vars` filter
@@ -1071,6 +1092,7 @@ mod tests {
         let model2 = Model {
             bool_values: std::collections::HashMap::new(),
             arith_values: model2_values,
+            ..Default::default()
         };
         assert_eq!(
             solver.select_branching_variable(&model2),

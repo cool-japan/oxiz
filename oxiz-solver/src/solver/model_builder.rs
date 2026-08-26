@@ -246,7 +246,94 @@ impl Solver {
             }
         }
 
+        // Rounding-mode values.  Must run after the Boolean pass above, which
+        // is what put the mode-equality atoms' truth values into scope.
+        self.extract_rounding_mode_model(&mut model, manager);
+
         self.model = Some(model);
+    }
+
+    /// Read the value of every free `RoundingMode` constant out of the SAT
+    /// assignment.
+    ///
+    /// This needs no search and no heuristic, because the solver has already
+    /// decided it. `Context::declare_const` asserts a closure axiom
+    /// `(or (= m RNE) (= m RNA) (= m RTP) (= m RTN) (= m RTZ))` for every
+    /// declared rounding-mode constant, so *any* satisfying assignment sets at
+    /// least one of those five equality atoms true — and the atom that is true
+    /// names the mode the solve chose.  Reading it back is therefore exact and
+    /// jointly consistent across several rounding-mode constants for free:
+    /// the assignment came from one model, not from five independent guesses.
+    ///
+    /// Getting this right matters concretely. Without it a constant the model
+    /// pinned would fall through to `Context::default_value`, which reports the
+    /// sort's default `roundNearestTiesToEven` — so
+    /// `(assert (not (= m RNE)))` would answer `sat` and then print a "model"
+    /// that falsifies its own assertion.
+    fn extract_rounding_mode_model(&self, model: &mut Model, manager: &mut TermManager) {
+        // Nothing to extract, and — the reason this guard is first rather than
+        // a mere optimization — nothing to *build*: `mk_rounding_mode` below
+        // would otherwise set the manager's `rounding_mode_used` flag on every
+        // solve, and `Context::check_sat` reads that flag to decide whether the
+        // five-modes distinctness axiom is needed. A script with no rounding
+        // mode in it would start asserting one extra axiom per `check-sat`.
+        if !manager.rounding_mode_used() {
+            return;
+        }
+        let rm_sort = manager.sorts.rounding_mode_sort;
+        let mode_terms: Vec<(oxiz_core::ast::RoundingMode, TermId)> =
+            oxiz_core::ast::RoundingMode::ALL
+                .into_iter()
+                .map(|rm| (rm, manager.mk_rounding_mode(rm)))
+                .collect();
+        let mode_ids: FxHashSet<TermId> = mode_terms.iter().map(|&(_, t)| t).collect();
+
+        // Every free rounding-mode variable reachable from the assertions.
+        let mut targets: Vec<TermId> = Vec::new();
+        let mut seen: FxHashSet<TermId> = FxHashSet::default();
+        let mut visited: FxHashSet<TermId> = FxHashSet::default();
+        let mut stack: Vec<TermId> = self.assertions.clone();
+        while let Some(term) = stack.pop() {
+            if !visited.insert(term) {
+                continue;
+            }
+            let Some(td) = manager.get(term) else {
+                continue;
+            };
+            if td.sort == rm_sort
+                && matches!(td.kind, TermKind::Var(_))
+                && !mode_ids.contains(&term)
+                && seen.insert(term)
+            {
+                targets.push(term);
+            }
+            let kind = td.kind.clone();
+            super::term_walk::collect_structural_children(&kind, &mut stack);
+        }
+        if targets.is_empty() {
+            return;
+        }
+
+        let sat_model = self.sat.model();
+        for target in targets {
+            if model.get(target).is_some() {
+                continue;
+            }
+            for &(_, mode_term) in &mode_terms {
+                // Built exactly as the closure axiom built it, so hash-consing
+                // hands back that axiom's own atom rather than a fresh twin.
+                let atom = manager.mk_eq(target, mode_term);
+                let is_true = self
+                    .term_to_var
+                    .get(&atom)
+                    .and_then(|var| sat_model.get(var.index()).copied())
+                    .is_some_and(|v| v.is_true());
+                if is_true {
+                    model.set(target, mode_term);
+                    break;
+                }
+            }
+        }
     }
 
     /// Reconstruct a concrete constructor value for every datatype-sorted term
@@ -1526,6 +1613,15 @@ pub(crate) fn ground_default_term(manager: &mut TermManager, sort: SortId) -> Op
                 }
                 SortKind::FloatingPoint { eb, sb } => {
                     break Some(manager.mk_fp_plus_zero(eb, sb));
+                }
+                // The reserved five-element `RoundingMode` sort: its default
+                // is IEEE 754's own default mode.  Unlike an uninterpreted
+                // sort (which falls through to `None` below because no ground
+                // witness can be minted) this one has five ground terms, so
+                // `(get-value (m))` over an unconstrained rounding mode
+                // completes to a real mode instead of echoing the constant.
+                SortKind::RoundingMode => {
+                    break Some(manager.mk_rounding_mode(oxiz_core::ast::RoundingMode::RNE));
                 }
                 SortKind::Datatype(_) => {
                     let opened = (|| {

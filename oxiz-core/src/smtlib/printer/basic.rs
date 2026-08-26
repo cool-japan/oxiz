@@ -993,6 +993,9 @@ impl<'a> Printer<'a> {
                 SortKind::FloatingPoint { eb, sb } => {
                     let _ = write!(w, "(_ FloatingPoint {eb} {sb})");
                 }
+                SortKind::RoundingMode => {
+                    let _ = write!(w, "RoundingMode");
+                }
                 SortKind::Array { domain, range } => {
                     let _ = write!(w, "(Array ");
                     // Pushed in reverse of emission order.

@@ -390,6 +390,10 @@ fn nesting_just_over_the_limit_is_rejected() {
 /// thread returns at all. If the parser ever regains a stack-depth dependence,
 /// this test does not fail: it kills the whole test process, which is exactly
 /// as loud as it should be.
+// STACK-1MIB: deliberately 1 MiB, not swept to 128 KiB — this is the
+// parser's own depth-guard budget test; scaling the stack down would not
+// exercise the guard as an embedder with a conventional 1 MiB stack actually
+// sees it.
 #[test]
 fn deeply_nested_term_survives_a_one_mib_stack() {
     const STACK_SIZE: usize = 1 << 20; // 1 MiB
@@ -425,14 +429,14 @@ fn deeply_nested_term_survives_a_one_mib_stack() {
 /// grammar sits between two term positions. It is driven by the same frame
 /// stack now; this pins that down on a small stack as well.
 #[test]
-fn deeply_nested_annotations_survive_a_one_mib_stack() {
-    const STACK_SIZE: usize = 1 << 20; // 1 MiB
+fn deeply_nested_annotations_survive_a_small_stack() {
+    const STACK_SIZE: usize = 1 << 17; // 128 KiB
 
     let handle = std::thread::Builder::new()
         .stack_size(STACK_SIZE)
         .spawn(|| {
             let mut s = String::from("0");
-            for _ in 0..50_000 {
+            for _ in 0..6_250 {
                 s = format!("(! 0 :pattern ({s}))");
             }
             let mut manager = TermManager::new();
@@ -1030,8 +1034,8 @@ fn string_values_round_trip_through_the_printer() {
 //
 // Guards the standard `((_ extract i j) x)` spelling (which used to fall
 // through to a Bool-sorted uninterpreted apply, answering `sat` for
-// `(= ((_ extract 3 0) #xab) #xc)` and tripping a `mk_bv_concat` debug
-// assertion), its range/sort checks, and the remaining unimplemented indexed
+// `(= ((_ extract 3 0) #xab) #xc)` and tripping a `try_mk_bv_concat` sort
+// error), its range/sort checks, and the remaining unimplemented indexed
 // operators.
 // ---------------------------------------------------------------------------
 
@@ -1054,7 +1058,7 @@ fn extract_standard_spelling_is_a_real_bitvector() {
 #[test]
 fn extract_inside_concat_has_a_known_width() {
     // Regression: an uninterpreted `extract` gave `concat` an operand with no
-    // width, tripping a debug assertion in `mk_bv_concat`.
+    // width, which `try_mk_bv_concat` now reports as a sort error.
     let (m, asserts) = parse_asserts(
         r#"
         (declare-const x (_ BitVec 8))

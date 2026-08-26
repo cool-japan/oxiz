@@ -55,6 +55,15 @@ impl LiaSolver {
         self.simplex.value(var)
     }
 
+    /// Number of cutting planes this solver has asserted into the simplex.
+    ///
+    /// Counts the tableau-derived root-node cuts added by [`LiaSolver::check`]
+    /// / [`LiaSolver::check_balanced`]; reset to zero by [`LiaSolver::reset`].
+    #[must_use]
+    pub fn cuts_generated(&self) -> usize {
+        self.cuts_generated
+    }
+
     /// Reset the solver state
     pub fn reset(&mut self) {
         self.simplex.reset();

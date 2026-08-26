@@ -58,8 +58,8 @@ pub enum Z3SortKind {
     Datatype,
     /// An uninterpreted sort.
     Uninterpreted,
-    /// Any sort with no direct Z3 analogue (string, floating-point, sort
-    /// parameter, parametric application).
+    /// Any sort with no direct Z3 analogue (string, floating-point,
+    /// rounding-mode, sort parameter, parametric application).
     Other,
 }
 
@@ -105,9 +105,16 @@ impl Z3Sort {
             Some(SortKind::Array { .. }) => Z3SortKind::Array,
             Some(SortKind::Datatype(_)) => Z3SortKind::Datatype,
             Some(SortKind::Uninterpreted(_)) => Z3SortKind::Uninterpreted,
+            // `RoundingMode` joins the `Other` bucket alongside the
+            // floating-point sorts it belongs to, which this shim already maps
+            // there.  It must *not* be folded into `Uninterpreted`: it is a
+            // reserved built-in with five named elements, and a client that
+            // saw `Uninterpreted` would treat those elements as an
+            // unconstrained free domain.
             Some(
                 SortKind::String
                 | SortKind::FloatingPoint { .. }
+                | SortKind::RoundingMode
                 | SortKind::Parameter(_)
                 | SortKind::Parametric { .. },
             )

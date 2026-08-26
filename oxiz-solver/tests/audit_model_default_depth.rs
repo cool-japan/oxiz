@@ -32,6 +32,10 @@ use oxiz_solver::{Context, Solver, SolverResult};
 /// Frame sizes differ between the debug and release profiles, so the stack is
 /// pinned rather than inherited.
 fn on_small_stack<T: Send + 'static>(body: impl FnOnce() -> T + Send + 'static) -> T {
+    // STACK-1MIB: deliberately 1 MiB, not swept to 128 KiB — every depth
+    // exercised through this helper tops out at a few thousand levels
+    // (sub-10,000), so 1 MiB is intentionally generous rather than a
+    // tuned minimum. See TODO.md "v0.3.2 backlog".
     std::thread::Builder::new()
         .stack_size(1 << 20)
         .spawn(body)
@@ -151,7 +155,7 @@ fn well_founded_datatype_and_array_defaults_are_unchanged() {
 
 #[test]
 fn a_term_deeper_than_the_encoder_allows_answers_unknown_instead_of_aborting() {
-    // `ENCODE_DEPTH_LIMIT` is 2000. The parser's own bound is 1024 and now
+    // `ENCODE_DEPTH_LIMIT` is 512. The parser's own bound is 1024 and now
     // genuinely bounds *term* depth, so a script can no longer reach this;
     // the builder API can, and `Solver::assert` accepts whatever it produces.
     //

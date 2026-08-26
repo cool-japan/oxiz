@@ -7,6 +7,7 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 description = "Machine Learning-Guided Heuristics for OxiZ SMT Solver"
+readme = "README.md"
 keywords = ["machine-learning", "smt", "solver", "heuristics", "neural-network"]
 categories = ["algorithms", "science"]
 

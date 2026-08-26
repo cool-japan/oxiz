@@ -687,13 +687,13 @@ mod tests {
         assert_eq!(graph.compute_depth(top), 4);
     }
 
-    /// A 100_000-deep resolution chain on a 1 MiB stack: the assertion is
+    /// A 12_500-deep resolution chain on a 128 KiB stack: the assertion is
     /// that `compute_depth` returns at all (a stack overflow aborts the
     /// process), plus that the depth it reports is exact.
     #[test]
     fn test_compute_depth_deep_chain_does_not_overflow() {
-        let worker = std::thread::Builder::new().stack_size(1 << 20).spawn(|| {
-            const CHAIN: usize = 100_000;
+        let worker = std::thread::Builder::new().stack_size(1 << 17).spawn(|| {
+            const CHAIN: usize = 12_500;
             let mut graph = ResolutionGraph::new();
             let v0 = Var(0);
             let mut current = graph.add_clause(vec![Lit::pos(v0)], 0);

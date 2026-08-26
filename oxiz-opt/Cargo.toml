@@ -7,6 +7,7 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 description = "Optimization engine for OxiZ (MaxSMT, OMT)"
+readme = "README.md"
 keywords = ["smt", "maxsmt", "optimization", "omt", "maxsat"]
 categories = ["algorithms", "mathematics"]
 

@@ -732,18 +732,40 @@ struct HistoryFile {
 
 /// Run the `--check-geomean` mode: find the newest history snapshot, parse geomean, and exit.
 fn run_check_geomean(config: &Config) -> Result<()> {
+    // Resolve a relative `--history-dir` against the CURRENT WORKING DIRECTORY
+    // first, and only fall back to `CARGO_MANIFEST_DIR`. The gate is invoked
+    // from the repo root as
+    // `cargo run -p bench-regression -- --history-dir bench/regression/history`,
+    // and under `cargo run -p` the manifest dir is `bench/regression/`, so a
+    // manifest-first resolution double-prefixes the path to
+    // `bench/regression/bench/regression/history`, which never exists — and the
+    // missing-dir branch below soft-passes, turning the whole gate into an
+    // unconditional silent pass. CWD-first makes the documented invocation
+    // work; the manifest fallback keeps `cargo run` from inside the crate dir
+    // working with the bare default `history`.
     let history_dir = if config.history_dir.is_absolute() {
         config.history_dir.clone()
     } else {
-        let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
-            .map(PathBuf::from)
-            .or_else(|_| std::env::current_dir())
+        let cwd_candidate = std::env::current_dir()
+            .map(|d| d.join(&config.history_dir))
             .with_context(|| "current working directory should be available")?;
-        manifest_dir.join(&config.history_dir)
+        if cwd_candidate.exists() {
+            cwd_candidate
+        } else {
+            std::env::var("CARGO_MANIFEST_DIR")
+                .map(|m| PathBuf::from(m).join(&config.history_dir))
+                .unwrap_or(cwd_candidate)
+        }
     };
 
     if !history_dir.exists() {
-        eprintln!("Geomean gate: no history data, skipping (soft-gate pass)");
+        // Print the RESOLVED ABSOLUTE path so an unconditional silent pass
+        // (e.g. from a wrongly-resolved relative path) can never recur
+        // unnoticed in a log.
+        eprintln!(
+            "Geomean gate: no history data at {}, skipping (soft-gate pass)",
+            history_dir.display()
+        );
         std::process::exit(0);
     }
 
@@ -761,7 +783,10 @@ fn run_check_geomean(config: &Config) -> Result<()> {
         .collect();
 
     if json_files.is_empty() {
-        eprintln!("Geomean gate: no history data, skipping (soft-gate pass)");
+        eprintln!(
+            "Geomean gate: no history data at {}, skipping (soft-gate pass)",
+            history_dir.display()
+        );
         std::process::exit(0);
     }
 

@@ -27,9 +27,12 @@ use oxiz_proof::{
 /// `SMALL_STACK / DEPTH` about 10, both far below any real call frame, so a
 /// native recursion cannot survive either. The pair was scaled down by 8x from
 /// the original 1 MiB / 50_000 because several construction and rendering paths
-/// are quadratic in the depth (see `write_json_node` in `src/visualization.rs`,
-/// whose output and retained work-stack are both O(depth^2)); the 8x cut keeps
-/// the detection power identical at 1/64th of the memory cost.
+/// are quadratic in the depth (see the cost table at the top of
+/// `src/visualization.rs`: all three indent-by-depth formats emit O(depth^2)
+/// bytes, and `AsciiTree` also *retains* O(depth^2) once the proof branches —
+/// `write_json_node` used to retain O(depth^2) on any shape, and no longer
+/// does); the 8x cut keeps the detection power identical at 1/64th of the
+/// memory cost.
 ///
 /// Never raise a depth here without raising `SMALL_STACK` by the same factor
 /// (and vice versa): restoring depth 100_000 against a 128 KiB stack would

@@ -61,6 +61,10 @@ pub(crate) enum TrailOp {
     ArrayAxiomInstanceAdded { term: TermId },
     /// A `div` / `mod` / numeric-`ite` term received its defining axioms
     ArithDefinedTermAdded { term: TermId },
+    /// A numeric `Eq` atom received its trichotomy clause
+    /// `(a = b) OR (a < b) OR (a > b)` from
+    /// [`super::Solver::add_numeric_trichotomy`].
+    NumericTrichotomyAdded { term: TermId },
     /// A ground datatype-axiom instance was asserted to the SAT core
     DtAxiomInstanceAdded { term: TermId },
     /// A Tseitin-memo entry was written by [`super::Solver::encode`].
@@ -103,6 +107,15 @@ pub(crate) struct ContextState {
     pub(crate) encode_depth_exceeded: bool,
     /// `dt_axioms_incomplete` flag at the time of push
     pub(crate) dt_axioms_incomplete: bool,
+    /// `array_axioms_incomplete` flag at the time of push
+    pub(crate) array_axioms_incomplete: bool,
+    /// Number of live model-blocking clauses at the time of push (see
+    /// [`super::model_blocking`]).
+    ///
+    /// A monotone counter, and hence a snapshot case: `pop` retracts the
+    /// clauses themselves through `sat.pop()`, and this restores the solver's
+    /// record of how many survive.
+    pub(crate) model_blocking_active: usize,
 }
 
 #[cfg(debug_assertions)]
@@ -155,16 +168,20 @@ impl super::Solver {
             named_assertions: _, // TRAIL: NamedAssertionAdded
             assumption_vars: _, // INVARIANT: never written
             model: _,           // RESULT: cleared by `invalidate_results`
-            unsat_core: _,      // RESULT: cleared by `invalidate_results`
-            context_stack: _,   // the scope stack itself
-            trail: _,           // the undo journal itself
+            nl_algebraic_values: _, // RESULT: the other half of `model` (the
+            // exact algebraic values it cannot hold), cleared by the same
+            // `invalidate_results` call and additionally at every
+            // `dispatch_nl_solver` entry
+            unsat_core: _,             // RESULT: cleared by `invalidate_results`
+            context_stack: _,          // the scope stack itself
+            trail: _,                  // the undo journal itself
             theory_processed_up_to: _, // INVARIANT: never read
-            produce_unsat_cores: _, // INVARIANT: user option
-            has_false_assertion: _, // SNAPSHOT + TRAIL: FalseAssertionSet
-            polarities: _,      // INVARIANT: monotone (see above)
-            polarity_aware: _,  // INVARIANT: user option
+            produce_unsat_cores: _,    // INVARIANT: user option
+            has_false_assertion: _,    // SNAPSHOT + TRAIL: FalseAssertionSet
+            polarities: _,             // INVARIANT: monotone (see above)
+            polarity_aware: _,         // INVARIANT: user option
             theory_aware_branching: _, // INVARIANT: user option
-            proof: _,           // RESULT: emptied in place by `invalidate_results` (the
+            proof: _,                  // RESULT: emptied in place by `invalidate_results` (the
             // `Option` carries the `:produce-proofs` setting, so it is not taken)
             simplifier: _,               // INVARIANT: term -> simplified term
             statistics: _,               // INVARIANT: cumulative counters
@@ -183,8 +200,10 @@ impl super::Solver {
             has_array_ops: _, // SNAPSHOT
             array_axiom_instances: _, // TRAIL: ArrayAxiomInstanceAdded
             arith_defined_terms: _, // TRAIL: ArithDefinedTermAdded
+            numeric_trichotomy_atoms: _, // TRAIL: NumericTrichotomyAdded
             dt_axiom_instances: _, // TRAIL: DtAxiomInstanceAdded
             dt_axioms_incomplete: _, // SNAPSHOT
+            array_axioms_incomplete: _, // SNAPSHOT
             entailed_int_consts: _, // cleared wholesale by `pop` (see the field doc); empty = re-fold, never stale
             entailed_int_consts_upto: _, // reset to 0 with the map above
             #[cfg(test)]
@@ -201,10 +220,22 @@ impl super::Solver {
             next_skolem_id: _, // INVARIANT: monotone — a popped scope's Skolem
             // names must never be handed out again, so this counter deliberately
             // survives `pop` (re-using an id would alias two distinct witnesses).
-            case_split_terms: _,  // TRAIL: CaseSplitTermAdded
+            case_split_terms: _,           // TRAIL: CaseSplitTermAdded
+            case_split_skipped_targets: _, // PER-SEARCH: reset at `check_core`
+            // entry alongside `case_split_rounds`, for the same reason.
             case_split_rounds: _, // PER-SEARCH: reset at `check_core` entry, not
             // trail-scoped — see the field doc for why this differs from
             // `case_split_terms`.
+            #[cfg(test)]
+                repair_paths_saw_model: _, // INVARIANT: test-only event log,
+            // cumulative across `check`s and scopes exactly like
+            // `mbqi_round_clauses`; restoring it would defeat what it measures.
+            model_blocking_active: _, // SNAPSHOT: the blocking clauses it counts
+            // are retracted by `sat.pop()`, so the count rolls back with them.
+            // Deliberately *not* PER-SEARCH like `case_split_rounds` above: the
+            // clauses outlive the `check` that added them, and a counter reset
+            // between checks would let the next one report a wrong `unsat` off
+            // a still-restricted database.
             lookup_index_terms: _, // accumulates lookup-spine index terms across
             // `assert`s; a stale entry after `pop` only makes a later
             // `split_narrow_int_domains` round consider a term whose table no
@@ -236,6 +267,8 @@ impl super::Solver {
         debug_assert_eq!(self.has_array_ops, state.has_array_ops);
         debug_assert_eq!(self.encode_depth_exceeded, state.encode_depth_exceeded);
         debug_assert_eq!(self.dt_axioms_incomplete, state.dt_axioms_incomplete);
+        debug_assert_eq!(self.array_axioms_incomplete, state.array_axioms_incomplete);
+        debug_assert_eq!(self.model_blocking_active, state.model_blocking_active);
     }
 }
 

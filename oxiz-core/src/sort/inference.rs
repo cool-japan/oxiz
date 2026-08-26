@@ -311,6 +311,7 @@ fn format_sort(sort_id: SortId, sorts: &SortManager) -> String {
                     SortKind::FloatingPoint { eb, sb } => {
                         out.push_str(&format!("(_ FloatingPoint {} {})", eb, sb));
                     }
+                    SortKind::RoundingMode => out.push_str("RoundingMode"),
                     SortKind::Array { domain, range } => {
                         // "(Array " <domain> " " <range> ")"
                         out.push_str("(Array ");
@@ -521,12 +522,12 @@ mod tests {
     #[test]
     fn test_format_sort_deep_nesting_does_not_overflow() {
         let handle = std::thread::Builder::new()
-            .stack_size(1 << 20)
+            .stack_size(1 << 17)
             .spawn(|| {
                 let mut manager = TermManager::new();
                 let int_sort = manager.sorts.int_sort;
                 let mut current = int_sort;
-                for _ in 0..50_000 {
+                for _ in 0..6_250 {
                     current = manager.sorts.array(int_sort, current);
                 }
                 // Formatting an error message must not overflow the stack.
@@ -543,6 +544,6 @@ mod tests {
         let (starts, ends, count) = handle.join().expect("deep formatting must not overflow");
         assert!(starts);
         assert!(ends);
-        assert_eq!(count, 50_000);
+        assert_eq!(count, 6_250);
     }
 }

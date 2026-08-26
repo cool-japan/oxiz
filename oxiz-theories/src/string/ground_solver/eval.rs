@@ -906,6 +906,9 @@ mod tests {
     /// Both tests that use this pin their nesting depth against
     /// [`MAX_EVAL_DEPTH`], a production constant, so neither those depths nor
     /// this stack can be scaled without changing what they mean.
+    // STACK-1MIB: deliberately 1 MiB, not swept to 128 KiB — pins the
+    // realistic embedder worker-thread budget, not a scaled test depth.
+    // See TODO.md "v0.3.2 backlog".
     const WORKER_STACK: usize = 1 << 20;
 
     /// The stack the far-past-the-budget test runs on: one eighth of

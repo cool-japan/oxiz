@@ -2,18 +2,44 @@
 
 use super::term::{Term, TermId, TermKind};
 use super::traversal::get_children;
-#[cfg(feature = "arena")]
-use crate::ast::arena::TermArena;
 use crate::interner::{Rodeo, Spur};
 #[allow(unused_imports)]
 use crate::prelude::*;
 use crate::sort::{SortId, SortManager};
+use hashbrown::HashTable;
 use portable_atomic::{AtomicU32, Ordering};
 
 mod builder;
 pub mod bv_fold;
 mod query;
+mod rounding_mode;
 pub mod str_fold;
+
+/// Hash of an interning key, i.e. of the pair `(kind, sort)`.
+///
+/// This is deliberately the *same* value the previous
+/// `FxHashMap<(TermKind, SortId), TermId>` computed for the same pair:
+/// `Hash for (A, B)` is defined as `a.hash(state)` followed by
+/// `b.hash(state)`, so hashing the two components in that order into a
+/// default-seeded [`rustc_hash::FxHasher`] reproduces the old key hash bit for
+/// bit. Storing ids instead of owned keys was meant to move memory and nothing
+/// else, so the hash distribution -- and with it every bucket-occupancy and
+/// probe-length property the intern table had before -- is held fixed.
+///
+/// The crate's specialised [`crate::ast::term_hash::TermKindHasher`] is
+/// *not* used here on purpose: it summarises large payloads by their length
+/// plus first and last bytes, which is a real change in distribution rather
+/// than a change in layout. `TermKindHasher`, `BuildTermKindHasher` and
+/// `TermHashMap` therefore stay unused by the manager, pending a separate,
+/// benchmarked follow-up that can measure the trade properly.
+fn hash_term_key(kind: &TermKind, sort: SortId) -> u64 {
+    use core::hash::{Hash, Hasher};
+
+    let mut hasher = rustc_hash::FxHasher::default();
+    kind.hash(&mut hasher);
+    sort.hash(&mut hasher);
+    hasher.finish()
+}
 
 /// Statistics for garbage collection
 #[derive(Debug, Clone, Default)]
@@ -41,23 +67,39 @@ pub struct TermManager {
     pub(super) interner: Rodeo,
     /// Sort manager
     pub sorts: SortManager,
-    /// Cache for structural sharing.
+    /// Intern table for structural sharing: hashes of `(kind, sort)` to the
+    /// `TermId` of the one term carrying that pair.
     ///
-    /// Keyed on `(TermKind, SortId)` rather than `TermKind` alone: two
-    /// structurally identical kinds that carry different sorts (most notably
-    /// `Var` with the same name but a different sort) must intern to distinct
-    /// terms, otherwise same-named variables of different sorts would alias and
-    /// silently type-confuse (wrong terms, wrong models).
-    pub(super) cache: FxHashMap<(TermKind, SortId), TermId>,
+    /// A term's identity is the pair `(kind, sort)`, not the kind alone: two
+    /// structurally identical kinds at different sorts -- most notably `Var`
+    /// with the same name -- must intern to distinct terms, or same-named
+    /// variables of different sorts alias and silently type-confuse (wrong
+    /// terms, wrong models).
+    ///
+    /// Rather than own a *second* copy of each `TermKind` as a map key, this
+    /// stores only the id and resolves both lookups and collisions against
+    /// `terms[id]`, so each kind is retained exactly once -- in the `terms`
+    /// vector, which is where `get()` reads it from anyway. That is why this
+    /// is a [`HashTable`] and not a `HashMap`: a `HashMap` has no way to
+    /// express "the key lives somewhere else".
+    ///
+    /// The consequence for `gc` is that pruning this table frees the id's
+    /// *slot* and nothing else. See [`TermManager::gc`].
+    pub(super) table: HashTable<TermId>,
     /// True constant
     pub true_id: TermId,
     /// False constant
     pub false_id: TermId,
     /// GC statistics
     pub(super) gc_stats: GCStatistics,
-    /// Optional bump arena for fast allocation (feature-gated)
-    #[cfg(feature = "arena")]
-    pub(super) arena: TermArena,
+    /// Whether a `RoundingMode`-sorted term has been built in this manager.
+    ///
+    /// Set by [`TermManager::mk_rounding_mode`] and by the SMT-LIB parser when
+    /// it accepts `RoundingMode` as a declared sort. The solver layer reads it
+    /// through [`TermManager::rounding_mode_used`] to decide whether the
+    /// five-modes distinctness axiom is needed at all, so a script that never
+    /// mentions a rounding mode pays nothing for the feature.
+    rounding_mode_used: bool,
 }
 
 impl Default for TermManager {
@@ -78,12 +120,11 @@ impl TermManager {
             next_id: AtomicU32::new(0),
             interner: Rodeo::default(),
             sorts,
-            cache: FxHashMap::default(),
+            table: HashTable::new(),
             true_id: TermId(0),
             false_id: TermId(1),
             gc_stats: GCStatistics::default(),
-            #[cfg(feature = "arena")]
-            arena: TermArena::with_capacity(64 * 1024),
+            rounding_mode_used: false,
         };
 
         // Pre-allocate true and false
@@ -103,42 +144,41 @@ impl TermManager {
     }
 
     /// Intern a term, returning its unique ID
+    ///
+    /// `kind` is *moved* into the interned [`Term`] on a miss and dropped on a
+    /// hit, so a term's kind is stored exactly once, in `terms`. The intern
+    /// table holds only ids and compares against `terms[id]` (see the `table`
+    /// field documentation), which is why both closures below take the
+    /// `terms`/`table` fields apart first: each needs `&self.terms` while the
+    /// other half of `self` is borrowed.
     pub(crate) fn intern(&mut self, kind: TermKind, sort: SortId) -> TermId {
-        // Key on (kind, sort) so that identical kinds with distinct sorts do
-        // not alias (see the `cache` field documentation).
-        let key = (kind, sort);
-        if let Some(&id) = self.cache.get(&key) {
-            return id;
-        }
+        // Identity is the pair (kind, sort): identical kinds at distinct sorts
+        // must not alias (see the `table` field documentation).
+        let hash = hash_term_key(&kind, sort);
 
-        let id = TermId(self.next_id.fetch_add(1, Ordering::Relaxed));
-        let term = Term {
-            id,
-            kind: key.0.clone(),
-            sort,
-        };
-        // When the arena feature is enabled, also allocate in the bump arena
-        #[cfg(feature = "arena")]
         {
-            let _ = self.arena.alloc_term(id, key.0.clone(), sort);
+            let Self { terms, table, .. } = self;
+            if let Some(&id) = table.find(hash, |&id| {
+                terms
+                    .get(id.0 as usize)
+                    .is_some_and(|t| t.sort == sort && t.kind == kind)
+            }) {
+                return id;
+            }
         }
 
-        self.terms.push(term);
-        self.cache.insert(key, id);
+        // Miss: allocate the id, then push the term *before* recording it, so
+        // that the id the table stores is already resolvable through `terms`.
+        let id = TermId(self.next_id.fetch_add(1, Ordering::Relaxed));
+        self.terms.push(Term { id, kind, sort });
+
+        let Self { terms, table, .. } = self;
+        table.insert_unique(hash, id, |&id| {
+            terms
+                .get(id.0 as usize)
+                .map_or(0, |t| hash_term_key(&t.kind, t.sort))
+        });
         id
-    }
-
-    /// Get arena statistics (only available with `arena` feature)
-    #[cfg(feature = "arena")]
-    #[must_use]
-    pub fn arena_stats(&self) -> crate::ast::arena::ArenaStats {
-        self.arena.stats()
-    }
-
-    /// Reset the arena allocator, freeing all arena memory
-    #[cfg(feature = "arena")]
-    pub fn reset_arena(&mut self) {
-        self.arena.reset();
     }
 
     /// Get a term by its ID
@@ -176,10 +216,13 @@ impl TermManager {
     ///
     /// This method performs a mark-and-sweep garbage collection:
     /// 1. Marks all terms reachable from the given root set
-    /// 2. Removes unmarked entries from the cache
+    /// 2. Removes unmarked entries from the intern table
     ///
     /// Note: This doesn't actually free memory from the arena (terms vector),
-    /// but it does clean up the cache to prevent unbounded growth.
+    /// but it does clean up the cache to prevent unbounded growth. A swept
+    /// term therefore stays readable through [`TermManager::get`], and
+    /// interning its kind again allocates a *fresh* id rather than returning
+    /// the old one.
     ///
     /// # Arguments
     /// * `roots` - Set of root term IDs to keep (and their descendants)
@@ -210,10 +253,10 @@ impl TermManager {
             }
         }
 
-        // Sweep phase: remove unreachable entries from cache
-        let original_cache_size = self.cache.len();
-        self.cache.retain(|_, &mut id| reachable.contains(&id));
-        let removed = original_cache_size - self.cache.len();
+        // Sweep phase: remove unreachable entries from the intern table
+        let original_cache_size = self.table.len();
+        self.table.retain(|id| reachable.contains(id));
+        let removed = original_cache_size - self.table.len();
 
         // Update statistics
         self.gc_stats.gc_count += 1;
@@ -237,7 +280,14 @@ impl TermManager {
     /// Number of cache entries removed
     pub fn gc_aggressive(&mut self, roots: &FxHashSet<TermId>) -> usize {
         let removed = self.gc(roots);
-        self.cache.shrink_to_fit();
+        // Reallocating the table rehashes every retained id, so this needs the
+        // same `terms`-resolving hasher that `intern` inserts with.
+        let Self { terms, table, .. } = self;
+        table.shrink_to_fit(|&id| {
+            terms
+                .get(id.0 as usize)
+                .map_or(0, |t| hash_term_key(&t.kind, t.sort))
+        });
         removed
     }
 
@@ -250,7 +300,7 @@ impl TermManager {
     /// Get the current cache size (number of hash-consed terms)
     #[must_use]
     pub fn cache_size(&self) -> usize {
-        self.cache.len()
+        self.table.len()
     }
 
     /// Get the total number of terms allocated
@@ -699,6 +749,288 @@ mod tests {
             }
             _ => panic!("expected Forall term"),
         }
+    }
+
+    #[test]
+    fn test_hash_term_key_matches_the_tuple_key_hash() {
+        // `hash_term_key` replaced an `FxHashMap<(TermKind, SortId), _>`, and
+        // is meant to compute exactly what that map's key hash did -- so this
+        // hashes the tuple the old way and demands the same bits. It is the
+        // guarantee that moving the key out of the table changed memory only
+        // and left the hash distribution untouched.
+        use core::hash::{BuildHasher, Hash, Hasher};
+
+        fn tuple_key_hash(kind: &TermKind, sort: SortId) -> u64 {
+            let mut hasher = rustc_hash::FxHasher::default();
+            (kind.clone(), sort).hash(&mut hasher);
+            hasher.finish()
+        }
+
+        let mut manager = TermManager::new();
+        let int_sort = manager.sorts.int_sort;
+        let bool_sort = manager.sorts.bool_sort;
+        let x = manager.mk_var("x", int_sort);
+        let y = manager.mk_var("y", int_sort);
+        let spur = manager.intern_str("x");
+
+        let cases = [
+            (TermKind::True, bool_sort),
+            (TermKind::False, bool_sort),
+            (TermKind::Var(spur), int_sort),
+            // Same kind, different sort: must hash differently, or the two
+            // would always land in the same bucket.
+            (TermKind::Var(spur), bool_sort),
+            (TermKind::Add(smallvec::smallvec![x, y]), int_sort),
+            (TermKind::StringLit("a longer payload".into()), int_sort),
+        ];
+
+        for (kind, sort) in &cases {
+            assert_eq!(
+                hash_term_key(kind, *sort),
+                tuple_key_hash(kind, *sort),
+                "hash drifted from the tuple key hash for {kind:?} at {sort:?}"
+            );
+        }
+
+        // And the same bits an FxHashMap itself would derive for that key.
+        let build = rustc_hash::FxBuildHasher;
+        for (kind, sort) in &cases {
+            assert_eq!(
+                hash_term_key(kind, *sort),
+                build.hash_one((kind.clone(), *sort))
+            );
+        }
+
+        assert_ne!(
+            hash_term_key(&TermKind::Var(spur), int_sort),
+            hash_term_key(&TermKind::Var(spur), bool_sort),
+            "the sort must participate in the hash"
+        );
+    }
+
+    // ==================== Interning identity tests ====================
+    //
+    // These pin the *identity* contract of `intern`: what counts as "the same
+    // term". They are deliberately written against the public API only, so
+    // they hold regardless of how the intern table is represented internally.
+
+    #[test]
+    fn test_repeated_intern_of_same_key_allocates_one_term() {
+        let mut manager = TermManager::new();
+        let int_sort = manager.sorts.int_sort;
+        let spur = manager.intern_str("repeated");
+
+        let before = manager.term_count();
+        let first = manager.intern_term(TermKind::Var(spur), int_sort);
+        assert_eq!(
+            manager.term_count(),
+            before + 1,
+            "the first intern allocates exactly one term"
+        );
+
+        for _ in 0..1000 {
+            assert_eq!(manager.intern_term(TermKind::Var(spur), int_sort), first);
+        }
+        assert_eq!(
+            manager.term_count(),
+            before + 1,
+            "1000 further interns of the same (kind, sort) must allocate nothing"
+        );
+    }
+
+    #[test]
+    fn test_same_named_var_at_different_sorts_stays_distinct() {
+        // The reason interning is keyed on (kind, sort) and not on kind alone:
+        // `x : Int` and `x : Bool` share a `TermKind::Var(spur)` but must never
+        // alias, or every same-named variable of a different sort would type-
+        // confuse (wrong terms, wrong models).
+        let mut manager = TermManager::new();
+        let int_sort = manager.sorts.int_sort;
+        let bool_sort = manager.sorts.bool_sort;
+
+        let x_int = manager.mk_var("x", int_sort);
+        let x_bool = manager.mk_var("x", bool_sort);
+        assert_ne!(x_int, x_bool, "same name at different sorts must not alias");
+
+        assert_eq!(manager.get(x_int).map(|t| t.sort), Some(int_sort));
+        assert_eq!(manager.get(x_bool).map(|t| t.sort), Some(bool_sort));
+
+        // ... and each still re-interns to itself, not to the other.
+        assert_eq!(manager.mk_var("x", int_sort), x_int);
+        assert_eq!(manager.mk_var("x", bool_sort), x_bool);
+    }
+
+    #[test]
+    fn test_equal_shaped_string_literals_intern_distinctly() {
+        // Every literal here has the same length and the same first and last
+        // byte -- the shape that a length-plus-endpoints hash would fold
+        // together. Structural equality, not the hash, must decide identity.
+        let mut manager = TermManager::new();
+        let mut ids = FxHashSet::default();
+        let mut literals = Vec::new();
+
+        for i in 0..512u32 {
+            let literal = format!("A{i:06}Z");
+            let id = manager.mk_string_lit(&literal);
+            assert!(
+                ids.insert(id),
+                "literal {literal} collided with an earlier one"
+            );
+            literals.push((literal, id));
+        }
+        assert_eq!(ids.len(), 512);
+
+        for (literal, id) in &literals {
+            assert_eq!(
+                manager.mk_string_lit(literal),
+                *id,
+                "re-interning {literal} must return the same id"
+            );
+        }
+    }
+
+    // ==================== Garbage collection tests ====================
+    //
+    // `gc` prunes the intern table only: the `terms` vector is never touched,
+    // so a swept term stays readable through `get()` and, if its kind is
+    // interned again, comes back as a *fresh* id. These tests pin that exact
+    // (slightly surprising) contract.
+
+    #[test]
+    fn test_gc_with_empty_roots_keeps_only_true_and_false() {
+        let mut manager = TermManager::new();
+        let int_sort = manager.sorts.int_sort;
+        let x = manager.mk_var("x", int_sort);
+        let y = manager.mk_var("y", int_sort);
+        let _sum = manager.mk_add([x, y]);
+
+        let before = manager.cache_size();
+        let removed = manager.gc(&FxHashSet::default());
+
+        assert_eq!(
+            removed,
+            before - manager.cache_size(),
+            "the return value is exactly the number of entries dropped"
+        );
+        assert_eq!(
+            manager.cache_size(),
+            2,
+            "true and false are always rooted, everything else went"
+        );
+    }
+
+    #[test]
+    fn test_gc_keeps_roots_and_their_children() {
+        let mut manager = TermManager::new();
+        let int_sort = manager.sorts.int_sort;
+        let x = manager.mk_var("x", int_sort);
+        let y = manager.mk_var("y", int_sort);
+        let sum = manager.mk_add([x, y]);
+
+        let mut roots = FxHashSet::default();
+        roots.insert(sum);
+
+        let terms_before = manager.term_count();
+        let removed = manager.gc(&roots);
+
+        assert_eq!(
+            removed, 0,
+            "true, false, x, y and (+ x y) are all reachable"
+        );
+        assert_eq!(manager.cache_size(), 5);
+
+        // Reachable entries survived, so re-interning hits the table.
+        assert_eq!(manager.mk_add([x, y]), sum);
+        assert_eq!(manager.mk_var("x", int_sort), x);
+        assert_eq!(manager.term_count(), terms_before);
+    }
+
+    #[test]
+    fn test_gc_prunes_the_table_but_never_the_terms() {
+        let mut manager = TermManager::new();
+        let int_sort = manager.sorts.int_sort;
+        let x = manager.mk_var("x", int_sort);
+        let terms_before = manager.term_count();
+
+        let removed = manager.gc(&FxHashSet::default());
+        assert_eq!(removed, 1, "only x was unreachable");
+
+        // The term vector is untouched: the swept term is still readable.
+        assert_eq!(manager.term_count(), terms_before);
+        assert!(manager.get(x).is_some());
+        assert!(matches!(
+            manager.get(x).map(|t| &t.kind),
+            Some(TermKind::Var(_))
+        ));
+        assert_eq!(manager.get(x).map(|t| t.sort), Some(int_sort));
+
+        // A swept kind re-interns as a FRESH id, and is stable from then on.
+        let x_again = manager.mk_var("x", int_sort);
+        assert_ne!(x, x_again);
+        assert_eq!(manager.term_count(), terms_before + 1);
+        assert_eq!(manager.mk_var("x", int_sort), x_again);
+    }
+
+    #[test]
+    fn test_gc_statistics_track_cache_removals() {
+        let mut manager = TermManager::new();
+        let int_sort = manager.sorts.int_sort;
+        let x = manager.mk_var("x", int_sort);
+        let _y = manager.mk_var("y", int_sort);
+
+        let mut roots = FxHashSet::default();
+        roots.insert(x);
+
+        let removed = manager.gc(&roots);
+        assert_eq!(removed, 1, "y is the only unreachable entry");
+
+        // Every statistic counts *cache* removals, including the two named
+        // "collected" -- no term is ever actually freed.
+        let stats = manager.gc_statistics();
+        assert_eq!(stats.gc_count, 1);
+        assert_eq!(stats.last_cache_removed, removed);
+        assert_eq!(stats.total_cache_removed, removed);
+        assert_eq!(stats.last_collected, removed);
+        assert_eq!(stats.total_collected, removed);
+
+        // A second run accumulates rather than replaces the totals.
+        let removed2 = manager.gc(&FxHashSet::default());
+        let stats = manager.gc_statistics();
+        assert_eq!(stats.gc_count, 2);
+        assert_eq!(stats.last_cache_removed, removed2);
+        assert_eq!(stats.total_cache_removed, removed + removed2);
+
+        manager.reset_gc_stats();
+        assert_eq!(manager.gc_statistics().gc_count, 0);
+        assert_eq!(manager.gc_statistics().total_cache_removed, 0);
+    }
+
+    #[test]
+    fn test_gc_aggressive_matches_gc_removal_count() {
+        fn populate() -> (TermManager, TermId) {
+            let mut manager = TermManager::new();
+            let int_sort = manager.sorts.int_sort;
+            let x = manager.mk_var("x", int_sort);
+            let y = manager.mk_var("y", int_sort);
+            let z = manager.mk_var("z", int_sort);
+            let sum = manager.mk_add([x, y]);
+            let _unreachable = manager.mk_add([sum, z]);
+            (manager, sum)
+        }
+
+        let (mut plain, sum) = populate();
+        let (mut aggressive, sum2) = populate();
+        assert_eq!(sum, sum2, "both managers were built identically");
+
+        let mut roots = FxHashSet::default();
+        roots.insert(sum);
+
+        assert_eq!(plain.gc(&roots), aggressive.gc_aggressive(&roots));
+        assert_eq!(plain.cache_size(), aggressive.cache_size());
+        assert_eq!(plain.term_count(), aggressive.term_count());
+
+        // Shrinking must not lose any retained entry.
+        assert_eq!(aggressive.mk_add([sum, sum]), plain.mk_add([sum, sum]));
     }
 
     #[test]

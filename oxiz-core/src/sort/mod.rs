@@ -60,6 +60,28 @@ pub enum SortKind {
         /// Range sort
         range: SortId,
     },
+    /// The SMT-LIB `FloatingPoint` theory's `RoundingMode` sort.
+    ///
+    /// A reserved, built-in sort with **exactly five** elements — the IEEE 754
+    /// rounding modes `roundNearestTiesToEven`, `roundNearestTiesToAway`,
+    /// `roundTowardPositive`, `roundTowardNegative` and `roundTowardZero`
+    /// (abbreviated `RNE`, `RNA`, `RTP`, `RTN`, `RTZ`).
+    ///
+    /// The five modes are represented as ordinary nullary
+    /// [`TermKind::Var`](crate::ast::TermKind::Var) terms interned at this
+    /// sort (see [`TermManager::mk_rounding_mode`](crate::ast::TermManager::mk_rounding_mode)),
+    /// so `(= m RNE)` is plain EUF and needs no theory of its own. What this
+    /// variant buys is that the sort is *distinguishable*: as
+    /// `Uninterpreted("RoundingMode")` it was indistinguishable from a
+    /// user-declared free sort, so nothing downstream could tell that its
+    /// domain is finite, that its values print as mode names rather than
+    /// abstract witnesses, or that the name is reserved.
+    ///
+    /// The finiteness is **not** implied by this variant alone: the solver
+    /// layer must still assert the closure axiom for every declared
+    /// `RoundingMode` constant and the pairwise distinctness of the five modes
+    /// (`oxiz-solver`'s `context::rounding_mode`).
+    RoundingMode,
     /// Uninterpreted sort with a name
     Uninterpreted(crate::interner::Spur),
     /// Sort parameter (used in parametric sort definitions)
@@ -131,6 +153,12 @@ impl Sort {
     #[must_use]
     pub fn is_float(&self) -> bool {
         matches!(self.kind, SortKind::FloatingPoint { .. })
+    }
+
+    /// Check if this is the reserved `RoundingMode` sort
+    #[must_use]
+    pub fn is_rounding_mode(&self) -> bool {
+        matches!(self.kind, SortKind::RoundingMode)
     }
 
     /// Get the exponent and significand widths if this is a floating-point sort
@@ -206,6 +234,14 @@ pub struct SortManager {
     pub int_sort: SortId,
     /// Real sort
     pub real_sort: SortId,
+    /// The reserved `RoundingMode` sort (SMT-LIB `FloatingPoint` theory).
+    ///
+    /// Interned eagerly in [`SortManager::new`] beside `bool`/`int`/`real`
+    /// rather than lazily like the string and float sorts: the parser needs it
+    /// on the *rejection* path too (to tell a reserved-name misuse from an
+    /// ordinary uninterpreted sort), where a `&mut SortManager` is not always
+    /// in reach.
+    pub rounding_mode_sort: SortId,
     /// String sort (cached)
     string_sort_cached: Option<SortId>,
     /// Floating-point sorts (cached for common sizes)
@@ -242,6 +278,7 @@ impl SortManager {
             bool_sort: SortId(0),
             int_sort: SortId(1),
             real_sort: SortId(2),
+            rounding_mode_sort: SortId(3),
             string_sort_cached: None,
             float16_sort_cached: None,
             float32_sort_cached: None,
@@ -258,6 +295,7 @@ impl SortManager {
         manager.bool_sort = manager.intern(SortKind::Bool);
         manager.int_sort = manager.intern(SortKind::Int);
         manager.real_sort = manager.intern(SortKind::Real);
+        manager.rounding_mode_sort = manager.intern(SortKind::RoundingMode);
 
         manager
     }
@@ -632,6 +670,7 @@ impl SortManager {
                 | SortKind::String
                 | SortKind::BitVec(_)
                 | SortKind::FloatingPoint { .. }
+                | SortKind::RoundingMode
                 | SortKind::Uninterpreted(_)
                 | SortKind::Datatype(_)
                 // A parameter not in `subst` stays free.
@@ -678,12 +717,54 @@ impl SortManager {
             SortKind::String => Some("String".to_string()),
             SortKind::BitVec(w) => Some(format!("BitVec({})", w)),
             SortKind::FloatingPoint { eb, sb } => Some(format!("FloatingPoint({}, {})", eb, sb)),
+            SortKind::RoundingMode => Some("RoundingMode".to_string()),
             SortKind::Array { .. } => Some("Array".to_string()),
             SortKind::Uninterpreted(spur) => Some(self.interner.resolve(spur).to_string()),
             SortKind::Parameter(spur) => Some(self.interner.resolve(spur).to_string()),
             SortKind::Parametric { name, .. } => Some(self.interner.resolve(name).to_string()),
             SortKind::Datatype(spur) => Some(self.interner.resolve(spur).to_string()),
         }
+    }
+
+    /// Whether `sort_id` is, or structurally contains, the reserved
+    /// [`SortKind::RoundingMode`] sort.
+    ///
+    /// `RoundingMode` is a first-class sort only in *nullary* declaration
+    /// position: the finiteness axioms that give it its five-element domain
+    /// are attached per declared constant, and there is no machinery to attach
+    /// them to the (unboundedly many) rounding modes reachable through a
+    /// function's range, an array's range, or a datatype field. Callers use
+    /// this predicate to reject those positions honestly instead of accepting
+    /// a `RoundingMode` that silently behaves like an infinite free sort.
+    ///
+    /// The walk is iterative (explicit stack + visited set) because `Array`
+    /// and `Parametric` nesting is input-controlled and a shared sub-sort can
+    /// otherwise be revisited once per path through the DAG.
+    #[must_use]
+    pub fn sort_mentions_rounding_mode(&self, sort_id: SortId) -> bool {
+        let mut visited: FxHashSet<SortId> = FxHashSet::default();
+        let mut stack: Vec<SortId> = vec![sort_id];
+        while let Some(id) = stack.pop() {
+            if !visited.insert(id) {
+                continue;
+            }
+            match self.get(id).map(|s| &s.kind) {
+                Some(SortKind::RoundingMode) => return true,
+                Some(SortKind::Array { domain, range }) => {
+                    stack.push(*domain);
+                    stack.push(*range);
+                }
+                Some(SortKind::Parametric { args, .. }) => stack.extend(args.iter().copied()),
+                // Every other kind is a leaf for this question. A `Datatype`
+                // is deliberately *not* descended into here: its field sorts
+                // are checked where the datatype is declared (the selector
+                // sorts), which is the position a user can actually write a
+                // `RoundingMode` in, and descending a recursive datatype
+                // definition from a `SortId` alone has no fixed point.
+                _ => {}
+            }
+        }
+        false
     }
 
     /// Check if a sort is a parametric sort (instantiated)
@@ -1278,7 +1359,7 @@ mod tests {
     }
 
     /// Depth of the nested-array sorts used by the stack-safety tests.
-    const DEEP_SORT_NESTING: usize = 50_000;
+    const DEEP_SORT_NESTING: usize = 6_250;
 
     /// Build `(Array Int (Array Int (... T)))` nested `DEEP_SORT_NESTING` deep
     /// over the sort parameter `T`, returning the outermost sort and `T`'s id.
@@ -1295,7 +1376,7 @@ mod tests {
     #[test]
     fn test_substitute_sort_deep_nesting_does_not_overflow() {
         let handle = std::thread::Builder::new()
-            .stack_size(1 << 20)
+            .stack_size(1 << 17)
             .spawn(|| {
                 let mut manager = SortManager::new();
                 let (deep, param) = deep_nested_array_sort(&mut manager);

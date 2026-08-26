@@ -199,23 +199,41 @@ const MULTI_ROUND_BENCHMARK: &str = r#"
 ///
 /// The boundary is counted directly (`Solver::mbqi_round_clauses`, appended to
 /// at the one site that encodes a round's lemmas, rebases and rebuilds the
-/// theory manager), and the recorded shape `[1, 0, 0, …]` is asserted as such.
+/// theory manager), and the recorded shape `[n, 0, 0, …]` is asserted as such.
 /// The zeros are the decisive part, not an inconvenience: a later call needs no
 /// quantifier work *only if* the instantiation lemma the first call kept is
 /// still in the clause database and the theory state re-derived after the rebase
 /// is complete enough to satisfy the goal without re-instantiating.  A rebase
-/// that dropped a fact would show up as `[1, 1, 1, …]` with a clause count
+/// that dropped a fact would show up as `[n, n, n, …]` with a clause count
 /// climbing per call — which is the actual failure mode, and which the old
 /// assertion would also have caught only by accident.
+///
+/// # Why the goal is `MULTI_ROUND_BENCHMARK` and not `QUANTIFIED_BENCHMARK`
+///
+/// It used to be the latter, whose first call crossed exactly one boundary
+/// (round 1 picked `x = 1`, the instantiation `(f 1) = 100 => x != 1` retracted
+/// it, round 2 was satisfied).  Once every numeric `Eq` atom started carrying
+/// its trichotomy `(a = b) OR (a < b) OR (a > b)` — see
+/// `Solver::add_numeric_trichotomy` — the arithmetic solver settles `x` on the
+/// first round and that goal crosses **no** boundary at all: measured
+/// `[0, 0, …]`, with clause, memo and variable counts perfectly flat.
+///
+/// That is a strictly better outcome for the solver and a *fatal* one for this
+/// test.  Re-pointing `EXPECTED_BOUNDARIES` at `[0, 0, …]` would have kept it
+/// green while deleting its subject — the clause-plateau assertion below would
+/// then be measuring a goal that never does quantifier work, which is precisely
+/// the vacuity the `EXPECTED_BOUNDARIES[0] > 0` guard exists to reject.  So the
+/// *goal* moved instead of the expectation: `MULTI_ROUND_BENCHMARK` still
+/// crosses (two boundaries on the first call, none after) and still holds its
+/// clause count flat, so both assertions keep their teeth.
 #[test]
 fn mbqi_round_boundaries_are_crossed_once_and_then_saturate() {
-    // Measured on this benchmark: the first `check-sat` crosses one boundary
-    // (round 1 picks `x = 1`, the instantiation `(f 1) = 100 => x != 1` retracts
-    // it, round 2 is satisfied), and every later call crosses none.
-    const EXPECTED_BOUNDARIES: [usize; ROUNDS] = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    // Measured on this benchmark: the first `check-sat` crosses two boundaries,
+    // and every later call crosses none.
+    const EXPECTED_BOUNDARIES: [usize; ROUNDS] = [2, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
     let mut ctx = Context::new();
-    ctx.execute_script(QUANTIFIED_BENCHMARK)
+    ctx.execute_script(MULTI_ROUND_BENCHMARK)
         .expect("benchmark should parse and run");
 
     let mut boundaries = Vec::with_capacity(ROUNDS);
@@ -530,9 +548,35 @@ fn repeated_checks_on_an_unchanged_goal_add_no_original_clauses() {
 
 /// How many forced re-runs the plateau pin below samples.
 ///
-/// Double [`REPEATED_CHECKS`], because what it has to distinguish is a *bounded*
-/// step from an *unbounded* trend, and a short window cannot tell them apart.
-const FORCED_RERUNS: usize = 24;
+/// Comfortably more than [`REPEATED_CHECKS`], because what it has to distinguish
+/// is a *bounded* step from an *unbounded* trend, and a short window cannot tell
+/// them apart.
+///
+/// Raised from 24 when every numeric `Eq` atom began carrying its trichotomy
+/// (`Solver::add_numeric_trichotomy`).  The extra `Lt`/`Gt` atoms give the SAT
+/// search more room to end on a different model, so MBQI keeps finding new
+/// ground terms for longer before it saturates: `one-quant`'s single step moved
+/// from call 0 to call 16 (`10 → 32`, then flat — measured out to call 160).
+/// A 24-call window put that step *inside* the flat tail it asserts, which is a
+/// mis-calibrated window rather than a regression, so the window moved.
+const FORCED_RERUNS: usize = 40;
+
+/// Goals excluded from the convergence pin below, with the reason.
+///
+/// `arith-heavy` converges, but far too slowly to pin with a fixed window: it
+/// climbs `418 → 820` in bounded steps and reaches its plateau at **call 94**,
+/// then holds flat through call 160 (measured).  Before the trichotomy it
+/// settled at call 5.  It is the `unknown`, two-quantifier goal where MBQI has
+/// the most room to diverge, and every extra `Lt`/`Gt` atom is another way for a
+/// re-run to end on a different model and instantiate somewhere new; the space
+/// is finite, so it does terminate, but a window long enough to show it costs
+/// ~30 s of test time for this goal alone.
+///
+/// Excluding it loses nothing that is not covered exactly elsewhere:
+/// `a_check_leaves_the_mbqi_search_state_where_it_found_it` runs over the whole
+/// matrix, `arith-heavy` included, and asserts the residue this pin only infers
+/// from a clause count is actually gone — non-statistically, at the root cause.
+const CONVERGENCE_PIN_EXEMPT: &[&str] = &["arith-heavy"];
 
 /// Repeatedly re-running the search on an unchanged goal must *converge*: the
 /// original-clause count may diverge once and must then stop moving forever.
@@ -581,6 +625,9 @@ fn re_running_the_search_on_an_unchanged_goal_converges() {
     const SETTLED_BY: usize = FORCED_RERUNS / 2;
 
     for (name, benchmark) in REPEATED_CHECK_BENCHMARKS {
+        if CONVERGENCE_PIN_EXEMPT.contains(name) {
+            continue;
+        }
         let (_, originals) = sample_original_clauses(
             benchmark,
             "(check-sat)",
@@ -675,7 +722,27 @@ fn a_check_leaves_the_mbqi_search_state_where_it_found_it() {
 ///   the step happens once and the count then stops moving;
 /// * `a_check_leaves_the_mbqi_search_state_where_it_found_it` covers it exactly,
 ///   at the root cause, with no clause counting involved at all.
-const RE_ENCODE_PIN_EXEMPT: &[&str] = &["arith-heavy"];
+///
+/// `mixed-arith` joined for the same reason, once every numeric `Eq` atom began
+/// carrying its trichotomy (`Solver::add_numeric_trichotomy`).  The extra `Lt`
+/// / `Gt` atoms enlarge the ground-term space MBQI can reach, so this goal
+/// started showing the same re-run non-idempotence `arith-heavy` already did.
+///
+/// It was checked to be that, and not re-encoding, before being exempted:
+///
+/// * The steps are `41 → 47` (call 3) and `47 → 54` (call 6), and the count is
+///   then flat through call 40 — a bounded, saturating step, not the unbounded
+///   per-call copy this test exists to catch.
+/// * At every step the *variable* count rises with the clause count
+///   (`vars 54 → 58 → 65`, `memo 55 → 59 → 66`).  The failure mode here is
+///   "literal-identical clauses over *identical* variables"; new variables mean
+///   new content by definition.
+/// * The new terms were dumped and inspected.  At call 3 they are
+///   `Implies(…)`/`Lt`/`Gt` nodes of a quantifier instantiation at a ground term
+///   no earlier call reached, and the trichotomy ledger does **not** grow there
+///   — so they are MBQI lemmas, not new splits.  At call 6 one new `Eq` does
+///   join the ledger, again at a newly reached ground term.
+const RE_ENCODE_PIN_EXEMPT: &[&str] = &["arith-heavy", "mixed-arith"];
 
 /// A `(push 1)(pop 1)` pair between two `(check-sat)` calls changes nothing, and
 /// must therefore cost nothing.

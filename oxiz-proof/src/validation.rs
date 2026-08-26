@@ -370,6 +370,9 @@ mod tests {
     fn test_cycle_check_shared_premises_are_visited_once() {
         // A diamond DAG: without the `visited` set this re-expands
         // exponentially. 60 levels would be 2^60 visits.
+        // STACK-1MIB: deliberately 1 MiB, not swept to 128 KiB — this pins
+        // 2^60-versus-60 sharing work, not stack depth; scaling the depth
+        // down would destroy the test. See TODO.md "v0.3.2 backlog".
         let handle = std::thread::Builder::new()
             .stack_size(1 << 20)
             .spawn(|| {

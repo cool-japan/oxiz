@@ -30,7 +30,7 @@ fn gcd_i128(mut a: i128, mut b: i128) -> i128 {
 /// `i64`. All of the checked-rational helpers below route through this so
 /// that a value which cannot be represented as a `Rational64` is reported
 /// as `None` (overflow) rather than silently truncated.
-fn checked_ratio_i128(numer: i128, denom: i128) -> Option<Rational64> {
+pub(crate) fn checked_ratio_i128(numer: i128, denom: i128) -> Option<Rational64> {
     if denom == 0 {
         return None;
     }
@@ -57,14 +57,14 @@ fn checked_ratio_i128(numer: i128, denom: i128) -> Option<Rational64> {
 /// `Rational64` multiplication used by `num-rational`'s `Mul` impl does not
 /// check for overflow: it panics in debug builds and silently wraps to a
 /// wrong coefficient in release builds).
-fn checked_mul_r64(a: Rational64, b: Rational64) -> Option<Rational64> {
+pub(crate) fn checked_mul_r64(a: Rational64, b: Rational64) -> Option<Rational64> {
     let numer = (*a.numer() as i128).checked_mul(*b.numer() as i128)?;
     let denom = (*a.denom() as i128).checked_mul(*b.denom() as i128)?;
     checked_ratio_i128(numer, denom)
 }
 /// Checked rational division: `a / b`. Returns `None` if `b` is zero or the
 /// result overflows `i64` after reduction.
-fn checked_div_r64(a: Rational64, b: Rational64) -> Option<Rational64> {
+pub(crate) fn checked_div_r64(a: Rational64, b: Rational64) -> Option<Rational64> {
     if b.numer() == &0 {
         return None;
     }
@@ -73,7 +73,7 @@ fn checked_div_r64(a: Rational64, b: Rational64) -> Option<Rational64> {
     checked_ratio_i128(numer, denom)
 }
 /// Checked rational addition: `a + b`. Returns `None` on overflow.
-fn checked_add_r64(a: Rational64, b: Rational64) -> Option<Rational64> {
+pub(crate) fn checked_add_r64(a: Rational64, b: Rational64) -> Option<Rational64> {
     let ad = (*a.numer() as i128).checked_mul(*b.denom() as i128)?;
     let cb = (*b.numer() as i128).checked_mul(*a.denom() as i128)?;
     let numer = ad.checked_add(cb)?;
@@ -1591,6 +1591,20 @@ impl Simplex {
     #[must_use]
     pub fn decision_level(&self) -> usize {
         self.trail_limits.len().saturating_sub(1)
+    }
+    /// Current backtracking scope depth: the number of [`Simplex::push`] calls
+    /// that have not yet been matched by a [`Simplex::pop`].
+    ///
+    /// This is the crate-internal name used by the scope-balance assertions in
+    /// the theory solvers built on top of the simplex (e.g.
+    /// `LiaSolver::check_balanced`), and is exactly [`Simplex::decision_level`]
+    /// — a solver that pushes a search scope per decision has the two notions
+    /// coincide. Kept as a separate name so a scope-balance assertion reads as
+    /// what it checks rather than borrowing the CDCL vocabulary.
+    #[inline]
+    #[must_use]
+    pub(crate) fn scope_depth(&self) -> usize {
+        self.decision_level()
     }
     /// Number of allocated variable slots (original + slack).
     #[inline]

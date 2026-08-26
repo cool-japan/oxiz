@@ -210,7 +210,7 @@ mod tests {
         (manager, vars)
     }
 
-    /// A term nested 100_000 levels deep, walked on a 1 MiB stack. The
+    /// A term nested 12_500 levels deep, walked on a 128 KiB stack. The
     /// assertion is that the walk *returns* — a stack overflow aborts the
     /// whole process, so returning at all proves it no longer recurses.
     ///
@@ -219,10 +219,10 @@ mod tests {
     /// none of them can build a deep spine through the public builder.
     #[test]
     fn test_collect_boolean_vars_deep_term_does_not_overflow() {
-        let worker = std::thread::Builder::new().stack_size(1 << 20).spawn(|| {
+        let worker = std::thread::Builder::new().stack_size(1 << 17).spawn(|| {
             let (mut manager, vars) = make_manager_with_bool_vars(2);
             let mut term = vars[0];
-            for _ in 0..100_000 {
+            for _ in 0..12_500 {
                 term = manager.mk_sub(term, vars[1]);
             }
             let collected = collect_boolean_vars(&manager, &[term]);

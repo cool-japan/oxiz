@@ -80,35 +80,46 @@ impl<'a> Parser<'a> {
             "Int" => Ok(self.manager.sorts.int_sort),
             "Real" => Ok(self.manager.sorts.real_sort),
             "String" => Ok(self.manager.sorts.string_sort()),
-            // `RoundingMode` (Floats) and `RegLan` (Strings) are reserved
-            // SMT-LIB theory sort names. Previously these fell through to
-            // the generic `Uninterpreted` fallback below, which silently
-            // built a fresh free sort indistinguishable from an ordinary
-            // user-chosen name — so `(declare-const m RoundingMode)` looked
-            // like it worked but produced a variable the FP/regex theories
-            // can never actually reason about (rounding modes are only ever
-            // consumed as literal `RNE`/`RNA`/... symbols baked into `fp.*`
-            // operators at parse time, never as a first-class sorted term;
-            // see `Parser::parse_rounding_mode`). A dedicated `SortKind`
-            // variant is the correct long-term representation, but that enum
-            // is matched exhaustively across several other crates
-            // (oxiz-solver, ...), so adding a bare variant here is a
-            // workspace-wide change outside this fix's scope. Until that
-            // lands, reject these two reserved names honestly instead of
-            // silently mistyping them.
-            "RoundingMode" => Err(OxizError::ParseError {
-                position: self.lexer.position(),
-                message: "sort 'RoundingMode' is a reserved SMT-LIB FloatingPoint theory sort; \
-                    declaring constants or functions of this sort is not yet supported (a \
-                    rounding mode is only accepted as a literal RNE/RNA/RTP/RTN/RTZ argument \
-                    directly inside an fp.* operator)"
-                    .to_string(),
-            }),
+            // `RoundingMode` is a first-class sort (`SortKind::RoundingMode`):
+            // `(declare-const m RoundingMode)` builds a real, solvable
+            // rounding-mode constant.  Its five inhabitants are nullary `Var`
+            // terms at this sort, so EUF decides equalities between them; the
+            // finiteness of the domain is enforced by the solver layer, which
+            // asserts a closure axiom per declared constant plus the pairwise
+            // distinctness of the five modes.
+            //
+            // Because those axioms attach per *nullary declaration*, the sort
+            // is accepted here and then rejected in the positions no axiom can
+            // reach — see `reject_unsupported_rounding_mode_position`.
+            "RoundingMode" => {
+                self.manager.note_rounding_mode_used();
+                Ok(self.manager.sorts.rounding_mode_sort)
+            }
+            // `RegLan` is *implemented*, just not user-declarable.
+            //
+            // The regular-language sublanguage itself works end to end:
+            // `str.to_re`, `re.++`, `re.union`, `re.inter`, `re.*`, `re.none`,
+            // `re.all`, `re.allchar`, `re.range`, `re.opt`, `re.+`, `(_ re.loop
+            // l u)` and `str.in_re` all parse, and the strings theory compiles
+            // them into a Brzozowski-derivative automaton for membership
+            // solving. What makes the sort name itself off limits is that the
+            // encoding *reserves* it: every regex term is interned at the
+            // built-in sort `TermManager::reglan_sort()` (see
+            // `ast/manager/builder.rs`, "Regular-expression (RegLan) terms"),
+            // which is `Uninterpreted("RegLan")`. Accepting `RegLan` here would
+            // let a user-declared symbol be minted at that very sort, aliasing a
+            // free constant into the regex encoding's own namespace — a regex
+            // operand the derivative engine cannot compile and has no way to
+            // recognise as foreign. This rejection is therefore load-bearing,
+            // not a placeholder: it is what keeps the reserved name reserved.
             "RegLan" => Err(OxizError::ParseError {
                 position: self.lexer.position(),
-                message: "sort 'RegLan' is a reserved SMT-LIB Strings theory sort; the regular \
-                    language sublanguage (re.*, str.to_re, and RegLan-sorted \
-                    constants/functions) is not yet implemented"
+                message: "sort 'RegLan' is a reserved SMT-LIB Strings theory sort name: it names \
+                    the built-in encoding OxiZ interns every regular-expression term at, so it \
+                    cannot also name a user-declared constant or function. The regular-language \
+                    operators themselves are fully supported — build regular expressions with \
+                    str.to_re / re.++ / re.union / re.inter / re.* / re.range / re.none / re.all \
+                    / re.allchar and test membership with str.in_re"
                     .to_string(),
             }),
             _ => {
@@ -279,12 +290,17 @@ impl<'a> Parser<'a> {
                     }
                     work.extend(args.iter().copied());
                 }
+                // `RoundingMode` is a built-in leaf whose name is reserved:
+                // `parse_sort_name` never lets a `define-sort` alias or any
+                // other user declaration bind that spelling, so it can never
+                // be the `name` this walk is hunting for.
                 SortKind::Bool
                 | SortKind::Int
                 | SortKind::Real
                 | SortKind::String
                 | SortKind::BitVec(_)
-                | SortKind::FloatingPoint { .. } => {}
+                | SortKind::FloatingPoint { .. }
+                | SortKind::RoundingMode => {}
             }
         }
         false
@@ -438,6 +454,14 @@ impl<'a> Parser<'a> {
                                 let domain = self.parse_sort()?;
                                 let range = self.parse_sort()?;
                                 self.expect_rparen()?;
+                                self.reject_unsupported_rounding_mode_position(
+                                    domain,
+                                    "an array domain",
+                                )?;
+                                self.reject_unsupported_rounding_mode_position(
+                                    range,
+                                    "an array range",
+                                )?;
                                 Ok(self.manager.sorts.array(domain, range))
                             }
                             _ => Err(OxizError::ParseError {
@@ -463,6 +487,47 @@ impl<'a> Parser<'a> {
                 message: "expected sort, found end of input".to_string(),
             })
         }
+    }
+
+    /// Reject `RoundingMode` in a position whose finiteness OxiZ cannot yet
+    /// enforce.
+    ///
+    /// `RoundingMode` has exactly five elements, but nothing about the *sort*
+    /// says so: the cardinality lives in axioms the solver asserts — a closure
+    /// axiom `(or (= m RNE) ... (= m RTZ))` per declared rounding-mode
+    /// constant, plus one pairwise-distinctness axiom over the five modes.
+    /// The closure axiom can only be attached where there is a single symbol
+    /// to attach it to, i.e. a *nullary* declaration.
+    ///
+    /// Everywhere else — a function's argument or result sort, an array's
+    /// domain or range, a datatype field — the rounding modes reachable
+    /// through the sort are unboundedly many and unnamed, so no closure axiom
+    /// can be written down. Accepting such a declaration would silently make
+    /// `RoundingMode` behave as an *infinite free sort*: `(distinct (g 1)
+    /// (g 2) ... (g 6))` over `(declare-fun g (Int) RoundingMode)` would
+    /// answer `sat`, which is wrong. Rejecting is the honest alternative.
+    ///
+    /// `position` names the offending position for the diagnostic and reads as
+    /// the object of "not as ...", e.g. `"an array range"`.
+    pub(super) fn reject_unsupported_rounding_mode_position(
+        &self,
+        sort: SortId,
+        position: &str,
+    ) -> Result<()> {
+        if !self.manager.sorts.sort_mentions_rounding_mode(sort) {
+            return Ok(());
+        }
+        Err(OxizError::ParseError {
+            position: self.lexer.position(),
+            message: format!(
+                "sort 'RoundingMode' is supported only in nullary declaration position — \
+                 (declare-const m RoundingMode) or (declare-fun m () RoundingMode) — not as \
+                 {position}. The sort's five-element domain is enforced by a closure axiom \
+                 attached to each declared rounding-mode constant, and there is no way to attach \
+                 that axiom to the rounding modes reachable through {position}; accepting it \
+                 would silently treat RoundingMode as an infinite free sort"
+            ),
+        })
     }
 
     /// Convert a SortId to its canonical SMT-LIB2 string representation.
@@ -505,6 +570,15 @@ impl<'a> Parser<'a> {
                         SortKind::FloatingPoint { eb, sb } => {
                             out.push_str(&format!("(_ FloatingPoint {eb} {sb})"));
                         }
+                        // The spelling must be exactly the one
+                        // `Parser::parse_sort_name` and the solver's
+                        // `Context::parse_sort_name` both accept: these strings
+                        // are what `Command::DeclareConst` carries, so a
+                        // mismatch here would resolve the declared constant at
+                        // a *different* `SortId` than the one its occurrences
+                        // in terms were interned at, silently splitting the
+                        // symbol in two.
+                        SortKind::RoundingMode => out.push_str("RoundingMode"),
                         SortKind::Array { domain, range } => {
                             out.push_str("(Array ");
                             // Pushed in reverse of emission order.
@@ -562,16 +636,16 @@ mod tests {
     /// process, and `SortManager::array` is `pub` and interns in constant
     /// stack, so nothing bounds the depth an embedder can reach.
     ///
-    /// Runs on a 1 MiB stack: the assertion is that the call returns at all.
+    /// Runs on a 128 KiB stack: the assertion is that the call returns at all.
     #[test]
-    fn sort_id_to_string_survives_a_hundred_thousand_array_levels() {
+    fn sort_id_to_string_survives_twelve_thousand_five_hundred_array_levels() {
         let handle = std::thread::Builder::new()
-            .stack_size(1 << 20)
+            .stack_size(1 << 17)
             .spawn(|| {
                 let mut manager = TermManager::new();
                 let int_sort = manager.sorts.int_sort;
                 let mut sort = int_sort;
-                for _ in 0..100_000 {
+                for _ in 0..12_500 {
                     sort = manager.sorts.array(int_sort, sort);
                 }
                 let parser = Parser::new("", &mut manager);
@@ -579,7 +653,7 @@ mod tests {
             })
             .expect("spawn");
         let len = handle.join().expect("worker thread must not overflow");
-        assert_eq!(len, 100_000 * 11 + 3 + 100_000);
+        assert_eq!(len, 12_500 * 11 + 3 + 12_500);
     }
 
     /// Semantic pin for the shapes the recursive version already handled.

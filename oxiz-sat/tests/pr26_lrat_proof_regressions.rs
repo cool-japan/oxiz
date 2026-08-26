@@ -312,12 +312,18 @@ fn test_pr26_lrat_inprocessing_gate_still_yields_verifiable_proof() {
 
 #[test]
 fn test_pr26_lrat_default_config_hyper_binary_gate_produces_verifiable_proof() {
-    // `SolverConfig::default()` has `enable_lazy_hyper_binary: true`;
-    // pigeonhole(6,5) reaches well past decision level 2 during search.
+    // The flag is set here *explicitly* rather than relying on
+    // `SolverConfig::default()`: the default was retuned by measurement for
+    // issue #38 (see the comment at `SolverConfig::enable_lazy_hyper_binary`),
+    // and this test must keep exercising the proof-tracing gate whichever way
+    // that default lands. Pigeonhole(6,5) reaches well past decision level 2
+    // during search, so the pass is genuinely reached.
+    let config = SolverConfig {
+        enable_lazy_hyper_binary: true,
+        ..SolverConfig::default()
+    };
     let (original, lrat) =
-        solve_unsat_and_capture_lrat("hyper_binary_gate", SolverConfig::default(), |s| {
-            add_pigeonhole(s, 6, 5)
-        });
+        solve_unsat_and_capture_lrat("hyper_binary_gate", config, |s| add_pigeonhole(s, 6, 5));
     let report = check_lrat_proof(&original, &lrat);
     assert!(report.verified, "failure: {:?}", report.failure);
 }

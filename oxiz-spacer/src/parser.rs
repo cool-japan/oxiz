@@ -1449,6 +1449,11 @@ mod tests {
     /// the nesting depth is directly attacker-controlled.
     #[test]
     fn parse_sexpr_survives_deep_nesting() {
+        // STACK-1MIB: deliberately 1 MiB, not swept to 128 KiB — `parse_sexpr`
+        // itself is an explicit-stack scan with no native recursion, so the
+        // 100k depth here is not bounded by thread stack size at all; 1 MiB
+        // is just a conventional headroom, not a tuned minimum. See
+        // TODO.md "v0.3.2 backlog".
         let handle = std::thread::Builder::new()
             .stack_size(1 << 20)
             .spawn(|| {
@@ -1461,9 +1466,11 @@ mod tests {
                 let parsed = SExprParser::parse_str(&input).expect("deep s-expr must parse");
                 assert_eq!(parsed.len(), 1);
 
-                // Walk down iteratively to confirm the shape, then drop the
-                // value without recursing (`SExpr`'s own `Drop` is derived
-                // and recursive, so keep the depth check cheap).
+                // Walk down iteratively to confirm the shape, then let
+                // `parsed` drop: `SExpr`'s own `Drop` is an explicit
+                // iterative teardown (see `impl Drop for SExpr` above), so
+                // this test pins both the bounded-recursion parse and the
+                // iterative drop at once.
                 let mut depth = 0usize;
                 let mut node = &parsed[0];
                 while let SExpr::List(items) = node {
@@ -1526,6 +1533,11 @@ mod tests {
     /// crash the process and not silently produce a truncated term.
     #[test]
     fn parse_term_rejects_excessive_nesting() {
+        // STACK-1MIB: deliberately 1 MiB, not swept to 128 KiB — the term
+        // parser's own bound (`MAX_TERM_NESTING` = 500) is enforced by
+        // deliberately bounded native recursion at ~2 KiB/frame; a 128 KiB
+        // stack would overflow before the bound could reject the input.
+        // See TODO.md "v0.3.2 backlog".
         let handle = std::thread::Builder::new()
             .stack_size(1 << 20)
             .spawn(|| {
@@ -1557,6 +1569,11 @@ mod tests {
     /// thread, so the bound rejects only inputs that would have crashed.
     #[test]
     fn parse_term_accepts_nesting_just_under_the_limit() {
+        // STACK-1MIB: deliberately 1 MiB, not swept to 128 KiB — same
+        // deliberately bounded native recursion as
+        // `parse_term_rejects_excessive_nesting` (`MAX_TERM_NESTING` = 500
+        // at ~2 KiB/frame); a 128 KiB stack would overflow. See TODO.md
+        // "v0.3.2 backlog".
         let handle = std::thread::Builder::new()
             .stack_size(1 << 20)
             .spawn(|| {

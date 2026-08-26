@@ -470,7 +470,20 @@ impl Solver {
         for i in 0..self.num_vars {
             self.model[i] = self.trail.value(Var::new(i as u32));
         }
+        self.apply_model_reconstruction();
+    }
 
+    /// Fix up `self.model` for every variable the preprocessing/inprocessing
+    /// toolkit removed from the live formula.
+    ///
+    /// Split out of [`Solver::save_model`] so a caller that produces a full
+    /// assignment by some route *other* than the trail — the pre-search lucky
+    /// phase (see `solver/lucky.rs`) builds one in a scratch buffer — can
+    /// install it and still go through the exact same reconstruction the
+    /// ordinary Sat exit does. Every step below overwrites unconditionally
+    /// and depends only on `self.model`, never on the trail, so the two
+    /// callers are interchangeable.
+    pub(super) fn apply_model_reconstruction(&mut self) {
         // Reconstruct pure literals eliminated during inprocessing. Their clauses
         // were deleted on the promise that the literal is fixed to its polarity;
         // the search may have assigned the variable the opposite phase, so force
@@ -489,7 +502,7 @@ impl Solver {
 
         // Reconstruct variables removed by the inprocessing toolkit's
         // variable-elimination mechanisms. Both overwrite unconditionally
-        // (not only when the trail-copy above left `Undef`): a variable the
+        // (not only when the caller's assignment left `Undef`): a variable the
         // toolkit eliminated no longer appears in any live clause, so
         // `pick_branch_var` should never hand it out as a decision (see the
         // `var_eliminated` guards in `solver/decide.rs`), but nothing stops
@@ -580,14 +593,49 @@ impl Solver {
     /// their literals need not even be in the model's variable range.
     #[cfg(debug_assertions)]
     fn find_model_violation(&self, include_learned: bool) -> Option<ClauseId> {
+        self.first_violated_clause(&self.model, include_learned, 2)
+    }
+
+    /// Find a live clause of at least `min_len` literals that `assignment`
+    /// does not satisfy, restricted to original clauses unless
+    /// `include_learned` is set.
+    ///
+    /// The scan body [`Solver::find_model_violation`] used to own, lifted out
+    /// so it can run against a *candidate* assignment held in a scratch
+    /// buffer rather than only against `self.model`, and — unlike that
+    /// debug-only wrapper — compiled in every build. The pre-search lucky
+    /// phase (see `solver/lucky.rs`) is the release-build caller: for it the
+    /// scan is not an assertion but the actual acceptance test that decides
+    /// whether a guessed assignment may be reported as a model, so it must
+    /// exist when `debug_assertions` is off.
+    ///
+    /// `min_len` exists because the two callers disagree about unit clauses
+    /// on purpose. `find_model_violation` passes `2`, excluding them for the
+    /// reasons its own doc comment gives (the database is not what enforces a
+    /// unit — a level-0 trail assignment is — so a retracted one may be
+    /// legitimately falsified by a later model). The lucky phase passes `1`:
+    /// it is deciding a verdict rather than checking an invariant, so it
+    /// takes the strictly more conservative reading and refuses a candidate
+    /// falsifying *any* live original clause, including a length-1 one left
+    /// behind by in-place strengthening (`Solver::self_subsuming_resolution`).
+    ///
+    /// A variable outside `assignment`'s range, or one left `Undef`, counts
+    /// as satisfying nothing — so an incomplete assignment can only ever be
+    /// *rejected* by this scan, never wrongly accepted.
+    pub(super) fn first_violated_clause(
+        &self,
+        assignment: &[LBool],
+        include_learned: bool,
+        min_len: usize,
+    ) -> Option<ClauseId> {
         self.clauses.iter_ids().find(|&id| {
             self.clauses.get(id).is_some_and(|clause| {
                 (include_learned || !clause.learned)
-                    && clause.lits.len() >= 2
+                    && clause.lits.len() >= min_len
                     && !clause
                         .lits
                         .iter()
-                        .any(|lit| match self.model.get(lit.var().index()) {
+                        .any(|lit| match assignment.get(lit.var().index()) {
                             Some(LBool::True) => lit.is_pos(),
                             Some(LBool::False) => !lit.is_pos(),
                             _ => false,
@@ -742,15 +790,52 @@ impl Solver {
         let w0 = lits[0];
         let w1 = lits[1];
 
-        // Write the reordered literals back into the clause.
+        // Write the reordered literals back into the clause, and bring its LBD
+        // back inside the range the shortened clause can actually justify.
+        //
+        // LBD counts *distinct decision levels* among a clause's literals, so
+        // it can never exceed the clause's length — an invariant
+        // `crate::invariants` checks in debug builds, and one that clause-tier
+        // promotion (`Clause::assign_tier_from_lbd`) and database reduction
+        // both read. Dropping a literal can drop the last representative of a
+        // decision level, so a stale stored LBD may now exceed the new length
+        // (a ternary strengthened to a binary while its recorded LBD was 3
+        // trips the invariant outright).
+        //
+        // Clamped rather than recomputed, deliberately: `compute_lbd` reads
+        // the *current* trail, and every caller of this runs at decision level
+        // 0 where each variable is either level-0 or unassigned — recomputing
+        // would score every strengthened clause as LBD 1 and silently promote
+        // the whole strengthened population into the never-deleted glue tier.
+        // Clamping repairs the bound and leaves the recorded quality ordering
+        // alone.
+        let capped_lbd = lits.len() as u32;
         if let Some(clause) = self.clauses.get_mut(clause_id) {
             clause.lits.clear();
             clause.lits.extend(lits.iter().copied());
+            clause.lbd = clause.lbd.min(capped_lbd);
         }
 
         // Re-attach watches on the new positions 0 and 1.
         self.watches.add(w0.negate(), Watcher::new(clause_id, w1));
         self.watches.add(w1.negate(), Watcher::new(clause_id, w0));
+
+        // Rewind the propagation head so the whole surviving trail is scanned
+        // again on the next `propagate()`.
+        //
+        // Re-attaching watches is not enough on its own: a watch only ever
+        // fires when its literal is *newly* falsified, and the literals that
+        // falsify a just-shortened clause are typically already on the trail,
+        // propagated long ago. A clause that had two unassigned literals and
+        // loses one becomes unit under the *current* assignment with no future
+        // event left to notice it — a "hanging unit" that unit propagation
+        // never fires on, which the debug fixpoint invariants catch and which
+        // in a release build simply loses an implication (and, if that
+        // implication was the one that closed a branch, can change the search
+        // enough to matter). Rewinding is always safe: re-propagating a
+        // literal that is still assigned is a no-op, so this costs one extra
+        // pass over the watch lists and nothing else.
+        self.trail.reset_propagation_head();
 
         // Record the in-place strengthening in the DRAT proof: add the shorter
         // clause (RUP-derivable — vivification proved it entailed) then delete the
@@ -849,6 +934,14 @@ impl Solver {
                 }
             }
         }
+
+        // The probe loop above drains any still-pending level-0 propagation
+        // queue under a probe decision level and then throws the resulting
+        // assignments away on backtrack. Rewind the head so the next
+        // `propagate()` re-derives the level-0 consequences that were lost —
+        // see the identical note at the end of `Solver::inprocess` for the
+        // full reasoning.
+        self.trail.reset_propagation_head();
     }
 
     /// Perform inprocessing (apply preprocessing during search)
@@ -947,12 +1040,59 @@ impl Solver {
             }
         }
 
+        // Self-subsuming resolution: strengthen clauses whose resolvent
+        // against another live clause subsumes them. Deliberately sequenced
+        // *after* subsumption elimination and before the entailment-probing
+        // strengthening below:
+        //
+        // * after subsumption, because subsumption only ever deletes clauses
+        //   (which shrinks the work here) whereas this pass rewrites live
+        //   clause contents — running it first would leave
+        //   `subsumption_elimination`'s freshly built occurrence lists
+        //   describing literals that are no longer there;
+        // * before `strengthen_clauses_inprocessing`, because this pass is a
+        //   pure syntactic check over two clauses while that one runs an
+        //   assign-and-propagate probe per literal, so the cheap pass gets
+        //   first crack at the easy removals.
+        //
+        // Every removal it performs goes through `remove_literal_and_rewatch`,
+        // which keeps watches and the DRAT proof in step; nothing extra is
+        // needed from the `pre_lits` snapshot above (that snapshot detects
+        // clause *deletions*, and this pass deletes none).
+        self.self_subsuming_resolution();
+
         // On-the-fly clause strengthening
         self.strengthen_clauses_inprocessing();
 
-        // Rebuild watch lists for any modified clauses
-        // This is a simplified approach - in a full implementation,
-        // we would track which clauses were removed and update watches incrementally
+        // Re-arm unit propagation over the whole surviving trail.
+        //
+        // This is not an optimization guard, it repairs a real completeness
+        // hole. `inprocess` is called from the search loop right after a
+        // conflict is handled, at which point the level-0 propagation queue is
+        // routinely *non-empty* (`prop_head < trail.size()`).
+        // `strengthen_clauses_inprocessing` — and `vivify_clauses`, which
+        // shares the technique — then open a probe decision level, assign
+        // literals speculatively and call `propagate()`. That call drains the
+        // still-pending level-0 literals under the probe's assumptions:
+        // `prop_head` advances past them, any consequence it derives is filed
+        // at the probe level, and the subsequent `backtrack` throws those
+        // consequences away. The genuine level-0 implications among them are
+        // then never re-derived — leaving a live clause with one unassigned
+        // literal and every other literal false that nothing will ever fire on
+        // (a "hanging unit"; `crate::invariants::check_unit_propagation_complete`
+        // catches exactly this in debug builds, and in a release build it
+        // silently loses an implication).
+        //
+        // Rewinding the head makes the next `propagate()` rescan the whole
+        // trail, which re-derives every lost level-0 consequence. Safe by
+        // construction: re-propagating an already-assigned literal is a no-op
+        // (see `Trail::reset_propagation_head`), so the only cost is one extra
+        // pass over the watch lists per inprocessing stop.
+        self.trail.reset_propagation_head();
+
+        // Watch lists for clauses these passes *retired* need no repair:
+        // `propagate` skips clauses marked deleted, and a strengthened clause
+        // is re-watched in place by `remove_literal_and_rewatch`.
     }
 
     /// On-the-fly clause strengthening during inprocessing

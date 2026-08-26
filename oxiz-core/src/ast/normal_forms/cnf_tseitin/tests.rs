@@ -532,12 +532,12 @@ fn minting_skips_names_already_in_use() {
     assert_eq!(literal_name(&manager, introduced[0]), "tseitin!1");
 }
 
-/// The traversal is a heap walk: a 50 000-level implication chain converts
-/// on a 1 MiB stack.
+/// The traversal is a heap walk: a 6 250-level implication chain converts
+/// on a 128 KiB stack.
 #[test]
 fn deep_formula_converts_on_a_small_stack() {
-    const LEVELS: usize = 50_000;
-    const STACK_SIZE: usize = 1 << 20;
+    const LEVELS: usize = 6_250;
+    const STACK_SIZE: usize = 1 << 17;
 
     let worker = std::thread::Builder::new()
         .stack_size(STACK_SIZE)
@@ -554,7 +554,7 @@ fn deep_formula_converts_on_a_small_stack() {
             let clauses = extract_cnf_clauses(cnf, &manager);
             assert_eq!(clauses.len(), 1 + 3 * LEVELS);
         })
-        .expect("spawning the 1 MiB worker thread");
+        .expect("spawning the 128 KiB worker thread");
 
     worker
         .join()

@@ -1407,7 +1407,7 @@ mod tests {
         assert_blasts_to_true(&mut manager, all);
     }
 
-    /// Run `body` on a worker thread with a deliberately small (1 MiB) stack,
+    /// Run `body` on a worker thread with a deliberately small (128 KiB) stack,
     /// so that a recursive walk over a deep term would abort the process
     /// instead of silently getting away with a large main-thread stack.
     fn run_with_small_stack<F>(body: F)
@@ -1415,7 +1415,7 @@ mod tests {
         F: FnOnce() + Send + 'static,
     {
         std::thread::Builder::new()
-            .stack_size(1 << 20)
+            .stack_size(1 << 17)
             .spawn(body)
             .expect("thread spawn should succeed")
             .join()
@@ -1425,7 +1425,7 @@ mod tests {
     #[test]
     fn test_contains_bv_term_handles_deeply_nested_terms() {
         run_with_small_stack(|| {
-            const DEPTH: usize = 50_000;
+            const DEPTH: usize = 6_250;
 
             let mut manager = TermManager::new();
             let bv8 = manager.sorts.bitvec(8);

@@ -1081,6 +1081,10 @@ mod tests {
         // itself with the same argument forever. Returning at all is the
         // assertion; the thread has a deliberately small stack so an
         // unbounded recursion would show up as an abort, not a slow test.
+        // STACK-1MIB: deliberately 1 MiB, not swept to 128 KiB — this test
+        // has no meaningful nesting depth at all (it is a termination
+        // check on a single `powi` call), so 1 MiB is intentionally
+        // generous. See TODO.md "v0.3.2 backlog".
         let handle = std::thread::Builder::new()
             .stack_size(1 << 20)
             .spawn(|| {

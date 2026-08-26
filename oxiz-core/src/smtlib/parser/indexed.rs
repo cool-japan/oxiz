@@ -9,6 +9,7 @@
 
 use super::super::lexer::TokenKind;
 use super::Parser;
+use super::commands::{RmOperand, is_rounding_mode_literal};
 use crate::ast::{RoundingMode, TermId};
 use crate::error::{OxizError, Result};
 #[allow(unused_imports)]
@@ -118,7 +119,7 @@ impl Parser<'_> {
                 }
                 // Prepend `n` zero bits: concat(0:n, arg).
                 let zeros = self.manager.mk_bitvec(0, n);
-                Ok(Some(self.manager.mk_bv_concat(zeros, arg)))
+                Ok(Some(self.manager.try_mk_bv_concat(zeros, arg)?))
             }
             "sign_extend" => {
                 let n = single_index(index_parts)?;
@@ -134,9 +135,9 @@ impl Parser<'_> {
                 let sign_bit = self.manager.mk_bv_extract(width - 1, width - 1, arg);
                 let mut ext = sign_bit;
                 for _ in 1..n {
-                    ext = self.manager.mk_bv_concat(ext, sign_bit);
+                    ext = self.manager.try_mk_bv_concat(ext, sign_bit)?;
                 }
-                Ok(Some(self.manager.mk_bv_concat(ext, arg)))
+                Ok(Some(self.manager.try_mk_bv_concat(ext, arg)?))
             }
             "rotate_left" | "rotate_right" => {
                 let raw = single_index(index_parts)?;
@@ -160,7 +161,7 @@ impl Parser<'_> {
                 // rol(x, a) = concat(x[width-1-a : 0], x[width-1 : width-a]).
                 let low = self.manager.mk_bv_extract(width - 1 - amount, 0, arg);
                 let high = self.manager.mk_bv_extract(width - 1, width - amount, arg);
-                Ok(Some(self.manager.mk_bv_concat(low, high)))
+                Ok(Some(self.manager.try_mk_bv_concat(low, high)?))
             }
             "repeat" => {
                 let n = single_index(index_parts)?;
@@ -173,7 +174,7 @@ impl Parser<'_> {
                 }
                 let mut result = arg;
                 for _ in 1..n {
-                    result = self.manager.mk_bv_concat(result, arg);
+                    result = self.manager.try_mk_bv_concat(result, arg)?;
                 }
                 Ok(Some(result))
             }
@@ -299,7 +300,7 @@ impl Parser<'_> {
         &mut self,
         name: &str,
         index_parts: &[String],
-    ) -> Result<Option<RoundingMode>> {
+    ) -> Result<Option<RmOperand>> {
         match name {
             "to_fp" | "to_fp_unsigned" => {
                 // Validate the format indices before deciding which form this
@@ -311,11 +312,11 @@ impl Parser<'_> {
                 if !self.next_token_is_rounding_mode() {
                     return Ok(None);
                 }
-                Ok(Some(self.parse_rounding_mode()?))
+                Ok(Some(self.parse_rounding_mode_operand()?))
             }
             "fp.to_sbv" | "fp.to_ubv" => {
                 let _ = self.fp_conv_width(name, index_parts)?;
-                Ok(Some(self.parse_rounding_mode()?))
+                Ok(Some(self.parse_rounding_mode_operand()?))
             }
             _ => Ok(None),
         }
@@ -325,6 +326,29 @@ impl Parser<'_> {
     /// by [`Parser::open_indexed_fp_conv`] and whose single operand has now
     /// been parsed.
     pub(super) fn build_indexed_fp_conv(
+        &mut self,
+        name: &str,
+        index_parts: &[String],
+        rm: RmOperand,
+        arg: TermId,
+    ) -> Result<TermId> {
+        match rm {
+            RmOperand::Concrete(rm) => {
+                self.build_indexed_fp_conv_concrete(name, index_parts, rm, arg)
+            }
+            RmOperand::Symbolic(mode) => {
+                let name = name.to_string();
+                let index_parts = index_parts.to_vec();
+                self.expand_symbolic_rm(mode, |parser, rm| {
+                    parser.build_indexed_fp_conv_concrete(&name, &index_parts, rm, arg)
+                })
+            }
+        }
+    }
+
+    /// Build an indexed floating-point conversion at one *literal* rounding
+    /// mode.
+    fn build_indexed_fp_conv_concrete(
         &mut self,
         name: &str,
         index_parts: &[String],
@@ -379,17 +403,20 @@ impl Parser<'_> {
     /// `to_fp`/`to_fp_unsigned` form from the (unsupported) no-RM
     /// bit-pattern form.
     pub(super) fn next_token_is_rounding_mode(&self) -> bool {
-        matches!(
-            self.lexer.peek().map(|t| t.kind),
-            Some(TokenKind::Symbol(s)) if matches!(
-                s.as_str(),
-                "RNE" | "RNA" | "RTP" | "RTN" | "RTZ"
-                    | "roundNearestTiesToEven"
-                    | "roundNearestTiesToAway"
-                    | "roundTowardPositive"
-                    | "roundTowardNegative"
-                    | "roundTowardZero"
-            )
-        )
+        let Some(TokenKind::Symbol(s)) = self.lexer.peek().map(|t| t.kind) else {
+            return false;
+        };
+        if is_rounding_mode_literal(&s) {
+            return true;
+        }
+        // A *symbolic* mode occupies the same position as a literal one, and
+        // so does the bit-pattern form's single bit-vector operand — both are
+        // bare symbols, so the spelling alone cannot separate them. Resolve
+        // the sort instead: only a `RoundingMode`-sorted symbol is a mode.
+        let rm_sort = self.manager.sorts.rounding_mode_sort;
+        if let Some(&term) = self.bindings.get(&s) {
+            return self.manager.get(term).is_some_and(|t| t.sort == rm_sort);
+        }
+        self.constants.get(&s) == Some(&rm_sort)
     }
 }

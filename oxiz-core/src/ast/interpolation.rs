@@ -578,15 +578,24 @@ mod deep_walk_tests {
 
     #[test]
     fn test_interpolation_walks_deep_nesting_do_not_overflow() {
+        // 128 KiB / 6_250 levels: the house ratio for a genuinely nested
+        // `Not` chain (see oxiz-spacer/src/walk.rs's `DEEP_STACK`/`DEEP_DEPTH`).
+        // `mk_not` folds double negation (`not(not(p)) == p`), so a loop of
+        // `mk_not` calls oscillates between depth 0 and 1 and never actually
+        // nests -- intern the `Not` nodes directly so the chain really is
+        // this deep.
+        const DEEP_STACK: usize = 1 << 17;
+        const DEEP_DEPTH: usize = 6_250;
+
         let handle = std::thread::Builder::new()
-            .stack_size(1 << 20)
+            .stack_size(DEEP_STACK)
             .spawn(|| {
                 let mut manager = TermManager::new();
                 let bool_sort = manager.sorts.bool_sort;
                 let p = manager.mk_var("p", bool_sort);
                 let mut term = p;
-                for _ in 0..60_000 {
-                    term = manager.mk_not(term);
+                for _ in 0..DEEP_DEPTH {
+                    term = manager.intern_term(TermKind::Not(term), bool_sort);
                 }
 
                 let mut symbols = FxHashSet::default();

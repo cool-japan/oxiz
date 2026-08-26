@@ -4,6 +4,7 @@
 //!
 //! Reference: Z3's `src/smt/theory_array.cpp`
 
+use super::combination::{Theory, TheoryResult};
 use crate::ast::{TermId, TermKind, TermManager};
 #[allow(unused_imports)]
 use crate::prelude::*;
@@ -40,7 +41,14 @@ pub enum ArrayAxiom {
         array1: TermId,
         /// Second array
         array2: TermId,
-        /// Witness index (for counterexample)
+        /// Skolem witness index for this pair, if one has been chosen
+        ///
+        /// `None` asks for the quantified axiom. `Some(w)` asks for its
+        /// Skolemization, which is only sound when `w` is a *witness chosen
+        /// for this pair* — the index at which the two arrays differ if they
+        /// differ at all, i.e. a fresh constant. An arbitrary existing index
+        /// is not a witness, and the Skolemized form is false for one.
+        /// [`ArrayTheory::generate_extensionality`] records `None`.
         witness: Option<TermId>,
     },
 }
@@ -216,9 +224,13 @@ impl ArrayTheory {
 
     /// Convert an array axiom to a term
     ///
-    /// This creates the SMT formula corresponding to the axiom
-    pub fn axiom_to_term(&self, axiom: &ArrayAxiom, manager: &mut TermManager) -> TermId {
-        match axiom {
+    /// This creates the SMT formula corresponding to the axiom.
+    ///
+    /// Returns `None` for an [`ArrayAxiom::Extensionality`] with no witness
+    /// whose arrays' domain sort cannot be read from `manager` — the
+    /// quantified form needs it to bind the index.
+    pub fn axiom_to_term(&self, axiom: &ArrayAxiom, manager: &mut TermManager) -> Option<TermId> {
+        Some(match axiom {
             ArrayAxiom::ReadOverWrite {
                 array,
                 index,
@@ -251,19 +263,41 @@ impl ArrayTheory {
                 array2,
                 witness,
             } => {
-                // ∀i. (select array1 i) = (select array2 i) ⟹ array1 = array2
-                // For now, without quantifiers, we use a witness-based approach
-                if let Some(idx) = witness {
-                    let select1 = manager.mk_select(*array1, *idx);
-                    let select2 = manager.mk_select(*array2, *idx);
-                    let select_eq = manager.mk_eq(select1, select2);
-                    let array_eq = manager.mk_eq(*array1, *array2);
-                    manager.mk_implies(select_eq, array_eq)
+                // With a Skolem witness w for the pair:
+                //   (select array1 w) = (select array2 w) ⟹ array1 = array2
+                // Without one, the quantified axiom itself:
+                //   (∀i. (select array1 i) = (select array2 i)) ⟹ array1 = array2
+                let index = match witness {
+                    Some(index) => *index,
+                    None => {
+                        let domain = self.domain_sort_of(*array1, manager)?;
+                        // A name no source-level variable can collide with.
+                        manager.mk_var("array!ext!i", domain)
+                    }
+                };
+
+                let select1 = manager.mk_select(*array1, index);
+                let select2 = manager.mk_select(*array2, index);
+                let select_eq = manager.mk_eq(select1, select2);
+                let array_eq = manager.mk_eq(*array1, *array2);
+
+                let premise = if witness.is_some() {
+                    select_eq
                 } else {
-                    // Without witness, just assert equality
-                    manager.mk_eq(*array1, *array2)
-                }
+                    let domain = self.domain_sort_of(*array1, manager)?;
+                    manager.mk_forall([("array!ext!i", domain)], select_eq)
+                };
+                manager.mk_implies(premise, array_eq)
             }
+        })
+    }
+
+    /// Domain sort of an array term, when it has an array sort
+    fn domain_sort_of(&self, array: TermId, manager: &TermManager) -> Option<SortId> {
+        let sort = manager.get(array)?.sort;
+        match manager.sorts.get(sort)?.kind {
+            SortKind::Array { domain, .. } => Some(domain),
+            _ => None,
         }
     }
 
@@ -279,15 +313,22 @@ impl ArrayTheory {
     }
 
     /// Get all pending axioms as terms and clear the queue
+    ///
+    /// Axioms that [`ArrayTheory::axiom_to_term`] cannot build stay queued
+    /// rather than being dropped, so a caller that inspects
+    /// [`ArrayTheory::get_pending_axioms`] afterwards still sees them.
     pub fn propagate(&mut self, manager: &mut TermManager) -> Vec<TermId> {
-        let axioms: Vec<_> = self
-            .pending_axioms
-            .iter()
-            .map(|axiom| self.axiom_to_term(axiom, manager))
-            .collect();
+        let queued = core::mem::take(&mut self.pending_axioms);
 
-        self.pending_axioms.clear();
-        axioms
+        let mut terms = Vec::with_capacity(queued.len());
+        for axiom in queued {
+            match self.axiom_to_term(&axiom, manager) {
+                Some(term) => terms.push(term),
+                None => self.pending_axioms.push(axiom),
+            }
+        }
+
+        terms
     }
 
     /// Check whether two arrays are *provably* equal from the registered selects
@@ -366,6 +407,45 @@ impl ArrayTheory {
         self.stores.clear();
         self.pending_axioms.clear();
         self.instantiated.clear();
+    }
+}
+
+impl Theory for ArrayTheory {
+    fn add_term(&mut self, term: TermId, manager: &TermManager) -> bool {
+        ArrayTheory::add_term(self, term, manager, &manager.sorts);
+
+        manager.get(term).is_some_and(|t| {
+            matches!(t.kind, TermKind::Select(_, _) | TermKind::Store(_, _, _))
+                || manager
+                    .sorts
+                    .get(t.sort)
+                    .is_some_and(|sort| matches!(sort.kind, SortKind::Array { .. }))
+        })
+    }
+
+    /// This theory contributes axiom instances and does not track equality
+    /// classes, so an equality is never new information for it: this always
+    /// returns `false`.
+    fn assert_equality(&mut self, _a: TermId, _b: TermId) -> bool {
+        false
+    }
+
+    fn check(&mut self, manager: &mut TermManager) -> TheoryResult {
+        let lemmas = self.propagate(manager);
+
+        if lemmas.is_empty() {
+            TheoryResult::Sat
+        } else {
+            TheoryResult::Lemmas(lemmas)
+        }
+    }
+
+    fn name(&self) -> &str {
+        "array"
+    }
+
+    fn reset(&mut self) {
+        ArrayTheory::reset(self);
     }
 }
 
@@ -471,10 +551,104 @@ mod tests {
             value,
         };
 
-        let term = theory.axiom_to_term(&axiom, &mut manager);
+        let term = theory
+            .axiom_to_term(&axiom, &mut manager)
+            .expect("read-over-write should always be buildable");
 
         // Should create: (select (store array index value) index) = value
         assert!(manager.get(term).is_some());
+    }
+
+    #[test]
+    fn test_extensionality_without_a_witness_is_quantified() {
+        let mut manager = TermManager::new();
+        let theory = ArrayTheory::new();
+
+        let int_sort = manager.sorts.int_sort;
+        let array_sort = manager.sorts.array(int_sort, int_sort);
+        let a = manager.mk_var("a", array_sort);
+        let b = manager.mk_var("b", array_sort);
+
+        let term = theory
+            .axiom_to_term(
+                &ArrayAxiom::Extensionality {
+                    array1: a,
+                    array2: b,
+                    witness: None,
+                },
+                &mut manager,
+            )
+            .expect("the quantified axiom should be buildable");
+
+        // (forall ((i Int)) (= (select a i) (select b i))) => (= a b)
+        match manager.get(term).map(|t| t.kind.clone()) {
+            Some(TermKind::Implies(premise, conclusion)) => {
+                assert!(
+                    matches!(
+                        manager.get(premise).map(|t| t.kind.clone()),
+                        Some(TermKind::Forall { .. })
+                    ),
+                    "the premise must quantify over the index, not fix one"
+                );
+                match manager.get(conclusion).map(|t| t.kind.clone()) {
+                    Some(TermKind::Eq(lhs, rhs)) => {
+                        assert!((lhs == a && rhs == b) || (lhs == b && rhs == a));
+                    }
+                    other => panic!("expected the array equality, got {other:?}"),
+                }
+            }
+            other => panic!("expected an implication, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_extensionality_with_a_witness_is_skolemized() {
+        let mut manager = TermManager::new();
+        let theory = ArrayTheory::new();
+
+        let int_sort = manager.sorts.int_sort;
+        let array_sort = manager.sorts.array(int_sort, int_sort);
+        let a = manager.mk_var("a", array_sort);
+        let b = manager.mk_var("b", array_sort);
+        let witness = manager.mk_var("w", int_sort);
+
+        let term = theory
+            .axiom_to_term(
+                &ArrayAxiom::Extensionality {
+                    array1: a,
+                    array2: b,
+                    witness: Some(witness),
+                },
+                &mut manager,
+            )
+            .expect("the Skolemized axiom should be buildable");
+
+        // (= (select a w) (select b w)) => (= a b): an implication, never the
+        // bare equality the arrays are not known to satisfy.
+        match manager.get(term).map(|t| t.kind.clone()) {
+            Some(TermKind::Implies(premise, _)) => {
+                assert!(matches!(
+                    manager.get(premise).map(|t| t.kind.clone()),
+                    Some(TermKind::Eq(_, _))
+                ));
+            }
+            other => panic!("expected an implication, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_generate_extensionality_records_no_witness() {
+        let mut theory = ArrayTheory::new();
+        theory.generate_extensionality(TermId(1), TermId(2));
+
+        assert_eq!(
+            theory.get_pending_axioms(),
+            [ArrayAxiom::Extensionality {
+                array1: TermId(1),
+                array2: TermId(2),
+                witness: None,
+            }]
+        );
     }
 
     #[test]

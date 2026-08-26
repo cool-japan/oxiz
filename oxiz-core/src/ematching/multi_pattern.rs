@@ -631,14 +631,14 @@ mod deep_walk_tests {
     #[test]
     fn test_match_recursive_deep_nesting_does_not_overflow() {
         let handle = std::thread::Builder::new()
-            .stack_size(1 << 20)
+            .stack_size(1 << 17)
             .spawn(|| {
                 let mut manager = TermManager::new();
                 let int_sort = manager.sorts.int_sort;
                 let x = manager.mk_var("x", int_sort);
                 let a = manager.mk_var("a", int_sort);
                 let (mut pattern, mut term) = (x, a);
-                for _ in 0..60_000 {
+                for _ in 0..7_500 {
                     pattern = manager.mk_apply("f", [pattern], int_sort);
                     term = manager.mk_apply("f", [term], int_sort);
                 }

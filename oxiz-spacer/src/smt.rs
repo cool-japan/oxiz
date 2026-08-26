@@ -687,10 +687,11 @@ mod tests {
     /// (128 KiB / 6_250). A natively recursive `assert` needs far more than
     /// that per frame and still overflows, so the regression keeps every bit
     /// of its detection power. The pair used to be 1 MiB / 50_000 -- the same
-    /// 21 bytes -- but `mk_and` flattens its arguments, so a chain built with
-    /// `acc = mk_and([acc, lit])` is quadratic, and 50_000 levels cost tens of
-    /// GB of live terms. Never raise `DEEP_DEPTH` without raising
-    /// `DEEP_STACK` by the same factor.
+    /// 21 bytes. `mk_and` flattens its arguments (so `acc = mk_and([acc,
+    /// lit])` never actually nests, and is quadratic to boot), so the deep
+    /// term below is built with `TermManager::intern_term` directly, which
+    /// neither flattens nor re-interns already-built prefixes. Never raise
+    /// `DEEP_DEPTH` without raising `DEEP_STACK` by the same factor.
     const DEEP_STACK: usize = 1 << 17;
     const DEEP_DEPTH: u32 = 6_250;
 
@@ -850,18 +851,25 @@ mod tests {
             .spawn(|| {
                 let mut terms = TermManager::new();
                 let system = ChcSystem::new();
+                let bool_sort = terms.sorts.bool_sort;
                 let int_sort = terms.sorts.int_sort;
                 let x = terms.mk_var("x", int_sort);
                 let zero = terms.mk_int(0);
                 let one = terms.mk_int(1);
 
-                // (x = 0) /\ (x = 1) /\ b0 /\ b1 /\ ... -- UNSAT.
+                // (x = 0) /\ (x = 1) /\ b0 /\ b1 /\ ... -- UNSAT. Interned
+                // directly (not via `mk_and`, which would flatten this back
+                // into one wide `And`) so the tree really is `DEEP_DEPTH`
+                // deep.
                 let mut formula = terms.mk_eq(x, zero);
                 let contradiction = terms.mk_eq(x, one);
-                formula = terms.mk_and([formula, contradiction]);
+                formula = terms.intern_term(
+                    TermKind::And(vec![formula, contradiction].into()),
+                    bool_sort,
+                );
                 for i in 0..DEEP_DEPTH {
-                    let b = terms.mk_var(&format!("b{i}"), terms.sorts.bool_sort);
-                    formula = terms.mk_and([formula, b]);
+                    let b = terms.mk_var(&format!("b{i}"), bool_sort);
+                    formula = terms.intern_term(TermKind::And(vec![formula, b].into()), bool_sort);
                 }
 
                 let mut solver = SmtSolver::new(&mut terms, &system);
@@ -874,5 +882,38 @@ mod tests {
             })
             .expect("thread spawn should succeed");
         handle.join().expect("deep assert must return");
+    }
+
+    /// `SmtSolver::assert` also normalizes a single, genuinely *wide*
+    /// top-level `And` -- the form `mk_and` actually produces -- into
+    /// `DEEP_DEPTH + 2` separate `solver.assert` calls. That is the case
+    /// `assert`'s own soundness comment is about (a single wide `And`
+    /// containing disequalities can be answered SAT when the individually
+    /// asserted conjuncts are correctly UNSAT), so it is pinned alongside
+    /// the deep case rather than only implied by it.
+    #[test]
+    fn assert_flattens_a_wide_conjunction() {
+        let mut terms = TermManager::new();
+        let system = ChcSystem::new();
+        let bool_sort = terms.sorts.bool_sort;
+        let int_sort = terms.sorts.int_sort;
+        let x = terms.mk_var("x", int_sort);
+        let zero = terms.mk_int(0);
+        let one = terms.mk_int(1);
+
+        // (x = 0) /\ (x = 1) /\ b0 /\ b1 /\ ... -- UNSAT, as one flat `And`.
+        let mut conjuncts = vec![terms.mk_eq(x, zero), terms.mk_eq(x, one)];
+        for i in 0..DEEP_DEPTH {
+            conjuncts.push(terms.mk_var(&format!("b{i}"), bool_sort));
+        }
+        let formula = terms.mk_and(conjuncts);
+
+        let mut solver = SmtSolver::new(&mut terms, &system);
+        solver.assert(formula);
+        assert_eq!(
+            solver.check_sat().ok(),
+            Some(false),
+            "a contradictory wide conjunction must be UNSAT"
+        );
     }
 }

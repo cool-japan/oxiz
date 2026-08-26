@@ -292,10 +292,11 @@ mod tests {
     /// (128 KiB / 6_250). A natively recursive translation needs far more
     /// than that per frame and still overflows, so the regression keeps every
     /// bit of its detection power. The pair used to be 1 MiB / 50_000 -- the
-    /// same 21 bytes -- but `mk_and` flattens its arguments, so a chain built
-    /// with `acc = mk_and([acc, atom])` is quadratic, and 50_000 levels cost
-    /// tens of GB of live terms. Never raise `DEEP_DEPTH` without raising
-    /// `DEEP_STACK` by the same factor.
+    /// same 21 bytes. `mk_and` flattens its arguments (so `acc = mk_and([acc,
+    /// atom])` never actually nests, and is quadratic to boot), so the deep
+    /// term below is built with `TermManager::intern_term` directly, which
+    /// neither flattens nor re-interns already-built prefixes. Never raise
+    /// `DEEP_DEPTH` without raising `DEEP_STACK` by the same factor.
     const DEEP_STACK: usize = 1 << 17;
     const DEEP_DEPTH: u32 = 6_250;
 
@@ -380,16 +381,21 @@ mod tests {
             .spawn(|| {
                 let mut src = TermManager::new();
                 let mut system = ChcSystem::new();
+                let bool_sort = src.sorts.bool_sort;
                 let int_sort = src.sorts.int_sort;
                 let inv = system.declare_predicate("Inv", [int_sort]);
 
                 let x = src.mk_var("x", int_sort);
                 let zero = src.mk_int(0);
                 let mut constraint = src.mk_eq(x, zero);
+                // Interned directly (not via `mk_and`, which would flatten
+                // this back into one wide `And`) so the tree really is
+                // `DEEP_DEPTH` deep.
                 for i in 0..DEEP_DEPTH {
                     let k = src.mk_int(i);
                     let atom = src.mk_ge(x, k);
-                    constraint = src.mk_and([constraint, atom]);
+                    constraint =
+                        src.intern_term(TermKind::And(vec![constraint, atom].into()), bool_sort);
                 }
                 system.add_init_rule([("x".to_string(), int_sort)], constraint, inv, [x]);
 

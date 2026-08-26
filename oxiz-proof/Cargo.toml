@@ -7,6 +7,7 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 description = "Proof generation and checking for OxiZ SMT solver"
+readme = "README.md"
 keywords = ["smt", "proof", "drat", "alethe", "verification"]
 categories = ["algorithms", "development-tools::testing"]
 

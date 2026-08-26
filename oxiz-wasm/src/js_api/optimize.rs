@@ -1137,6 +1137,37 @@ mod eliminate_quantifiers_tests {
 /// itself always builds a `js_sys::Object` (even on success), so it cannot
 /// be exercised here at all -- see `oxiz-wasm/tests/audit_wasm_p2.rs` for
 /// the wasm32-gated coverage of `optimize()`'s actual results.
+/// The precondition [`WasmSolver::parse_objective_term`] relies on: an
+/// objective/soft-constraint string is spliced into `(simplify <formula>)` and
+/// only a trailing [`Command::Simplify`] is accepted, everything else being
+/// rejected outright.
+///
+/// The rejection itself cannot be exercised natively — it builds a `JsValue`,
+/// which aborts outside a wasm32/JS engine — so what is pinned here is that a
+/// recursive definition really does parse to something *other* than `Simplify`.
+/// That is what routes it to the rejection instead of letting it through as an
+/// objective term with the definition silently dropped.
+#[cfg(test)]
+mod objective_term_guard_tests {
+    use oxiz_core::ast::TermManager;
+    use oxiz_core::smtlib::{Command, parse_script};
+
+    #[test]
+    fn a_recursive_definition_never_parses_as_an_objective_term() {
+        let mut terms = TermManager::new();
+        let script = "(define-fun-rec f ((n Int)) Int (ite (<= n 0) 0 (f (- n 1))))";
+        let commands = parse_script(script, &mut terms).expect("define-fun-rec parses");
+        assert!(
+            matches!(commands.last(), Some(Command::DefineFunsRec(_))),
+            "a recursive definition must surface as its own command"
+        );
+        assert!(
+            !matches!(commands.last(), Some(Command::Simplify(_))),
+            "it must never reach parse_objective_term's accepted arm"
+        );
+    }
+}
+
 #[cfg(test)]
 mod objective_registration_tests {
     use crate::WasmSolver;

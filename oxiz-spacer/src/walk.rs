@@ -167,11 +167,16 @@ mod tests {
     const DEEP_DEPTH: u32 = 6_250;
 
     /// Build `not(not(...(x)))` nested `depth` levels deep.
+    ///
+    /// Interned directly rather than via `mk_not`, which folds double
+    /// negation (`not(not(p)) == p`): a loop of `mk_not` calls oscillates
+    /// between depth 0 and 1 and never actually nests.
     fn deep_not(manager: &mut TermManager, depth: usize) -> TermId {
-        let x = manager.mk_var("x", manager.sorts.bool_sort);
+        let bool_sort = manager.sorts.bool_sort;
+        let x = manager.mk_var("x", bool_sort);
         let mut current = x;
         for _ in 0..depth {
-            current = manager.mk_not(current);
+            current = manager.intern_term(TermKind::Not(current), bool_sort);
         }
         current
     }
@@ -182,13 +187,17 @@ mod tests {
             .stack_size(DEEP_STACK)
             .spawn(|| {
                 let mut manager = TermManager::new();
-                // `mk_not` folds `not(not(p))` back to `p`, so build the
-                // chain out of alternating `or` nodes instead.
-                let x = manager.mk_var("x", manager.sorts.bool_sort);
+                let bool_sort = manager.sorts.bool_sort;
+                // `mk_not` folds `not(not(p))` back to `p`, and `mk_or`
+                // flattens a nested `Or` child into its parent, so neither
+                // builds a genuinely deep tree. Intern the `Or` nodes
+                // directly so the chain really is `DEEP_DEPTH` deep.
+                let x = manager.mk_var("x", bool_sort);
                 let mut current = x;
                 for i in 0..DEEP_DEPTH {
-                    let lit = manager.mk_var(&format!("p{i}"), manager.sorts.bool_sort);
-                    current = manager.mk_or([current, lit]);
+                    let lit = manager.mk_var(&format!("p{i}"), bool_sort);
+                    current =
+                        manager.intern_term(TermKind::Or(vec![current, lit].into()), bool_sort);
                 }
                 assert!(any_node(&manager, current, |id, kind| {
                     matches!(kind, Some(TermKind::Var(_))) && id == x
@@ -228,16 +237,43 @@ mod tests {
                 let outer = manager.mk_and([a, inner]);
                 assert_eq!(flatten_conjuncts(&manager, outer), vec![a, b, c]);
 
-                // Deep left-nested conjunction.
-                let mut deep = manager.mk_var("l0", manager.sorts.bool_sort);
+                // Deep left-nested conjunction, interned directly rather
+                // than via `mk_and` (which would flatten it back into a
+                // single wide `And`). `flatten_conjuncts` exists precisely
+                // to un-nest a tree like this, so the test is meaningless
+                // unless the tree really is `DEEP_DEPTH` deep.
+                let bool_sort = manager.sorts.bool_sort;
+                let mut leaves = Vec::with_capacity(DEEP_DEPTH as usize);
+                let l0 = manager.mk_var("l0", bool_sort);
+                leaves.push(l0);
+                let mut deep = l0;
                 for i in 1..DEEP_DEPTH {
-                    let lit = manager.mk_var(&format!("l{i}"), manager.sorts.bool_sort);
-                    deep = manager.mk_and([deep, lit]);
+                    let lit = manager.mk_var(&format!("l{i}"), bool_sort);
+                    leaves.push(lit);
+                    deep = manager.intern_term(TermKind::And(vec![deep, lit].into()), bool_sort);
                 }
-                assert!(!flatten_conjuncts(&manager, deep).is_empty());
+                assert_eq!(flatten_conjuncts(&manager, deep), leaves);
             })
             .expect("thread spawn should succeed");
         handle.join().expect("deep flatten must return");
+    }
+
+    /// A single, genuinely *wide* `And` -- built via `mk_and`, which folds a
+    /// flat operand list into one `TermKind::And(args)` of length
+    /// `DEEP_DEPTH` -- exercises a different path through the explicit stack
+    /// than the deep left-nested tree above: one `stack.extend` of
+    /// `DEEP_DEPTH` items plus one `expanded` insertion, versus `DEEP_DEPTH`
+    /// two-element extends. Both regressions matter and neither subsumes the
+    /// other, so both are pinned.
+    #[test]
+    fn flatten_conjuncts_flattens_a_wide_conjunction() {
+        let mut manager = TermManager::new();
+        let bool_sort = manager.sorts.bool_sort;
+        let leaves: Vec<TermId> = (0..DEEP_DEPTH)
+            .map(|i| manager.mk_var(&format!("w{i}"), bool_sort))
+            .collect();
+        let wide = manager.mk_and(leaves.iter().copied());
+        assert_eq!(flatten_conjuncts(&manager, wide), leaves);
     }
 
     #[test]

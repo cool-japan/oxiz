@@ -307,16 +307,26 @@ mod tests {
 
     #[test]
     fn test_collect_candidates_deep_nesting_does_not_overflow() {
+        // 128 KiB / 6_250 levels: the house ratio for a genuinely nested
+        // `Not` chain (see oxiz-spacer/src/walk.rs's `DEEP_STACK`/`DEEP_DEPTH`).
+        // `mk_not` folds double negation (`not(not(p)) == p`), so a loop of
+        // `mk_not` calls oscillates between depth 0 and 1 and never actually
+        // nests -- intern the `Not` nodes directly so the chain really is
+        // this deep.
+        const DEEP_STACK: usize = 1 << 17;
+        const DEEP_DEPTH: usize = 6_250;
+
         let handle = std::thread::Builder::new()
-            .stack_size(1 << 20)
+            .stack_size(DEEP_STACK)
             .spawn(|| {
                 let mut manager = TermManager::new();
                 let int_sort = manager.sorts.int_sort;
+                let bool_sort = manager.sorts.bool_sort;
                 let x = manager.mk_var("x", int_sort);
                 let zero = manager.mk_int(0);
                 let mut formula = manager.mk_gt(x, zero);
-                for _ in 0..60_000 {
-                    formula = manager.mk_not(formula);
+                for _ in 0..DEEP_DEPTH {
+                    formula = manager.intern_term(TermKind::Not(formula), bool_sort);
                 }
 
                 let mut lower_bounds = Vec::new();
@@ -331,16 +341,27 @@ mod tests {
 
     #[test]
     fn test_simplify_formula_deep_nesting_does_not_overflow() {
+        // Rescaled to the house 128 KiB / 6_250 ratio (see
+        // oxiz-spacer/src/walk.rs's `DEEP_STACK`/`DEEP_DEPTH`); this used to
+        // be a 1 MiB / 20_000 STACK-1MIB exception, but `mk_not` folds
+        // double negation (`not(not(p)) == p`), so the old loop of
+        // `mk_not` calls oscillated between depth 0 and 1 and never
+        // actually nested -- intern the `Not` nodes directly so the chain
+        // really is this deep.
+        const DEEP_STACK: usize = 1 << 17;
+        const DEEP_DEPTH: usize = 6_250;
+
         let handle = std::thread::Builder::new()
-            .stack_size(1 << 20)
+            .stack_size(DEEP_STACK)
             .spawn(|| {
                 let mut manager = TermManager::new();
                 let int_sort = manager.sorts.int_sort;
+                let bool_sort = manager.sorts.bool_sort;
                 let x = manager.mk_var("x", int_sort);
                 let zero = manager.mk_int(0);
                 let mut formula = manager.mk_gt(x, zero);
-                for _ in 0..20_000 {
-                    formula = manager.mk_not(formula);
+                for _ in 0..DEEP_DEPTH {
+                    formula = manager.intern_term(TermKind::Not(formula), bool_sort);
                 }
                 simplify_formula(formula, &mut manager)
             })

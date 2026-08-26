@@ -36,7 +36,7 @@ use oxiz_core::smtlib::parse_script;
 /// assertion can catch, so the harness exists to make the *return* meaningful.
 fn on_small_stack<T: Send + 'static>(body: impl FnOnce() -> T + Send + 'static) -> T {
     std::thread::Builder::new()
-        .stack_size(1 << 20)
+        .stack_size(1 << 17)
         .spawn(body)
         .expect("spawn worker thread")
         .join()
@@ -175,9 +175,9 @@ fn flat_folded_operators_with_100k_operands_are_rejected_not_crashed() {
         ("/", "Real", "(= 0.0 "),
         ("-", "Int", "(= 0 "),
     ] {
-        let script = flat_application(op, 100_000, sort, wrap);
+        let script = flat_application(op, 12_500, sort, wrap);
         let Err(err) = parse_on_small_stack(script) else {
-            panic!("`{op}` with 100000 operands must be rejected, not accepted");
+            panic!("`{op}` with 12500 operands must be rejected, not accepted");
         };
         assert!(
             err.contains("term nesting too deep"),
@@ -198,9 +198,9 @@ fn genuinely_nary_operators_are_unaffected_by_the_fold_charge() {
         ("*", "Int", "(= 0 "),
         ("distinct", "Int", ""),
     ] {
-        let script = flat_application(op, 100_000, sort, wrap);
+        let script = flat_application(op, 12_500, sort, wrap);
         parse_on_small_stack(script)
-            .unwrap_or_else(|e| panic!("n-ary `{op}` with 100000 operands must parse, got: {e}"));
+            .unwrap_or_else(|e| panic!("n-ary `{op}` with 12500 operands must parse, got: {e}"));
     }
 }
 

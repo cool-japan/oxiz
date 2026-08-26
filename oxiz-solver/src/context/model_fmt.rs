@@ -10,10 +10,99 @@
 #[allow(unused_imports)]
 use crate::prelude::*;
 use crate::solver::SolverResult;
+use num_bigint::BigInt;
+use num_traits::{One, Signed, Zero};
 use oxiz_core::ast::{TermId, TermKind};
 use oxiz_core::sort::{SortId, SortKind};
+use oxiz_theories::nl_witness::{AlgebraicValue, NlWitnessValue};
 
 use super::{Context, RawFuncInterp};
+
+/// Render a nonlinear-real exact value as SMT-LIB2 text.
+///
+/// Rational values print exactly as the ordinary `RealConst` arm of
+/// [`Context::format_value`] prints them, so the two channels agree
+/// character-for-character on a value both could carry. Algebraic values print
+/// as `root-obj`; see [`render_root_obj`].
+fn render_nl_witness_value(value: &NlWitnessValue) -> String {
+    match value {
+        NlWitnessValue::Rational(rational) => {
+            if rational.denom().is_one() {
+                format!("{}.0", rational.numer())
+            } else {
+                format!("(/ {} {})", rational.numer(), rational.denom())
+            }
+        }
+        NlWitnessValue::Algebraic(algebraic) => render_root_obj(algebraic),
+    }
+}
+
+/// Render an exact algebraic number as SMT-LIB2 `root-obj` notation.
+///
+/// # The spelling is Z3's, verified against it
+///
+/// Every rule below was read off `z3 4.15.4` rather than inferred, by running
+/// the corresponding goal and capturing `(get-value (x))`:
+///
+/// | goal | Z3 answer |
+/// |---|---|
+/// | `x² = 2` | `(root-obj (+ (^ x 2) (- 2)) 1)` |
+/// | `x² = 2 ∧ x > 0` | `(root-obj (+ (^ x 2) (- 2)) 2)` |
+/// | `2x² = 3` | `(root-obj (+ (* 2 (^ x 2)) (- 3)) 1)` |
+/// | `x² + x = 1 ∧ x > 0` | `(root-obj (+ (^ x 2) x (- 1)) 2)` |
+/// | `x² − 2x = 1 ∧ x > 0` | `(root-obj (+ (^ x 2) (* (- 2) x) (- 1)) 2)` |
+/// | `x⁵ − 3x = 1` | `(root-obj (+ (^ x 5) (* (- 3) x) (- 1)) 1)` |
+///
+/// So: monomials in **descending** degree, zero coefficients omitted; degree
+/// `k ≥ 2` spells `(^ x k)`, degree 1 spells bare `x`, degree 0 spells the
+/// bare integer; a coefficient of exactly `1` is elided rather than written as
+/// `(* 1 ..)`; a negative integer anywhere spells `(- n)`, since SMT-LIB has no
+/// negative numerals.
+///
+/// The bound variable is **always** printed `x`, whatever the SMT constant is
+/// called — confirmed by asking Z3 for a model of `yy² = 2`, which answers
+/// `(root-obj (+ (^ x 2) (- 2)) 1)` for `yy`. `root-obj`'s first argument is a
+/// closed polynomial term with its own binder, not an expression over the
+/// model's constants.
+fn render_root_obj(value: &AlgebraicValue) -> String {
+    let mut monomials: Vec<String> = Vec::new();
+    for (degree, coefficient) in value.coefficients.iter().enumerate().rev() {
+        if coefficient.is_zero() {
+            continue;
+        }
+        let power = match degree {
+            0 => None,
+            1 => Some("x".to_string()),
+            k => Some(format!("(^ x {k})")),
+        };
+        monomials.push(match (power, coefficient.is_one()) {
+            // Degree 0: the bare integer.
+            (None, _) => render_integer(coefficient),
+            // A unit coefficient is elided: `(^ x 2)`, never `(* 1 (^ x 2))`.
+            (Some(power), true) => power,
+            (Some(power), false) => format!("(* {} {power})", render_integer(coefficient)),
+        });
+    }
+    // A `root-obj` polynomial always has at least two monomials in practice —
+    // a single-monomial polynomial `c·xᵏ` has only the rational root 0, which
+    // never reaches this type. Handle it anyway rather than emitting a
+    // one-argument `(+ ..)`, which some readers reject.
+    let polynomial = match monomials.len() {
+        1 => monomials.join(""),
+        _ => format!("(+ {})", monomials.join(" ")),
+    };
+    format!("(root-obj {polynomial} {})", value.root_index)
+}
+
+/// An integer as an SMT-LIB2 term: negatives need the `-` *operator*, since
+/// the grammar has no negative numeral.
+fn render_integer(value: &BigInt) -> String {
+    if value.is_negative() {
+        format!("(- {})", -value)
+    } else {
+        value.to_string()
+    }
+}
 
 /// Constructor-expansion budget for [`Context::default_value`]'s datatype
 /// arm.  Mirrors the solver-side ground-default budget; see
@@ -115,10 +204,19 @@ impl Context {
         // reporting "no model available" for a `sat` verdict is simply wrong.
         // Any other missing model is a genuine extraction failure and stays
         // `None`, so a real assignment is never fabricated.
+        //
+        // A nonlinear-real model whose values are algebraic is the second
+        // exception. There is no `Model` for it — `√2` has no term in the
+        // rational term language — and yet the assignment is fully known: it
+        // lives in `Solver::nl_algebraic_values`, which is populated only
+        // all-or-nothing and only for a real cell decomposition's `Sat` (see
+        // that field). So the gate opens on that map being non-empty, and on
+        // nothing weaker: widening it to "assertions non-empty" would fabricate
+        // a sort-default model for every other modelless `sat` in the tree.
         let empty_model;
         let solver_model = match self.solver.model() {
             Some(solver_model) => solver_model,
-            None if self.assertions.is_empty() => {
+            None if self.assertions.is_empty() || !self.solver.nl_algebraic_values().is_empty() => {
                 empty_model = crate::solver::Model::new();
                 &empty_model
             }
@@ -136,7 +234,17 @@ impl Context {
             crate::prelude::HashMap::new();
 
         for decl in &self.declared_consts {
-            let value = if let Some(val) = solver_model.get(decl.term) {
+            // The exact-value side-channel is consulted first. It is only ever
+            // populated when the ordinary `Model` is absent, so this cannot
+            // shadow a real model entry today; consulting it first is what
+            // keeps that true if one ever coexisted, because it is the more
+            // precise of the two (a `Model` value for the same constant could
+            // only be a rounded stand-in). Without this arm the sqrt2 goal
+            // falls through to `default_value(Real)` and reports `0.0` — a
+            // number satisfying none of its assertions.
+            let value = if let Some(exact) = self.solver.nl_algebraic_value(decl.term) {
+                render_nl_witness_value(exact)
+            } else if let Some(val) = solver_model.get(decl.term) {
                 self.format_value(val)
             } else if self.is_uninterpreted_sort(decl.sort) {
                 // No direct model entry for an uninterpreted-sort constant:
@@ -391,6 +499,7 @@ impl Context {
                     | SortKind::String
                     | SortKind::BitVec(_)
                     | SortKind::FloatingPoint { .. }
+                    | SortKind::RoundingMode
                     | SortKind::Uninterpreted(_)
                     | SortKind::Parameter(_)
                     | SortKind::Datatype(_) => {}
@@ -426,6 +535,7 @@ impl Context {
                     SortKind::String => "String".to_string(),
                     SortKind::BitVec(w) => format!("(_ BitVec {w})"),
                     SortKind::FloatingPoint { eb, sb } => format!("(_ FloatingPoint {eb} {sb})"),
+                    SortKind::RoundingMode => "RoundingMode".to_string(),
                     // An uninterpreted sort's name is interned by the *term*
                     // manager (`Parser::parse_sort` for `declare-sort` names
                     // and `TermManager::reglan_sort` both call
@@ -586,8 +696,24 @@ impl Context {
                 let printer = oxiz_core::smtlib::Printer::new(&self.terms);
                 printer.print_term(term)
             }
+            // A rounding mode is a nullary `Var` interned at the reserved
+            // `RoundingMode` sort under its canonical long name, so the name
+            // *is* the value.  Without this arm every solved rounding mode
+            // reported as the invalid `?` placeholder, since `Var` otherwise
+            // falls through to the catch-all below.
+            Some(TermKind::Var(spur)) if self.is_rounding_mode_term(term) => {
+                self.terms.resolve_str(*spur).to_string()
+            }
             _ => "?".to_string(),
         }
+    }
+
+    /// Whether `term` is interned at the reserved `RoundingMode` sort.
+    fn is_rounding_mode_term(&self, term: TermId) -> bool {
+        self.terms
+            .get(term)
+            .and_then(|t| self.terms.sorts.get(t.sort))
+            .is_some_and(oxiz_core::sort::Sort::is_rounding_mode)
     }
 
     /// Get a default value for a sort.
@@ -642,6 +768,18 @@ impl Context {
                     }
                     // Positive zero is a canonical, valid ground FP value.
                     SortKind::FloatingPoint { eb, sb } => break format!("(_ +zero {eb} {sb})"),
+                    // The five-element `RoundingMode` sort defaults to IEEE
+                    // 754's own default mode, spelled the long way exactly as
+                    // Z3 prints it.  Emphatically *not* the `@uc_..._0`
+                    // witness of the uninterpreted arm below: the sort has
+                    // named inhabitants, and a witness would be neither valid
+                    // SMT-LIB input nor equal to any mode.
+                    SortKind::RoundingMode => {
+                        break oxiz_core::ast::TermManager::rounding_mode_name(
+                            oxiz_core::ast::RoundingMode::RNE,
+                        )
+                        .to_string();
+                    }
                     // A constant array whose every entry is the range's
                     // default value.  Descending into the range charges no
                     // constructor expansion — the sort graph alone is
@@ -806,20 +944,34 @@ impl Context {
             return NO_MODEL.to_string();
         }
         // Owned so the evaluation below can borrow `self.terms` mutably; see
-        // `get_model` for why an empty assertion stack yields an empty model
-        // rather than an error.
+        // `get_model` for why an empty assertion stack — or a populated
+        // algebraic side-channel — yields an empty model rather than an error.
         let model = match self.solver.model() {
             Some(model) => model.clone(),
-            None if self.assertions.is_empty() => crate::solver::Model::new(),
+            None if self.assertions.is_empty() || !self.solver.nl_algebraic_values().is_empty() => {
+                crate::solver::Model::new()
+            }
             None => return NO_MODEL.to_string(),
         };
 
         // Completion substitution: every declared constant with no model entry
         // maps to its sort default.
+        //
+        // A constant the algebraic side-channel *does* pin is excluded. Its
+        // sort default is `0.0`, and substituting that would answer a compound
+        // query like `(get-value ((* x x)))` with `0.0` for a goal whose
+        // witness is `√2` — a fabricated value, and one contradicting the `2.0`
+        // that the very same model implies. Left out of the map the term
+        // survives evaluation unreduced and echoes back, which is the same
+        // honest non-answer this path already gives for anything else it
+        // cannot fold. (A bare `(get-value (x))` never reaches the completion
+        // at all: `unassigned_const_value` answers it from `get_model` below,
+        // which is where the `root-obj` rendering lives.)
         let unassigned: Vec<(TermId, SortId)> = self
             .declared_consts
             .iter()
             .filter(|d| model.get(d.term).is_none())
+            .filter(|d| self.solver.nl_algebraic_value(d.term).is_none())
             .map(|d| (d.term, d.sort))
             .collect();
         let mut completion: crate::prelude::FxHashMap<TermId, TermId> =
@@ -857,15 +1009,23 @@ impl Context {
     }
 
     /// Format the model as SMT-LIB2
+    ///
+    /// Recursive definitions in scope are echoed back as `define-fun-rec`
+    /// entries. A model that omitted them would be unusable: the constants it
+    /// does report are only meaningful together with the definitions that
+    /// constrain them, and a reader replaying the model would see applications
+    /// of a symbol with no interpretation at all.
     pub fn format_model(&self) -> String {
+        let recfun_lines = self.recfun_model_lines();
         match self.get_model() {
             None => "(error \"No model available\")".to_string(),
-            Some(model) if model.is_empty() => "(model)".to_string(),
+            Some(model) if model.is_empty() && recfun_lines.is_empty() => "(model)".to_string(),
             Some(model) => {
                 let mut lines = vec!["(model".to_string()];
                 for (name, sort, value) in model {
                     lines.push(format!("  (define-fun {} () {} {})", name, sort, value));
                 }
+                lines.extend(recfun_lines);
                 lines.push(")".to_string());
                 lines.join("\n")
             }
@@ -876,6 +1036,121 @@ impl Context {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ===== root-obj rendering, pinned against z3 4.15.4 ==================
+    //
+    // Every expected string below was captured by running the named goal
+    // through `z3 4.15.4` and reading its `(get-value (x))` answer, so these
+    // are conformance pins rather than pins on what this code happens to do.
+
+    fn algebraic(coefficients: &[i64], root_index: u32) -> NlWitnessValue {
+        NlWitnessValue::Algebraic(AlgebraicValue {
+            coefficients: coefficients.iter().copied().map(BigInt::from).collect(),
+            root_index,
+            // The bracket is diagnostics-only and never appears in the output;
+            // a placeholder is honest here precisely because nothing reads it.
+            lower: num_rational::BigRational::from_integer(0.into()),
+            upper: num_rational::BigRational::from_integer(0.into()),
+        })
+    }
+
+    /// `x² = 2` → `(root-obj (+ (^ x 2) (- 2)) 1)`; with `x > 0`, index 2.
+    #[test]
+    fn root_obj_pins_the_sqrt2_spelling() {
+        assert_eq!(
+            render_nl_witness_value(&algebraic(&[-2, 0, 1], 1)),
+            "(root-obj (+ (^ x 2) (- 2)) 1)"
+        );
+        assert_eq!(
+            render_nl_witness_value(&algebraic(&[-2, 0, 1], 2)),
+            "(root-obj (+ (^ x 2) (- 2)) 2)"
+        );
+    }
+
+    /// `2x² = 3` → a non-unit leading coefficient is a `*` application.
+    #[test]
+    fn root_obj_pins_a_non_unit_leading_coefficient() {
+        assert_eq!(
+            render_nl_witness_value(&algebraic(&[-3, 0, 2], 1)),
+            "(root-obj (+ (* 2 (^ x 2)) (- 3)) 1)"
+        );
+    }
+
+    /// `x² + x = 1 ∧ x > 0` → a unit degree-1 term is the bare variable.
+    #[test]
+    fn root_obj_pins_a_bare_linear_term() {
+        assert_eq!(
+            render_nl_witness_value(&algebraic(&[-1, 1, 1], 2)),
+            "(root-obj (+ (^ x 2) x (- 1)) 2)"
+        );
+    }
+
+    /// `x² − 2x = 1 ∧ x > 0` → a negative coefficient inside a `*`.
+    #[test]
+    fn root_obj_pins_a_negative_linear_coefficient() {
+        assert_eq!(
+            render_nl_witness_value(&algebraic(&[-1, -2, 1], 2)),
+            "(root-obj (+ (^ x 2) (* (- 2) x) (- 1)) 2)"
+        );
+    }
+
+    /// `x⁵ − 3x = 1` → interior zero coefficients are omitted, and the
+    /// surviving monomials stay in descending degree order.
+    #[test]
+    fn root_obj_pins_omitted_zero_coefficients() {
+        assert_eq!(
+            render_nl_witness_value(&algebraic(&[-1, -3, 0, 0, 0, 1], 1)),
+            "(root-obj (+ (^ x 5) (* (- 3) x) (- 1)) 1)"
+        );
+    }
+
+    /// `x³ = 2` and `x⁴ = 5`: higher powers keep the `(^ x k)` spelling.
+    #[test]
+    fn root_obj_pins_higher_degrees() {
+        assert_eq!(
+            render_nl_witness_value(&algebraic(&[-2, 0, 0, 1], 1)),
+            "(root-obj (+ (^ x 3) (- 2)) 1)"
+        );
+        assert_eq!(
+            render_nl_witness_value(&algebraic(&[-5, 0, 0, 0, 1], 1)),
+            "(root-obj (+ (^ x 4) (- 5)) 1)"
+        );
+    }
+
+    /// The rational arm of the side-channel must render a value *identically*
+    /// to [`Context::format_value`]'s `RealConst` arm.
+    ///
+    /// A mixed model is reported partly through each — `x` from the
+    /// side-channel, `y` from `Model` — so a divergence would print two
+    /// spellings of `Real` inside one `(get-model)`. This compares the two
+    /// renderers against **each other** rather than against a copied
+    /// expectation, so a later change to either one is caught even if both
+    /// were changed to agree on something new.
+    #[test]
+    fn the_rational_arm_agrees_with_format_value_itself() {
+        let mut ctx = Context::new();
+        for (numerator, denominator) in [
+            (3_i64, 1_i64),
+            (-3, 1),
+            (0, 1),
+            (1, 2),
+            (-1, 2),
+            (7, 3),
+            (-22, 7),
+        ] {
+            let term = ctx
+                .terms
+                .mk_real(num_rational::Rational64::new(numerator, denominator));
+            let through_model = ctx.format_value(term);
+            let through_side_channel = render_nl_witness_value(&NlWitnessValue::Rational(
+                num_rational::BigRational::new(numerator.into(), denominator.into()),
+            ));
+            assert_eq!(
+                through_side_channel, through_model,
+                "the two renderings of {numerator}/{denominator} must not diverge"
+            );
+        }
+    }
 
     // ===== default_value semantic pins ==================================
     //
@@ -1022,6 +1297,9 @@ mod tests {
     #[test]
     fn test_default_value_deep_array_chain_beyond_old_cap() {
         const DEPTH: usize = 2000;
+        // STACK-1MIB: deliberately 1 MiB, not swept to 128 KiB — depth is
+        // 2000 (sub-10,000), well under the scaling threshold and nothing
+        // here is quadratic in stack. See TODO.md "v0.3.2 backlog".
         let handle = std::thread::Builder::new()
             .stack_size(1 << 20)
             .spawn(|| {

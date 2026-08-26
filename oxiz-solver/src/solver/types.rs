@@ -262,6 +262,33 @@ pub struct SolverConfig {
     pub enable_variable_elimination: bool,
     /// Variable elimination limit (max clauses to produce)
     pub variable_elimination_limit: usize,
+    /// Enable SatELite-style bounded variable elimination inside the SAT core.
+    ///
+    /// Distinct from [`SolverConfig::enable_variable_elimination`], which is a
+    /// coarser "do preprocessing at all" knob: this one maps directly onto
+    /// `oxiz_sat::SolverConfig::enable_bve` and is the only thing that makes
+    /// the SAT engine's BVE pass reachable at all.
+    ///
+    /// Off in [`SolverConfig::balanced`] and on in [`SolverConfig::thorough`].
+    /// Two properties make that split the right one:
+    ///
+    /// * BVE runs only from `oxiz_sat::Solver::solve`, i.e. only on this
+    ///   crate's pure-Boolean paths (`check_sat_only` and the equality
+    ///   skeleton). The CDCL(T) path used by `check` goes through
+    ///   `oxiz_sat::Solver::solve_with_theory`, which never invokes it — so no
+    ///   theory lemma can ever be blocked by an eliminated variable on the
+    ///   normal SMT route.
+    /// * The SAT engine additionally declines to run BVE whenever an
+    ///   incremental `push` is in scope or a proof is being traced, so an
+    ///   incremental workload silently keeps the old behavior.
+    ///
+    /// Left off in `balanced` (the default) all the same, because a caller who
+    /// mixes `check_sat_only` with later incremental assertions on the same
+    /// solver can still reach the one documented rough edge:
+    /// `oxiz_sat::SolverError::EliminatedVariableReintroduction`, which turns
+    /// subsequent verdicts into `Unknown` rather than risking a wrong answer.
+    /// `thorough` opts into that trade for the extra preprocessing power.
+    pub enable_bve: bool,
     /// Enable blocked clause elimination during preprocessing
     pub enable_blocked_clause_elimination: bool,
     /// Enable symmetry breaking predicates
@@ -284,6 +311,46 @@ pub struct SolverConfig {
     ///
     /// Default: `true`.
     pub nonlinear_model_search: bool,
+    /// Run the NIA-over-LP relaxation engine
+    /// (`oxiz_theories::arithmetic::nla`) on QF_NIA problems the
+    /// cell-decomposition core leaves undecided.
+    ///
+    /// Unlike [`Self::nonlinear_model_search`] this engine *can* derive
+    /// `unsat`, so the two halves of the flag are not symmetric — but it is
+    /// still a budget switch rather than a soundness switch, because both of
+    /// its verdicts are backed rather than guessed:
+    ///
+    /// * `unsat` is proof-backed. The engine produces it only from an LP
+    ///   infeasibility closure over a constraint set every member of which is a
+    ///   consequence over `Z` of the input, with case splits that are
+    ///   exhaustive over `Z`. Its linearisation may *drop* a conjunct it cannot
+    ///   translate, which only weakens the problem — and an unsatisfiable
+    ///   weakening still refutes the original.
+    /// * `sat` is advisory by that module's own contract, and this solver does
+    ///   not take it on trust: the witness must pass `adopt_nl_witness`, which
+    ///   re-evaluates it with `oxiz_theories::nl_eval::holds_under` against the
+    ///   untouched assertions in exact `BigRational` arithmetic. A witness that
+    ///   fails yields no verdict at all.
+    ///
+    /// The engine is dispatched *after* the cell-decomposition core, so no
+    /// verdict that core reaches can move; what the flag converts is goals that
+    /// were previously answered `unknown`. Turning it off restores the earlier
+    /// *verdicts* at the price of those answers.
+    ///
+    /// It does not restore the earlier *models* in every case. The engine also
+    /// sits above the two searches [`Self::nonlinear_model_search`] gates, so a
+    /// goal that both can solve is now answered by the engine and reports the
+    /// engine's witness instead. Every such witness is re-verified against the
+    /// assertions, so both are correct — but on a goal with several solutions
+    /// they need not be the same one, and a caller pinning an exact
+    /// `(get-value ...)` result for a multi-solution QF_NIA goal may see it
+    /// change.
+    ///
+    /// Gated on `std` rather than on the `nlsat` feature, so it is present in
+    /// both builds.
+    ///
+    /// Default: `true`.
+    pub nonlinear_relaxation_engine: bool,
     /// Cap on the number of ground instances a single bounded-integer
     /// quantifier may be expanded into at assert time (`0` disables the
     /// expansion entirely).
@@ -319,6 +386,34 @@ pub struct SolverConfig {
     /// [`Solver::with_config`]: crate::solver::Solver::with_config
     /// [`Solver::set_config`]: crate::solver::Solver::set_config
     pub enable_domain_first_branching: bool,
+    /// Re-solve after excluding a candidate model the soundness gate refuted,
+    /// instead of conceding `unknown` on the first unlucky candidate (see
+    /// `crate::solver::model_blocking`).
+    ///
+    /// Like [`Self::nonlinear_model_search`] this is a *budget* switch, not a
+    /// soundness switch: blocking can only ever turn an `unknown` into a `sat`,
+    /// every `sat` it produces is a surviving assignment re-checked by the same
+    /// gate, and while any blocking clause is live an `unsat` from the SAT core
+    /// is surfaced as `unknown` rather than trusted. Turning it off buys a fast
+    /// `unknown` in exchange for the models it would have found.
+    ///
+    /// Note that it gates only the blocking loop. The ordering fix that goes
+    /// with it — running the case-split and array-axiom repairs *before* the
+    /// refutation gate, so a repairable candidate is repaired rather than
+    /// discarded — is a bug fix and applies regardless. Turning the flag off
+    /// therefore does not restore the pre-issue-#40 solver exactly: because the
+    /// gate now sits below the array-axiom loop, that loop's round-budget exit
+    /// also drops the candidate model it was holding, which it did not have to
+    /// do while the gate ran first.
+    ///
+    /// Default: `true`.
+    pub enable_model_blocking: bool,
+    /// How many refuted candidate models one context scope may exclude before
+    /// the solver concedes `unknown` (`0` disables blocking as surely as
+    /// [`Self::enable_model_blocking`] does).
+    ///
+    /// Default: 64 (`MAX_MODEL_BLOCKING_ROUNDS`).
+    pub max_model_blocking_rounds: usize,
 }
 
 impl Default for SolverConfig {
@@ -347,6 +442,7 @@ impl SolverConfig {
             enable_clause_subsumption: false,             // Skip for speed
             enable_variable_elimination: false,           // Skip preprocessing
             variable_elimination_limit: 0,
+            enable_bve: false,                        // Skip preprocessing
             enable_blocked_clause_elimination: false, // Skip preprocessing
             enable_symmetry_breaking: false,
             enable_inprocessing: false, // No inprocessing for speed
@@ -354,7 +450,10 @@ impl SolverConfig {
             finite_expansion_budget:
                 crate::solver::encode::finite_expand::DEFAULT_FINITE_EXPANSION_BUDGET,
             nonlinear_model_search: true,
+            nonlinear_relaxation_engine: true,
             enable_domain_first_branching: false,
+            enable_model_blocking: true,
+            max_model_blocking_rounds: crate::solver::model_blocking::MAX_MODEL_BLOCKING_ROUNDS,
         }
     }
 
@@ -377,6 +476,11 @@ impl SolverConfig {
             enable_clause_subsumption: true,
             enable_variable_elimination: true,
             variable_elimination_limit: 1000, // Conservative limit
+            // Off: see the field doc -- BVE is sound here, but a caller that
+            // mixes `check_sat_only` with later incremental assertions can
+            // reach `EliminatedVariableReintroduction`, and the default
+            // preset should not surprise such a caller.
+            enable_bve: false,
             enable_blocked_clause_elimination: true,
             enable_symmetry_breaking: false, // Still expensive
             enable_inprocessing: true,
@@ -384,7 +488,10 @@ impl SolverConfig {
             finite_expansion_budget:
                 crate::solver::encode::finite_expand::DEFAULT_FINITE_EXPANSION_BUDGET,
             nonlinear_model_search: true,
+            nonlinear_relaxation_engine: true,
             enable_domain_first_branching: false,
+            enable_model_blocking: true,
+            max_model_blocking_rounds: crate::solver::model_blocking::MAX_MODEL_BLOCKING_ROUNDS,
         }
     }
 
@@ -407,6 +514,10 @@ impl SolverConfig {
             enable_clause_subsumption: true,
             enable_variable_elimination: true,
             variable_elimination_limit: 5000, // More aggressive
+            // On: this preset exists to trade solve-shape surprises for
+            // preprocessing power on hard instances (it is the one that also
+            // turns symmetry breaking on).
+            enable_bve: true,
             enable_blocked_clause_elimination: true,
             enable_symmetry_breaking: true, // Enable for hard problems
             enable_inprocessing: true,
@@ -414,7 +525,10 @@ impl SolverConfig {
             finite_expansion_budget:
                 crate::solver::encode::finite_expand::DEFAULT_FINITE_EXPANSION_BUDGET,
             nonlinear_model_search: true,
+            nonlinear_relaxation_engine: true,
             enable_domain_first_branching: false,
+            enable_model_blocking: true,
+            max_model_blocking_rounds: crate::solver::model_blocking::MAX_MODEL_BLOCKING_ROUNDS,
         }
     }
 
@@ -437,6 +551,7 @@ impl SolverConfig {
             enable_clause_subsumption: false,
             enable_variable_elimination: false,
             variable_elimination_limit: 0,
+            enable_bve: false,
             enable_blocked_clause_elimination: false,
             enable_symmetry_breaking: false,
             enable_inprocessing: false,
@@ -446,6 +561,20 @@ impl SolverConfig {
             // nonlinear searches do not spend their budget either.
             finite_expansion_budget: 0,
             nonlinear_model_search: false,
+            // Off for the same reason, and mirroring `nonlinear_model_search`
+            // above: `minimal()` spends no optional search budget on the
+            // caller's behalf. Note this one costs `unsat` answers as well as
+            // `sat` ones — the relaxation engine is the only procedure on the
+            // QF_NIA path below the cell decomposition that can refute — so a
+            // `minimal()` caller trades away more completeness here than the
+            // searches alone would.
+            nonlinear_relaxation_engine: false,
+            // Same reasoning as the two lines above: `minimal()` hands the
+            // caller full control, so the extra re-solves the blocking loop
+            // spends are not taken on their behalf. A refuted candidate is
+            // conceded as `unknown` exactly as it was before issue #40.
+            enable_model_blocking: false,
+            max_model_blocking_rounds: 0,
             enable_domain_first_branching: false,
         }
     }
@@ -518,6 +647,14 @@ pub struct Statistics {
     pub theory_propagations: u64,
     /// Number of theory conflicts
     pub theory_conflicts: u64,
+    /// Number of model-blocking clauses added: one per candidate model the
+    /// soundness gate refuted and `crate::solver::model_blocking` excluded so
+    /// the search could look for another (issue #40).
+    ///
+    /// A nonzero count means the last verdict was reached under a *restricted*
+    /// search: a `sat` is a genuine model all the same, and an `unsat` was
+    /// downgraded to `unknown` rather than reported.
+    pub model_blocking_clauses: u64,
 }
 
 impl Statistics {

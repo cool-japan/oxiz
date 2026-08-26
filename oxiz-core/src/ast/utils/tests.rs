@@ -393,7 +393,7 @@ fn test_flatten_already_flat() {
 // overflow` rather than returning a value. Each test below builds its term
 // with a plain `for` loop -- a recursive helper would overflow before the
 // walk under test even started -- and runs the walk on a thread with a
-// deliberately small (1 MiB) stack, the size a non-main / embedder worker
+// deliberately small (128 KiB) stack, the size a non-main / embedder worker
 // thread typically gets. A stack overflow aborts the process rather than
 // unwinding, so "the call returned at all" *is* part of the assertion; every
 // test also checks the returned value is correct, not merely that one came
@@ -402,10 +402,10 @@ fn test_flatten_already_flat() {
 
 /// Stack size every deep test runs under: the ~1 MiB a non-main thread gets
 /// by default on most platforms, and far less than a libtest thread's.
-const SMALL_STACK: usize = 1 << 20;
+const SMALL_STACK: usize = 1 << 17;
 
 /// A depth well past anything a native-stack recursion could survive.
-const DEEP: usize = 100_000;
+const DEEP: usize = 12_500;
 
 /// Run `body` on a thread with a deliberately small stack and return its
 /// value. A stack overflow inside `body` aborts the process rather than
@@ -554,7 +554,7 @@ fn test_deep_two_chains_alpha_equivalent_differ_at_bottom_on_small_stack() {
 /// argument list at every level, which is O(depth^2) total work for a chain
 /// like this -- a pre-existing property of the flattening *algorithm*
 /// itself (the original recursive version does the same splicing), not a
-/// regression introduced by making the walk iterative. `DEEP` (100_000)
+/// regression introduced by making the walk iterative. `DEEP` (12_500)
 /// would make the O(n^2) term dominate the test run, so this uses a smaller
 /// depth that still comfortably exceeds any native call stack (the original
 /// recursive form overflowed a 1 MiB stack within a few thousand levels for
@@ -1221,7 +1221,7 @@ fn test_datatype_terms_structural_and_alpha_equal_and_distinguish_operators() {
 /// `BTreeMap` holding one entry per enclosing binder, so this is O(depth)
 /// per level and O(depth^2) total across the whole chain -- the same
 /// caveat `flatten_associative`'s `FLATTEN_DEEP` documents for its own
-/// splicing cost. `DEEP` (100_000) would make the O(n^2) term dominate the
+/// splicing cost. `DEEP` (12_500) would make the O(n^2) term dominate the
 /// test run, so this uses a smaller depth that still comfortably exceeds
 /// any native call stack.
 const ALPHA_QUANTIFIER_DEEP: usize = 3_000;

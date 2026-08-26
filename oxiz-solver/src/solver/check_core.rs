@@ -16,6 +16,10 @@ impl Solver {
         // `case_split_terms` (trail-scoped: see the field doc) this resets on
         // every search, not only on `pop`.
         self.case_split_rounds = 0;
+        // Per-search, exactly like the round counter above: each `check` gets
+        // its own chance to run the refinement, so a previous search's skipped
+        // round must not condemn this one's verdict.
+        self.case_split_skipped_targets = false;
         // Check for trivial unsat (false assertion)
         if self.has_false_assertion {
             self.build_unsat_core_trivial_false();
@@ -272,6 +276,26 @@ impl Solver {
                 theory_manager.resource_exhausted() || theory_manager.unjustified_conflict();
             match sat_result {
                 SatResult::Unsat => {
+                    // Soundness gate: a model-blocking clause (see
+                    // `model_blocking`) is a restriction of the search space,
+                    // not a consequence of the assertions — the gate that
+                    // triggered it fires on the *evaluator's* width limit as
+                    // well as on a genuine violation.  "No model outside the
+                    // excluded region" is therefore not `unsat`, and there is
+                    // no core to hand over: the resolution proof rests on
+                    // clauses no assertion entails, so `unsat_core` is cleared
+                    // rather than built.
+                    //
+                    // Accepted cost: a *genuine* refutation found after
+                    // blocking started — including the empty clause MBQI adds
+                    // for a definitively-false instantiation — also surfaces as
+                    // `Unknown`.  That is precision, not soundness, and the
+                    // verdict lattice stays `Unknown -> {Sat, Unknown}`.
+                    if self.blocking_clauses_present() {
+                        self.model = None;
+                        self.unsat_core = None;
+                        return SolverResult::Unknown;
+                    }
                     self.build_unsat_core();
                     // After a theory/Boolean conflict has been turned into an
                     // unsat core: the core must name assertions that still
@@ -292,18 +316,33 @@ impl Solver {
                     // If no quantifiers, we're done
                     if !self.has_quantifiers {
                         self.build_model(manager);
-                        // Soundness gate: never return `Sat` for a model that
-                        // provably violates an assertion (see
-                        // `model_refutes_assertions`).  This backstops the SAT
-                        // core: if it commits an inconsistent trail and reports a
-                        // full assignment that falsifies a Boolean clause the
-                        // theory layer cannot observe, we answer `Unknown`
-                        // instead of a wrong `Sat`.
-                        if self.model_refutes_assertions(manager) {
-                            self.model = None;
-                            self.unsat_core = None;
-                            return SolverResult::Unknown;
-                        }
+                        // ORDER (issue #40): the two repair paths below run
+                        // *before* the `model_refutes_assertions` gate, which
+                        // used to sit right here and bail out.
+                        //
+                        // Both repairs exist precisely to fix a candidate model
+                        // that does not hold up — the case-split lemmas force
+                        // the search to branch on a value the LP was free to
+                        // collide, the array lemmas retract a `select` the
+                        // candidate got wrong — so bailing out first made them
+                        // unreachable for the very models they were written
+                        // for.  Every gate they sit behind is unchanged; only
+                        // the order is.
+                        //
+                        // `self.model` therefore stays *set* through both:
+                        // `instantiate_array_axioms` reads it to decide which
+                        // axiom instances the candidate already satisfies, and
+                        // a `None` there is read as "nothing is satisfied",
+                        // degenerating the round into eager instantiation of
+                        // every candidate instance — up to 256 rounds of that.
+                        // Clearing moved to the final `Unknown` exit below.
+                        //
+                        // Nothing observable from outside distinguishes the two
+                        // orders, so the test build records which one is live
+                        // (see the field doc).
+                        #[cfg(test)]
+                        self.repair_paths_saw_model.push(self.model.is_some());
+
                         // Non-convex LIA refinement: a numeric UF-argument
                         // term pinned to a small finite domain by
                         // arithmetic bounds is invisible to Nelson-Oppen
@@ -322,6 +361,22 @@ impl Solver {
                             );
                         #[cfg(not(feature = "std"))]
                         let case_split_affordable = true;
+                        // The affordability test must not simply short-circuit
+                        // the call away: `split_narrow_int_domains` is what
+                        // discovers whether this candidate has unbranched
+                        // shared-term domains, and it records that in
+                        // `case_split_skipped_targets` for the honesty gate in
+                        // `check`. With a plain `affordable && split(..)` the
+                        // gate never heard about a candidate whose refinement
+                        // the ceiling declined, so the verdict depended on
+                        // machine speed — `sat` under load, `unsat` idle.
+                        //
+                        // When the round is unaffordable the targets are still
+                        // *counted* (marking the `Sat` unverified) but no lemma
+                        // is asserted and no re-solve is owed.
+                        if !case_split_affordable {
+                            self.note_unaffordable_case_split();
+                        }
                         if case_split_affordable && self.split_narrow_int_domains(manager) {
                             // Re-solve with the freshly asserted case-split
                             // lemmas from a clean state, exactly as the
@@ -367,6 +422,14 @@ impl Solver {
                             if array_refinement_rounds >= max_array_refinement_rounds {
                                 // Could not saturate the array axioms within the
                                 // round budget: do not fabricate a verdict.
+                                //
+                                // The model goes with it (issue #40): since the
+                                // refutation gate moved *below* this path, the
+                                // candidate on the table here may be one the
+                                // gate would have rejected, and a rejected model
+                                // must not stay readable behind an `Unknown`.
+                                self.model = None;
+                                self.unsat_core = None;
                                 return SolverResult::Unknown;
                             }
                             // A read-over-write lemma is an `ite` over the two
@@ -410,6 +473,72 @@ impl Solver {
                                 self.config.timeout_ms,
                             );
                             continue;
+                        }
+                        // Soundness gate: never return `Sat` for a model that
+                        // provably violates an assertion (see
+                        // `model_refutes_assertions`).  This backstops the SAT
+                        // core: if it commits an inconsistent trail and reports a
+                        // full assignment that falsifies a Boolean clause the
+                        // theory layer cannot observe, we answer `Unknown`
+                        // instead of a wrong `Sat`.
+                        //
+                        // Recomputed here, at the point of use, rather than
+                        // hoisted above the two repairs: neither repair mutates
+                        // `self.model`, but computing it where it is consumed
+                        // is what makes "recompute after every re-solve" fall
+                        // out of the loop structure instead of being a rule to
+                        // remember.
+                        if self.model_refutes_assertions(manager) {
+                            // Bounded blocking (issue #40): this one assignment
+                            // did not hold up, which says nothing about the
+                            // *next* one.  Exclude it and re-solve rather than
+                            // concede on the first unlucky candidate.  See
+                            // `model_blocking` for why the resulting clause is
+                            // a search restriction rather than a lemma, and for
+                            // the `Unsat` downgrade that pays for it.
+                            //
+                            // Gated on the same wall-clock ceiling the
+                            // case-split refinement uses, and for the same
+                            // reason: a round is a full re-solve from scratch,
+                            // affordable only when the first solve was fast.
+                            #[cfg(feature = "std")]
+                            let blocking_affordable = check_start.elapsed()
+                                < std::time::Duration::from_millis(
+                                    int_case_split::REFINEMENT_TIME_CEILING_MS,
+                                );
+                            #[cfg(not(feature = "std"))]
+                            let blocking_affordable = true;
+                            if self.block_refuted_model_and_rebase(blocking_affordable) {
+                                theory_manager = TheoryManager::new(
+                                    manager,
+                                    &mut self.euf,
+                                    &mut self.arith,
+                                    &mut self.bv,
+                                    &self.bv_terms,
+                                    &self.var_to_constraint,
+                                    &self.var_to_parsed_arith,
+                                    &self.term_to_var,
+                                    &self.var_to_term,
+                                    &mut self.derived_reasons,
+                                    self.config.theory_mode,
+                                    &mut self.statistics,
+                                    self.config.max_conflicts,
+                                    self.config.max_decisions,
+                                    self.has_bv_arith_ops,
+                                    self.has_quantifiers,
+                                    &self.quantifier_uf_funcs,
+                                    self.config.timeout_ms,
+                                );
+                                continue;
+                            }
+                            // Nothing left to try: the budget is spent, the
+                            // feature is off, or the assignment projects onto
+                            // no mapped variable.  This is the exit that now
+                            // owns clearing the model (see the ORDER note
+                            // above).
+                            self.model = None;
+                            self.unsat_core = None;
+                            return SolverResult::Unknown;
                         }
                         self.unsat_core = None;
                         self.debug_check_invariants("check_core: before returning sat");
@@ -560,8 +689,6 @@ impl Solver {
                                 let lit = self.encode(inst.result, manager);
                                 let ok = self.sat.add_clause([lit]);
                                 let _ = ok;
-                                self.add_arith_diseq_split(inst.result, manager);
-                                self.add_arith_eq_trichotomy(inst.result, manager);
                                 self.add_int_domain_clauses(inst.result, manager);
                             }
                             // Add pigeonhole exclusion clauses
@@ -625,8 +752,6 @@ impl Solver {
                                     );
                                     let lit = self.encode(inst.result, manager);
                                     let _ = self.sat.add_clause([lit]);
-                                    self.add_arith_diseq_split(inst.result, manager);
-                                    self.add_arith_eq_trichotomy(inst.result, manager);
                                     self.add_int_domain_clauses(inst.result, manager);
                                 }
                                 // Add pigeonhole exclusion clauses directly
@@ -663,7 +788,6 @@ impl Solver {
                                         );
                                         let lit = self.encode(simplified, manager);
                                         let _ = self.sat.add_clause([lit]);
-                                        self.add_arith_diseq_split(simplified, manager);
                                         self.add_int_domain_clauses(simplified, manager);
                                     }
                                     if !ph_q.is_empty() && !ph_d.is_empty() {

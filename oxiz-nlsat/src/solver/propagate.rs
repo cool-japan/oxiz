@@ -7,9 +7,7 @@ use super::{AtomId, NlsatSolver};
 use crate::assignment::Justification;
 use crate::clause::{ClauseId, Watch};
 use crate::types::{Atom, AtomKind, Lbool, Literal};
-use num_traits::{Signed, Zero};
 use oxiz_math::polynomial::Polynomial;
-use rustc_hash::FxHashMap;
 use std::cmp::Ordering as CmpOrdering;
 
 /// The state of a propagation result.
@@ -407,6 +405,17 @@ impl NlsatSolver {
     }
 
     /// Evaluate an atom under the current assignment.
+    ///
+    /// Factor signs come from `Assignment::eval_poly_sign`, which is exact over
+    /// rational values *and* over rationals plus one algebraic value, and
+    /// answers `None` for anything it cannot prove. Routing through it rather
+    /// than reading rationals directly is what keeps this the safety net it is
+    /// meant to be: an atom coupling an algebraic witness with a
+    /// later-assigned variable (`x = √2`, then `y = 1` arriving into
+    /// `x·y = 1`) is invisible to the region computation that chose the
+    /// witness, so this re-evaluation is where the contradiction surfaces. A
+    /// value-based evaluation would silently report `Undef` there and let a
+    /// wrong `sat` through.
     pub(super) fn evaluate_atom(&self, atom_id: AtomId) -> Lbool {
         match self.get_atom(atom_id) {
             Some(Atom::Ineq(ineq)) => {
@@ -414,26 +423,12 @@ impl NlsatSolver {
                 let mut signs = Vec::with_capacity(ineq.factors.len());
 
                 for factor in &ineq.factors {
-                    // Build the evaluation map
-                    let mut eval_map = FxHashMap::default();
-                    for var in factor.poly.vars() {
-                        if let Some(val) = self.assignment.arith_value(var) {
-                            eval_map.insert(var, val.clone());
-                        } else {
-                            return Lbool::Undef;
-                        }
+                    match self.assignment.eval_poly_sign(&factor.poly) {
+                        Some(sign) => signs.push(sign),
+                        // Unassigned, two algebraic values, or a sign the exact
+                        // machinery could not prove within its budget.
+                        None => return Lbool::Undef,
                     }
-
-                    // Evaluate polynomial
-                    let value = factor.poly.eval(&eval_map);
-                    let sign = if value.is_zero() {
-                        0
-                    } else if value.is_positive() {
-                        1
-                    } else {
-                        -1
-                    };
-                    signs.push(sign);
                 }
 
                 // Use evaluate_sign method

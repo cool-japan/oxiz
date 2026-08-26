@@ -1,10 +1,39 @@
 //! Advanced Variable Elimination for SAT Preprocessing.
-#![allow(dead_code, clippy::ptr_arg)] // Under development
+#![allow(dead_code, clippy::ptr_arg)] // Alternative implementation, see below.
 //!
 //! Implements sophisticated variable elimination techniques including:
 //! - Bounded Variable Elimination (BVE)
 //! - Asymmetric Variable Elimination
 //! - Resolution-based elimination with cost analysis
+//!
+//! # Alternative implementation — not the wired production pass
+//!
+//! The BVE that actually runs inside [`crate::Solver`] is
+//! `Solver::bounded_variable_elimination` (`solver/bve.rs`), reached from
+//! `Solver::solve` under [`crate::SolverConfig::enable_bve`]. This module is
+//! deliberately not wired to it, for two reasons that are properties of the
+//! code rather than of taste:
+//!
+//! * **No model reconstruction.** [`VariableEliminator::eliminate`] returns
+//!   the list of variables it removed but keeps no record of the clauses that
+//!   defined them, so a caller cannot recover a value for an eliminated
+//!   variable. Variable elimination is only satisfiability-preserving when
+//!   that value *can* be recovered — otherwise the reported model can falsify
+//!   a deleted-but-still-asserted original clause. `solver/bve.rs` keeps
+//!   exactly that data (`bve_def` / `bve_order`, replayed by
+//!   `Solver::save_model`).
+//!
+//! * **Incompatible interface.** It operates on a `&mut Vec<Clause>` it is
+//!   free to reindex, whereas the solver's [`crate::ClauseDatabase`] hands out
+//!   stable [`crate::ClauseId`]s that trail reasons, watch lists and the
+//!   binary implication graph all point into. Adapting it would mean
+//!   rebuilding all of that after every call.
+//!
+//! Retained (not deleted) as the crate's reference formulation of
+//! cost-model-driven elimination ordering and of asymmetric variable
+//! elimination — neither of which `solver/bve.rs` implements — and as the
+//! natural starting point should either be added there. Exercised by this
+//! module's own tests.
 
 #[allow(unused_imports)]
 use crate::prelude::*;

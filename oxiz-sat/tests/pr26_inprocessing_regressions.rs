@@ -197,6 +197,11 @@ fn test_pr26_probe_sat_verdict_and_model_agree_on_off() {
 fn test_pr26_bve_model_reconstruction_satisfies_original_clauses() {
     let mut solver = Solver::with_config(SolverConfig {
         enable_bve: true,
+        // The lucky phase would answer `Sat` on this small instance before
+        // BVE ever ran, leaving the model
+        // reconstruction under test with nothing to reconstruct (see
+        // `SolverConfig::enable_lucky_phase`).
+        enable_lucky_phase: false,
         ..SolverConfig::default()
     });
     let clauses = build_and_gate_instance(&mut solver);
@@ -258,6 +263,11 @@ fn test_pr26_bve_sat_verdict_agrees_on_off() {
 fn test_pr26_els_model_reconstruction_satisfies_original_clauses() {
     let mut solver = Solver::with_config(SolverConfig {
         enable_equiv_substitution: true,
+        // The lucky phase would answer `Sat` on this small instance before
+        // equivalent-literal substitution ever ran, leaving the model
+        // reconstruction under test with nothing to reconstruct (see
+        // `SolverConfig::enable_lucky_phase`).
+        enable_lucky_phase: false,
         ..SolverConfig::default()
     });
     let (clauses, a, b, c) = build_equivalence_instance(&mut solver);
@@ -345,6 +355,11 @@ fn test_pr26_gates_congruence_model_reconstruction_satisfies_original_clauses() 
     let mut solver = Solver::with_config(SolverConfig {
         enable_equiv_substitution: true,
         enable_gate_congruence: true,
+        // The lucky phase would answer `Sat` on this small instance before
+        // gate congruence ever ran, leaving the model
+        // reconstruction under test with nothing to reconstruct (see
+        // `SolverConfig::enable_lucky_phase`).
+        enable_lucky_phase: false,
         ..SolverConfig::default()
     });
     let a = solver.new_var();

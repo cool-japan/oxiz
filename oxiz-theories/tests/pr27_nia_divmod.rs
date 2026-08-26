@@ -56,7 +56,7 @@ fn test_pr27_nia_divmod_positive_divisor_is_sat() {
     assert!(
         matches!(
             dispatch_nia_constraints(&[assertion], &tm, true),
-            Some(NlDispatchResult::Sat(_))
+            Some(NlDispatchResult::Sat { .. })
         ),
         "x*y=12 ∧ x mod 5=2 is satisfiable (x=2, y=6)"
     );
@@ -116,7 +116,7 @@ fn test_pr27_nia_divmod_negative_divisor_is_sat() {
     assert!(
         matches!(
             dispatch_nia_constraints(&[assertion], &tm, true),
-            Some(NlDispatchResult::Sat(_))
+            Some(NlDispatchResult::Sat { .. })
         ),
         "x^2=9 ∧ x mod (-4)=3 is satisfiable (x=3)"
     );
@@ -150,7 +150,7 @@ fn test_pr27_nia_divmod_negative_divisor_unreachable_remainder_is_unsat() {
     // discussion in the PR27 report). The one outcome that would be a
     // soundness bug is `Sat`: neither root's remainder is `2`.
     assert!(
-        !matches!(result, Some(NlDispatchResult::Sat(_))),
+        !matches!(result, Some(NlDispatchResult::Sat { .. })),
         "x^2=9 ∧ x mod (-4)=2 has no solution and must never be reported Sat"
     );
 }
@@ -236,7 +236,7 @@ fn test_pr27_nia_divmod_folded_divisor_expression_is_sat() {
     assert!(
         matches!(
             dispatch_nia_constraints(&[assertion], &tm, true),
-            Some(NlDispatchResult::Sat(_))
+            Some(NlDispatchResult::Sat { .. })
         ),
         "x*y=12 ∧ x mod ((2*3)-1)=2 is satisfiable (x=2, y=6), same divisor as the bare-literal case"
     );

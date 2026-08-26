@@ -67,13 +67,15 @@ impl Solver {
                     self.trail.requeue_last_propagated();
                     return Some(clause_id);
                 } else if !value.is_defined() {
-                    // Propagate
+                    // Propagate.
+                    //
+                    // No lazy hyper-binary resolution here: the reason is a
+                    // binary clause (the `backed` check above guarantees it),
+                    // and `check_hyper_binary_resolution` provably cannot
+                    // learn anything from one — see its doc comment and the
+                    // measurement recorded at
+                    // `SolverConfig::enable_lazy_hyper_binary`.
                     self.trail.assign_propagation(implied_lit, clause_id);
-
-                    // Lazy hyper-binary resolution: check if we can learn a binary clause
-                    if self.config.enable_lazy_hyper_binary {
-                        self.check_hyper_binary_resolution(lit, implied_lit, clause_id);
-                    }
                 }
             }
 
@@ -207,10 +209,19 @@ impl Solver {
     /// When propagating `implied` due to `lit` being assigned, check if we can
     /// learn a binary clause by resolving the reason clauses
     ///
+    /// Only a reason clause of 3 or 4 literals can yield anything; a binary
+    /// reason is rejected before any work is done, and the binary-propagation
+    /// call site therefore does not call this at all. See the guard below and
+    /// the measurement recorded at
+    /// [`SolverConfig::enable_lazy_hyper_binary`] for why.
+    ///
     /// Skipped outright while any proof (DRAT or LRAT) is being traced. This
     /// runs from the *main* propagation path — gated only by
-    /// [`SolverConfig::enable_lazy_hyper_binary`] (on by default and in 6 of
-    /// the 9 presets), not by [`SolverConfig::enable_failed_literal_probing`]
+    /// [`SolverConfig::enable_lazy_hyper_binary`] (on by default and in 7 of
+    /// the 10 presets — `Default`, `Industrial`, `Cryptographic`, `Hardware`,
+    /// `Conservative`, `Glucose`, `CaDiCaL` — and off in `Random`,
+    /// `Aggressive`, and `MiniSat`), not by
+    /// [`SolverConfig::enable_failed_literal_probing`]
     /// — and previously had no proof awareness at all: it inserts a real
     /// clause into the live database (`ClauseDatabase::add_learned` below)
     /// with no corresponding `drat_add`, so a DRAT proof recorded on a
@@ -230,11 +241,27 @@ impl Solver {
             return;
         }
 
-        // Get the reason clause
+        // Get the reason clause.
+        //
+        // A binary reason is *not* filtered out here even though the
+        // binary-propagation call site no longer calls this function with one
+        // (see there): a binary clause can also propagate from the watch
+        // lists, and in that case the binary implication graph does not
+        // necessarily hold the corresponding edge — clauses shrunk to two
+        // literals by in-place strengthening are not all registered in it —
+        // so the resolvent is not always a duplicate. Filtering length 2 out
+        // here was measured to change which clauses the pass learns (issue
+        // #38), so it is left in.
         let reason_clause = match self.clauses.get(reason_id) {
             Some(c) if c.lits.len() >= 2 && c.lits.len() <= 4 => c.lits.clone(),
             _ => return,
         };
+
+        // Past the cheap guards: this call is real work, whether or not it
+        // ends up producing a clause. Counted so callers (and the measurement
+        // harness) can tell "the pass is neutral" apart from "the pass never
+        // ran".
+        self.stats.hyper_binary_attempts += 1;
 
         // Check if we can derive a binary clause
         // Look for literals in the reason clause that are assigned at the current level
@@ -338,6 +365,7 @@ impl Solver {
                 self.binary_graph
                     .add(implied.negate(), other_lit, clause_id);
                 self.stats.learned_clauses += 1;
+                self.stats.hyper_binary_learned += 1;
 
                 // Every other `add_learned` call site computes and stores an LBD
                 // (see `Solver::compute_lbd`'s call sites in `solve` and

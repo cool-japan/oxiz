@@ -7,6 +7,7 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 description = "Property Directed Reachability (PDR/IC3) engine for OxiZ - Horn clause solving"
+readme = "README.md"
 keywords = ["smt", "pdr", "ic3", "horn", "verification"]
 categories = ["algorithms", "development-tools::testing"]
 

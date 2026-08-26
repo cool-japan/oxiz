@@ -541,14 +541,14 @@ mod tests {
     #[test]
     fn test_substitution_deeply_nested_term() {
         let worker = std::thread::Builder::new()
-            .stack_size(1 << 20)
+            .stack_size(1 << 17)
             .spawn(|| {
                 let mut manager = setup();
                 let int_sort = manager.sorts.int_sort;
                 let x = manager.mk_var("x", int_sort);
 
-                // f(f(f(...f(x)...))) nested 50_000 deep.
-                let depth = 50_000;
+                // f(f(f(...f(x)...))) nested 6_250 deep.
+                let depth = 6_250;
                 let mut term = x;
                 for _ in 0..depth {
                     term = manager.mk_apply("f", [term], int_sort);

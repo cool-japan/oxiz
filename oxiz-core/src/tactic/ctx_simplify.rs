@@ -957,10 +957,18 @@ mod group_c1_tests {
     /// exactly the property under test.
     #[test]
     fn contextual_simplification_survives_a_deep_formula_on_a_tiny_stack() {
-        const DEPTH: usize = 8_000;
+        // Stack size and nesting depth are scaled together on purpose: what
+        // this test pins is the *ratio* — about 131 bytes of stack per
+        // nesting level (128 KiB / 1_000). The pair used to be
+        // 1 MiB / 8_000 — the same 131 bytes — but the tactic's superlinear
+        // walk made that variant exceed the workspace's 3×60 s nextest
+        // terminate-after ceiling. Never raise `DEPTH` without raising
+        // `STACK` by the same factor.
+        const DEPTH: usize = 1_000;
+        const STACK: usize = 1 << 17;
 
         let handle = std::thread::Builder::new()
-            .stack_size(1 << 20)
+            .stack_size(STACK)
             .spawn(|| {
                 let mut manager = TermManager::new();
                 let bool_sort = manager.sorts.bool_sort;

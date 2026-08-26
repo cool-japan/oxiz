@@ -123,6 +123,8 @@ pub mod nl_eval;
 pub mod nl_ground_reduce;
 #[cfg(feature = "std")]
 pub mod nl_repair_search;
+#[cfg(feature = "std")]
+pub mod nl_witness;
 /// Nonlinear arithmetic via the `oxiz-nlsat` cell-decomposition core.
 ///
 /// Gated on `nlsat` (which implies `std`) rather than on `std` alone: this is

@@ -12,7 +12,7 @@ This test suite validates OxiZ's correctness by comparing its results against Z3
 - **QF_LRA** (16 benchmarks): Quantifier-Free Linear Real Arithmetic
 - **QF_BV** (15 benchmarks): Quantifier-Free Bit-Vectors
 - **QF_S** (10 benchmarks): Quantifier-Free Strings
-- **QF_FP** (10 benchmarks): Quantifier-Free Floating Point
+- **QF_FP** (12 benchmarks): Quantifier-Free Floating Point
 - **QF_DT** (10 benchmarks): Quantifier-Free Datatypes
 - **QF_A** (10 benchmarks): Quantifier-Free Arrays
 - **QF_ABV** (5 benchmarks): Quantifier-Free Arrays + Bit-Vectors
@@ -28,14 +28,14 @@ This test suite validates OxiZ's correctness by comparing its results against Z3
 - **UFLIA** (20 benchmarks): Quantified Uninterpreted Functions + LIA
 - **UFLRA** (10 benchmarks): Quantified Uninterpreted Functions + LRA
 
-**Total:** 168 benchmarks across 19 logic families
+**Total:** 170 benchmarks across 19 logic families
 
 ### Benchmark Selection Criteria
 
 Each benchmark was selected to:
 
 1. **Cover diverse constraint patterns** - Not just simple satisfiability checks
-2. **Mix of SAT and UNSAT** - The current corpus is 116 SAT and 52 UNSAT as decided by `z3`; every case is decisive on both sides, so none of them is `Inconclusive`
+2. **Mix of SAT and UNSAT** - The current corpus is 117 SAT and 53 UNSAT as decided by `z3`; every case is decisive on both sides, so none of them is `Inconclusive`
 3. **Varied complexity** - Easy, medium, and hard instances
 4. **Execute within timeout** - Both solvers should complete within 60 seconds
 5. **Test edge cases** - Boundary conditions, special values, tricky patterns
@@ -94,7 +94,7 @@ Two files, two different jobs:
 | File | Tracked? | Role |
 |------|----------|------|
 | `results.json` | **No** — git-ignored | Scratch output of the most recent local run *on this machine*. Every run overwrites it. Never cite it as evidence. |
-| `results.<os>-<arch>.json` | **Yes** — committed | The recorded parity result **for one environment** (currently `results.macos-aarch64.json` and `results.linux-x86_64.json`). This is what `README.md`, `TODO.md` and `docs/smtcomp2026_participation.md` point at when they say "authoritative". |
+| `results.<os>-<arch>.json` | **Yes** — committed | The recorded parity result **for one environment**. Currently only `results.macos-aarch64.json` is in the tree; a `results.linux-x86_64.json` would join it once a Linux environment's run is committed. This is what `README.md`, `TODO.md` and `docs/smtcomp2026_participation.md` point at when they say "authoritative". |
 
 A run writes both files itself, so publishing a result is just a matter of committing the right
 one: stage `results.<os>-<arch>.json` for the environment you actually ran on, never `results.json`
@@ -197,12 +197,14 @@ can ever yield `Correct`.
 
 #### Pass Criteria
 
-For the **v0.3.1 release**, every logic family in the suite must be **100% Correct with 0 Wrong,
-0 Inconclusive, 0 Timeout and 0 Error**, which is the currently recorded result in *every* tracked
-`results.<os>-<arch>.json` snapshot (`results.macos-aarch64.json`, `results.linux-x86_64.json`):
-**168/168 Correct** across all 19 logic families against a real `z3` 4.15.4 binary. The snapshots
-agree on every benchmark's verdict — that agreement is itself part of the pass criteria and is
-checked by `tests/cross_env_verdict_agreement.rs`; only the recorded timings differ between them.
+For the **v0.3.1 release**, every logic family in the suite had to be **100% Correct with 0 Wrong,
+0 Inconclusive, 0 Timeout and 0 Error** — the result recorded at the time was **168/168 Correct**
+across all 19 logic families against a real `z3` 4.15.4 binary. That pass criterion applies to
+every tracked `results.<os>-<arch>.json` snapshot; currently only `results.macos-aarch64.json` is
+in the tree. The cross-environment agreement rule — every tracked snapshot must agree on every
+benchmark's verdict, with only the recorded timings differing between them — is checked by
+`tests/cross_env_verdict_agreement.rs`, but with a single snapshot present it is currently vacuous
+rather than exercised across environments.
 
 Two rules are non-negotiable regardless of the headline number:
 

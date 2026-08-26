@@ -1107,13 +1107,17 @@ mod tests {
     /// the same `...` truncation marker the basic printer uses.
     ///
     /// The assertion is that the call returns at all on a 1 MiB stack.
+    // STACK-1MIB: deliberately 1 MiB, not swept to 128 KiB — the printer
+    // truncates at `MAX_PRETTY_PRINT_DEPTH` (512) via bounded native
+    // recursion, so stack usage and term depth are decoupled; 128 KiB would
+    // abort inside the cap instead of exercising the truncation path.
     #[test]
     fn deeply_nested_term_truncates_instead_of_overflowing() {
         let handle = std::thread::Builder::new()
             .stack_size(1 << 20)
             .spawn(|| {
                 let mut manager = TermManager::new();
-                let term = nested_nots(&mut manager, 100_000);
+                let term = nested_nots(&mut manager, 12_500);
                 let printer = PrettyPrinter::new(&manager);
                 printer.print_term(term)
             })

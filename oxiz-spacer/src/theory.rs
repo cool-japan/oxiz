@@ -766,10 +766,11 @@ mod tests {
     /// (128 KiB / 6_250). Natively recursive projection needs far more than
     /// that per frame and still overflows, so the regression keeps every bit
     /// of its detection power. The pair used to be 1 MiB / 50_000 -- the same
-    /// 21 bytes -- but `mk_and` flattens its arguments, so a chain built with
-    /// `acc = mk_and([acc, atom])` is quadratic, and 50_000 levels cost tens
-    /// of GB of live terms. Never raise `DEEP_DEPTH` without raising
-    /// `DEEP_STACK` by the same factor.
+    /// 21 bytes. `mk_and` flattens its arguments (so `acc = mk_and([acc,
+    /// atom])` never actually nests, and is quadratic to boot), so the deep
+    /// term below is built with `TermManager::intern_term` directly, which
+    /// neither flattens nor re-interns already-built prefixes. Never raise
+    /// `DEEP_DEPTH` without raising `DEEP_STACK` by the same factor.
     const DEEP_STACK: usize = 1 << 17;
     const DEEP_DEPTH: u32 = 6_250;
 
@@ -963,15 +964,22 @@ mod tests {
         let handle = std::thread::Builder::new()
             .stack_size(DEEP_STACK)
             .spawn(|| {
+                use oxiz_core::TermKind;
+
                 let mut manager = TermManager::new();
+                let bool_sort = manager.sorts.bool_sort;
                 let int_sort = manager.sorts.int_sort;
                 let x = manager.mk_var("x", int_sort);
                 let zero = manager.mk_int(0);
                 let mut formula = manager.mk_ge(x, zero);
+                // Interned directly (not via `mk_and`, which would flatten
+                // this back into one wide `And`) so the tree really is
+                // `DEEP_DEPTH` deep.
                 for i in 0..DEEP_DEPTH {
                     let v = manager.mk_var(&format!("v{i}"), int_sort);
                     let atom = manager.mk_ge(v, zero);
-                    formula = manager.mk_and([formula, atom]);
+                    formula =
+                        manager.intern_term(TermKind::And(vec![formula, atom].into()), bool_sort);
                 }
                 let projected = TheoryIntegration::project_variables(formula, &[x], &mut manager);
                 assert!(

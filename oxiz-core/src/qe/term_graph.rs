@@ -577,12 +577,12 @@ mod tests {
     #[test]
     fn test_build_graph_deep_nesting_does_not_overflow() {
         let handle = std::thread::Builder::new()
-            .stack_size(1 << 20)
+            .stack_size(1 << 17)
             .spawn(|| {
                 let mut manager = TermManager::new();
                 let int_sort = manager.sorts.int_sort;
                 let mut term = manager.mk_var("x", int_sort);
-                for _ in 0..60_000 {
+                for _ in 0..7_500 {
                     term = manager.mk_apply("f", [term], int_sort);
                 }
                 let graph = TermGraph::from_formula(term, &manager);
@@ -592,7 +592,7 @@ mod tests {
 
         // The whole chain is analyzed: no silent truncation at depth 100.
         let num_nodes = handle.join().expect("deep build_graph must not overflow");
-        assert_eq!(num_nodes, 60_001);
+        assert_eq!(num_nodes, 7_501);
     }
 
     #[test]

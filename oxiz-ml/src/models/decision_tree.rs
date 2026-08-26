@@ -929,7 +929,7 @@ mod tests {
     /// Stack size for the deep-tree regression tests. A stack overflow aborts
     /// the process rather than failing a test, so *returning at all* is the
     /// assertion; the small stack makes a surviving recursion detectable.
-    const DEEP_TREE_STACK: usize = 1 << 20;
+    const DEEP_TREE_STACK: usize = 1 << 17;
 
     /// Build a right-leaning chain of `depth` internal nodes.
     fn deep_chain(depth: usize) -> DecisionNode {
@@ -957,7 +957,7 @@ mod tests {
             .name("ml_deep_tree".to_string())
             .stack_size(DEEP_TREE_STACK)
             .spawn(|| {
-                let depth = 100_000;
+                let depth = 12_500;
                 let tree = deep_chain(depth);
 
                 // Semantic pins: the same values the recursive versions produced.

@@ -663,9 +663,12 @@ mod tests {
     /// (128 KiB / 6_250). A natively recursive estimator needs far more than
     /// that per frame and still overflows, so the regression keeps every bit
     /// of its detection power. The pair used to be 1 MiB / 50_000 -- the same
-    /// 21 bytes -- but `mk_and` flattens its arguments, so a chain built with
-    /// `acc = mk_and([acc, atom])` is quadratic, and 50_000 levels cost tens
-    /// of GB of live terms. Never raise `DEEP_DEPTH` without raising
+    /// 21 bytes. `mk_and` flattens its arguments (so `acc = mk_and([acc,
+    /// atom])` never actually nests, and is quadratic to boot), so the deep
+    /// `And` chain below is built with `TermManager::intern_term` directly,
+    /// which neither flattens nor re-interns already-built prefixes (the
+    /// `mk_add` chain in `term_size_survives_deep_nesting` is unaffected --
+    /// `mk_add` never flattens). Never raise `DEEP_DEPTH` without raising
     /// `DEEP_STACK` by the same factor.
     const DEEP_STACK: usize = 1 << 17;
     const DEEP_DEPTH: u32 = 6_250;
@@ -833,14 +836,19 @@ mod tests {
             .stack_size(DEEP_STACK)
             .spawn(|| {
                 let mut terms = TermManager::new();
+                let bool_sort = terms.sorts.bool_sort;
                 let int_sort = terms.sorts.int_sort;
                 let zero = terms.mk_int(0);
                 let first = terms.mk_var("v0", int_sort);
                 let mut formula = terms.mk_ge(first, zero);
+                // Interned directly (not via `mk_and`, which would flatten
+                // this back into one wide `And`) so the tree really is
+                // `DEEP_DEPTH` deep.
                 for i in 1..DEEP_DEPTH {
                     let v = terms.mk_var(&format!("v{i}"), int_sort);
                     let atom = terms.mk_ge(v, zero);
-                    formula = terms.mk_and([formula, atom]);
+                    formula =
+                        terms.intern_term(TermKind::And(vec![formula, atom].into()), bool_sort);
                 }
                 assert!(Generalizer::extract_cube(&terms, formula).len() >= DEEP_DEPTH as usize);
             })

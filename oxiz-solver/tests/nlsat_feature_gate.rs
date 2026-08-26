@@ -22,17 +22,25 @@
 //!    honesty gates). It must never fall through to the SAT layer, which would
 //!    treat the nonlinear atom as a free Boolean and report a spurious verdict,
 //!    and it must never panic.
-//! 3. **What survives, survives soundly.** Two things outside `oxiz-nlsat` still
-//!    decide nonlinear goals and stay compiled in either way: the static UNSAT
-//!    pattern detector (`check_nonlinear_constraints`) and the two model
-//!    searches, whose every `sat` is re-verified against the untouched
+//! 3. **What survives, survives soundly.** Three things outside `oxiz-nlsat`
+//!    still decide nonlinear goals and stay compiled in either way — they are
+//!    `std`-gated, and `std` is exactly what the OFF build keeps:
+//!
+//!    * the static UNSAT pattern detector (`check_nonlinear_constraints`);
+//!    * the NIA-over-LP relaxation engine
+//!      (`oxiz_theories::arithmetic::nla`), the only one of the three that can
+//!      derive `unsat` from a *proof* rather than a syntactic pattern — an LP
+//!      infeasibility closure over consequences of the input;
+//!    * the two model searches (`nl_repair_search`, `nl_ground_reduce`).
+//!
+//!    Every `sat` any of them produces is re-verified against the untouched
 //!    assertions in exact `BigRational` arithmetic before it is reported
-//!    (`adopt_nl_witness` → `nl_eval::holds_under`). Those searches are gated on
+//!    (`adopt_nl_witness` → `nl_eval::holds_under`). All three are gated on
 //!    QF_NIA, so the whole QF_NIA group below is *also* uncfg'd: it answers the
 //!    same in both builds.
 //!
 //! Every expectation here was measured against this tree in both feature
-//! combinations rather than assumed. Two facts worth stating because they are
+//! combinations rather than assumed. Three facts worth stating because they are
 //! the ones a reader is most likely to guess wrong:
 //!
 //! * `(= (* x x) 2.0)` answers `unknown` in **both** builds. The irrational
@@ -41,11 +49,21 @@
 //!   this feature and is deliberately not used as one.
 //! * `(get-value ...)` renders one binding per line, so a two-variable answer
 //!   contains a newline. The expectations below spell that out.
+//! * A **model** for a multi-solution QF_NIA goal is *not* stable across the
+//!   two builds, even where the verdict is. The NIA-over-LP relaxation engine
+//!   runs above the two model searches, so which procedure answers first — and
+//!   therefore which witness is reported — differs once the cell decomposition
+//!   is absent: `x*y = 6 ∧ x+y = 5` gives (2, 3) with `nlsat` and (3, 2)
+//!   without. Both are re-verified against the assertions and both are correct.
+//!   That is why every QF_NIA expectation below is a *verdict*, and why the
+//!   exact `get-value` strings pinned in this file are all for goals with a
+//!   unique model (QF_LIA) or decided by the cell decomposition (QF_NRA).
 
 use oxiz_solver::Context;
-// Only the OFF-build tests reach the programmatic API; the default-build ones
-// all go through `execute_script` and compare rendered lines.
-#[cfg(not(feature = "nlsat"))]
+// Most tests here go through `execute_script` and compare rendered lines; the
+// two that reach the programmatic API instead do so to keep a change in the
+// parser or the script runner from quietly turning them into tautologies. One
+// of those two is uncfg'd, so this import is as well.
 use oxiz_solver::SolverResult;
 
 /// Run an SMT-LIB2 script the way a consumer does, returning the output lines.
@@ -145,12 +163,21 @@ fn linear_real_arithmetic_stays_correct() {
 
 #[test]
 fn qf_nia_is_decided_identically_in_both_builds() {
-    // Claim 3, and the reason it is uncfg'd: everything that decides these four
+    // Claim 3, and the reason it is uncfg'd: everything that decides these
     // goals survives the feature being turned off. The `sat`s come from
     // `nl_repair_search` / `nl_ground_reduce`, whose witnesses are re-checked
     // against the original assertions before the verdict is reported; the
-    // `unsat`s come from `check_nonlinear_constraints`' static patterns. None
-    // of the three lives in `oxiz-nlsat`.
+    // `unsat`s come from `check_nonlinear_constraints`' static patterns and
+    // from the relaxation engine's proofs. None of those lives in
+    // `oxiz-nlsat`.
+    //
+    // The property survives the engine being wired in, but the *pins* were
+    // re-measured rather than assumed: the two multivariate goals at the end
+    // answered `unknown` in both builds before the wiring and answer `unsat` in
+    // both builds after it, which is the engine's contribution and is pinned
+    // here as a both-builds claim rather than left to `qf_nia_relaxation.rs`
+    // (which measures it against the flag instead). The four goals above them
+    // did not move in either build.
     assert_eq!(
         run("(set-logic QF_NIA)(declare-const x Int)(assert (= (* x x) 4))(check-sat)"),
         vec!["sat"],
@@ -173,6 +200,26 @@ fn qf_nia_is_decided_identically_in_both_builds() {
         run("(set-logic QF_NIA)(declare-const x Int)(assert (= (* x x) (- 1)))(check-sat)"),
         vec!["unsat"],
         "a square is never negative, and the static patterns say so either way"
+    );
+    // Re-measured after the relaxation engine was wired in: `unknown` in both
+    // builds before, `unsat` in both builds now. Neither is reachable by a
+    // single-variable square pattern, so these two are the engine talking and
+    // nothing else.
+    assert_eq!(
+        run(
+            "(set-logic QF_NIA)(declare-const x Int)(declare-const y Int)\
+             (assert (>= x 3))(assert (>= y 3))(assert (<= (* x y) 8))(check-sat)"
+        ),
+        vec!["unsat"],
+        "two integer factors of at least 3 cannot multiply to 8 or less"
+    );
+    assert_eq!(
+        run(
+            "(set-logic QF_NIA)(declare-const x Int)(declare-const y Int)\
+             (assert (= (+ (* x x) (* y y) 1) 0))(check-sat)"
+        ),
+        vec!["unsat"],
+        "a sum of two squares plus one is never zero"
     );
 }
 
@@ -253,25 +300,33 @@ fn nra_unknown_is_reached_through_the_programmatic_api_too() {
     );
 }
 
-#[cfg(not(feature = "nlsat"))]
 #[test]
-fn push_pop_over_a_nonlinear_atom_concedes_instead_of_guessing() {
-    // The OFF-build counterpart of `nlsat_integration.rs`'s
-    // `test_nia_push_pop_backtrack`, which is `cfg`'d to the other build.
+fn push_pop_over_a_nonlinear_atom_never_guesses() {
+    // The uncfg'd counterpart of `nlsat_integration.rs`'s
+    // `test_nia_push_pop_backtrack`, which is `cfg`'d to the default build.
     //
     // The sequence is `x*x = 4`, push, `x < 0`, push, `x > 0`, pop, pop. The
-    // last-but-one state is contradictory on its *linear* atoms alone, and the
-    // default build reports `Unsat` for it — but only because
-    // `dispatch_nl_solver` runs ahead of `check_core`'s honesty gate. Without
-    // it the gate speaks first and concedes, which is the correct answer for a
-    // solver that has proven nothing: `x*x = 4` is in scope and no theory here
-    // can take it.
+    // last-but-one state is contradictory on its *linear* atoms alone, and both
+    // builds now report `Unsat` for it — which is why this test carries no
+    // `cfg` any more.
     //
-    // What this test exists to catch is the other outcome — the gate being
-    // skipped and the SAT layer treating `x*x = 4` as a free Boolean, which
-    // would report `Sat` for `x < 0 ∧ x > 0`. That is the bug this whole
-    // feature has to not introduce, and it is asserted at every level, not just
-    // the contradictory one.
+    // It used to. Before the NIA-over-LP relaxation engine was wired into
+    // `dispatch_nl_solver`, the OFF build reached this state with nothing left
+    // that could refute it: `dispatch_nl_solver` fell through, `check_core`'s
+    // honesty gate spoke, and the answer was `Unknown` — correct, since the
+    // solver had proven nothing while `x*x = 4` was still in scope. The engine
+    // is `std`-gated rather than `nlsat`-gated, so it is now present in this
+    // build too, and it *proves* the contradiction rather than conceding it.
+    // The re-pin is a measured improvement, not a relaxed expectation: the
+    // verdict moved from "declined" to "refuted", never from one verdict to a
+    // different one.
+    //
+    // What this test exists to catch is the third outcome — the honesty gate
+    // being skipped and the SAT layer treating `x*x = 4` as a free Boolean,
+    // which would report `Sat` for `x < 0 ∧ x > 0`. That bug is excluded at
+    // every level below, not just the contradictory one, and the `!Sat`
+    // assertion is deliberately kept separate from the `Unsat` one so a future
+    // re-measurement can loosen the second without touching the first.
     let mut ctx = Context::new();
     ctx.set_logic("QF_NIA");
     let int_sort = ctx.terms.sorts.int_sort;
@@ -294,16 +349,16 @@ fn push_pop_over_a_nonlinear_atom_concedes_instead_of_guessing() {
     ctx.push();
     let x_gt = ctx.terms.mk_gt(x, zero);
     ctx.assert(x_gt);
-    // Level 2 — now contradictory. Conceded, not guessed.
+    // Level 2 — now contradictory. Refuted, not guessed.
     let at_conflict = ctx.check_sat();
     assert!(
         !matches!(at_conflict, SolverResult::Sat),
         "x < 0 AND x > 0 must never be reported Sat, got {at_conflict:?}"
     );
     assert!(
-        matches!(at_conflict, SolverResult::Unknown),
-        "without `nlsat` the honesty gate speaks before the search and concedes, \
-         got {at_conflict:?}"
+        matches!(at_conflict, SolverResult::Unsat),
+        "both builds refute this: the relaxation engine is compiled in either \
+         way, got {at_conflict:?}"
     );
 
     // And the scopes still unwind to the answers they had on the way in.

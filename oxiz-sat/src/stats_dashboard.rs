@@ -240,6 +240,20 @@ impl StatsDashboard {
             output.push('\n');
         }
 
+        // Lucky pre-search phase
+        if self.solver_stats.lucky_attempts > 0 {
+            output.push_str("LUCKY PHASE:\n");
+            output.push_str(&format!(
+                "  Scans Attempted:    {}\n",
+                self.solver_stats.lucky_attempts
+            ));
+            output.push_str(&format!(
+                "  Scans Succeeded:    {}\n",
+                self.solver_stats.lucky_successes
+            ));
+            output.push('\n');
+        }
+
         // Backtracking
         if self.solver_stats.chrono_backtracks > 0 || self.solver_stats.non_chrono_backtracks > 0 {
             output.push_str("BACKTRACKING:\n");

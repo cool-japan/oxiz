@@ -113,15 +113,33 @@ impl Solver {
 
             // Theory propagation check after each assignment
             loop {
-                // Get only NEW (unprocessed) assignments and notify theory
-                let assignments = self.trail.assignments().to_vec();
+                // Only the UNPROCESSED suffix of the trail is new information for
+                // the theory: everything before `safe_start` was already sent to
+                // `theory.on_assignment` in a prior iteration (or survived a
+                // backtrack's clamp below `boundary`, in which case it will be
+                // re-sent only once the trail regrows past it) — except on the
+                // `Conflict` break below, which marks the *whole* suffix processed
+                // even though delivery stopped at the conflicting literal; that
+                // relies on `theory_processed.min(boundary)` after the ensuing
+                // backtrack to reopen anything left undelivered. Pre-existing
+                // behavior (the old `assignments.len()` did the same), unchanged
+                // here. Cloning the whole trail here every iteration made this
+                // loop O(trail_len^2) over a search (each of the trail's N
+                // literals re-copied on each of the ~N later iterations); slicing
+                // `[safe_start..]` makes each iteration's work proportional to
+                // what is actually new.
+                //
+                // `TheoryCallback::on_assignment` takes `&mut T` (the theory), not
+                // `&mut Solver`, so nothing in this loop body needs a mutable
+                // borrow of `self` — an immutable slice borrow of `self.trail` can
+                // live for the loop's duration without a clone.
+                let trail_len = self.trail.assignments().len();
+                // Guard against stale theory_processed after backtracks/restarts.
+                let safe_start = theory_processed.min(trail_len);
                 let mut theory_conflict = None;
                 let mut theory_propagations = Vec::new();
 
-                // Check only NEW assignments with theory (skip already-processed ones).
-                // Guard against stale theory_processed after backtracks/restarts.
-                let safe_start = theory_processed.min(assignments.len());
-                for &lit in &assignments[safe_start..] {
+                for &lit in &self.trail.assignments()[safe_start..] {
                     match theory.on_assignment(lit) {
                         TheoryCheckResult::Sat => {}
                         TheoryCheckResult::Conflict(conflict_lits) => {
@@ -133,8 +151,9 @@ impl Solver {
                         }
                     }
                 }
-                // Update processed count
-                theory_processed = assignments.len();
+                // Update processed count: everything up to the trail length we
+                // read above has now been sent to the theory.
+                theory_processed = trail_len;
 
                 // Handle theory conflict
                 if let Some(conflict_lits) = theory_conflict {

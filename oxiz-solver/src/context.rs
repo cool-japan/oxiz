@@ -22,6 +22,26 @@ mod model_fmt;
 /// file stays under the 2000-line policy limit.
 mod sort_name;
 
+/// The cardinality axioms that give the reserved `RoundingMode` sort its
+/// exactly-five-element domain. Split into a child module so this file stays
+/// under the 2000-line policy limit.
+mod rounding_mode;
+
+/// Constructor/selector registration for `(declare-datatype(s) ..)`. Split into
+/// a child module so this file stays under the 2000-line policy limit.
+#[cfg(feature = "std")]
+mod declare_datatype;
+
+/// Binary proof-log serialisation for `check_sat`. Split into a child module so
+/// this file stays under the 2000-line policy limit.
+#[cfg(feature = "std")]
+mod proof_log;
+
+/// `define-fun-rec` / `define-funs-rec`: the recursive-definition registry and
+/// the fuel-bounded unfolding driver that discharges it. Split into a child
+/// module so this file stays under the 2000-line policy limit.
+mod recfun;
+
 /// Regression tests for the closing restore check of `(get-consequences ..)`.
 /// Split into a child module so this file stays under the 2000-line policy
 /// limit.
@@ -140,6 +160,10 @@ pub struct Context {
     /// map exists purely for script-level introspection of which names
     /// were declared and with what arity.
     declared_sorts: crate::prelude::HashMap<String, u32>,
+    /// Recursive function definitions in scope, plus the bookkeeping for the
+    /// scratch solver scope the unfolding driver leaves open (see
+    /// [`context::recfun`]).
+    recfun: recfun::RecFunState,
     /// Optional path for binary proof logging.
     ///
     /// When set, `check_sat` creates a `ProofLogger` at this path, records
@@ -175,6 +199,7 @@ impl Context {
             last_assumptions: Vec::new(),
             options: crate::prelude::HashMap::new(),
             declared_sorts: crate::prelude::HashMap::new(),
+            recfun: recfun::RecFunState::default(),
             #[cfg(feature = "std")]
             proof_log_path: None,
         }
@@ -231,6 +256,11 @@ impl Context {
         // `declare-const` command is processed"): without it, a trigger-free
         // quantifier has no in-scope constant to instantiate with.
         self.solver.register_declared_const(term, sort);
+        // A `RoundingMode` constant needs the closure axiom that pins it to
+        // one of the five real modes; see `context::rounding_mode`.
+        if self.is_rounding_mode_sort(sort) {
+            self.assert_rounding_mode_closure(term);
+        }
         term
     }
 
@@ -298,16 +328,26 @@ impl Context {
     /// clearing it *is* that mode transition: they answer with the standard
     /// "not available" error instead of reporting a model, core or proof that
     /// belongs to a superseded assertion stack.
+    ///
+    /// It is also where the recursive-definition driver's scratch solver scope
+    /// is discharged: that scope holds unfolded definitional instances and is
+    /// deliberately left *open* after an accepted verdict so `(get-model)` /
+    /// `(get-value ..)` can read the model built with them.  Every caller
+    /// therefore invokes this **before** touching the solver's scope stack —
+    /// popping the scratch scope after a `solver.push()` would retract the
+    /// freshly pushed scope, and after a `solver.assert(..)` would throw the
+    /// user's assertion away with it.
     fn invalidate_last_check(&mut self) {
+        self.discharge_recfun_scope();
         self.last_result = None;
         self.last_assumptions.clear();
     }
 
     /// Add an assertion
     pub fn assert(&mut self, term: TermId) {
+        self.invalidate_last_check();
         self.assertions.push(term);
         self.solver.assert(term, &mut self.terms);
-        self.invalidate_last_check();
     }
 
     /// Add a named assertion (from `(assert (! phi :named name))`).
@@ -318,13 +358,26 @@ impl Context {
     /// The name is recorded unconditionally at assert time, so enabling
     /// `:produce-unsat-cores` mid-session still yields a labelled core.
     pub fn assert_named(&mut self, term: TermId, name: &str) {
+        self.invalidate_last_check();
         self.assertions.push(term);
         self.solver.assert_named(term, name, &mut self.terms);
-        self.invalidate_last_check();
     }
 
-    /// Check satisfiability
-    pub fn check_sat(&mut self) -> SolverResult {
+    /// One solver check, with the two verdict gates that belong to *every*
+    /// check-sat: the rounding-mode closure axioms on the way in and the array
+    /// honesty gate on the way out.
+    ///
+    /// Factored out so the recursive-definition driver
+    /// ([`Context::check_sat_recfun`]) runs each of its fuel rounds through
+    /// exactly these gates.  A driver that called `solver.check` directly would
+    /// silently lose them for any script using `define-fun-rec`.
+    pub(super) fn check_sat_core(&mut self) -> SolverResult {
+        // The five rounding modes must be pairwise distinct for any solve that
+        // mentions one; see `context::rounding_mode` for why this is asserted
+        // here rather than once at declaration time.
+        if self.terms.rounding_mode_used() {
+            self.assert_rounding_mode_distinctness();
+        }
         let mut result = self.solver.check(&mut self.terms);
 
         // Array soundness honesty gate: the syntactic array checks and the EUF
@@ -337,6 +390,19 @@ impl Context {
         if result == SolverResult::Sat && self.solver.array_atoms_need_theory(&self.terms) {
             result = SolverResult::Unknown;
         }
+        result
+    }
+
+    /// Check satisfiability
+    pub fn check_sat(&mut self) -> SolverResult {
+        // With recursive definitions in scope, the plain check would solve a
+        // strictly weaker problem (every `f(x)` unconstrained), so the
+        // fuel-bounded unfolding driver takes over.
+        let result = if self.recfun.is_empty() {
+            self.check_sat_core()
+        } else {
+            self.check_sat_recfun()
+        };
 
         // A plain check-sat clears any assumption context from a prior
         // check-sat-assuming, so a following get-unsat-assumptions does not
@@ -358,100 +424,6 @@ impl Context {
         result
     }
 
-    /// Serialise a proof log entry for the given result.
-    ///
-    /// For `Unsat`, resolution proof steps are emitted when available;
-    /// for `Sat` and `Unknown`, a single axiom node is written so the log is
-    /// never empty and can be cleanly replayed.
-    #[cfg(feature = "std")]
-    fn write_proof_log(
-        &self,
-        path: &Path,
-        result: SolverResult,
-    ) -> std::result::Result<(), oxiz_proof::logging::LoggingError> {
-        use oxiz_proof::logging::ProofLogger;
-        use oxiz_proof::proof::{ProofNodeId, ProofStep};
-        use smallvec::SmallVec;
-
-        let mut logger = ProofLogger::create(path)?;
-
-        match result {
-            SolverResult::Unsat => {
-                if let Some(proof) = self.solver.get_proof() {
-                    let mut counter: u32 = 0;
-                    for step in proof.steps() {
-                        let entry = match step {
-                            crate::solver::ProofStep::Input { index, .. } => ProofStep::Axiom {
-                                conclusion: format!("input-clause-{}", index),
-                            },
-                            crate::solver::ProofStep::Resolution {
-                                index,
-                                left,
-                                right,
-                                pivot,
-                                ..
-                            } => {
-                                let mut premises: SmallVec<[ProofNodeId; 4]> = SmallVec::new();
-                                premises.push(ProofNodeId(*left));
-                                premises.push(ProofNodeId(*right));
-                                let mut args: SmallVec<[String; 2]> = SmallVec::new();
-                                args.push(format!("{:?}", pivot));
-                                ProofStep::Inference {
-                                    rule: "resolution".to_string(),
-                                    premises,
-                                    conclusion: format!("resolution-{}", index),
-                                    args,
-                                }
-                            }
-                            crate::solver::ProofStep::TheoryLemma { index, theory, .. } => {
-                                ProofStep::Axiom {
-                                    conclusion: format!("theory-lemma-{}-{}", theory, index),
-                                }
-                            }
-                        };
-                        logger.log_step(ProofNodeId(counter), &entry)?;
-                        counter += 1;
-                    }
-                    if counter == 0 {
-                        // Proof object present but empty — emit minimal witness.
-                        logger.log_step(
-                            ProofNodeId(0),
-                            &ProofStep::Axiom {
-                                conclusion: "unsat".to_string(),
-                            },
-                        )?;
-                    }
-                } else {
-                    logger.log_step(
-                        ProofNodeId(0),
-                        &ProofStep::Axiom {
-                            conclusion: "unsat".to_string(),
-                        },
-                    )?;
-                }
-            }
-            SolverResult::Sat => {
-                logger.log_step(
-                    ProofNodeId(0),
-                    &ProofStep::Axiom {
-                        conclusion: "sat".to_string(),
-                    },
-                )?;
-            }
-            SolverResult::Unknown => {
-                logger.log_step(
-                    ProofNodeId(0),
-                    &ProofStep::Axiom {
-                        conclusion: "unknown".to_string(),
-                    },
-                )?;
-            }
-        }
-
-        logger.flush()?;
-        logger.close()
-    }
-
     /// Evaluate a `term` in the current model.
     ///
     /// Returns `None` if no model is available (i.e. the last `check_sat` did
@@ -471,11 +443,14 @@ impl Context {
 
     /// Push a context level
     pub fn push(&mut self) {
+        // Must precede `solver.push()`: it discharges the recfun scratch scope,
+        // which would otherwise retract the scope opened just below.
+        self.invalidate_last_check();
         self.assertion_stack.push(self.assertions.len());
         self.const_stack.push(self.declared_consts.len());
         self.fun_stack.push(self.declared_funs.len());
+        self.recfun.push_scope();
         self.solver.push();
-        self.invalidate_last_check();
     }
 
     /// Pop a context level with incremental declaration removal
@@ -499,12 +474,20 @@ impl Context {
                     }
                 }
             }
+            // Inside the same guard as the other stacks: an unbalanced `pop`
+            // must not desynchronize the recursive-definition scope stack from
+            // the assertion stack.
+            self.recfun.pop_scope();
             self.solver.pop();
         }
     }
 
     /// Reset the context
     pub fn reset(&mut self) {
+        // Before `solver.reset()` wipes the scope stack: the scratch scope
+        // recorded by the recfun driver must be forgotten, not popped, or the
+        // next discharge would pop a scope that no longer exists.
+        self.recfun.clear_all();
         self.solver.reset();
         self.assertions.clear();
         self.assertion_stack.clear();
@@ -537,6 +520,11 @@ impl Context {
     /// - the **declared constants** as MBQI ground-instantiation candidates, so
     ///   trigger-free quantifiers keep the in-scope constants they had before.
     pub fn reset_assertions(&mut self) {
+        // `reset-assertions` keeps definitions but pops every level, so the
+        // recursive definitions introduced inside a `push` go away with it.
+        // Like `reset`, the scratch scope is *forgotten* rather than popped —
+        // `solver.reset()` below empties the scope stack outright.
+        self.recfun.retract_to_base();
         self.solver.reset();
         self.assertions.clear();
         self.assertion_stack.clear();
@@ -943,6 +931,20 @@ impl Context {
         &mut self,
         assumptions: &[oxiz_core::ast::TermId],
     ) -> crate::solver::SolverResult {
+        // The same cardinality axiom `check_sat` asserts.  This is the single
+        // funnel for every assumption-guarded solve — `(check-sat-assuming ..)`
+        // and `(get-consequences ..)` both come through here — so without it
+        // those two commands would decide rounding modes over an unconstrained
+        // sort while plain `(check-sat)` did not.
+        // With recursive definitions in scope this would solve a strictly
+        // weaker problem, exactly as a plain `check_sat` would; the driver
+        // takes over and threads the assumptions through its rounds.
+        if !self.recfun.is_empty() {
+            return self.check_sat_recfun_with(assumptions);
+        }
+        if self.terms.rounding_mode_used() {
+            self.assert_rounding_mode_distinctness();
+        }
         self.solver
             .check_with_assumptions(assumptions, &mut self.terms)
     }
@@ -1341,48 +1343,10 @@ impl Context {
                     }
                 }
                 Command::DeclareDatatype { name, .. } => {
-                    // The parser already fully registered each datatype's
-                    // sort and constructor/selector definitions directly on
-                    // `self.terms.sorts` -- including selector sorts
-                    // resolved through the full sort grammar -- so in-script
-                    // constructor application (e.g. `(cons 1 nil)`) already
-                    // works without help from here. What's missing is
-                    // exposing constructors/selectors as callable functions
-                    // in this Context's own function registry, the way Z3
-                    // implicitly declares them, so introspection sees them.
-                    //
-                    // `name` is a comma-joined list of every datatype this
-                    // command declared (see the parser's `DeclareDatatype`
-                    // doc comment, covering both multi- and mutually
-                    // recursive `declare-datatypes` forms); look each one's
-                    // authoritative definition up directly on the sort
-                    // manager rather than re-deriving it from the weaker,
-                    // string-typed `constructors` field.
-                    for dt_name in name.split(',') {
-                        let dt_name = dt_name.trim();
-                        if dt_name.is_empty() {
-                            continue;
-                        }
-                        let dt_sort = self.terms.sorts.mk_datatype_sort(dt_name);
-                        let Some(ctors) = self
-                            .terms
-                            .sorts
-                            .get_datatype(dt_name)
-                            .map(|def| def.constructors.clone())
-                        else {
-                            continue;
-                        };
-                        for ctor in &ctors {
-                            let ctor_name = self.terms.resolve_str(ctor.name).to_string();
-                            let selector_sorts: Vec<SortId> =
-                                ctor.selectors.iter().map(|&(_, sort)| sort).collect();
-                            self.declare_fun(&ctor_name, selector_sorts, dt_sort);
-                            for &(sel_spur, sel_sort) in &ctor.selectors {
-                                let sel_name = self.terms.resolve_str(sel_spur).to_string();
-                                self.declare_fun(&sel_name, vec![dt_sort], sel_sort);
-                            }
-                        }
-                    }
+                    self.register_datatype_functions(&name);
+                }
+                Command::DefineFunsRec(defs) => {
+                    self.define_funs_rec(defs)?;
                 }
             }
 

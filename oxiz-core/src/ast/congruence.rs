@@ -1000,12 +1000,12 @@ mod tests {
         // A left-nested chain f(f(...f(a)...)) far beyond any recursion
         // budget: the assertion is simply that `add_term` returns.
         let handle = std::thread::Builder::new()
-            .stack_size(1 << 20)
+            .stack_size(1 << 17)
             .spawn(|| {
                 let mut manager = TermManager::new();
                 let int_sort = manager.sorts.int_sort;
                 let mut term = manager.mk_var("a", int_sort);
-                for _ in 0..60_000 {
+                for _ in 0..7_500 {
                     term = manager.mk_apply("f", [term], int_sort);
                 }
 
@@ -1016,7 +1016,7 @@ mod tests {
             .expect("thread spawn should succeed");
 
         let classes = handle.join().expect("deep add_term must not overflow");
-        assert_eq!(classes, 60_001);
+        assert_eq!(classes, 7_501);
     }
 
     #[test]

@@ -9,7 +9,7 @@
 //! white-box tests.
 use super::*;
 
-/// Run `f` to completion on a dedicated thread with a 1 MiB stack --
+/// Run `f` to completion on a dedicated thread with a 128 KiB stack --
 /// deliberately far smaller than the default (several-MiB) main-thread
 /// stack -- and return whatever it returns.
 ///
@@ -17,11 +17,11 @@ use super::*;
 /// test gracefully, so for the deep-nesting tests below, the call
 /// *returning at all* is itself part of what is being asserted: if any of
 /// `term_size`/`term_depth`/`substitute`/`simplify` still recursed natively
-/// once per level of term nesting, a 100,000-deep term would overflow this
+/// once per level of term nesting, a 12,500-deep term would overflow this
 /// stack and the test binary would abort instead of reporting a failure.
-fn run_on_1mib_stack<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
+fn run_on_small_stack<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
     std::thread::Builder::new()
-        .stack_size(1 << 20)
+        .stack_size(1 << 17)
         .spawn(f)
         .expect("spawning the constrained-stack test thread should succeed")
         .join()
@@ -311,14 +311,14 @@ mod free_vars_binder_tests {
         // `substitute`/`simplify` had before their own conversions. Built
         // iteratively (never recursively, which would overflow before the
         // assertion runs) and run inside a thread with a deliberately small
-        // 1 MiB stack: the call returning at all is part of the assertion,
+        // 128 KiB stack: the call returning at all is part of the assertion,
         // but the exact free-variable set must also be correct -- exactly
-        // the one leaf variable, reached through 100,000 levels of `Not`
+        // the one leaf variable, reached through DEPTH levels of `Not`
         // via the generic `get_children` fallback path (see
         // `run_free_var_step`'s final `Some(_)` arm).
-        const DEPTH: usize = 100_000;
+        const DEPTH: usize = 12_500;
 
-        let (free, x) = run_on_1mib_stack(|| {
+        let (free, x) = run_on_small_stack(|| {
             let mut m = TermManager::new();
             let bool_sort = m.sorts.bool_sort;
             let x = m.mk_var("x", bool_sort);
@@ -392,8 +392,8 @@ mod size_depth_tests {
 
     #[test]
     fn deep_add_chain_size_and_depth_on_tiny_stack() {
-        const DEPTH: usize = 100_000;
-        let (size, depth) = run_on_1mib_stack(|| {
+        const DEPTH: usize = 12_500;
+        let (size, depth) = run_on_small_stack(|| {
             let mut m = TermManager::new();
             let zero = m.mk_int(0);
             // Iteratively (never recursively) build a chain of depth
@@ -565,9 +565,9 @@ mod substitute_tests {
         // depth; only the innermost `forall y` actually needs alpha-
         // renaming. `DEPTH` is comfortably beyond the 1000-level cap the
         // recursive implementation used to bail out at.
-        const DEPTH: usize = 100_000;
+        const DEPTH: usize = 12_500;
 
-        let matches = run_on_1mib_stack(|| {
+        let matches = run_on_small_stack(|| {
             let mut m = TermManager::new();
             let int_sort = m.sorts.int_sort;
             let bool_sort = m.sorts.bool_sort;
@@ -607,9 +607,9 @@ mod substitute_tests {
 
     #[test]
     fn deep_add_chain_substitute_reaches_innermost_leaf_on_tiny_stack() {
-        const DEPTH: usize = 100_000;
+        const DEPTH: usize = 12_500;
 
-        let (size, depth, still_has_old_leaf, now_has_new_leaf) = run_on_1mib_stack(|| {
+        let (size, depth, still_has_old_leaf, now_has_new_leaf) = run_on_small_stack(|| {
             let mut m = TermManager::new();
             let zero = m.mk_int(0);
             let leaf = m.mk_int(1);
@@ -635,7 +635,7 @@ mod substitute_tests {
         assert_eq!(size, 1 + 2 * DEPTH);
         assert_eq!(depth, DEPTH);
         // The substitution must have actually reached the bottom of the
-        // 100,000-deep chain: the old leaf is gone and the new one is
+        // DEPTH-deep chain: the old leaf is gone and the new one is
         // present, not silently left unsubstituted past some residual cap.
         assert!(!still_has_old_leaf);
         assert!(now_has_new_leaf);
@@ -673,14 +673,14 @@ mod simplify_tests {
 
     #[test]
     fn deep_add_of_zero_chain_folds_to_constant_on_tiny_stack() {
-        const DEPTH: usize = 100_000;
+        const DEPTH: usize = 12_500;
 
-        let (result, expected) = run_on_1mib_stack(|| {
+        let (result, expected) = run_on_small_stack(|| {
             let mut m = TermManager::new();
             let zero = m.mk_int(0);
             // t_0 = 1, t_k = (+ t_{k-1} 0); every level's constant-folding
             // keeps the running value pinned at 1, so simplifying the
-            // whole depth-100,000 chain must fold it straight down to the
+            // whole depth-DEPTH chain must fold it straight down to the
             // constant 1, regardless of nesting depth.
             let mut t = m.mk_int(1);
             for _ in 0..DEPTH {

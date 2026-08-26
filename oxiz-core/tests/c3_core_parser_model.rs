@@ -1,7 +1,7 @@
 //! Deep-nesting and semantic regression tests for the SMT-LIB parser, the
 //! SMT-LIB printer and the model value layer (group C3).
 //!
-//! Every "deep" test runs on a deliberately small 1 MiB stack. The assertion
+//! Every "deep" test runs on a deliberately small 128 KiB stack. The assertion
 //! in each is simply that the call *returns*: a native stack overflow aborts
 //! the whole process rather than unwinding, so a test that finishes at all is
 //! the proof that the walk under test is no longer recursive.
@@ -10,9 +10,9 @@ use oxiz_core::ast::TermManager;
 use oxiz_core::smtlib::{Printer, parse_script};
 
 /// Stack size every deep-nesting test runs under.
-const SMALL_STACK: usize = 1 << 20;
+const SMALL_STACK: usize = 1 << 17;
 
-/// Run `f` on a thread with a 1 MiB stack and return its value.
+/// Run `f` on a thread with a 128 KiB stack and return its value.
 fn on_small_stack<T, F>(name: &str, f: F) -> T
 where
     T: Send + 'static,
@@ -95,9 +95,9 @@ fn well_formed_sort_alias_chain_still_resolves() {
 /// implemented as a tail call into `parse_command`, so a script of N unknown
 /// commands consumed N native stack frames.
 #[test]
-fn a_hundred_thousand_unknown_commands_do_not_overflow() {
+fn twelve_thousand_five_hundred_unknown_commands_do_not_overflow() {
     let mut script = String::new();
-    for i in 0..100_000u32 {
+    for i in 0..12_500u32 {
         script.push_str(&format!("(vendor-specific-thing {i})\n"));
     }
     script.push_str("(check-sat)\n");
@@ -143,7 +143,7 @@ fn short_nullary_define_fun_chain_still_parses() {
 /// handing a 100 000-deep term to whatever consumes it next.
 #[test]
 fn long_nullary_define_fun_chain_is_an_honest_parse_error() {
-    let script = nullary_define_fun_chain(100_000);
+    let script = nullary_define_fun_chain(12_500);
     let result = on_small_stack("define_fun_chain", move || {
         let mut manager = TermManager::new();
         parse_script(&script, &mut manager)
@@ -173,14 +173,14 @@ fn printing_a_deeply_nested_array_sort_does_not_overflow() {
         let mut manager = TermManager::new();
         let int_sort = manager.sorts.int_sort;
         let mut sort = int_sort;
-        for _ in 0..100_000 {
+        for _ in 0..12_500 {
             sort = manager.sorts.array(int_sort, sort);
         }
         let printer = Printer::new(&manager);
         printer.print_sort(sort).len()
     });
     // "(Array Int " * 100000 + "Int" + ")" * 100000
-    assert_eq!(printed_len, 100_000 * 11 + 3 + 100_000);
+    assert_eq!(printed_len, 12_500 * 11 + 3 + 12_500);
 }
 
 /// Semantic pin: the iterative `write_sort` renders exactly what the

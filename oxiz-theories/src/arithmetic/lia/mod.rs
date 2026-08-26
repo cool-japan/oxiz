@@ -18,6 +18,7 @@ mod heuristics;
 mod hnf;
 mod pb;
 mod presolve;
+mod scope;
 mod types;
 mod utils;
 

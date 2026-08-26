@@ -10,7 +10,7 @@ mod parser;
 mod printer;
 
 pub use lexer::{Lexer, Token, TokenKind};
-pub use parser::{Command, parse_script, parse_term};
+pub use parser::{Command, RecFunDecl, parse_script, parse_term};
 pub use printer::Printer;
 
 // The single encoder that turns a string *value* back into SMT-LIB source

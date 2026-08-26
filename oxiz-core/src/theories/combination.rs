@@ -5,17 +5,39 @@
 //!
 //! Reference: Z3's `src/smt/theory.cpp` and Nelson-Oppen combination framework
 
+use crate::ast::traversal::get_children;
 use crate::ast::{TermId, TermKind, TermManager};
 #[allow(unused_imports)]
 use crate::prelude::*;
 
 /// Interface for a theory decision procedure
-pub trait Theory {
-    /// Add a term to the theory
-    fn add_term(&mut self, term: TermId, manager: &TermManager);
+///
+/// The theories in [`crate::theories`] implement this so that
+/// [`TheoryCombiner`] can drive them: it offers every term to every theory,
+/// routes the equalities one theory deduces into the theories that share the
+/// terms involved, and stops when a theory reports a conflict.
+pub trait Theory: core::fmt::Debug {
+    /// Offer a term to the theory
+    ///
+    /// Returns `true` when the term belongs to this theory's language (its
+    /// sort or its operator), i.e. when the theory has taken it on. The
+    /// combiner uses the answer to work out which terms are shared between
+    /// theories, so a theory must not claim terms it cannot reason about.
+    fn add_term(&mut self, term: TermId, manager: &TermManager) -> bool;
 
-    /// Check satisfiability and return new equalities or None if UNSAT
-    fn check(&mut self, manager: &TermManager) -> TheoryResult;
+    /// Tell the theory that two terms are equal
+    ///
+    /// Returns `true` when this was new information for the theory — both
+    /// terms are known to it and they were not already in the same class.
+    /// A theory that does not know either term returns `false`.
+    fn assert_equality(&mut self, a: TermId, b: TermId) -> bool;
+
+    /// Check the theory's current state
+    ///
+    /// Takes `&mut TermManager` because a theory may need to build terms in
+    /// order to say what it deduced (a folded bit-vector constant, an axiom
+    /// instance).
+    fn check(&mut self, manager: &mut TermManager) -> TheoryResult;
 
     /// Get the name of the theory
     fn name(&self) -> &str;
@@ -27,12 +49,24 @@ pub trait Theory {
 /// Result of a theory check
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TheoryResult {
-    /// Theory is satisfiable
+    /// Theory found nothing new to say about its current state
     Sat,
-    /// Theory found UNSAT
-    Unsat,
-    /// Theory propagates new equalities
+    /// Theory found a conflict
+    Unsat {
+        /// Terms explaining the conflict
+        ///
+        /// The convention used by the theories in this module is a chain of
+        /// terms whose consecutive entries were asserted or deduced equal,
+        /// running between the two facts that clash.
+        explanation: Vec<TermId>,
+    },
+    /// Theory deduced new equalities
     Propagate(Vec<(TermId, TermId)>),
+    /// Theory produced lemmas that the caller should assert
+    ///
+    /// Used by the axiom-instantiating theories (arrays, strings), which
+    /// contribute formulas rather than equalities between existing terms.
+    Lemmas(Vec<TermId>),
 }
 
 /// Nelson-Oppen theory combiner
@@ -84,8 +118,17 @@ impl NelsonOppen {
         self.theory_vars[theory_idx].insert(var);
     }
 
+    /// Add a slot for one more theory, returning its index
+    pub fn add_theory_slot(&mut self) -> usize {
+        self.theory_vars.push(FxHashSet::default());
+        self.num_theories += 1;
+        self.num_theories - 1
+    }
+
     /// Add an equality between two terms
-    pub fn add_equality(&mut self, a: TermId, b: TermId) {
+    ///
+    /// Returns `true` when the equality had not been seen before.
+    pub fn add_equality(&mut self, a: TermId, b: TermId) -> bool {
         let eq = if a.0 < b.0 { (a, b) } else { (b, a) };
 
         if self.equalities.insert(eq) {
@@ -94,7 +137,9 @@ impl NelsonOppen {
                 // At least one of the terms is shared, propagate to all theories
                 self.pending_equalities.push(eq);
             }
+            return true;
         }
+        false
     }
 
     /// Get pending equalities to propagate
@@ -155,12 +200,43 @@ pub struct CombinationStats {
     pub num_pending_equalities: usize,
 }
 
+/// Outcome of a combined theory run
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CombinerOutcome {
+    /// No registered theory reported a conflict, and the equality exchange
+    /// reached a fixpoint
+    ///
+    /// This is "no conflict found by these theories", not a claim that the
+    /// input is satisfiable: the theories in this module are incomplete.
+    NoConflict,
+    /// A registered theory reported a conflict
+    Conflict {
+        /// Index of the theory that reported it
+        theory: usize,
+        /// Terms explaining the conflict, in that theory's convention
+        explanation: Vec<TermId>,
+    },
+}
+
 /// Theory combiner that coordinates multiple theories
+///
+/// There are two ways to use it, which should not be mixed:
+///
+/// * With registered [`Theory`] objects ([`TheoryCombiner::add_theory`]):
+///   [`TheoryCombiner::add_term`] offers terms to every theory and
+///   [`TheoryCombiner::run`] drives the Nelson-Oppen equality exchange.
+/// * Without them, as a term classifier ([`TheoryCombiner::classify_term`]),
+///   which uses the fixed numbering documented on that method.
+#[derive(Debug)]
 pub struct TheoryCombiner {
     /// Nelson-Oppen combiner
     nelson_oppen: NelsonOppen,
-    /// Mapping of terms to theory indices
-    term_to_theory: FxHashMap<TermId, usize>,
+    /// Mapping of terms to the theory indices that claimed them
+    term_to_theory: FxHashMap<TermId, Vec<usize>>,
+    /// Registered theories, indexed by their Nelson-Oppen slot
+    theories: Vec<Box<dyn Theory>>,
+    /// Lemmas contributed by the registered theories
+    lemmas: Vec<TermId>,
 }
 
 impl TheoryCombiner {
@@ -170,13 +246,163 @@ impl TheoryCombiner {
         Self {
             nelson_oppen: NelsonOppen::new(num_theories),
             term_to_theory: FxHashMap::default(),
+            theories: Vec::new(),
+            lemmas: Vec::new(),
         }
     }
 
-    /// Classify a term and assign it to appropriate theories
+    /// Register a theory, returning the index it was given
     ///
-    /// This analyzes the term structure and determines which theories
-    /// should reason about it.
+    /// The index is the theory's Nelson-Oppen slot, and is what
+    /// [`CombinerOutcome::Conflict`] reports.
+    pub fn add_theory(&mut self, theory: Box<dyn Theory>) -> usize {
+        let index = self.theories.len();
+        while self.nelson_oppen.num_theories <= index {
+            self.nelson_oppen.add_theory_slot();
+        }
+        self.theories.push(theory);
+        index
+    }
+
+    /// Number of registered theories
+    #[must_use]
+    pub fn num_registered_theories(&self) -> usize {
+        self.theories.len()
+    }
+
+    /// Name of a registered theory
+    #[must_use]
+    pub fn theory_name(&self, index: usize) -> Option<&str> {
+        self.theories.get(index).map(|theory| theory.name())
+    }
+
+    /// Offer a term to every registered theory
+    ///
+    /// Returns the indices of the theories that claimed it. A term claimed by
+    /// more than one theory is a shared term; so are the arguments of a
+    /// claimed term, because they are where one theory's language meets
+    /// another's (`mk(x)` is a datatype term whose argument `x` may be a
+    /// bit-vector one). Both are registered with Nelson-Oppen, which is what
+    /// makes an equality between them travel from one theory to the other.
+    pub fn add_term(&mut self, term: TermId, manager: &TermManager) -> Vec<usize> {
+        let mut owners = Vec::new();
+
+        for index in 0..self.theories.len() {
+            if !self.theories[index].add_term(term, manager) {
+                continue;
+            }
+
+            owners.push(index);
+            self.nelson_oppen.register_var(term, index);
+
+            if let Some(t) = manager.get(term) {
+                for child in get_children(&t.kind) {
+                    self.nelson_oppen.register_var(child, index);
+                }
+            }
+        }
+
+        if !owners.is_empty() {
+            self.term_to_theory.insert(term, owners.clone());
+        }
+
+        owners
+    }
+
+    /// Assert an equality and hand it to every registered theory
+    ///
+    /// Returns `true` when at least one theory (or the Nelson-Oppen bookkeeping)
+    /// learned something new.
+    pub fn assert_equality(&mut self, a: TermId, b: TermId) -> bool {
+        let mut changed = self.nelson_oppen.add_equality(a, b);
+
+        for theory in &mut self.theories {
+            if theory.assert_equality(a, b) {
+                changed = true;
+            }
+        }
+
+        changed
+    }
+
+    /// Run the registered theories to a fixpoint, exchanging equalities
+    ///
+    /// Each round checks every theory; equalities a theory deduces go into the
+    /// Nelson-Oppen bookkeeping, and those that involve a shared term are
+    /// handed to the other theories before the next round. The loop stops when
+    /// a round produces nothing new, or as soon as a theory reports a conflict.
+    pub fn run(&mut self, manager: &mut TermManager) -> CombinerOutcome {
+        loop {
+            let mut changed = false;
+
+            for index in 0..self.theories.len() {
+                match self.theories[index].check(manager) {
+                    TheoryResult::Sat => {}
+                    TheoryResult::Unsat { explanation } => {
+                        return CombinerOutcome::Conflict {
+                            theory: index,
+                            explanation,
+                        };
+                    }
+                    TheoryResult::Propagate(equalities) => {
+                        for (a, b) in equalities {
+                            if self.nelson_oppen.add_equality(a, b) {
+                                changed = true;
+                            }
+                        }
+                    }
+                    TheoryResult::Lemmas(terms) => {
+                        if !terms.is_empty() {
+                            changed = true;
+                            self.lemmas.extend(terms);
+                        }
+                    }
+                }
+            }
+
+            let pending: Vec<(TermId, TermId)> =
+                self.nelson_oppen.get_pending_equalities().to_vec();
+            self.nelson_oppen.clear_pending();
+
+            for (a, b) in pending {
+                for theory in &mut self.theories {
+                    if theory.assert_equality(a, b) {
+                        changed = true;
+                    }
+                }
+            }
+
+            if !changed {
+                return CombinerOutcome::NoConflict;
+            }
+        }
+    }
+
+    /// Lemmas collected from the registered theories so far
+    #[must_use]
+    pub fn lemmas(&self) -> &[TermId] {
+        &self.lemmas
+    }
+
+    /// Take the collected lemmas, leaving the combiner's list empty
+    pub fn take_lemmas(&mut self) -> Vec<TermId> {
+        core::mem::take(&mut self.lemmas)
+    }
+
+    /// Theories that claimed a term, as recorded by [`TheoryCombiner::add_term`]
+    #[must_use]
+    pub fn theories_of(&self, term: TermId) -> Option<&[usize]> {
+        self.term_to_theory.get(&term).map(Vec::as_slice)
+    }
+
+    /// Classify a term by its structure, using a fixed theory numbering
+    ///
+    /// This is the classifier used when no [`Theory`] objects are registered:
+    /// 0 is the Boolean theory, 1 arithmetic, 2 arrays, 3 bit-vectors, and
+    /// variables and equalities are registered with every theory. The indices
+    /// are a convention of this method and are unrelated to the indices handed
+    /// out by [`TheoryCombiner::add_theory`], so the two modes should not be
+    /// mixed on one combiner.
     pub fn classify_term(&mut self, term: TermId, manager: &TermManager) -> Vec<usize> {
         let mut theories = Vec::new();
 
@@ -232,9 +458,10 @@ impl TheoryCombiner {
         }
 
         // Register this term with the identified theories
+        if !theories.is_empty() {
+            self.term_to_theory.insert(term, theories.clone());
+        }
         for &theory_idx in &theories {
-            self.term_to_theory.insert(term, theory_idx);
-
             // If it's a variable, register it with Nelson-Oppen
             if let Some(t) = manager.get(term)
                 && matches!(t.kind, TermKind::Var(_))
@@ -246,9 +473,12 @@ impl TheoryCombiner {
         theories
     }
 
-    /// Add an equality to the combiner
-    pub fn add_equality(&mut self, a: TermId, b: TermId) {
-        self.nelson_oppen.add_equality(a, b);
+    /// Record an equality in the Nelson-Oppen bookkeeping only
+    ///
+    /// Use [`TheoryCombiner::assert_equality`] to also hand it to the
+    /// registered theories.
+    pub fn add_equality(&mut self, a: TermId, b: TermId) -> bool {
+        self.nelson_oppen.add_equality(a, b)
     }
 
     /// Get shared variables
@@ -274,10 +504,14 @@ impl TheoryCombiner {
         self.nelson_oppen.statistics()
     }
 
-    /// Reset the combiner
+    /// Reset the combiner and every registered theory
     pub fn reset(&mut self) {
         self.nelson_oppen.reset();
         self.term_to_theory.clear();
+        self.lemmas.clear();
+        for theory in &mut self.theories {
+            theory.reset();
+        }
     }
 }
 

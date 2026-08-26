@@ -834,10 +834,12 @@ mod tests {
     /// (128 KiB / 6_250). A natively recursive projection needs far more than
     /// that per frame and still overflows, so the regression keeps every bit
     /// of its detection power. The pair used to be 1 MiB / 50_000 -- the same
-    /// 21 bytes -- but `mk_and`/`mk_or` flatten their arguments, so a chain
-    /// built with `acc = mk_or([acc, lit])` is quadratic, and 50_000 levels
-    /// cost tens of GB of live terms. Never raise `DEEP_DEPTH` without
-    /// raising `DEEP_STACK` by the same factor.
+    /// 21 bytes. `mk_and`/`mk_or` flatten their arguments (so `acc =
+    /// mk_or([acc, lit])` never actually nests, and is quadratic to boot),
+    /// so the deep terms below are built with `TermManager::intern_term`
+    /// directly, which neither flattens nor re-interns already-built
+    /// prefixes. Never raise `DEEP_DEPTH` without raising `DEEP_STACK` by
+    /// the same factor.
     const DEEP_STACK: usize = 1 << 17;
     const DEEP_DEPTH: u32 = 6_250;
 
@@ -1050,14 +1052,21 @@ mod tests {
             .stack_size(DEEP_STACK)
             .spawn(|| {
                 let mut terms = TermManager::new();
+                let bool_sort = terms.sorts.bool_sort;
                 let int_sort = terms.sorts.int_sort;
                 let x = terms.mk_var("x", int_sort);
                 let zero = terms.mk_int(0);
                 let atom = terms.mk_eq(x, zero);
                 let mut formula = atom;
+                // Interned directly (not via `mk_or`, which would flatten
+                // this back into one wide `Or`) so the tree really is
+                // `DEEP_DEPTH` deep.
                 for i in 0..DEEP_DEPTH {
-                    let lit = terms.mk_var(&format!("v{i}"), terms.sorts.bool_sort);
-                    formula = terms.mk_or([formula, lit]);
+                    let lit = terms.mk_var(&format!("v{i}"), bool_sort);
+                    formula = terms.intern_term(
+                        oxiz_core::TermKind::Or(vec![formula, lit].into()),
+                        bool_sort,
+                    );
                 }
                 let existentials = [("y".to_string(), int_sort)];
                 let projected = ExistentialProjector::project(&mut terms, formula, &existentials);
@@ -1123,9 +1132,15 @@ mod tests {
                 let mut terms = TermManager::new();
                 let bool_sort = terms.sorts.bool_sort;
                 let mut formula = terms.mk_var("b0", bool_sort);
+                // Interned directly (not via `mk_and`, which would flatten
+                // this back into one wide `And`) so the tree really is
+                // `DEEP_DEPTH` deep.
                 for i in 1..DEEP_DEPTH {
                     let lit = terms.mk_var(&format!("b{i}"), bool_sort);
-                    formula = terms.mk_and([formula, lit]);
+                    formula = terms.intern_term(
+                        oxiz_core::TermKind::And(vec![formula, lit].into()),
+                        bool_sort,
+                    );
                 }
                 let folded = ExistentialProjector::simplify_ground(&mut terms, formula);
                 assert!(terms.get(folded).is_some(), "deep fold must return a term");

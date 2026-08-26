@@ -64,7 +64,8 @@ impl ValueFactory {
     ///
     /// Dispatches on `sort`'s actual [`SortKind`] (looked up in `sorts`),
     /// never on the raw [`SortId`] integer. `SortManager` only guarantees
-    /// fixed ids for `Bool` (0), `Int` (1) and `Real` (2) — every other sort,
+    /// fixed ids for the sorts it interns eagerly in `new()` — `Bool` (0),
+    /// `Int` (1), `Real` (2) and `RoundingMode` (3). Every other sort,
     /// including `String` and the reserved `RegLan` sort, is interned lazily
     /// in whatever order the input happens to request it, so a caller that
     /// matched on `sort.0 == 3` / `sort.0 == 4` was really matching "whatever
@@ -121,6 +122,15 @@ impl ValueFactory {
                 SortKind::BitVec(width) => break Value::BitVec(width, 0),
                 // Positive zero: sign bit clear, all-zero exponent and mantissa.
                 SortKind::FloatingPoint { .. } => break Value::FloatingPoint(false, 0, 0),
+                // The reserved five-element `RoundingMode` sort. Unlike the
+                // uninterpreted arm below it needs no fresh domain element:
+                // it has five *named* inhabitants, and IEEE 754's own default
+                // mode is round-to-nearest-ties-to-even. Letting it fall into
+                // the uninterpreted arm would mint a `Value::Uninterpreted`
+                // witness that no `RNE`/`RTZ`/... comparison could ever match.
+                SortKind::RoundingMode => {
+                    break Value::RoundingMode(crate::ast::RoundingMode::RNE);
+                }
                 // The default array is the constant array over the range sort's
                 // own default, with no stored exceptions. Propagates `None` if
                 // the range sort itself cannot be defaulted.
@@ -244,16 +254,16 @@ mod tests {
     /// abort the process, and `SortManager::array` is `pub` and interns in
     /// constant stack, so nothing bounds the depth an embedder can build.
     ///
-    /// Runs on a 1 MiB stack; the assertion is that the call returns.
+    /// Runs on a 128 KiB stack; the assertion is that the call returns.
     #[test]
     fn default_value_survives_a_deeply_nested_array_sort() {
         let handle = std::thread::Builder::new()
-            .stack_size(1 << 20)
+            .stack_size(1 << 17)
             .spawn(|| {
                 let mut manager = TermManager::new();
                 let int_sort = manager.sorts.int_sort;
                 let mut sort = int_sort;
-                for _ in 0..100_000 {
+                for _ in 0..12_500 {
                     sort = manager.sorts.array(int_sort, sort);
                 }
                 let mut factory = ValueFactory::new();
@@ -270,7 +280,7 @@ mod tests {
             .expect("spawn");
         let (levels, innermost_is_int_zero) =
             handle.join().expect("worker thread must not overflow");
-        assert_eq!(levels, 100_000);
+        assert_eq!(levels, 12_500);
         assert!(innermost_is_int_zero);
     }
 
@@ -429,20 +439,36 @@ mod tests {
 
     /// Regression test for: `ValueFactory::default_value` used to dispatch on
     /// the raw `SortId` integer with hardcoded `3 == String`, `4 == RegLan`,
-    /// but `SortManager` only guarantees fixed ids for `Bool`/`Int`/`Real`
-    /// (0/1/2) — every other sort is interned in whatever order the caller
-    /// asks for it. This reproduces the report precisely: a `BitVec` sort
-    /// lands on raw id 3 and an `Array` sort on raw id 4, exactly the ids the
-    /// old code hardcoded to `String` and `Undefined` (RegLan).
+    /// but `SortManager` only guarantees fixed ids for the sorts it interns
+    /// eagerly in `new()` — every other sort is interned in whatever order the
+    /// caller asks for it.
+    ///
+    /// The eagerly-interned set is `Bool`/`Int`/`Real`/`RoundingMode`
+    /// (0/1/2/3), so the two user-interned sorts below now land on 4 and 5
+    /// rather than the 3 and 4 of the original report. The hazard is
+    /// unchanged and is in fact demonstrated twice over here: raw id 3, which
+    /// the old dispatch called `String`, is now `RoundingMode` and defaults to
+    /// a rounding mode; and the ids the old dispatch called `String` and
+    /// `RegLan` are now held by sorts of entirely different kinds again.
+    /// Whichever way the interning order moves, dispatch must read the
+    /// `SortKind`.
     #[test]
     fn test_default_value_dispatches_on_sort_kind_not_raw_sort_id() {
         let mut manager = SortManager::new();
-        let bv64 = manager.bitvec(64); // 4th interned sort -> raw id 3
-        let arr = manager.array(manager.int_sort, manager.bool_sort); // 5th -> raw id 4
-        assert_eq!(bv64.raw(), 3);
-        assert_eq!(arr.raw(), 4);
+        let bv64 = manager.bitvec(64); // 5th interned sort -> raw id 4
+        let arr = manager.array(manager.int_sort, manager.bool_sort); // 6th -> raw id 5
+        assert_eq!(bv64.raw(), 4);
+        assert_eq!(arr.raw(), 5);
 
         let mut factory = ValueFactory::new();
+
+        // Raw id 3 — hardcoded to `String` by the old dispatch — is the
+        // eagerly-interned `RoundingMode` sort, whose default is a mode.
+        assert_eq!(manager.rounding_mode_sort.raw(), 3);
+        assert_eq!(
+            factory.default_value(manager.rounding_mode_sort, &manager),
+            Some(Value::RoundingMode(crate::ast::RoundingMode::RNE))
+        );
 
         // The old magic-integer dispatch handed this `Value::String("")` --
         // silently the wrong *sort* of value -- because `sort.0 == 3`.

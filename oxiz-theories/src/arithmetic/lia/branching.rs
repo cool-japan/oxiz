@@ -6,15 +6,109 @@ use crate::config::BranchingHeuristic;
 #[allow(unused_imports)]
 use crate::prelude::*;
 use num_rational::Rational64;
-use num_traits::One;
+use num_traits::{One, Zero};
 use oxiz_core::error::{OxizError, Result};
+
+/// Maximum number of root-node cut rounds attempted by [`LiaSolver::check`].
+///
+/// Each round derives at most one tableau-based Gomory Mixed-Integer cut from
+/// the current LP optimum and re-solves.  The limit keeps the root loop from
+/// degenerating into an unbounded cut-generation spiral on instances where the
+/// GMI closure converges slowly; branch-and-bound remains the complete
+/// procedure behind it, so a truncated cut loop only forgoes strengthening.
+const ROOT_CUT_ROUND_LIMIT: usize = 8;
+
+/// Reason code attached to root-node cuts asserted into the simplex.
+///
+/// Root cuts are globally valid consequences of the asserted constraint set
+/// rather than of any single user assertion, so they carry their own marker
+/// instead of borrowing an input constraint's reason.
+const ROOT_CUT_REASON: u32 = u32::MAX;
+
+/// Result of the root-node cut loop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RootCutOutcome {
+    /// The LP is still feasible after the cut rounds; continue to B&B.
+    Continue,
+    /// A valid cut made the LP infeasible.  Because every emitted cut is a
+    /// valid inequality of the integer hull (see `cuts.rs`), this is a proof
+    /// that no integer-feasible point exists.
+    IntegerInfeasible,
+}
+
 impl LiaSolver {
+    /// Root-node cutting-plane loop.
+    ///
+    /// Repeatedly derives a tableau-based Gomory Mixed-Integer cut from the
+    /// current LP optimum (via [`LiaSolver::generate_conflict_driven_cut`]),
+    /// asserts it, and re-solves.  Runs only when
+    /// [`LiaConfig::enable_gomory_cuts`](crate::config::LiaConfig::enable_gomory_cuts)
+    /// is set, and is bounded by `min(ROOT_CUT_ROUND_LIMIT, config.max_cuts)`
+    /// rounds.
+    ///
+    /// The loop stops early when no cut can be derived (the LP point is
+    /// integral, or no sound cut exists for the selected variable) and when the
+    /// simplex exhausts its pivot budget — in the latter case the cuts already
+    /// asserted stay, which is sound because each is a valid inequality.
+    ///
+    /// Callers must invoke this only at the root, before any branch-and-bound
+    /// `push`, so the slack rows the cuts introduce are scoped by the caller's
+    /// own scope rather than by a branch that will be popped.
+    fn root_cut_loop(&mut self) -> RootCutOutcome {
+        if !self.config.enable_gomory_cuts {
+            return RootCutOutcome::Continue;
+        }
+
+        let budget = ROOT_CUT_ROUND_LIMIT.min(self.config.max_cuts);
+        for _ in 0..budget {
+            let Some(cut) = self.generate_conflict_driven_cut() else {
+                break; // nothing fractional left, or no sound cut derivable
+            };
+
+            // A GMI cut derived from the row of a fractional basic variable
+            // evaluates to its positive right-hand side at the current LP point
+            // (every non-basic slack `y_j` is zero there), so it must separate.
+            // A non-separating "cut" would mean the derivation was corrupted.
+            debug_assert!(
+                {
+                    let mut at_current = cut.constant;
+                    for (v, c) in &cut.terms {
+                        at_current += *c * self.simplex.value(*v);
+                    }
+                    at_current > Rational64::zero()
+                },
+                "root cut does not separate the current LP point"
+            );
+
+            self.simplex.add_le(cut, ROOT_CUT_REASON);
+            self.cuts_generated += 1;
+
+            match self.simplex.check() {
+                // The cut removes no integer-feasible point, so an LP that is
+                // infeasible under it has no integer solution either.
+                Err(_) => return RootCutOutcome::IntegerInfeasible,
+                Ok(()) if self.simplex.resource_limit_reached() => break,
+                Ok(()) => {}
+            }
+        }
+
+        RootCutOutcome::Continue
+    }
+
     /// Check satisfiability with branch-and-bound
     pub fn check(&mut self) -> Result<bool> {
         // First check if the LP relaxation is feasible
         match self.simplex.check() {
             Ok(()) => {
                 // LP is feasible: run root-node preprocessing before B&B.
+
+                // Step 0: Root cutting planes.  Tableau-derived GMI cuts are
+                // asserted here, before any branch-and-bound `push`, so their
+                // slack rows are scoped by the caller's scope and a cut can
+                // never be attributed to (and popped with) a branch.
+                if self.root_cut_loop() == RootCutOutcome::IntegerInfeasible {
+                    return Ok(false);
+                }
 
                 // Step 1: Probe variables — root bound tightening.
                 // Tentatively fixes each integer variable to its bounds and
@@ -59,11 +153,19 @@ impl LiaSolver {
     /// left in place (its `push` is not popped) so that the integral model stays
     /// queryable via `value()`; failed branches are always fully popped.
     ///
-    /// Cutting planes are deliberately NOT generated here: the available cut
-    /// generators are placeholders that do not derive valid inequalities from the
-    /// tableau, and adding an invalid "cut" as a permanent constraint can change
-    /// satisfiability.  Branch-and-bound alone is a sound and (for bounded
-    /// problems) complete integrality procedure.
+    /// Cutting planes are generated at the *root* only, by
+    /// [`LiaSolver::check`] before the first branch is pushed: the generators in
+    /// `cuts.rs` derive tableau-based Gomory Mixed-Integer / Chvátal-Gomory
+    /// inequalities and carry a validity contract (documented there) that a cut
+    /// never removes an integer-feasible point, returning [`None`] rather than
+    /// fabricating an inequality when no sound derivation exists.
+    ///
+    /// Branch-and-bound itself remains cut-free by design.  A branch-local cut
+    /// is derived from a tableau that already includes the branch bound, so it
+    /// is valid only inside that branch and must be retracted with it; wiring
+    /// that scoping correctly is a recorded follow-up, not a gap in soundness —
+    /// branch-and-bound alone is a sound and (for bounded problems) complete
+    /// integrality procedure.
     fn branch_and_bound(&mut self, depth: usize) -> Result<bool> {
         if depth > self.max_depth {
             return Err(OxizError::Internal(
@@ -142,6 +244,153 @@ impl LiaSolver {
         // Both branches are proven infeasible ⇒ integer-infeasible.
         self.branch_stack.pop();
         Ok(false)
+    }
+
+    /// Scope-balanced integer feasibility check.
+    ///
+    /// Runs the same pipeline as [`LiaSolver::check`] — root cuts, probing,
+    /// feasibility pump, branch-and-bound — but leaves the simplex at exactly
+    /// the scope depth it was entered at.  [`LiaSolver::check`] deliberately
+    /// does *not*: it retains the winning branch's `push` so that the integral
+    /// assignment stays queryable through [`LiaSolver::value`].  That is
+    /// convenient for a one-shot caller and poisonous for one that keeps
+    /// asserting lemmas afterwards, because every later assertion would land
+    /// inside a branch scope and be silently retracted by the next `pop`.
+    ///
+    /// Instead of leaving the branch in place, this method **snapshots** the
+    /// integral assignment at the satisfying leaf and pops every branch it
+    /// pushed on the way out.
+    ///
+    /// Returns:
+    /// * `Ok(Some(model))` — integer-feasible; `model` maps every integer
+    ///   variable to its value at the satisfying leaf.
+    /// * `Ok(None)` — proven integer-infeasible (LP infeasible, refuted by a
+    ///   valid root cut, or every branch exhausted).
+    /// * `Err(_)` — a resource limit (simplex pivot budget or branch depth)
+    ///   stopped the search before a verdict was reached.  A resource limit is
+    ///   never reported as a verdict.
+    ///
+    /// Root cuts asserted by this method are *not* retracted: they are valid
+    /// inequalities of the constraint set present at the entry scope, so they
+    /// belong to that scope and are undone by the caller's own `pop`.
+    pub fn check_balanced(&mut self) -> Result<Option<FxHashMap<VarId, Rational64>>> {
+        let entry_depth = self.simplex.scope_depth();
+        let outcome = self.check_balanced_inner();
+        debug_assert_eq!(
+            self.simplex.scope_depth(),
+            entry_depth,
+            "check_balanced must leave the simplex at its entry scope depth"
+        );
+        outcome
+    }
+
+    /// Body of [`LiaSolver::check_balanced`]; see there for the contract.
+    fn check_balanced_inner(&mut self) -> Result<Option<FxHashMap<VarId, Rational64>>> {
+        match self.simplex.check() {
+            Ok(()) => {
+                if self.root_cut_loop() == RootCutOutcome::IntegerInfeasible {
+                    return Ok(None);
+                }
+
+                // Root bound tightening; failure is non-fatal, and probing is
+                // itself scope balanced (matched push/pop per probe).
+                let _ = self.probe_variables(20);
+
+                // Opportunistic incumbent search.  As in `check`, the pump's
+                // answer is not trusted as a verdict: branch-and-bound verifies
+                // integrality against the full constraint set.
+                let _ = self.feasibility_pump(10);
+
+                self.branch_and_bound_balanced(0)
+            }
+            // LP infeasible ⇒ integer-infeasible.
+            Err(_reasons) => Ok(None),
+        }
+    }
+
+    /// Snapshot the current assignment of every integer variable.
+    fn integral_model_snapshot(&self) -> FxHashMap<VarId, Rational64> {
+        self.int_vars
+            .keys()
+            .map(|&var| (var, self.simplex.value(var)))
+            .collect()
+    }
+
+    /// Scope-balanced branch-and-bound.
+    ///
+    /// Mirrors [`LiaSolver::branch_and_bound`], with two differences: the
+    /// satisfying leaf's assignment is captured into a model before unwinding,
+    /// and **every** `push` is matched by a `pop` on every exit path — the
+    /// winning branch, the infeasible branch, and both resource-limit paths.
+    fn branch_and_bound_balanced(
+        &mut self,
+        depth: usize,
+    ) -> Result<Option<FxHashMap<VarId, Rational64>>> {
+        if depth > self.max_depth {
+            return Err(OxizError::Internal(
+                "branch-and-bound depth limit exceeded".to_string(),
+            ));
+        }
+
+        // Check if the current solution is integer.
+        let (var, value) = match self.find_fractional_var() {
+            Some(vv) => vv,
+            None => return Ok(Some(self.integral_model_snapshot())),
+        };
+
+        let ceil_value = value.ceil().to_integer();
+        let floor_value = value.floor().to_integer();
+
+        self.branch_stack.push(BranchNode {
+            var,
+            branch_up: true,
+            fractional_value: value,
+        });
+
+        // Explore `x >= ceil(value)` then `x <= floor(value)`.
+        for branch_up in [true, false] {
+            self.simplex.push();
+            let mut expr = LinExpr::new();
+            expr.add_term(var, Rational64::one());
+            if branch_up {
+                expr.add_constant(-Rational64::from_integer(ceil_value));
+                self.simplex.add_ge(expr, 0);
+            } else {
+                expr.add_constant(-Rational64::from_integer(floor_value));
+                self.simplex.add_le(expr, 0);
+            }
+
+            let outcome = match self.simplex.check() {
+                Ok(()) if !self.simplex.resource_limit_reached() => {
+                    self.branch_and_bound_balanced(depth + 1)
+                }
+                Ok(()) => Err(OxizError::Internal(
+                    "branch-and-bound: simplex pivot limit reached".to_string(),
+                )),
+                Err(_) => Ok(None), // this branch is infeasible
+            };
+
+            // Unconditional pop: the model was already captured at the leaf, so
+            // nothing downstream depends on the branch scope staying alive.
+            self.simplex.pop();
+            self.update_pseudo_cost(var, branch_up, (depth + 1) as f64);
+
+            match outcome {
+                Ok(Some(model)) => {
+                    self.branch_stack.pop();
+                    return Ok(Some(model));
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    self.branch_stack.pop();
+                    return Err(err);
+                }
+            }
+        }
+
+        // Both branches are proven infeasible ⇒ integer-infeasible.
+        self.branch_stack.pop();
+        Ok(None)
     }
 
     /// Find a variable with fractional value using the configured branching heuristic

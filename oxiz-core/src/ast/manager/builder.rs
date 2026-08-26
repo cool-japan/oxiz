@@ -1,6 +1,7 @@
 //! Term builder methods for TermManager — all mk_* constructors
 
 use super::super::term::{RoundingMode, TermId, TermKind};
+use crate::error::{OxizError, Result};
 #[allow(unused_imports)]
 use crate::prelude::*;
 use crate::sort::SortId;
@@ -91,6 +92,15 @@ impl TermManager {
     }
 
     /// Create a logical AND
+    ///
+    /// # Performance
+    ///
+    /// This flattens a nested `And` child into the result and re-interns the
+    /// whole operand list on every call. Accumulating in a loop —
+    /// `acc = manager.mk_and([acc, lit])` — is therefore Theta(n^2) over the
+    /// number of iterations, since each call re-flattens and re-interns the
+    /// growing accumulator. Collect all operands first and call `mk_and`
+    /// once on the full list instead.
     pub fn mk_and(&mut self, args: impl IntoIterator<Item = TermId>) -> TermId {
         let mut flat_args: SmallVec<[TermId; 4]> = SmallVec::new();
 
@@ -118,6 +128,15 @@ impl TermManager {
     }
 
     /// Create a logical OR
+    ///
+    /// # Performance
+    ///
+    /// This flattens a nested `Or` child into the result and re-interns the
+    /// whole operand list on every call. Accumulating in a loop —
+    /// `acc = manager.mk_or([acc, lit])` — is therefore Theta(n^2) over the
+    /// number of iterations, since each call re-flattens and re-interns the
+    /// growing accumulator. Collect all operands first and call `mk_or`
+    /// once on the full list instead.
     pub fn mk_or(&mut self, args: impl IntoIterator<Item = TermId>) -> TermId {
         let mut flat_args: SmallVec<[TermId; 4]> = SmallVec::new();
 
@@ -1168,22 +1187,52 @@ impl TermManager {
 
     // BitVector operations
 
+    /// Describe an operand's sort for a builder-level type error.
+    ///
+    /// Falls back to a marker rather than a plausible-looking sort name when
+    /// the term or its sort cannot be resolved — the whole point of the
+    /// callers that use this is to stop guessing about unresolvable sorts.
+    fn describe_operand_sort(&self, term: TermId) -> String {
+        match self.get(term) {
+            None => format!("<unknown term #{}>", term.0),
+            Some(t) => self
+                .sorts
+                .sort_name(t.sort)
+                .unwrap_or_else(|| format!("<unknown sort #{}>", t.sort.0)),
+        }
+    }
+
     /// Create a bit vector concatenation.
     ///
-    /// Both operands must have a bit-vector sort — the result width is
-    /// exactly their sum, per SMT-LIB `FixedSizeBitVectors` semantics.
-    /// Callers (in particular the SMT-LIB parser, which only ever applies
-    /// `concat` to already sort-checked bit-vector terms) must guarantee
-    /// this precondition. In debug builds a violation is caught immediately
-    /// via `debug_assert!` rather than being silently absorbed: this
-    /// function previously defaulted an unresolvable operand's width to a
-    /// fabricated `32`, which could hide a genuine type error behind a
-    /// plausible-looking but wrong-width result. `mk_bv_concat` has no
-    /// `Result` return type to propagate a proper error through (and
-    /// changing its signature would ripple across every existing caller),
-    /// so release builds keep the historical `32` fallback as a last
-    /// resort rather than panicking on malformed input.
-    pub fn mk_bv_concat(&mut self, lhs: TermId, rhs: TermId) -> TermId {
+    /// Both operands must have a bit-vector sort; the result width is
+    /// exactly the sum of the operand widths, per SMT-LIB
+    /// `FixedSizeBitVectors` semantics.
+    ///
+    /// This is the first `Result`-returning `mk_*` constructor in this file,
+    /// and it sets the rule for the ones that follow: a builder is
+    /// **fallible** when the caller may pass a term whose sort it did not
+    /// itself establish (the SMT-LIB parser, the FFI/language bindings), and
+    /// **infallible** when the caller owns well-sortedness by construction.
+    /// `concat` is in the first group, so it reports a bad operand rather
+    /// than guessing at one.
+    ///
+    /// It replaces an infallible `mk_bv_concat` that defaulted an
+    /// unresolvable operand's width to a fabricated `32` in release builds
+    /// (a `debug_assert!` caught the violation only under debug assertions).
+    /// A fabricated width is not cosmetic: it interns a well-formed term at
+    /// the wrong sort, which can flip a query's answer between `sat` and
+    /// `unsat`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OxizError::SortMismatchSimple`] naming **both** operand
+    /// sorts when either operand is not bit-vector sorted. The
+    /// location-carrying `SortMismatch`/`TypeError` variants are
+    /// deliberately not used here: the term manager holds no source span to
+    /// put in them, and inventing one would aim a diagnostic at the wrong
+    /// place. `SortMismatchSimple` is the enum's existing span-free
+    /// type-error variant, so no new variant is introduced.
+    pub fn try_mk_bv_concat(&mut self, lhs: TermId, rhs: TermId) -> Result<TermId> {
         let lhs_width = self
             .get(lhs)
             .and_then(|t| self.sorts.get(t.sort))
@@ -1192,22 +1241,27 @@ impl TermManager {
             .get(rhs)
             .and_then(|t| self.sorts.get(t.sort))
             .and_then(|s| s.bitvec_width());
-        debug_assert!(
-            lhs_width.is_some() && rhs_width.is_some(),
-            "mk_bv_concat: both operands must have a bit-vector sort (lhs_width={lhs_width:?}, rhs_width={rhs_width:?})"
-        );
-        let width = lhs_width.unwrap_or(32) + rhs_width.unwrap_or(32);
+        let (Some(lhs_width), Some(rhs_width)) = (lhs_width, rhs_width) else {
+            return Err(OxizError::SortMismatchSimple {
+                expected: "two bit-vector operands for concat".to_string(),
+                found: format!(
+                    "lhs: {}, rhs: {}",
+                    self.describe_operand_sort(lhs),
+                    self.describe_operand_sort(rhs)
+                ),
+            });
+        };
+        let width = lhs_width + rhs_width;
 
         // Both halves literal: splice them into a single literal.
-        if let (Some(lhs_width), Some(rhs_width)) = (lhs_width, rhs_width)
-            && let Some(lhs_value) = self.bv_const_unsigned(lhs, lhs_width)
+        if let Some(lhs_value) = self.bv_const_unsigned(lhs, lhs_width)
             && let Some(rhs_value) = self.bv_const_unsigned(rhs, rhs_width)
         {
-            return self.mk_bitvec(bv_fold::bv_concat(&lhs_value, &rhs_value, rhs_width), width);
+            return Ok(self.mk_bitvec(bv_fold::bv_concat(&lhs_value, &rhs_value, rhs_width), width));
         }
 
         let sort = self.sorts.bitvec(width);
-        self.intern(TermKind::BvConcat(lhs, rhs), sort)
+        Ok(self.intern(TermKind::BvConcat(lhs, rhs), sort))
     }
 
     /// Create a bit vector NAND: `bvnand(a, b) = bvnot(bvand(a, b))`.

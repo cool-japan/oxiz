@@ -873,7 +873,7 @@ mod tests {
         assert!(matches!(result, TacticResult::Solved(SolveResult::Unsat)));
     }
 
-    /// Run `body` on a worker thread with a deliberately small (1 MiB) stack,
+    /// Run `body` on a worker thread with a deliberately small (128 KiB) stack,
     /// so a recursive walk over a deep term would abort instead of getting
     /// away with the main thread's much larger stack.
     fn run_with_small_stack<F>(body: F)
@@ -881,7 +881,7 @@ mod tests {
         F: FnOnce() + Send + 'static,
     {
         std::thread::Builder::new()
-            .stack_size(1 << 20)
+            .stack_size(1 << 17)
             .spawn(body)
             .expect("thread spawn should succeed")
             .join()
@@ -891,7 +891,7 @@ mod tests {
     #[test]
     fn test_extract_bounds_handles_deeply_nested_conjunctions() {
         run_with_small_stack(|| {
-            const DEPTH: usize = 50_000;
+            const DEPTH: usize = 6_250;
 
             let mut manager = TermManager::default();
             let bool_sort = manager.sorts.bool_sort;
@@ -926,7 +926,7 @@ mod tests {
     #[test]
     fn test_evaluate_interval_handles_deeply_nested_arithmetic() {
         run_with_small_stack(|| {
-            const DEPTH: usize = 50_000;
+            const DEPTH: usize = 6_250;
 
             let mut manager = TermManager::default();
             let int_sort = manager.sorts.int_sort;

@@ -10,6 +10,21 @@
 //! - Reducing memory usage
 //!
 //! Reference: "Efficient Clause Subsumption" and MiniSat
+//!
+//! # Alternative implementation — not the wired production pass
+//!
+//! [`SubsumptionChecker`] is exported but never constructed inside the
+//! solver. What runs during a solve is
+//! [`crate::Preprocessor::subsumption_elimination`], invoked from
+//! `Solver::inprocess` (and again after bounded variable elimination in
+//! `Solver::solve`): it works directly on the live [`ClauseDatabase`],
+//! respects the solver's `deleted` / `learned` bookkeeping, and drives its
+//! candidate search off occurrence lists.
+//!
+//! This type is retained as the crate's standalone, solver-independent
+//! subsumption utility — it is the right building block for a caller that
+//! wants to sweep a clause database it owns outside a `Solver` — and is
+//! exercised by this module's own tests.
 
 use crate::clause::{ClauseDatabase, ClauseId};
 use crate::literal::Lit;

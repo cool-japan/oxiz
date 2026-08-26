@@ -72,8 +72,21 @@ pub(crate) struct TheoryManager<'a> {
     processed_count: usize,
     /// Theory checking mode
     theory_mode: TheoryMode,
-    /// Pending assignments for lazy theory checking
-    pending_assignments: Vec<(Lit, bool)>,
+    /// Pending assignments for lazy theory checking, each tagged with the SAT
+    /// decision level it was made at.
+    ///
+    /// The level is what lets [`TheoryManager::on_backtrack`] prune this queue
+    /// *by level*, exactly as it prunes the eager `assignment_trail`. It used
+    /// to be cleared wholesale on every backtrack, which silently discarded
+    /// assignments made **below** the backtrack point even though the SAT core
+    /// still held them — so lazy mode's `final_check` replayed only whatever
+    /// happened to arrive after the last backtrack, and a refutation needing an
+    /// earlier fact was never derived. That went unnoticed while lazy mode
+    /// rarely backtracked; making the arithmetic case split explicit (see
+    /// `Solver::add_numeric_trichotomy`) gives the core real branches to
+    /// backtrack over, which turned the latent bug into a reproducible
+    /// `unsat` → `unknown`/`sat` divergence from eager mode.
+    pending_assignments: Vec<(Lit, bool, u32)>,
     /// Pending equality notifications for Nelson-Oppen
     pending_equalities: Vec<EqualityNotification>,
     /// Processed equalities (to avoid duplicates)
@@ -1364,7 +1377,59 @@ impl TheoryCallback for TheoryManager<'_> {
         if self.theory_mode == TheoryMode::Lazy {
             // Check if this variable has a theory constraint
             if self.var_to_constraint.contains_key(&var) {
-                self.pending_assignments.push((lit, is_positive));
+                // Tag with the level so `on_backtrack` can retract exactly the
+                // assignments the SAT core undid, and keep the rest.
+                self.pending_assignments
+                    .push((lit, is_positive, self.current_level));
+                // Also record the assignment on the shadow trail, exactly as
+                // the eager path below does.
+                //
+                // `pending_assignments` is a *work queue*: `final_check` drains
+                // and clears it once the facts have been asserted into the
+                // theory solvers. The shadow trail is the *record* of what is
+                // currently assigned, which is what `resync_theory_state`
+                // replays. Lazy mode needs both for the same reason eager mode
+                // does — without the trail, the final-check backstop would
+                // reset the theory solvers and replay nothing.
+                //
+                // The two are kept in step by `on_backtrack`, which prunes both
+                // by level, and neither is appended to for a variable without a
+                // theory constraint.
+                //
+                // An existing entry is *overwritten* rather than skipped. The
+                // SAT core can assign a variable it has already assigned —
+                // idempotently after a backtrack (same polarity, harmless), or
+                // by overwriting its own trail with the opposite polarity (the
+                // wrong-assertion-level bug the eager path handles explicitly
+                // just below). Keeping the first entry would leave the trail
+                // asserting a polarity the core no longer holds, and since this
+                // trail is what `resync_theory_state` replays, the rebuild
+                // would "correct" the theory state to something stale. Storing
+                // the latest polarity and level keeps the record faithful,
+                // which is the one property the backstop rests on.
+                //
+                // Unlike the eager arm, no rebuild is triggered from here: in
+                // lazy mode nothing has been asserted into the theory solvers
+                // yet, so there is no stale over-constraint to undo. The queue
+                // entry pushed above carries the new polarity, and
+                // `final_check` asserts it along with everything else.
+                match self.trail_index.get(&var).copied() {
+                    Some(idx) => {
+                        self.assignment_trail[idx] = TrailAtom {
+                            var,
+                            is_positive,
+                            level: self.current_level,
+                        };
+                    }
+                    None => {
+                        self.trail_index.insert(var, self.assignment_trail.len());
+                        self.assignment_trail.push(TrailAtom {
+                            var,
+                            is_positive,
+                            level: self.current_level,
+                        });
+                    }
+                }
             }
             return TheoryCheckResult::Sat;
         }
@@ -1491,7 +1556,7 @@ impl TheoryCallback for TheoryManager<'_> {
 
         // In lazy mode, process all pending assignments now
         if self.theory_mode == TheoryMode::Lazy {
-            for &(lit, is_positive) in &self.pending_assignments.clone() {
+            for &(lit, is_positive, _level) in &self.pending_assignments.clone() {
                 let var = lit.var();
                 self.set_assigned_polarity(var, is_positive);
                 let Some(constraint) = self.var_to_constraint.get(&var).cloned() else {
@@ -1569,31 +1634,32 @@ impl TheoryCallback for TheoryManager<'_> {
         // the one they would have seen anyway, so a genuinely `Sat` instance
         // still answers `Sat` with a model the rebuilt state supports.
         //
-        // ## Why this is restricted to eager mode
+        // ## Why lazy mode is included too
         //
         // The paragraph above rests entirely on `assignment_trail` being a
-        // faithful shadow of the current partial assignment.  That holds in
-        // eager mode only: `on_assignment` returns at the `TheoryMode::Lazy`
-        // branch *before* reaching the trail-append arm, so in lazy mode
-        // `assignment_trail` is permanently EMPTY, and the lazy `final_check`
-        // loop above appends nothing to it either.  Running the backstop there
-        // would reset EUF/arith/BV and replay *nothing*, silently discarding
-        // every fact the lazy loop had just asserted — a wrong `sat` on any
-        // function-bearing problem (`x = 2 /\ y = x + 1 /\ f(y) != f(3)` came
-        // back `sat` instead of `unsat`).
+        // faithful shadow of the current partial assignment.  This used to hold
+        // in eager mode only, so the backstop was gated on it: `on_assignment`
+        // returned at its `TheoryMode::Lazy` branch *before* reaching the
+        // trail-append arm, leaving `assignment_trail` permanently empty under
+        // lazy mode.  Running the backstop there would have reset EUF/arith/BV
+        // and replayed *nothing*, discarding every fact the lazy loop had just
+        // asserted.
         //
-        // Does lazy mode need an equivalent safety net?  It is exposed to the
-        // same hazard in principle: lazy state is *also* incremental, not
-        // rebuilt per check — `final_check` clears `pending_assignments` once
-        // processed (so a later `final_check` at the same level replays only
-        // what arrived since), and the facts already asserted are retracted
-        // only by the scope `pop`s that `on_backtrack` performs.  Building one
-        // would mean giving lazy mode its own shadow trail, which is precisely
-        // the eager-mode bookkeeping it exists to avoid; it is left undone
-        // deliberately rather than overlooked, and lazy mode keeps the
-        // incremental behaviour it had before this backstop was introduced.
-        // The downstream model-verification gate in `Solver::check`
-        // (`model_refutes_assertions`) remains lazy mode's backstop of record.
+        // Lazy mode now keeps the same shadow trail (see the `TheoryMode::Lazy`
+        // branch of `on_assignment`), so the premise holds for both modes and
+        // the gate is gone.  The trail is cheap — one `TrailAtom` per assigned
+        // theory atom, appended beside the queue entry the lazy path was
+        // already pushing — and it is what lazy mode's incremental state needs
+        // to be *checkable* rather than merely trusted.
+        //
+        // Lazy mode was exposed to precisely the hazard this backstop exists
+        // for, and the exposure was real, not theoretical: its state is also
+        // incremental rather than rebuilt per check, and an arithmetic chain
+        // whose entailment has to reach EUF congruence
+        // (`x = 2 /\ y = x + 1 /\ f(y) != f(3)`) came back `unknown` — the
+        // downstream `model_refutes_assertions` gate correctly refusing a model
+        // the incremental state could not justify, rather than the `unsat`
+        // eager mode derived from the same formula.
         //
         // ## Why bit-vector problems are excluded
         //
@@ -1605,10 +1671,7 @@ impl TheoryCallback for TheoryManager<'_> {
         // That is the same reasoning the in-place-flip path above already
         // applies (see its `self.bv_terms.is_empty()` guard); the backstop
         // takes the identical, conservative gate rather than contradicting it.
-        if self.theory_mode == TheoryMode::Eager
-            && self.bv_terms.is_empty()
-            && self.euf.has_app_nodes()
-        {
+        if self.bv_terms.is_empty() && self.euf.has_app_nodes() {
             let rebuilt = self.resync_theory_state();
             if let TheoryCheckResult::Conflict(conflict_terms) = rebuilt {
                 self.statistics.theory_conflicts += 1;
@@ -1749,9 +1812,20 @@ impl TheoryCallback for TheoryManager<'_> {
             }
         }
 
-        // Clear pending assignments on backtrack (in lazy mode)
+        // Prune the lazy queue *by level*, exactly as the eager shadow trail
+        // above is pruned.
+        //
+        // This used to `clear()` the whole queue, which threw away assignments
+        // made at or below `level` — assignments the SAT core has *not* undone
+        // and will never re-send, because `on_assignment` fires once per
+        // assignment. Lazy `final_check` then replayed only the tail that
+        // happened to arrive after the last backtrack, so any refutation
+        // needing an earlier fact was simply never derived: `x = 2`,
+        // `y = x + 1`, `y != 3` came back `sat` in lazy mode while eager mode
+        // correctly said `unsat`.
         if self.theory_mode == TheoryMode::Lazy {
-            self.pending_assignments.clear();
+            self.pending_assignments
+                .retain(|&(_lit, _is_positive, lvl)| lvl <= level);
         }
     }
 }

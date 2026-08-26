@@ -14,6 +14,7 @@
 //! the two against drifting apart.
 
 use super::Parser;
+use super::commands::RmOperand;
 use super::terms::Plan;
 use crate::ast::{RoundingMode, TermId, TermKind};
 use crate::error::{OxizError, Result};
@@ -350,7 +351,7 @@ impl Parser<'_> {
             "bvshl" => self.manager.mk_bv_shl(x, y),
             "bvlshr" => self.manager.mk_bv_lshr(x, y),
             "bvashr" => self.manager.mk_bv_ashr(x, y),
-            "concat" => self.manager.mk_bv_concat(x, y),
+            "concat" => self.manager.try_mk_bv_concat(x, y)?,
             "fp.rem" => self.manager.mk_fp_rem(x, y),
             "fp.eq" => self.manager.mk_fp_eq(x, y),
             "fp.lt" => self.manager.mk_fp_lt(x, y),
@@ -402,7 +403,73 @@ impl Parser<'_> {
 
     /// Build a floating-point operator whose rounding mode was consumed while
     /// its head was read (see `Parser::open_named_head`).
+    ///
+    /// A literal mode builds the `TermKind::Fp*` node directly; a symbolic one
+    /// is resolved by [`Parser::expand_symbolic_rm`].
     pub(super) fn build_fp_rounded(
+        &mut self,
+        op: &str,
+        rm: RmOperand,
+        args: &[TermId],
+    ) -> Result<TermId> {
+        match rm {
+            RmOperand::Concrete(rm) => self.build_fp_rounded_concrete(op, rm, args),
+            RmOperand::Symbolic(mode) => {
+                let args = args.to_vec();
+                self.expand_symbolic_rm(mode, |parser, rm| {
+                    parser.build_fp_rounded_concrete(op, rm, &args)
+                })
+            }
+        }
+    }
+
+    /// Resolve a *symbolic* rounding mode into a five-way case split over the
+    /// modes it can be:
+    ///
+    /// ```text
+    /// (ite (= m RNE) op(RNE, ..)
+    ///   (ite (= m RNA) op(RNA, ..)
+    ///     (ite (= m RTP) op(RTP, ..)
+    ///       (ite (= m RTN) op(RTN, ..)
+    ///                      op(RTZ, ..)))))
+    /// ```
+    ///
+    /// `build_fn` is called once per mode and produces that mode's concrete
+    /// operator node, so every leaf of the split is an ordinary `TermKind::Fp*`
+    /// term and the floating-point theory needs no notion of a symbolic mode
+    /// at all.
+    ///
+    /// # The final `else` is not a default
+    ///
+    /// The last branch is `RTZ` *unguarded*, which is only correct because `m`
+    /// is guaranteed to be one of the five: the solver asserts a closure axiom
+    /// `(or (= m RNE) ... (= m RTZ))` for every declared rounding-mode
+    /// constant, and the parser relativizes every `RoundingMode` quantifier
+    /// binder the same way. Drop either guarantee and a sixth element of the
+    /// sort would silently be *treated as* `RTZ` here while comparing distinct
+    /// from all five — the exact shape that makes `(distinct m1 .. m6)` answer
+    /// `sat` when it must be `unsat`.
+    pub(super) fn expand_symbolic_rm(
+        &mut self,
+        rm_term: TermId,
+        mut build_fn: impl FnMut(&mut Self, RoundingMode) -> Result<TermId>,
+    ) -> Result<TermId> {
+        let Some((&last, head)) = RoundingMode::ALL.split_last() else {
+            return Err(self.plan_mismatch("fp rounding mode"));
+        };
+        // Built innermost-first, so the unguarded `else` is the last mode.
+        let mut result = build_fn(self, last)?;
+        for &mode in head.iter().rev() {
+            let branch = build_fn(self, mode)?;
+            let mode_term = self.manager.mk_rounding_mode(mode);
+            let cond = self.manager.mk_eq(rm_term, mode_term);
+            result = self.manager.mk_ite(cond, branch, result);
+        }
+        Ok(result)
+    }
+
+    /// Build a floating-point operator at one *literal* rounding mode.
+    fn build_fp_rounded_concrete(
         &mut self,
         op: &str,
         rm: RoundingMode,
@@ -735,9 +802,10 @@ mod tests {
 
     /// A placeholder operand for `op`.
     ///
-    /// Bit-vector operators get a bit-vector because `mk_bv_concat` asserts on
-    /// a width-less operand; everything else gets an integer, which the
-    /// builders that care about sorts reject through their own error path.
+    /// Bit-vector operators get a bit-vector because `try_mk_bv_concat`
+    /// returns a sort error for a width-less operand; everything else gets an
+    /// integer, which the builders that care about sorts reject through their
+    /// own error path.
     fn placeholder(parser: &mut Parser<'_>, op: &str) -> TermId {
         if op.starts_with("bv") || *op == *"concat" {
             parser.manager.mk_bitvec(0, 8)
@@ -779,6 +847,13 @@ mod tests {
 
     /// The same guard for the rounding-mode family, which bypasses
     /// [`operand_plan`] because its head consumes a token of its own.
+    ///
+    /// Both rounding-mode spellings are driven: a literal mode must reach a
+    /// builder arm, and so must a *symbolic* one — the symbolic path calls the
+    /// very same arms once per mode through
+    /// [`Parser::expand_symbolic_rm`](super::Parser::expand_symbolic_rm), so an
+    /// operator missing an arm would surface as the same "internal:" error
+    /// there.
     #[test]
     fn rounded_operators_all_reach_a_builder() {
         for (op, arity) in ROUNDED_OPS {
@@ -786,11 +861,17 @@ mod tests {
             let mut parser = Parser::new("", &mut manager);
             let x = parser.manager.mk_int(0);
             let args = vec![x; *arity];
-            if let Err(e) = parser.build_fp_rounded(op, RoundingMode::RNE, &args) {
-                assert!(
-                    !e.to_string().contains(MISMATCH),
-                    "{op} takes a rounding mode but has no builder arm"
-                );
+            let mode = parser.manager.mk_rounding_mode(RoundingMode::RNE);
+            for rm in [
+                RmOperand::Concrete(RoundingMode::RNE),
+                RmOperand::Symbolic(mode),
+            ] {
+                if let Err(e) = parser.build_fp_rounded(op, rm, &args) {
+                    assert!(
+                        !e.to_string().contains(MISMATCH),
+                        "{op} takes a rounding mode but has no builder arm ({rm:?})"
+                    );
+                }
             }
         }
     }

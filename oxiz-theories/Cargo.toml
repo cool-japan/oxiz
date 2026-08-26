@@ -7,6 +7,7 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 description = "Theory Solvers (EUF, Arithmetic, BitVectors) for OxiZ"
+readme = "README.md"
 keywords = ["smt", "theories", "euf", "arithmetic"]
 categories = ["algorithms", "mathematics"]
 
@@ -20,6 +21,7 @@ smallvec = { workspace = true }
 rustc-hash = { workspace = true }
 num-rational = { workspace = true, default-features = false, features = ["num-bigint"] }
 num-bigint = { workspace = true, default-features = false }
+num-integer = { workspace = true, default-features = false }
 num-traits = { workspace = true, default-features = false }
 hashbrown.workspace = true
 portable-atomic-util = { workspace = true }

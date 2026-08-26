@@ -295,6 +295,11 @@ mod tests {
     fn bve_enabled_solver() -> Solver {
         Solver::with_config(SolverConfig {
             enable_bve: true,
+            // Every test in this module is about what BVE does, and BVE runs
+            // *after* the pre-search lucky phase — which would answer `Sat`
+            // outright on instances this small, leaving nothing eliminated to
+            // assert about (see `SolverConfig::enable_lucky_phase`).
+            enable_lucky_phase: false,
             ..SolverConfig::default()
         })
     }

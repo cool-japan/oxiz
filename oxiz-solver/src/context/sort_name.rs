@@ -183,6 +183,21 @@ impl Context {
             "Int" => return Ok(SortExprStep::Resolved(self.terms.sorts.int_sort)),
             "Real" => return Ok(SortExprStep::Resolved(self.terms.sorts.real_sort)),
             "String" => return Ok(SortExprStep::Resolved(self.terms.sorts.string_sort())),
+            // The reserved `FloatingPoint`-theory sort.  This arm is
+            // load-bearing for identity, not just for naming: commands carry
+            // sorts as *strings* (`Command::DeclareConst(name, sort_name)`),
+            // and `Parser::sort_id_to_string` prints this sort as
+            // `"RoundingMode"`.  Without the arm the string would fall through
+            // to the uninterpreted fallback at the bottom of this function and
+            // resolve to `Uninterpreted("RoundingMode")` — a *different*
+            // `SortId` than the one the parser interned `m`'s occurrences at.
+            // Since `mk_var` hash-conses on `(name, sort)`, the declared
+            // constant and every use of it would then be two unrelated terms,
+            // and the rounding-mode closure axiom would constrain the wrong
+            // one.
+            "RoundingMode" => {
+                return Ok(SortExprStep::Resolved(self.terms.sorts.rounding_mode_sort));
+            }
             _ => {}
         }
 

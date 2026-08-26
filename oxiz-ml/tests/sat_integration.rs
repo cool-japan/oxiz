@@ -71,6 +71,10 @@ fn test_solver_routes_through_adapter() {
 
     let config = SolverConfig {
         external_branching: Some(Arc::new(Mutex::new(counting))),
+        // The heuristic can only be called if the search makes a decision, and
+        // the pre-search lucky phase would solve this formula before it ever
+        // does (see `SolverConfig::enable_lucky_phase`).
+        enable_lucky_phase: false,
         ..SolverConfig::default()
     };
     let mut solver = Solver::with_config(config);
@@ -98,6 +102,10 @@ fn test_solver_falls_back_when_adapter_returns_none() {
 
     let config = SolverConfig {
         external_branching: Some(Arc::new(Mutex::new(counting))),
+        // The heuristic can only be called if the search makes a decision, and
+        // the pre-search lucky phase would solve this formula before it ever
+        // does (see `SolverConfig::enable_lucky_phase`).
+        enable_lucky_phase: false,
         ..SolverConfig::default()
     };
     let mut solver = Solver::with_config(config);

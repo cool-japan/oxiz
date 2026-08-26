@@ -97,11 +97,12 @@ mod conflict_detection_properties {
             let not_eq4 = tm.mk_not(eq4);
             solver.assert(not_eq4, &mut tm);
 
-            // This final check happens after a pop, and the solver's
-            // incremental LIA layer (simplex push/pop in oxiz-theories) is
-            // sound but not guaranteed complete across a scope pop. The
-            // ideal answer is Unsat; Unknown is an accepted honest
-            // fallback, but a spurious Sat is not.
+            // DELIBERATE (Unknown-tolerant): this final check happens after
+            // a pop, and the solver's incremental LIA layer (simplex
+            // push/pop in oxiz-theories) is sound but not guaranteed
+            // complete across a scope pop. The ideal answer is Unsat;
+            // Unknown is an accepted honest fallback, but a spurious Sat is
+            // not.
             let result = solver.check(&mut tm);
             prop_assert!(matches!(result, SolverResult::Unsat | SolverResult::Unknown));
         }
@@ -172,9 +173,10 @@ mod conflict_clause_properties {
 
             // Learned clause should be minimal (not contain redundant literals)
             solver.pop();
-            // After popping the `x != c` assertion the only live constraints are
-            // the two identical `x = c` facts, which ARE satisfiable, so the
-            // solver must never report a (spurious) `Unsat` here. The ideal
+            // DELIBERATE (Unknown-tolerant): after popping the `x != c`
+            // assertion the only live constraints are the two identical
+            // `x = c` facts, which ARE satisfiable, so the solver must
+            // never report a (spurious) `Unsat` here. The ideal
             // answer is `Sat`; the solver may instead honestly answer `Unknown`
             // because its incremental LIA layer (simplex push/pop in
             // oxiz-theories) is sound but not guaranteed complete across a
@@ -356,10 +358,11 @@ mod lemma_quality_properties {
             let neq_xc2 = tm.mk_not(eq_xc4);
             solver.assert(neq_xc2, &mut tm);
 
-            // This final check happens after a pop, so the incremental LIA
-            // layer's push/pop completeness caveat applies (see
-            // `learns_from_conflict` above): the ideal answer is Unsat, and
-            // an honest Unknown is tolerated, but a spurious Sat is not.
+            // DELIBERATE (Unknown-tolerant): this final check happens after
+            // a pop, so the incremental LIA layer's push/pop completeness
+            // caveat applies (see `learns_from_conflict` above): the ideal
+            // answer is Unsat, and an honest Unknown is tolerated, but a
+            // spurious Sat is not.
             let result = solver.check(&mut tm);
             prop_assert!(matches!(result, SolverResult::Unsat | SolverResult::Unknown));
         }

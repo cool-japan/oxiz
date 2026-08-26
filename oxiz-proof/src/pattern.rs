@@ -1117,6 +1117,9 @@ mod tests {
         // modest; it is still far past what 1 MiB of call frames would hold.
         const DEPTH: usize = 4_000;
 
+        // STACK-1MIB: deliberately 1 MiB, not swept to 128 KiB — depth is
+        // 4_000 (sub-10,000), well under the scaling threshold. See
+        // TODO.md "v0.3.2 backlog".
         let handle = std::thread::Builder::new()
             .stack_size(1 << 20)
             .spawn(|| {
@@ -1152,6 +1155,10 @@ mod tests {
             conclusion.push_str(&format!(" = x{i}"));
         }
 
+        // STACK-1MIB: deliberately 1 MiB, not swept to 128 KiB — the input
+        // string is 100,000-deep, but `max_depth` (5) bounds the actual
+        // recursion; native call depth here is sub-10,000 regardless of
+        // input size. See TODO.md "v0.3.2 backlog".
         let handle = std::thread::Builder::new()
             .stack_size(1 << 20)
             .spawn(move || {

@@ -71,6 +71,24 @@ enum CommittedWitness {
         /// The variable.
         subject: Var,
     },
+    /// The variable's value is an exact real-algebraic point (see
+    /// `solver/witness_algebraic.rs`), which this ledger cannot offer a
+    /// replacement for.
+    ///
+    /// It is deliberately **not** [`CommittedWitness::Pinned`]: the point was a
+    /// choice among the cells of a decomposition, so it must never license
+    /// `NlsatSolver::certify_forced_chain_conflict`, which reads an all-pinned
+    /// ledger as "no arithmetic choice was ever made". It is not
+    /// [`CommittedWitness::Chosen`] either: the alternatives to `√2` are the
+    /// *other roots*, not the rationals crowded around it, every one of which
+    /// already violates the equality that produced it. Offering those would
+    /// spend the retry allowance on known-failing points. A withdrawal
+    /// therefore drops this entry and keeps walking to an earlier genuine
+    /// choice; retrying alternative algebraic roots is a later phase.
+    Algebraic {
+        /// The variable.
+        subject: Var,
+    },
     /// The variable's value was a free pick out of `region`.
     Chosen {
         /// The variable.
@@ -88,9 +106,9 @@ impl CommittedWitness {
     /// The variable this entry is about.
     fn subject(&self) -> Var {
         match self {
-            CommittedWitness::Pinned { subject } | CommittedWitness::Chosen { subject, .. } => {
-                *subject
-            }
+            CommittedWitness::Pinned { subject }
+            | CommittedWitness::Algebraic { subject }
+            | CommittedWitness::Chosen { subject, .. } => *subject,
         }
     }
 }
@@ -144,6 +162,14 @@ impl WitnessLedger {
             },
             None => CommittedWitness::Pinned { subject },
         });
+    }
+
+    /// Record that `subject` has been given an exact algebraic point.
+    ///
+    /// See [`CommittedWitness::Algebraic`] for why this is neither a pin nor a
+    /// replaceable choice.
+    pub(super) fn record_algebraic(&mut self, subject: Var) {
+        self.entries.push(CommittedWitness::Algebraic { subject });
     }
 
     /// Take back the most recent witness that still has an alternative, and
@@ -348,6 +374,41 @@ mod tests {
             "both the pinned variable and the retried one lose their witnesses"
         );
         assert!(!ledger.every_witness_pinned());
+    }
+
+    /// An algebraic witness offers no rational replacement, and — critically —
+    /// must not read as "pinned", which would license a forced-chain conflict
+    /// certificate over a point that was in fact chosen.
+    #[test]
+    fn test_algebraic_entry_offers_nothing_and_is_not_pinned() {
+        let mut ledger = WitnessLedger::default();
+        ledger.record_algebraic(0);
+        assert!(
+            !ledger.every_witness_pinned(),
+            "an algebraic pick is a choice, not a pin"
+        );
+
+        let withdrawal = ledger.withdraw();
+        assert!(withdrawal.replacement.is_none());
+        assert_eq!(withdrawal.released.as_slice(), &[0]);
+        assert!(ledger.entries.is_empty());
+    }
+
+    /// A withdrawal walks *past* an algebraic entry to an earlier free choice,
+    /// releasing both, exactly as it does for a pinned one.
+    #[test]
+    fn test_withdrawal_walks_past_an_algebraic_entry() {
+        let mut ledger = WitnessLedger::default();
+        ledger.record(0, rat(1), Some(bounded(1, 9)));
+        ledger.record_algebraic(1);
+
+        let withdrawal = ledger.withdraw();
+        let Some((var, point)) = withdrawal.replacement else {
+            panic!("variable 0's region [1, 9] still had untried points");
+        };
+        assert_eq!(var, 0);
+        assert_ne!(point, rat(1));
+        assert_eq!(withdrawal.released.as_slice(), &[1, 0]);
     }
 
     /// An all-pinned ledger is what licenses the forced-chain conflict

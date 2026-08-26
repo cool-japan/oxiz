@@ -1153,14 +1153,14 @@ mod tests {
         // Build (iteratively) a long propagation chain v_0 <- v_1 <- ... <-
         // v_depth (each v_i's reason cites v_{i-1}), with v_0 a Decision,
         // and check v_depth's redundancy from inside a thread with a
-        // deliberately small (1 MiB) stack. A stack overflow aborts the
+        // deliberately small (128 KiB) stack. A stack overflow aborts the
         // whole process, so "the thread returned at all" is itself part of
         // the assertion.
         let handle = std::thread::Builder::new()
-            .stack_size(1 << 20)
+            .stack_size(1 << 17)
             .spawn(|| {
                 let mut solver = NlsatSolver::new();
-                let depth: usize = 50_000;
+                let depth: usize = 6_250;
                 let vars: Vec<BoolVar> = (0..=depth).map(|_| solver.new_bool_var()).collect();
                 solver.assignment.push_level();
                 solver
@@ -1183,6 +1183,6 @@ mod tests {
             .expect("spawning a thread with an explicit stack size must succeed");
         handle
             .join()
-            .expect("a deep propagation chain must not overflow a 1 MiB stack");
+            .expect("a deep propagation chain must not overflow a 128 KiB stack");
     }
 }

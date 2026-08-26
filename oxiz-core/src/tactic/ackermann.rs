@@ -447,10 +447,10 @@ mod group_c1_tests {
     /// deeper than any native stack could hold must return rather than abort.
     #[test]
     fn collect_func_apps_survives_a_deep_chain_on_a_tiny_stack() {
-        const DEPTH: usize = 60_000;
+        const DEPTH: usize = 7_500;
 
         let handle = std::thread::Builder::new()
-            .stack_size(1 << 20)
+            .stack_size(1 << 17)
             .spawn(|| {
                 let mut manager = TermManager::new();
                 let int_sort = manager.sorts.int_sort;

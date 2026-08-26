@@ -12,6 +12,7 @@ use num_rational::Rational64;
 mod build;
 mod commands;
 mod indexed;
+mod recfun;
 mod sorts;
 mod terms;
 
@@ -114,6 +115,57 @@ pub enum Command {
     SetInfo(String, String),
     /// Simplify (Z3 extension)
     Simplify(TermId),
+    /// One `(define-fun-rec ..)` (a single-element vector) or one
+    /// `(define-funs-rec ..)` (one element per function in the mutually
+    /// recursive group).
+    ///
+    /// # Consumers must never skip this command
+    ///
+    /// A recursive definition is the *only* thing that constrains the symbol it
+    /// defines: the parser deliberately registers the name as an ordinary
+    /// declared function so that call sites build a real `Apply` node, and it
+    /// never expands the body at those call sites (expansion would not
+    /// terminate).  A consumer whose `match` lets this command fall into a
+    /// catch-all therefore keeps every `(f x)` application but drops every
+    /// constraint on `f`, i.e. it silently solves a *strictly weaker* problem —
+    /// turning `unsat` into `sat` with a meaningless model.  That is exactly the
+    /// failure the previous hard parse rejection existed to prevent.
+    ///
+    /// Any consumer that cannot solve recursive definitions **must** answer with
+    /// an explicit error (or an honest `unknown`), never by ignoring the
+    /// command.
+    DefineFunsRec(Vec<RecFunDecl>),
+}
+
+/// One function of a `define-fun-rec` / `define-funs-rec` group.
+///
+/// Unlike a `FunctionMacro` (this parser's internal representation for
+/// non-recursive `define-fun`), this is *not* expanded at call sites — see
+/// the parser's internal `rec_function_defs` table. It is handed to the solver, which discharges
+/// it by fuel-bounded unfolding of the definitional equation
+/// `forall x. f(x) = body`.
+#[derive(Debug, Clone)]
+pub struct RecFunDecl {
+    /// The defined function's name.
+    pub name: String,
+    /// `(name, sort-string)` for each formal parameter, in declaration order.
+    pub params: Vec<(String, String)>,
+    /// Each formal parameter's `Var` term, in declaration order, exactly as
+    /// bound while `body` was parsed.
+    ///
+    /// Never re-derive these from `params`: [`TermManager::mk_var`]
+    /// hash-conses on the `(name, sort)` pair, so reconstructing a `Var` from
+    /// the bare name with a guessed sort mints a *different* term that the body
+    /// never mentions — every substitution against it would silently no-op and
+    /// leave the parameter free in the unfolded body. This is the same hazard
+    /// documented at length on the parser's internal `FunctionMacro::formal_vars`.
+    pub formal_vars: Vec<TermId>,
+    /// The declared return sort, as a sort string (resolved by the consumer the
+    /// same way `declare-fun`'s return sort is).
+    pub ret_sort: String,
+    /// The body, possibly mentioning `formal_vars` and applications of any
+    /// function in the same `define-funs-rec` group (including itself).
+    pub body: TermId,
 }
 
 /// A recorded `define-fun` macro, ready for call-site expansion.
@@ -160,6 +212,23 @@ pub struct Parser<'a> {
     /// mentions — the substitution then silently no-ops and the parameter
     /// stays free in the expanded body.
     pub(super) function_defs: FxHashMap<String, FunctionMacro>,
+    /// Recursive function definitions from `define-fun-rec` /
+    /// `define-funs-rec`, keyed by name.
+    ///
+    /// Deliberately *not* a second `function_defs`: a recursive body is never
+    /// expanded at a call site, because expansion would not terminate (`f`'s
+    /// body mentions `f`). The name is instead registered in
+    /// [`Parser::functions`] (arity > 0) or [`Parser::constants`] (arity 0)
+    /// *before* the body is parsed, so both the body's self-references and every
+    /// later call site build an ordinary `Apply` / `Var` node with the declared
+    /// sort. The bodies collected here travel out in
+    /// [`Command::DefineFunsRec`], and the solver discharges them by
+    /// fuel-bounded unfolding.
+    ///
+    /// The map itself is what makes a redefinition detectable and what lets a
+    /// later group refer to an earlier one; it is never consulted by term
+    /// construction.
+    pub(super) rec_function_defs: FxHashMap<String, RecFunDecl>,
     /// Term annotations (term -> attributes)
     pub(super) annotations: FxHashMap<TermId, Vec<Attribute>>,
     /// Error recovery mode enabled
@@ -210,6 +279,7 @@ impl<'a> Parser<'a> {
             functions: FxHashMap::default(),
             sort_aliases: FxHashMap::default(),
             function_defs: FxHashMap::default(),
+            rec_function_defs: FxHashMap::default(),
             annotations: FxHashMap::default(),
             recovery_mode: false,
             errors: Vec::new(),
@@ -311,6 +381,7 @@ impl<'a> Parser<'a> {
             functions: FxHashMap::default(),
             sort_aliases: FxHashMap::default(),
             function_defs: FxHashMap::default(),
+            rec_function_defs: FxHashMap::default(),
             annotations: FxHashMap::default(),
             recovery_mode: true,
             errors: Vec::new(),

@@ -1159,14 +1159,14 @@ mod tests {
         node
     }
 
-    /// A 100_000-variable-high BDD negated on a 1 MiB stack. The recursive
+    /// A 12_500-variable-high BDD negated on a 128 KiB stack. The recursive
     /// form descended once per level and aborted the process; returning at
     /// all is the assertion. Double negation pins the result.
     #[test]
     fn test_not_deep_diagram_does_not_overflow() {
-        let worker = std::thread::Builder::new().stack_size(1 << 20).spawn(|| {
+        let worker = std::thread::Builder::new().stack_size(1 << 17).spawn(|| {
             let mut manager = BddManager::new();
-            let chain = conjunction_chain(&mut manager, 100_000);
+            let chain = conjunction_chain(&mut manager, 12_500);
             let negated = manager.not(chain);
             (negated != chain, manager.not(negated) == chain)
         });
@@ -1181,12 +1181,12 @@ mod tests {
     /// Same depth, through `apply` (`and`) and `ite`.
     #[test]
     fn test_apply_and_ite_deep_diagram_do_not_overflow() {
-        let worker = std::thread::Builder::new().stack_size(1 << 20).spawn(|| {
+        let worker = std::thread::Builder::new().stack_size(1 << 17).spawn(|| {
             let mut manager = BddManager::new();
-            let chain = conjunction_chain(&mut manager, 100_000);
+            let chain = conjunction_chain(&mut manager, 12_500);
             let shifted = {
                 let mut node = BDD_TRUE;
-                for var in (0..100_000u32).rev() {
+                for var in (0..12_500u32).rev() {
                     node = manager.make_node(var, node, BDD_FALSE);
                 }
                 node

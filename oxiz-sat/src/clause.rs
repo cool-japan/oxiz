@@ -59,12 +59,26 @@ pub struct Clause {
     /// management usually touch a single cache line before reading literals.
     pub deleted: bool,
     /// The literals in this clause
+    ///
+    /// Inline capacity could be raised from 4 to 8 literals for free (an 8+32=40B
+    /// `SmallVec` pushes the payload to ~59B, still 64B total once padded) — left
+    /// at 4 pending a measured decision; do not change this without one.
     pub lits: SmallVec<[Lit; 4]>,
     /// Tier for tiered database management (only used for learned clauses)
     pub tier: ClauseTier,
     /// Number of times this clause was used in conflict analysis (for tier promotion)
     pub usage_count: u32,
 }
+
+// Compile-time size guard: `#[repr(align(64))]`
+// only forces the size to a *multiple* of 64 bytes, not a cap, so a future field could
+// silently push `Clause` past one cache line into two. `ClauseDatabase` stores `Vec<Clause>`,
+// so every slot pays the full stride these asserts pin at exactly 64 bytes.
+const _: () = assert!(
+    core::mem::size_of::<Clause>() == 64,
+    "Clause must stay exactly one cache line; a new field pushed it past 64 bytes"
+);
+const _: () = assert!(core::mem::align_of::<Clause>() == 64);
 
 impl Clause {
     /// Create a new clause
@@ -240,9 +254,28 @@ impl Clause {
 
     /// Check if this clause is a self-subsuming resolvent of another clause
     /// Returns the literal to remove from other if self-subsumption is possible
+    ///
+    /// Concretely: if `self` contains `¬l`, `other` contains `l`, and
+    /// `self \ {¬l} ⊆ other \ {l}`, then resolving the two on that variable
+    /// yields `other \ {l}` — a clause subsuming `other` — so `l` is returned
+    /// and may be dropped from `other`.
+    ///
+    /// Unlike [`Clause::subsumes`] this makes no assumption about literal
+    /// order (clause literals are permuted in place by watch selection, so a
+    /// sorted representation cannot be relied on).
+    ///
+    /// The length guard rejects only a *strictly longer* `self`: equal lengths
+    /// are the single most common self-subsumption shape in practice
+    /// (`(a ∨ b ∨ c)` against `(a ∨ b ∨ ¬c)`, which strengthens one of them to
+    /// `(a ∨ b)`), and rejecting them — as this did until the pass in
+    /// `solver/self_subsumption.rs` was wired up and found the rule firing on
+    /// nothing — silently discards most of the technique's value. A strictly
+    /// longer `self` cannot succeed anyway: the match count below could then
+    /// never reach `self.lits.len() - 1`, so the guard is a shortcut, not a
+    /// semantic restriction.
     #[must_use]
     pub fn self_subsuming_resolvent(&self, other: &Clause) -> Option<Lit> {
-        if self.lits.len() >= other.lits.len() {
+        if self.lits.len() > other.lits.len() {
             return None;
         }
 
@@ -690,6 +723,37 @@ mod tests {
         } else {
             panic!("Expected self-subsuming resolvent");
         }
+    }
+
+    // Regression: equal-length clauses differing in exactly one polarity are
+    // the most common self-subsumption shape, and the length guard used to
+    // reject them outright — which made the whole rule fire on almost nothing.
+    #[test]
+    fn test_issue36_self_subsuming_resolvent_accepts_equal_lengths() {
+        let (a, b, c) = (Var::new(0), Var::new(1), Var::new(2));
+        let c1 = Clause::original([Lit::pos(a), Lit::pos(b), Lit::pos(c)]);
+        let c2 = Clause::original([Lit::pos(a), Lit::pos(b), Lit::neg(c)]);
+
+        assert_eq!(
+            c1.self_subsuming_resolvent(&c2),
+            Some(Lit::neg(c)),
+            "(a ∨ b ∨ c) must strengthen (a ∨ b ∨ ¬c) to (a ∨ b)"
+        );
+        assert_eq!(
+            c2.self_subsuming_resolvent(&c1),
+            Some(Lit::pos(c)),
+            "the relation is symmetric at equal length"
+        );
+    }
+
+    // A strictly longer strengthener can never succeed; the guard rejecting it
+    // is a shortcut, so the answer must be `None` either way.
+    #[test]
+    fn test_issue36_self_subsuming_resolvent_rejects_longer_strengthener() {
+        let (a, b, c) = (Var::new(0), Var::new(1), Var::new(2));
+        let longer = Clause::original([Lit::pos(a), Lit::pos(b), Lit::neg(c)]);
+        let shorter = Clause::original([Lit::pos(a), Lit::pos(c)]);
+        assert_eq!(longer.self_subsuming_resolvent(&shorter), None);
     }
 
     #[test]

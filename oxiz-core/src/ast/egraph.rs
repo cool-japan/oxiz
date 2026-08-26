@@ -999,7 +999,7 @@ mod tests {
     }
 
     /// Number of e-classes chained together by the union-find stress tests.
-    const CHAIN_LEN: i64 = 50_000;
+    const CHAIN_LEN: i64 = 6_250;
 
     /// Build `CHAIN_LEN` singleton e-classes and merge them in the order that
     /// used to build a maximally deep parent chain: every merge makes the
@@ -1024,7 +1024,7 @@ mod tests {
     #[test]
     fn test_find_deep_union_chain_does_not_overflow() {
         let handle = std::thread::Builder::new()
-            .stack_size(1 << 20)
+            .stack_size(1 << 17)
             .spawn(|| {
                 let (mut egraph, ids) = build_worst_case_chain();
                 let (Some(&first), Some(&last)) = (ids.first(), ids.last()) else {
@@ -1044,7 +1044,7 @@ mod tests {
     #[test]
     fn test_union_by_rank_keeps_chains_shallow() {
         let handle = std::thread::Builder::new()
-            .stack_size(1 << 20)
+            .stack_size(1 << 17)
             .spawn(|| {
                 let (egraph, ids) = build_worst_case_chain();
                 // Depth measured without any path compression: union-by-rank

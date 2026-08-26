@@ -732,4 +732,399 @@ mod cut_validity_tests {
             }
         }
     }
+
+    // -----------------------------------------------------------------------
+    // Root-node cut reachability (`LiaSolver::check` / `check_balanced`)
+    // -----------------------------------------------------------------------
+    //
+    // The generators above are exercised at a *fractional optimum* reached with
+    // `optimize_linexpr`.  `LiaSolver::check` performs a plain feasibility
+    // solve instead, and instances A/F/G are all satisfied at the origin — so
+    // running `check` on them verbatim never reaches a fractional vertex and
+    // never generates a cut.  The `_frontier` variants below add one valid
+    // inequality that cuts the origin away and pins the LP to the same
+    // fractional region the generator tests target, so the root cut loop in
+    // `check` actually fires.
+
+    use crate::config::LiaConfig;
+
+    /// Instance A plus `2x + 2y ≥ 3` (i.e. `x + y ≥ 3/2`), which removes the
+    /// origin and pins the LP to the fractional vertex `(1, 1/2)`.
+    ///
+    /// Ground truth: **integer-infeasible**.  An integer point with `x + y ≥
+    /// 3/2` needs `x + y ≥ 2`, and no such point satisfies `x + 2y ≤ 2` and
+    /// `3x + 2y ≤ 4` (the only candidate `(2,0)` violates the latter).
+    fn build_instance_a_frontier() -> (LiaSolver, VarId, VarId) {
+        let (mut s, x, y) = build_instance_a();
+        let mut c = LinExpr::new();
+        c.add_term(x, r(2));
+        c.add_term(y, r(2));
+        c.add_constant(r(-3));
+        s.simplex.add_ge(c, 4);
+        (s, x, y)
+    }
+
+    /// Instance F plus `4x + 6y ≥ 9` (i.e. `2x + 3y ≥ 9/2`), which removes the
+    /// origin and forces `2x + 3y ∈ [9/2, 5]`.
+    ///
+    /// Ground truth: **integer-feasible** at `(1, 1)` (`2·1 + 3·1 = 5`).
+    fn build_instance_f_frontier() -> (LiaSolver, VarId, VarId) {
+        let (mut s, x, y) = build_instance_f();
+        let mut c = LinExpr::new();
+        c.add_term(x, r(4));
+        c.add_term(y, r(6));
+        c.add_constant(r(-9));
+        s.simplex.add_ge(c, 3);
+        (s, x, y)
+    }
+
+    /// Instance G plus `8x − 2y ≥ 5` (i.e. `4x − y ≥ 5/2`), which removes the
+    /// origin and forces `4x − y ∈ [5/2, 3]`.
+    ///
+    /// Ground truth: **integer-feasible** at `(1, 1)` (`4·1 − 1 = 3`).
+    fn build_instance_g_frontier() -> (LiaSolver, VarId, VarId) {
+        let (mut s, x, y) = build_instance_g();
+        let mut c = LinExpr::new();
+        c.add_term(x, r(8));
+        c.add_term(y, r(-2));
+        c.add_constant(r(-5));
+        s.simplex.add_ge(c, 3);
+        (s, x, y)
+    }
+
+    /// `x ≥ 0 ∧ 2x ≤ 1 ∧ 2x ≥ 1`: LP-feasible at `x = 1/2`, integer-infeasible.
+    ///
+    /// Built from `add_le`/`add_ge` rather than `add_eq` on purpose:
+    /// `LiaSolver::add_eq` short-circuits this through its GCD test and marks
+    /// the problem infeasible before the LP is ever solved, which would bypass
+    /// the cut path this test is about.
+    fn build_two_x_equals_one() -> (LiaSolver, VarId) {
+        let mut s = LiaSolver::new();
+        let x = s.new_var();
+        s.simplex.set_lower(x, r(0), 0);
+
+        let mut le = LinExpr::new();
+        le.add_term(x, r(2));
+        le.add_constant(r(-1));
+        s.simplex.add_le(le, 1);
+
+        let mut ge = LinExpr::new();
+        ge.add_term(x, r(2));
+        ge.add_constant(r(-1));
+        s.simplex.add_ge(ge, 2);
+
+        (s, x)
+    }
+
+    /// Assert that the cut the root loop would take — the one produced by
+    /// [`LiaSolver::generate_conflict_driven_cut`], which `check` calls — is a
+    /// valid inequality of the integer hull and separates the LP point that
+    /// `check`'s own feasibility solve lands on.
+    fn assert_root_cut_sound(build: impl Fn() -> (LiaSolver, VarId, VarId) + Copy, label: &str) {
+        let (mut s, _x, _y) = build();
+        assert!(
+            s.simplex.check().is_ok() && !s.simplex.resource_limit_reached(),
+            "{label}: LP relaxation must be feasible for the cut loop to run"
+        );
+
+        let cut = s
+            .generate_conflict_driven_cut()
+            .unwrap_or_else(|| panic!("{label}: the root cut loop must derive a cut here"));
+
+        assert_cut_valid_and_separating(&s, build, &cut);
+    }
+
+    /// The cut that `check`'s root loop consumes must be valid and separating on
+    /// each of the three cut-test instances (frontier variants, so that the
+    /// feasibility solve reaches a fractional vertex at all).
+    #[test]
+    fn root_cut_valid_and_separating_on_cut_test_instances() {
+        assert_root_cut_sound(build_instance_a_frontier, "instance A");
+        assert_root_cut_sound(build_instance_f_frontier, "instance F");
+        assert_root_cut_sound(build_instance_g_frontier, "instance G");
+    }
+
+    /// `check` must reach the cut path and keep the correct verdict on an
+    /// integer-*feasible* instance: an invalid cut would show up here as a
+    /// spurious UNSAT.
+    #[test]
+    fn check_generates_root_cuts_and_keeps_sat_verdict() {
+        for (label, build) in [
+            (
+                "instance F",
+                build_instance_f_frontier as fn() -> (LiaSolver, VarId, VarId),
+            ),
+            ("instance G", build_instance_g_frontier),
+        ] {
+            let (mut s, x, y) = build();
+            let verdict = s
+                .check()
+                .unwrap_or_else(|_| panic!("{label}: check must not hit a resource limit"));
+
+            assert!(
+                s.cuts_generated() > 0,
+                "{label}: the root cut loop must fire (cuts_generated = 0)"
+            );
+            assert!(verdict, "{label}: instance is integer-feasible, got UNSAT");
+            assert!(
+                s.value(x).is_integer() && s.value(y).is_integer(),
+                "{label}: SAT verdict must leave an integral assignment, got ({}, {})",
+                s.value(x),
+                s.value(y)
+            );
+        }
+    }
+
+    /// A genuinely integer-infeasible but LP-feasible instance must be refuted,
+    /// and the refutation must go through the cut path (`cuts_generated > 0`).
+    #[test]
+    fn check_refutes_lp_feasible_integer_infeasible_via_cuts() {
+        // `x + 2y ≤ 2 ∧ 3x + 2y ≤ 4 ∧ 2x + 2y ≥ 3`, LP-feasible at (1, 1/2).
+        let (mut s, _x, _y) = build_instance_a_frontier();
+        let verdict = s.check().expect("check must not hit a resource limit");
+        assert!(!verdict, "instance A frontier is integer-infeasible");
+        assert!(
+            s.cuts_generated() > 0,
+            "the refutation must go through the root cut path"
+        );
+
+        // `2x ≤ 1 ∧ 2x ≥ 1`: LP-feasible at x = 1/2, no integer solution.
+        let (mut s, _x) = build_two_x_equals_one();
+        let verdict = s.check().expect("check must not hit a resource limit");
+        assert!(!verdict, "2x = 1 has no integer solution");
+        assert!(
+            s.cuts_generated() > 0,
+            "the refutation must go through the root cut path"
+        );
+    }
+
+    /// `enable_gomory_cuts = false` must bypass the loop entirely — no cuts
+    /// asserted — while producing exactly the same verdicts.
+    #[test]
+    fn disabled_gomory_cuts_bypass_the_root_loop() {
+        fn without_cuts(mut s: LiaSolver) -> LiaSolver {
+            s.config.enable_gomory_cuts = false;
+            s
+        }
+
+        for (label, build, expected) in [
+            (
+                "instance A frontier",
+                build_instance_a_frontier as fn() -> (LiaSolver, VarId, VarId),
+                false,
+            ),
+            ("instance F frontier", build_instance_f_frontier, true),
+            ("instance G frontier", build_instance_g_frontier, true),
+        ] {
+            let (s, _x, _y) = build();
+            let mut s = without_cuts(s);
+            let verdict = s
+                .check()
+                .unwrap_or_else(|_| panic!("{label}: check must not hit a resource limit"));
+
+            assert_eq!(
+                s.cuts_generated(),
+                0,
+                "{label}: no cut may be asserted with enable_gomory_cuts = false"
+            );
+            assert_eq!(verdict, expected, "{label}: verdict changed with cuts off");
+        }
+
+        // The config flag is genuinely read (not merely defaulted): the same
+        // instance with cuts *on* does assert cuts.
+        let (mut s, _x, _y) = build_instance_a_frontier();
+        let _ = s.check();
+        assert!(s.cuts_generated() > 0);
+
+        // `LiaConfig::default()` keeps the loop enabled.
+        assert!(LiaConfig::default().enable_gomory_cuts);
+    }
+
+    /// `check_balanced` must agree with `check` on every verdict and leave the
+    /// simplex at exactly its entry scope depth — unlike `check`, which
+    /// deliberately retains the winning branch's `push`.
+    #[test]
+    fn check_balanced_matches_check_and_restores_scope() {
+        struct Case {
+            label: &'static str,
+            build: fn() -> (LiaSolver, VarId, VarId),
+            expected: bool,
+        }
+
+        let cases = [
+            Case {
+                label: "instance A (origin feasible, no cuts)",
+                build: build_instance_a,
+                expected: true,
+            },
+            Case {
+                label: "instance A frontier (integer-infeasible)",
+                build: build_instance_a_frontier,
+                expected: false,
+            },
+            Case {
+                label: "instance F (origin feasible)",
+                build: build_instance_f,
+                expected: true,
+            },
+            Case {
+                label: "instance F frontier",
+                build: build_instance_f_frontier,
+                expected: true,
+            },
+            Case {
+                label: "instance G frontier",
+                build: build_instance_g_frontier,
+                expected: true,
+            },
+        ];
+
+        for case in cases {
+            let (mut plain, _x, _y) = (case.build)();
+            let verdict = plain
+                .check()
+                .unwrap_or_else(|_| panic!("{}: check must not hit a limit", case.label));
+            assert_eq!(verdict, case.expected, "{}: unexpected verdict", case.label);
+
+            let (mut balanced, x, y) = (case.build)();
+            let entry_depth = balanced.simplex.scope_depth();
+            let model = balanced
+                .check_balanced()
+                .unwrap_or_else(|_| panic!("{}: check_balanced must not hit a limit", case.label));
+
+            assert_eq!(
+                model.is_some(),
+                case.expected,
+                "{}: check_balanced disagrees with check",
+                case.label
+            );
+            assert_eq!(
+                balanced.simplex.scope_depth(),
+                entry_depth,
+                "{}: check_balanced leaked a scope",
+                case.label
+            );
+
+            if let Some(model) = model {
+                for var in [x, y] {
+                    let value = model
+                        .get(&var)
+                        .copied()
+                        .unwrap_or_else(|| panic!("{}: model misses a variable", case.label));
+                    assert!(
+                        value.is_integer(),
+                        "{}: model value {value} for v{var} is not integral",
+                        case.label
+                    );
+                }
+            }
+        }
+    }
+
+    /// Scope balance is the whole point of `check_balanced`: on a SAT instance
+    /// that actually branches, `check` leaves the winning branch's scope open
+    /// while `check_balanced` returns to its entry depth.
+    ///
+    /// The instance is run with `enable_gomory_cuts = false` on purpose: with
+    /// the root cut loop on, the cuts close instance F's integrality gap at the
+    /// root and branch-and-bound never pushes, so there would be no branch scope
+    /// to contrast.
+    #[test]
+    fn check_balanced_unlike_check_leaves_no_open_branch_scope() {
+        // `check` retains the winning branch's push, so it ends above its entry
+        // depth.
+        let (mut plain, _x, _y) = build_instance_f_frontier();
+        plain.config.enable_gomory_cuts = false;
+        let entry_depth = plain.simplex.scope_depth();
+        assert!(plain.check().expect("no resource limit"));
+        assert!(
+            plain.simplex.scope_depth() > entry_depth,
+            "precondition: check is expected to retain the winning branch scope"
+        );
+
+        // `check_balanced` returns to the entry depth on the same instance, and
+        // a second call still answers SAT (the first call left no residue that
+        // would poison it).
+        let (mut balanced, _x, _y) = build_instance_f_frontier();
+        balanced.config.enable_gomory_cuts = false;
+        let entry_depth = balanced.simplex.scope_depth();
+        let first = balanced.check_balanced().expect("no resource limit");
+        assert!(first.is_some());
+        assert_eq!(
+            balanced.simplex.scope_depth(),
+            entry_depth,
+            "check_balanced must not leak a branch scope"
+        );
+
+        let second = balanced.check_balanced().expect("no resource limit");
+        assert!(
+            second.is_some(),
+            "a balanced re-check must still answer SAT"
+        );
+        assert_eq!(balanced.simplex.scope_depth(), entry_depth);
+
+        // With cuts on, the root loop alone settles instance F: no branch is
+        // ever pushed and `check_balanced` is still balanced.
+        let (mut cut_closed, _x, _y) = build_instance_f_frontier();
+        let entry_depth = cut_closed.simplex.scope_depth();
+        assert!(
+            cut_closed
+                .check_balanced()
+                .expect("no resource limit")
+                .is_some()
+        );
+        assert!(cut_closed.cuts_generated() > 0);
+        assert_eq!(cut_closed.simplex.scope_depth(), entry_depth);
+    }
+
+    /// A resource limit must be reported as `Err`, never as a fabricated
+    /// verdict — and the scope must still be balanced on that path, which is
+    /// exactly where an early `?`-style return would leak a branch scope.
+    #[test]
+    fn check_balanced_is_balanced_on_the_resource_limit_path() {
+        let (mut s, _x, _y) = build_instance_f_frontier();
+        // Cuts off so branch-and-bound must actually branch, depth budget 0 so
+        // the first branch immediately exceeds it.
+        s.config.enable_gomory_cuts = false;
+        s.max_depth = 0;
+
+        let entry_depth = s.simplex.scope_depth();
+        let outcome = s.check_balanced();
+
+        assert!(
+            outcome.is_err(),
+            "a depth-limited search must report Err, not a verdict"
+        );
+        assert_eq!(
+            s.simplex.scope_depth(),
+            entry_depth,
+            "check_balanced leaked a branch scope on the resource-limit path"
+        );
+    }
+
+    /// The model returned by `check_balanced` must be an integral assignment
+    /// that satisfies the original constraints — not merely the LP point the
+    /// simplex is left holding after the branches are popped.
+    #[test]
+    fn check_balanced_model_satisfies_the_constraints() {
+        let (mut s, x, y) = build_instance_f_frontier();
+        let model = s
+            .check_balanced()
+            .expect("no resource limit")
+            .expect("instance F frontier is integer-feasible");
+
+        let xv = model.get(&x).copied().expect("model has x");
+        let yv = model.get(&y).copied().expect("model has y");
+
+        assert!(xv.is_integer() && yv.is_integer(), "model must be integral");
+        // 2x + 3y ≤ 5 and 4x + 6y ≥ 9.
+        let lhs = r(2) * xv + r(3) * yv;
+        assert!(lhs <= r(5), "model violates 2x + 3y ≤ 5: {lhs}");
+        assert!(
+            r(2) * lhs >= r(9),
+            "model violates 4x + 6y ≥ 9: {}",
+            r(2) * lhs
+        );
+        assert!(xv >= Rational64::zero() && yv >= Rational64::zero());
+    }
 }

@@ -50,6 +50,12 @@ use super::{EvalVal, Solver};
 /// with many array pairs) so a malformed input cannot make the refinement loop
 /// consume unbounded memory.  Realistic array benchmarks add a handful of
 /// instances.
+///
+/// Reaching it sets [`Solver::array_axioms_incomplete`], because the two ways
+/// this function returns `false` mean opposite things: "the candidate model
+/// satisfies every axiom" (a `Sat` may be reported) versus "the budget stopped
+/// me looking" (it may not).  `check_core` cannot tell them apart from the
+/// return value, so the flag carries the difference.
 const MAX_ARRAY_AXIOM_INSTANCES: usize = 20_000;
 
 impl Solver {
@@ -61,6 +67,9 @@ impl Solver {
     /// atoms).
     pub(super) fn instantiate_array_axioms(&mut self, manager: &mut TermManager) -> bool {
         if self.array_axiom_instances.len() >= MAX_ARRAY_AXIOM_INSTANCES {
+            // Not "the model is fine" — "I stopped looking".  Flag it so the
+            // `Sat` this `false` licenses is downgraded to `Unknown`.
+            self.array_axioms_incomplete = true;
             return false;
         }
 
@@ -120,6 +129,10 @@ impl Solver {
         let mut added = false;
         for inst in to_add {
             if self.array_axiom_instances.len() >= MAX_ARRAY_AXIOM_INSTANCES {
+                // Instances the candidate model does *not* satisfy are being
+                // left unasserted, so the axiomatisation this search runs
+                // against is a strict subset of the array theory.
+                self.array_axioms_incomplete = true;
                 break;
             }
             // `insert` returns false if this exact instance is already tracked
@@ -229,7 +242,26 @@ fn record_alias(
     }
 }
 
-/// Build read-over-write instances for every collected `select`.
+/// How far down a store chain one collected `select` is reduced in a single
+/// pass.
+///
+/// The RoW-2 consequent of a read introduces `select(base, index)` — a *new*
+/// select, which the structural walk only sees on the next refinement round.
+/// Reducing one level per round makes an `n`-deep store chain cost `n` rounds,
+/// and every round throws the search away and re-solves from root, so the
+/// store-commutativity benchmarks (chains of 10, 20, 50 writes) spent all their
+/// time replaying searches rather than deciding anything.  Following the chain
+/// here instead collapses that to one or two rounds.
+///
+/// The budget bounds the work per select, and doubles as the cycle guard's
+/// backstop: an alias cycle (`a = store(b,..)` together with `b = store(a,..)`)
+/// is caught by `seen` below, but a budget that cannot run away is the cheaper
+/// thing to reason about.  Chains longer than this still reduce — the remaining
+/// levels simply arrive over later rounds, exactly as they did before.
+const MAX_STORE_CHAIN_DEPTH: usize = 128;
+
+/// Build read-over-write instances for every collected `select`, following each
+/// read all the way down its store chain.
 ///
 /// The axiom is emitted as its two case-split implications rather than a single
 /// `ite`-valued equality, because the arithmetic / EUF theory solvers reduce a
@@ -244,27 +276,69 @@ fn build_read_over_write(
     candidates: &mut Vec<TermId>,
 ) {
     for &(select_term, array, index) in &collected.selects {
-        if let Some((base, store_idx, stored_val)) = as_store(array, manager) {
-            // Direct read over a syntactic store.
-            let (row1, row2) =
-                row_implications(manager, select_term, store_idx, stored_val, base, index);
-            candidates.push(row1);
-            candidates.push(row2);
-        } else if let Some(&store_term) = collected.aliases.get(&array) {
-            if let Some((base, store_idx, stored_val)) = as_store(store_term, manager) {
-                // Aliased read: an asserted `array = store(...)` makes the same
-                // axiom apply, but we guard each implication with that alias
-                // equality so the lemma stays a universally-valid theorem
-                // (`array = store(...) ∧ cond ⇒ ...`).
-                let alias_eq = manager.mk_eq(array, store_term);
-                let (row1, row2) =
-                    row_implications(manager, select_term, store_idx, stored_val, base, index);
-                let g1 = manager.mk_implies(alias_eq, row1);
-                let g2 = manager.mk_implies(alias_eq, row2);
+        emit_read_chain(manager, collected, select_term, array, index, candidates);
+    }
+}
+
+/// Emit the read-over-write pair for `select(array, index)` and keep descending
+/// into the store's base for as long as that base is itself a store (directly,
+/// or through an asserted `base = store(..)` alias).
+///
+/// Each level's pair is a self-contained theorem — it mentions only that
+/// level's store and needs only that level's alias equality as a guard — so
+/// descending adds no assumption and the lemmas stay valid however the search
+/// later assigns the aliases.
+fn emit_read_chain(
+    manager: &mut TermManager,
+    collected: &ArrayStructure,
+    select_term: TermId,
+    array: TermId,
+    index: TermId,
+    candidates: &mut Vec<TermId>,
+) {
+    let mut select_term = select_term;
+    let mut array = array;
+    // Arrays already reduced on this chain.  An alias cycle would otherwise
+    // walk the same two arrays until the depth budget ran out, re-deriving
+    // lemmas the dedup set would then discard.
+    let mut seen: FxHashSet<TermId> = FxHashSet::default();
+    for _ in 0..MAX_STORE_CHAIN_DEPTH {
+        if !seen.insert(array) {
+            return;
+        }
+        // Resolve this level to a store term, plus the alias equality (if any)
+        // that has to guard the lemma.
+        let (store_term, alias_eq) = if as_store(array, manager).is_some() {
+            (array, None)
+        } else if let Some(&aliased) = collected.aliases.get(&array) {
+            (aliased, Some(manager.mk_eq(array, aliased)))
+        } else {
+            return;
+        };
+        let Some((base, store_idx, stored_val)) = as_store(store_term, manager) else {
+            return;
+        };
+        let (row1, row2) =
+            row_implications(manager, select_term, store_idx, stored_val, base, index);
+        match alias_eq {
+            // An asserted `array = store(...)` makes the axiom apply to the
+            // *name*, but only under that equality — guarding keeps the lemma a
+            // universally-valid theorem (`array = store(...) ∧ cond ⇒ ...`).
+            Some(eq) => {
+                let g1 = manager.mk_implies(eq, row1);
+                let g2 = manager.mk_implies(eq, row2);
                 candidates.push(g1);
                 candidates.push(g2);
             }
+            None => {
+                candidates.push(row1);
+                candidates.push(row2);
+            }
         }
+        // RoW-2 introduced `select(base, index)`; reduce it here rather than
+        // waiting for the next refinement round to notice it.
+        select_term = manager.mk_select(base, index);
+        array = base;
     }
 }
 
@@ -398,6 +472,102 @@ fn term_children(kind: &TermKind) -> Vec<TermId> {
         TermKind::Ite(c, t, e) => vec![*c, *t, *e],
         TermKind::Apply { args, .. } => args.to_vec(),
         _ => Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod budget_honesty_tests {
+    use super::*;
+    use crate::solver::types::SolverResult;
+    use oxiz_core::ast::TermManager;
+
+    /// An exhausted instance budget must never be reported as a model.
+    ///
+    /// The cap makes `instantiate_array_axioms` return `false`, which is the
+    /// same value it returns for "this candidate satisfies every axiom" — the
+    /// one answer that licenses `Sat`. Pre-loading the dedup set to the cap
+    /// simulates a formula that used the whole budget, and the verdict on a
+    /// formula that genuinely needs an array lemma must then be `Unknown`
+    /// rather than the `sat` the unchecked `false` would have produced.
+    #[test]
+    fn an_exhausted_instance_budget_is_unknown_not_sat() {
+        let mut solver = Solver::new();
+        let mut tm = TermManager::new();
+        let int_sort = tm.sorts.int_sort;
+        let array_sort = tm.sorts.array(int_sort, int_sort);
+
+        // `(not (= (store (store a 1 x) 2 y) (store (store a 2 y) 1 x)))` —
+        // unsat, and only extensionality can show it.
+        let a = tm.mk_var("a", array_sort);
+        let x = tm.mk_var("x", int_sort);
+        let y = tm.mk_var("y", int_sort);
+        let one = tm.mk_int(1);
+        let two = tm.mk_int(2);
+        let lhs = {
+            let inner = tm.mk_store(a, one, x);
+            tm.mk_store(inner, two, y)
+        };
+        let rhs = {
+            let inner = tm.mk_store(a, two, y);
+            tm.mk_store(inner, one, x)
+        };
+        let eq = tm.mk_eq(lhs, rhs);
+        let goal = tm.mk_not(eq);
+        solver.assert(goal, &mut tm);
+
+        // Fill the dedup set to the cap with throwaway ids so the very first
+        // instantiation call is refused by the budget check.
+        for i in 0..MAX_ARRAY_AXIOM_INSTANCES {
+            let filler = tm.mk_var(&format!("!filler!{i}"), int_sort);
+            solver.array_axiom_instances.insert(filler);
+        }
+
+        let verdict = solver.check(&mut tm);
+        assert_eq!(
+            verdict,
+            SolverResult::Unknown,
+            "an exhausted array-axiom budget must be reported honestly, never as sat"
+        );
+        assert!(
+            solver.array_axioms_incomplete,
+            "the budget exhaustion must be recorded"
+        );
+    }
+
+    /// The same formula with the budget available is decided, so the gate above
+    /// is not simply suppressing every array answer.
+    #[test]
+    fn an_available_budget_still_decides_the_same_formula() {
+        let mut solver = Solver::new();
+        let mut tm = TermManager::new();
+        let int_sort = tm.sorts.int_sort;
+        let array_sort = tm.sorts.array(int_sort, int_sort);
+        let a = tm.mk_var("a", array_sort);
+        let x = tm.mk_var("x", int_sort);
+        let y = tm.mk_var("y", int_sort);
+        let one = tm.mk_int(1);
+        let two = tm.mk_int(2);
+        let lhs = {
+            let inner = tm.mk_store(a, one, x);
+            tm.mk_store(inner, two, y)
+        };
+        let rhs = {
+            let inner = tm.mk_store(a, two, y);
+            tm.mk_store(inner, one, x)
+        };
+        let eq = tm.mk_eq(lhs, rhs);
+        let goal = tm.mk_not(eq);
+        solver.assert(goal, &mut tm);
+
+        assert_eq!(
+            solver.check(&mut tm),
+            SolverResult::Unsat,
+            "store commutativity is refutable when the budget is available"
+        );
+        assert!(
+            !solver.array_axioms_incomplete,
+            "nothing near the cap was needed"
+        );
     }
 }
 

@@ -170,6 +170,12 @@ impl Solver {
     ///   cleared through exactly the same hook.
     pub(super) fn invalidate_results(&mut self) {
         self.model = None;
+        // The other half of the model — the exact algebraic values `Model`
+        // cannot hold (see `Solver::nl_algebraic_values`). It describes the
+        // discarded verdict's assignment just as `model` does, so a stale
+        // entry surviving here would let a later `(get-model)` report `√2`
+        // for a variable the new assertion stack constrains differently.
+        self.nl_algebraic_values.clear();
         self.unsat_core = None;
         self.last_check = None;
         // Part of the model, not of the formula: the pure-equality fast path's

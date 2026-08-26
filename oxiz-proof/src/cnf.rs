@@ -625,6 +625,9 @@ mod tests {
         // constrained 1 MiB stack to confirm that recursion depth -- now
         // proportional to input size rather than exponentially inflated --
         // is not itself a problem at this scale.
+        // STACK-1MIB: deliberately 1 MiB, not swept to 128 KiB — n=100
+        // levels of native recursion (sub-10,000-depth), so 1 MiB is
+        // intentionally generous. See TODO.md "v0.3.2 backlog".
         let handle = std::thread::Builder::new()
             .stack_size(1 << 20)
             .spawn(|| {

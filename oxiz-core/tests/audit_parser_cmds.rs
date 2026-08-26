@@ -8,9 +8,13 @@
 //!      a later application of the dropped function would fall through to an
 //!      unconstrained, Bool-sorted uninterpreted-function term (see
 //!      `terms.rs`), silently producing a wrong sat/unsat answer with no
-//!      diagnostic. These commands must now fail the parse with an explicit
-//!      error instead. (`get-unsat-assumptions`, formerly in this group, is
-//!      now fully implemented and parses to a `GetUnsatAssumptions` command.)
+//!      diagnostic. Both commands are now *implemented* (see
+//!      `parser::recfun`): they parse to a `DefineFunsRec` command carrying
+//!      each function's signature and body, and the solver discharges the
+//!      definitional axiom by fuel-bounded unfolding. The tests below pin the
+//!      shape of that command, since it is what stops the definition from
+//!      being dropped. (`get-unsat-assumptions`, formerly in this group, is
+//!      likewise now fully implemented.)
 //!   2. `set-option` discarded numeral/string/decimal option values,
 //!      always storing `""` because it only accepted `Symbol` tokens.
 //!   3. `declare-datatypes` (the multi/mutual-datatype form) only ever
@@ -23,7 +27,7 @@
 //! `declare-sort` is also covered here since it was previously silently
 //! skipped along with genuinely-unrecognized commands.
 
-use oxiz_core::ast::TermManager;
+use oxiz_core::ast::{TermKind, TermManager};
 use oxiz_core::smtlib::{Command, parse_script};
 
 // ---------------------------------------------------------------------
@@ -31,26 +35,60 @@ use oxiz_core::smtlib::{Command, parse_script};
 // ---------------------------------------------------------------------
 
 #[test]
-fn define_fun_rec_is_rejected_not_silently_skipped() {
+fn define_fun_rec_parses_to_a_definition_not_a_dropped_command() {
     let mut manager = TermManager::new();
-    // Previously this whole script parsed successfully (4 commands), with
-    // `f` becoming an unconstrained Bool-sorted UF at its use site --
-    // silently wrong instead of an honest failure.
+    // Historically this script parsed as 4 commands with the definition
+    // *dropped*, so `f` was an unconstrained UF at its use site. It must now
+    // yield a real `DefineFunsRec` carrying `f`'s body.
     let script = r#"
         (declare-const x Int)
         (define-fun-rec f ((n Int)) Int (ite (= n 0) 0 (+ n (f (- n 1)))))
         (assert (= x (f 3)))
         (check-sat)
     "#;
-    let result = parse_script(script, &mut manager);
+    let commands = parse_script(script, &mut manager).expect("define-fun-rec must parse");
+    assert_eq!(commands.len(), 4);
+    match &commands[1] {
+        Command::DefineFunsRec(defs) => {
+            assert_eq!(defs.len(), 1, "define-fun-rec defines exactly one function");
+            let def = &defs[0];
+            assert_eq!(def.name, "f");
+            assert_eq!(def.params, vec![("n".to_string(), "Int".to_string())]);
+            assert_eq!(def.ret_sort, "Int");
+            assert_eq!(
+                def.formal_vars.len(),
+                1,
+                "one interned formal var per parameter"
+            );
+            // The formal var must be the *Int*-sorted `n` the body mentions,
+            // not a re-derived Bool placeholder (see `RecFunDecl::formal_vars`).
+            let formal = manager.get(def.formal_vars[0]).expect("formal var exists");
+            assert_eq!(formal.sort, manager.sorts.int_sort);
+            assert!(matches!(formal.kind, TermKind::Var(_)));
+        }
+        other => panic!("expected DefineFunsRec, got {other:?}"),
+    }
+}
+
+#[test]
+fn define_fun_rec_body_calls_itself_through_an_apply_node() {
+    // The registration-before-body ordering is what makes the self-reference
+    // resolve at all; if it regressed, the body parse would fail outright with
+    // "unknown constant or symbol: f".
+    let mut manager = TermManager::new();
+    let script = "(define-fun-rec f ((n Int)) Int (ite (= n 0) 0 (f (- n 1))))";
+    let commands = parse_script(script, &mut manager).expect("recursive body must parse");
+    let Command::DefineFunsRec(defs) = &commands[0] else {
+        panic!("expected DefineFunsRec");
+    };
     assert!(
-        result.is_err(),
-        "define-fun-rec must be rejected with an explicit error, not silently skipped"
+        mentions_apply_of(&manager, defs[0].body, "f"),
+        "the body must contain a real `(f ..)` application node"
     );
 }
 
 #[test]
-fn define_funs_rec_is_rejected_not_silently_skipped() {
+fn define_funs_rec_parses_mutual_recursion() {
     let mut manager = TermManager::new();
     let script = r#"
         (define-funs-rec
@@ -59,11 +97,69 @@ fn define_funs_rec_is_rejected_not_silently_skipped() {
            (ite (= n 0) false (is-even (- n 1)))))
         (check-sat)
     "#;
+    let commands = parse_script(script, &mut manager)
+        .expect("define-funs-rec must parse, including the forward reference to is-odd");
+    assert_eq!(commands.len(), 2);
+    let Command::DefineFunsRec(defs) = &commands[0] else {
+        panic!("expected DefineFunsRec, got {:?}", commands[0]);
+    };
+    assert_eq!(defs.len(), 2, "the whole mutually recursive group is kept");
+    assert_eq!(defs[0].name, "is-even");
+    assert_eq!(defs[1].name, "is-odd");
+    assert_eq!(defs[0].ret_sort, "Bool");
+    assert_eq!(defs[1].ret_sort, "Bool");
+    // Parsing *all* signatures before *any* body is exactly what lets each
+    // body call its sibling.
+    assert!(
+        mentions_apply_of(&manager, defs[0].body, "is-odd"),
+        "is-even's body must call is-odd"
+    );
+    assert!(
+        mentions_apply_of(&manager, defs[1].body, "is-even"),
+        "is-odd's body must call is-even"
+    );
+}
+
+#[test]
+fn define_fun_rec_nullary_is_accepted() {
+    // An arity-0 recursive definition is legal SMT-LIB. It registers as a
+    // constant, so the self-reference resolves as a `Var`.
+    let mut manager = TermManager::new();
+    let script = "(define-fun-rec c () Int (+ c 1))";
+    let commands = parse_script(script, &mut manager).expect("nullary define-fun-rec must parse");
+    let Command::DefineFunsRec(defs) = &commands[0] else {
+        panic!("expected DefineFunsRec");
+    };
+    assert_eq!(defs[0].name, "c");
+    assert!(defs[0].params.is_empty());
+    assert!(defs[0].formal_vars.is_empty());
+    assert_eq!(defs[0].ret_sort, "Int");
+}
+
+#[test]
+fn define_funs_rec_body_count_mismatch_is_an_error() {
+    // Dropping or duplicating a body would silently mis-pair definitions.
+    let mut manager = TermManager::new();
+    let script = r#"
+        (define-funs-rec
+          ((f ((n Int)) Int) (g ((n Int)) Int))
+          ((ite (= n 0) 0 (g (- n 1)))))
+    "#;
     let result = parse_script(script, &mut manager);
     assert!(
         result.is_err(),
-        "define-funs-rec must be rejected with an explicit error, not silently skipped"
+        "a body list shorter than the declaration list must be an explicit error"
     );
+}
+
+/// Whether `term` mentions an `Apply` node whose function symbol is `name`.
+fn mentions_apply_of(manager: &TermManager, term: oxiz_core::ast::TermId, name: &str) -> bool {
+    oxiz_core::ast::traversal::collect_subterms(term, manager)
+        .into_iter()
+        .any(|t| match manager.get(t).map(|t| &t.kind) {
+            Some(TermKind::Apply { func, .. }) => manager.resolve_str(*func) == name,
+            _ => false,
+        })
 }
 
 #[test]

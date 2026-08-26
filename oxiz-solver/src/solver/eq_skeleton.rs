@@ -296,7 +296,17 @@ impl Solver {
     /// `BitVec`, arrays, strings, floats and datatypes all have their own
     /// theory-level equality semantics beyond bare transitivity (or, for
     /// `Bool`, are really an iff), so mixing any of them in disqualifies the
-    /// whole formula from this path — conservatively, at the level of a
+    /// whole formula from this path.
+    ///
+    /// `RoundingMode` is deliberately excluded for the same reason, even
+    /// though its terms are nullary `Var`s that look exactly like plain
+    /// uninterpreted constants: the sort has a *fixed cardinality of five*,
+    /// enforced by axioms the solver asserts separately
+    /// (`context::rounding_mode`).  A pure-equality graph reasons only about
+    /// the equalities written in the formula, so it would happily satisfy six
+    /// pairwise-distinct rounding modes.  Matching on
+    /// `SortKind::Uninterpreted` rather than "is a nullary `Var`" is what
+    /// keeps it out — conservatively, at the level of a
     /// single atom's operand sorts rather than trying to enumerate every way
     /// a formula could smuggle theory content in elsewhere.
     fn is_plain_uninterpreted_constant(term: TermId, manager: &TermManager) -> Option<()> {
@@ -540,6 +550,16 @@ impl Solver {
 
         match self.sat.solve() {
             SatResult::Unsat => {
+                // Same downgrade as `check_core`'s `Unsat` arm: this path
+                // solves the very same `self.sat`, so a model-blocking clause
+                // left there by an earlier `check` restricts it too, and "no
+                // model outside the excluded region" is not `unsat`. See
+                // `crate::solver::model_blocking`.
+                if self.blocking_clauses_present() {
+                    self.model = None;
+                    self.unsat_core = None;
+                    return Some(SolverResult::Unknown);
+                }
                 self.build_unsat_core();
                 Some(SolverResult::Unsat)
             }

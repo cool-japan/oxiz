@@ -395,6 +395,20 @@ impl ParallelRunner {
                     tm = TermManager::new();
                     logic_set = false;
                 }
+                Command::DefineFunsRec(_) => {
+                    // Never fall into the catch-all below. This runner drives
+                    // `Solver` directly, so it has nowhere to discharge the
+                    // definitional axiom (that lives in `Context`); skipping
+                    // the command would leave every `(f x)` unconstrained and
+                    // report a confident, wrong `sat`/`unsat` for the
+                    // benchmark. Report `unknown` instead — a competition
+                    // answer we cannot justify is worse than no answer.
+                    return SingleResult::new(
+                        &benchmark.meta,
+                        BenchmarkStatus::Unknown,
+                        start.elapsed(),
+                    );
+                }
                 _ => {}
             }
         }

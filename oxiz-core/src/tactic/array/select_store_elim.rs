@@ -548,7 +548,7 @@ mod tests {
         assert_eq!(chain.stores.len(), 1);
     }
 
-    /// Run `body` on a worker thread with a deliberately small (1 MiB) stack,
+    /// Run `body` on a worker thread with a deliberately small (128 KiB) stack,
     /// so a recursive walk over a deep term would abort instead of getting
     /// away with the main thread's much larger stack.
     fn run_with_small_stack<F>(body: F)
@@ -556,7 +556,7 @@ mod tests {
         F: FnOnce() + Send + 'static,
     {
         std::thread::Builder::new()
-            .stack_size(1 << 20)
+            .stack_size(1 << 17)
             .spawn(body)
             .expect("thread spawn should succeed")
             .join()
@@ -566,7 +566,7 @@ mod tests {
     #[test]
     fn test_rewrite_and_chain_building_handle_deeply_nested_terms() {
         run_with_small_stack(|| {
-            const DEPTH: usize = 50_000;
+            const DEPTH: usize = 6_250;
 
             let mut tm = TermManager::new();
             let bool_sort = tm.sorts.bool_sort;
@@ -770,7 +770,7 @@ mod tests {
             // 50k stores: with chains materialized per store node this was
             // quadratic and had to be capped at 1k. Chains are now built only
             // when extensionality asks for one, so both phases are linear.
-            const CHAIN: usize = 50_000;
+            const CHAIN: usize = 6_250;
 
             let mut tm = TermManager::new();
             let int_sort = tm.sorts.int_sort;

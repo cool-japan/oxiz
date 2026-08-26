@@ -7,6 +7,7 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 description = "Wasm-safe std::time drop-ins (Instant / SystemTime) for the OxiZ SMT solver"
+readme = "README.md"
 keywords = ["smt", "wasm", "time", "clock", "no-std"]
 categories = ["wasm", "no-std", "date-and-time"]
 

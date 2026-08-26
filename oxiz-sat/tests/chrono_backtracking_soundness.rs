@@ -34,6 +34,11 @@ fn chrono_config(threshold: u32) -> SolverConfig {
         // backtracking rather than to a clause-adding side heuristic.
         enable_lazy_hyper_binary: false,
         enable_inprocessing: false,
+        // Likewise off: a pre-search lucky hit returns `Sat` without the
+        // search running at all, so the `chrono_used` assertion at the end of
+        // the differential test could no longer be met (see
+        // `SolverConfig::enable_lucky_phase`).
+        enable_lucky_phase: false,
         random_polarity_prob: 0.0,
         restart_interval: 20,
         ..SolverConfig::default()

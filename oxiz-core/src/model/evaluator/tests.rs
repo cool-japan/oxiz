@@ -613,7 +613,9 @@ fn test_eval_bvconcat_computes_combined_value_and_width() {
 
     let lhs = bv(&mut manager, 0b10, 2);
     let rhs = bv(&mut manager, 0b01, 2);
-    let concat = manager.mk_bv_concat(lhs, rhs);
+    let concat = manager
+        .try_mk_bv_concat(lhs, rhs)
+        .expect("two bit-vector literals concat cleanly");
     assert!(matches!(
         evaluator.eval(concat, &manager),
         EvalResult::Ok(Value::BitVec(4, 0b1001))
@@ -628,7 +630,7 @@ fn test_eval_bvconcat_result_wider_than_64_bits_errors() {
 
     let lhs = bv(&mut manager, 1, 40);
     let rhs = bv(&mut manager, 1, 30);
-    // Interned raw: `mk_bv_concat` folds two literals into a single wide
+    // Interned raw: `try_mk_bv_concat` folds two literals into a single wide
     // literal, and the point here is the evaluator's `BvConcat` arm — it
     // must refuse a result too wide for its 64-bit `Value::BitVec` rather
     // than silently truncate it.
@@ -814,7 +816,7 @@ fn test_eval_string_order_and_char_codes() {
 //
 // Every one of these builds its term with a plain `for` loop — a recursive
 // builder would overflow before the evaluation under test even started — and
-// runs the evaluation on a thread with an explicitly small (1 MiB) stack, the
+// runs the evaluation on a thread with an explicitly small (128 KiB) stack, the
 // size an embedder's worker thread typically gets. A stack overflow aborts the
 // whole process, so "the call returned at all" *is* the assertion; the value
 // checks on top of that make sure the iterative driver computes the same
@@ -825,10 +827,10 @@ fn test_eval_string_order_and_char_codes() {
 
 /// Stack size every deep test runs under: the ~1 MiB a non-main thread gets by
 /// default on most platforms, and far less than a libtest thread's.
-const SMALL_STACK: usize = 1 << 20;
+const SMALL_STACK: usize = 1 << 17;
 
 /// A depth well past anything a native-stack recursion could survive.
-const DEEP: usize = 100_000;
+const DEEP: usize = 12_500;
 
 /// A merely large depth, kept cheap enough to run in every profile.
 const LARGE: usize = 5_000;
@@ -925,7 +927,7 @@ fn test_deep_bvadd_chain_evaluates_on_a_small_stack() {
         let mut evaluator = ModelEvaluator::new(&model);
         evaluator.eval(term, &manager)
     });
-    // 5 + 100_000 mod 2^8.
+    // 5 + DEEP mod 2^8.
     let expected = (5u64 + DEEP as u64) % 256;
     match value {
         EvalResult::Ok(Value::BitVec(8, v)) => assert_eq!(v, expected),
@@ -1081,8 +1083,8 @@ fn test_deep_array_value_in_model_evaluates_on_a_small_stack() {
     // `eval` hands the model's value back by *clone* and caches another
     // clone, and every one of those — plus the final drop of the model, the
     // cache and the result — used to recurse once per nesting level.
-    // 50 000 is comfortably past where the derived traits aborted.
-    const DEPTH: usize = 50_000;
+    // 6 250 is comfortably past where the derived traits aborted.
+    const DEPTH: usize = 6_250;
     let (depth, tail) = on_small_stack(|| {
         let mut manager = TermManager::new();
         let int_sort = manager.sorts.int_sort;
@@ -1195,7 +1197,7 @@ fn test_deep_ite_untaken_branch_failure_stays_invisible() {
     });
     match value {
         EvalResult::Ok(Value::Int(3)) => {}
-        other => panic!("expected Ok(Int(3)) through 100_000 nested ites, got {other:?}"),
+        other => panic!("expected Ok(Int(3)) through DEEP nested ites, got {other:?}"),
     }
 }
 

@@ -967,10 +967,10 @@ mod deep_walk_tests {
     #[test]
     fn test_collect_x_atoms_deep_nesting_does_not_overflow() {
         let handle = std::thread::Builder::new()
-            .stack_size(1 << 20)
+            .stack_size(1 << 17)
             .spawn(|| {
                 let mut tm = TermManager::new();
-                let f = deep_bool_formula(&mut tm, 50_000);
+                let f = deep_bool_formula(&mut tm, 6_250);
                 let x_spur = tm.intern_str("x");
                 let mut atoms = Vec::new();
                 let outcome = collect_x_atoms(f, x_spur, &tm, &mut atoms);
@@ -986,10 +986,10 @@ mod deep_walk_tests {
     #[test]
     fn test_inf_rewrite_deep_nesting_does_not_overflow() {
         let handle = std::thread::Builder::new()
-            .stack_size(1 << 20)
+            .stack_size(1 << 17)
             .spawn(|| {
                 let mut tm = TermManager::new();
-                let f = deep_bool_formula(&mut tm, 50_000);
+                let f = deep_bool_formula(&mut tm, 6_250);
                 let x_spur = tm.intern_str("x");
                 let neg = inf_rewrite(f, x_spur, false, &mut tm);
                 let pos = inf_rewrite(f, x_spur, true, &mut tm);
@@ -1011,10 +1011,10 @@ mod deep_walk_tests {
     #[test]
     fn test_eps_rewrite_deep_nesting_does_not_overflow() {
         let handle = std::thread::Builder::new()
-            .stack_size(1 << 20)
+            .stack_size(1 << 17)
             .spawn(|| {
                 let mut tm = TermManager::new();
-                let f = deep_bool_formula(&mut tm, 50_000);
+                let f = deep_bool_formula(&mut tm, 6_250);
                 let s = tm.mk_real(Rational64::new(0, 1));
                 let x_spur = tm.intern_str("x");
                 let out = eps_rewrite(f, x_spur, s, &mut tm);
@@ -1109,14 +1109,14 @@ mod deep_walk_tests {
     #[test]
     fn test_lra_walks_deep_nesting_do_not_overflow() {
         let handle = std::thread::Builder::new()
-            .stack_size(1 << 20)
+            .stack_size(1 << 17)
             .spawn(|| {
                 let mut tm = TermManager::new();
                 let int_sort = tm.sorts.int_sort;
                 let x = tm.mk_var("x", int_sort);
                 let one = tm.mk_int(1);
                 let mut term = x;
-                for _ in 0..60_000 {
+                for _ in 0..7_500 {
                     term = tm.mk_add([term, one]);
                 }
                 let x_spur = tm.intern_str("x");

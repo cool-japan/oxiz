@@ -62,7 +62,10 @@ struct Corpus {
 /// variables and constants, every arm of the walk that descends, the numeric
 /// and non-numeric variants of `Apply`/`Select`/`DtSelector`, and a sample of
 /// the kinds the walk deliberately does not descend into (`Store`, `Implies`,
-/// `Xor`, `Distinct`, `Let`, `StrLen`).
+/// `Xor`, `Distinct`, `Let`, `StrLen`).  `Store` is the one of those that is
+/// still not descended into but *does* have an effect: it sets
+/// `has_array_ops`, because a formula that only writes arrays still needs the
+/// lazy array-axiom refinement loop (see `solver::array_axioms`).
 #[allow(clippy::too_many_lines)]
 fn build_corpus(manager: &mut TermManager, rounds: usize) -> Corpus {
     let int_sort = manager.sorts.int_sort;
@@ -258,6 +261,7 @@ fn build_corpus(manager: &mut TermManager, rounds: usize) -> Corpus {
             }
             // Datatype selector, plus kinds that the walk deliberately does not
             // descend into (Store, Implies, Xor, Distinct, Let, StrLen).
+            // `Store` still sets `has_array_ops` -- see `build_corpus`' doc.
             _ => {
                 let sel = manager.intern_str("head");
                 match round % 8 {
@@ -447,7 +451,7 @@ fn per_term_effects_match_the_recursive_implementation() {
         combined = combined.rotate_left(7) ^ d;
     }
     assert_eq!(
-        combined, 0x3d7d_404e_d0b5_a060,
+        combined, 0xd969_4bf7_3c09_27f5,
         "per-term observable effects of the theory-variable walk changed"
     );
 }

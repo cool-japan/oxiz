@@ -337,6 +337,32 @@ cargo nextest run -- --nocapture
 - Bug fixes: include a test that reproduces the bug
 - Critical paths (solving, proof generation): aim for >90% coverage
 
+### Running the full test suite within a memory cap
+
+On 2026-07-31 a single test process reached 32 GB of virtual memory during a full
+`--workspace --all-features` run, which motivated capping both memory and per-test wall time.
+
+**Linux:** run the suite inside a transient cgroup scope so a runaway process is killed by the
+kernel instead of pushing the whole machine into swap:
+
+```bash
+systemd-run --user --scope --collect -p MemoryMax=10G -q -- \
+  cargo nextest run --workspace --all-features
+```
+
+**macOS:** there is no cgroup equivalent, so cap memory pressure indirectly by limiting
+parallelism instead. `.config/nextest.toml`'s `slow-timeout` (`period = "60s"`,
+`terminate-after = 3` on `default`, `2` on `ci`) now also kills any individual test that runs past
+3×60s (2×60s in CI), so a stuck/runaway test no longer runs unbounded until something else
+intervenes.
+
+On a 16-thread / 14.6 GB machine, the parallelism caps below were needed to stay within memory:
+
+```bash
+cargo build -j 6
+cargo nextest run --workspace --all-features --test-threads 8
+```
+
 ---
 
 ## Pull Requests

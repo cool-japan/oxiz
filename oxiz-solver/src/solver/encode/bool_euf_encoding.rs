@@ -91,6 +91,33 @@ pub(in crate::solver) fn needs_ite_elimination(sort: SortId, manager: &TermManag
 /// left-to-right), matching this crate's other explicit-stack term walks, so
 /// that a caller building a side-condition list from the result gets a
 /// deterministic order rather than one that depends on hash iteration.
+///
+/// # Why `Let` stays opaque here
+///
+/// A vacuous `Let` wrapper used to silently disable both rewrites in this
+/// module (and every other assert-time pre-pass) for the whole assertion
+/// beneath it: the SMT-LIB parser wrapped each assertion in a `Let` whose
+/// bindings it had *already substituted* into the body, so the node bound
+/// nothing yet stopped this walk dead.  Two formulas differing only by an
+/// unused `(let ((q 0)) ...)` got different verdicts, one of them a wrong
+/// `sat`.
+///
+/// That is fixed at the source — the parser now returns the substituted body
+/// directly and emits no `Let` at all (see `close_frame` in
+/// `oxiz-core/src/smtlib/parser/terms.rs`) — deliberately *not* by making this
+/// walk descend.  The rewrites this function feeds hoist a subterm to a fresh
+/// **unbound** variable, which is genuinely unsound under a real binder: a
+/// subterm mentioning the bound name denotes a different value per
+/// instantiation, and one global replacement cannot stand for all of them.  So
+/// `Let` keeps its place beside `Forall`/`Exists` below, and a `Let` reaching
+/// here (only possible from a programmatic `TermManager::mk_let`, where the
+/// body may really have free occurrences of the bound name) is correctly left
+/// alone.
+///
+/// Arithmetic disequalities no longer depend on any such walk at all: the
+/// trichotomy is attached to the `Eq` **atom** inside `encode` by
+/// `Solver::add_numeric_trichotomy`, which a `Let` cannot hide from because the
+/// atom must be encoded to get a SAT variable.
 pub(in crate::solver) fn collect_ground_subterms(
     term: TermId,
     manager: &TermManager,

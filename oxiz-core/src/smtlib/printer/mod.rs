@@ -723,7 +723,9 @@ mod tests {
             }
 
             // concat doubles the width; extract takes the top half.
-            let concat = manager.mk_bv_concat(lhs, rhs);
+            let concat = manager
+                .try_mk_bv_concat(lhs, rhs)
+                .expect("two bit-vector literals concat cleanly");
             assert_folds_to(
                 &mut manager,
                 concat,
@@ -942,7 +944,13 @@ mod tests {
         assert_kind!(manager.mk_bv_lshr(x, y), TermKind::BvLshr(..), "bvlshr");
         assert_kind!(manager.mk_bv_ashr(x, y), TermKind::BvAshr(..), "bvashr");
         assert_kind!(manager.mk_bv_not(x), TermKind::BvNot(..), "bvnot");
-        assert_kind!(manager.mk_bv_concat(x, y), TermKind::BvConcat(..), "concat");
+        assert_kind!(
+            manager
+                .try_mk_bv_concat(x, y)
+                .expect("bit-vector operands concat cleanly"),
+            TermKind::BvConcat(..),
+            "concat"
+        );
         assert_kind!(
             manager.mk_bv_extract(5, 2, x),
             TermKind::BvExtract { .. },

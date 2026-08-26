@@ -256,6 +256,24 @@ impl Solver {
                 // here so that constraints like `(> (select a 0) 7)` are tracked
                 // by the arithmetic solver and model values are extracted
                 // correctly.
+                // Array write: `(store a i v)` carries no arithmetic variable
+                // of its own (its sort is `Array`, never `Int`/`Real`), but its
+                // *presence* is what tells `check_core` that the lazy
+                // array-axiom refinement loop has work to do.  Without this
+                // flag a store-only formula — one that never reads, e.g. the
+                // store-commutativity family
+                // `(not (= (store (store a 1 x) 2 y) (store (store a 2 y) 1 x)))`
+                // — skips `instantiate_array_axioms` entirely, so
+                // extensionality is never instantiated, the array disequality
+                // stays a free Boolean and an `unsat` comes back `sat`.
+                //
+                // Descent stays as it was (the operands of a store are not
+                // arithmetic variables of any constraint this walk is
+                // registering); only the flag is new.
+                TermKind::Store(_, _, _) => {
+                    self.has_array_ops = true;
+                }
+
                 TermKind::Select(_, _) => {
                     self.has_array_ops = true;
                     let is_int = term.sort == manager.sorts.int_sort;
@@ -293,7 +311,7 @@ impl Solver {
                 //   (`extract_linear_terms` folds `IntConst`/`RealConst`/
                 //   `BitVecConst` straight into a constraint's constant term.)
                 //
-                // * `Xor`, `Implies`, `Distinct`, `Store`, `Let`, `Match`,
+                // * `Xor`, `Implies`, `Distinct`, `Let`, `Match`,
                 //   `Forall`, `Exists`, `DtConstructor`, `DtTester`, and the
                 //   string and floating-point operations are *not* leaves, yet
                 //   are not descended into either.  This mirrors
@@ -329,7 +347,6 @@ impl Solver {
                 | TermKind::Xor(_, _)
                 | TermKind::Implies(_, _)
                 | TermKind::Distinct(_)
-                | TermKind::Store(_, _, _)
                 | TermKind::Let { .. }
                 | TermKind::Match { .. }
                 | TermKind::Forall { .. }

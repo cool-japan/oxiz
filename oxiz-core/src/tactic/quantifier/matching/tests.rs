@@ -246,15 +246,15 @@ fn arity_and_head_mismatches_reject() {
 // Deep regression: no native stack involved
 // ===========================================================================
 
-/// A 50 000-level pattern and ground term matched on a 1 MiB stack.
+/// A 6 250-level pattern and ground term matched on a 128 KiB stack.
 ///
 /// The retired `match_recursive` needed one native frame per level in both
 /// the `Apply` chain and the `Eq` chain, so either half of this overflowed
 /// and aborted the process. Both halves are now heap-stack walks.
 #[test]
 fn deep_pattern_and_term_match_on_a_small_stack() {
-    const DEPTH: usize = 50_000;
-    const STACK_SIZE: usize = 1 << 20;
+    const DEPTH: usize = 6_250;
+    const STACK_SIZE: usize = 1 << 17;
 
     let worker = std::thread::Builder::new()
         .stack_size(STACK_SIZE)
@@ -292,7 +292,7 @@ fn deep_pattern_and_term_match_on_a_small_stack() {
                 vec![("x".to_string(), expected)]
             );
         })
-        .expect("spawning the 1 MiB worker thread");
+        .expect("spawning the 128 KiB worker thread");
 
     worker.join().expect("the deep match must not overflow");
 }

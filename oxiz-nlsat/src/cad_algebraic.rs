@@ -23,6 +23,12 @@
 //! real-algebraic-number arithmetic; the base-level decomposition produced here
 //! is exact, and higher-level lifting remains an approximation.
 //!
+//! The same missing capability bounds the NLSAT search's use of these points:
+//! `crate::solver::witness_algebraic` may hold at most **one** algebraic value
+//! at a time, because a polynomial over two algebraic points is exactly the
+//! multivariate arithmetic that does not exist here. See that module for how
+//! the restriction is enforced and why exceeding it would be a wrong `sat`.
+//!
 //! Reference: Z3's `nlsat`/`algebraic_numbers` sign-at-root evaluation.
 
 use crate::cad::{CadPoint, SturmSequence};
@@ -98,10 +104,20 @@ impl RootSample {
         }
     }
 
-    /// Whether the isolating intervals of `self` and `other` properly overlap
-    /// (touching at a shared endpoint does not count).
+    /// Whether the isolating intervals of `self` and `other` fail to be
+    /// **strictly** separated — sharing an endpoint counts.
+    ///
+    /// Touching must count. Two brackets meeting at `x` (say `[-3, 0]` around
+    /// `−√2` and the degenerate `[0, 0]` of the rational root `0`) make
+    /// [`open_sample`] return `(0 + 0)/2 = 0`, which is the *root*, not a point
+    /// of the open cell between them — so the cell `(−√2, 0)` would get no
+    /// representative at all. A caller enumerating one point per cell (see
+    /// `crate::solver::witness_algebraic`) would then miss every solution
+    /// living there and wrongly conclude that none exists. Distinct real roots
+    /// have a positive separation, so demanding strict disjointness always
+    /// terminates.
     fn overlaps(&self, other: &RootSample) -> bool {
-        self.hi > other.lo && other.hi > self.lo
+        self.hi >= other.lo && other.hi >= self.lo
     }
 }
 
@@ -167,10 +183,12 @@ pub(crate) fn isolate_root_samples(polys: &[Polynomial], var: Var) -> Vec<RootSa
     normalize_roots(samples)
 }
 
-/// Deduplicate equal roots, refine intervals to be pairwise disjoint, and sort
-/// ascending. After this the `i`-th and `(i+1)`-th roots satisfy
-/// `roots[i].hi <= roots[i+1].lo`, so any rational in `[hi, lo]` sits strictly
-/// between the two real roots.
+/// Deduplicate equal roots, refine intervals to be pairwise **strictly**
+/// disjoint, and sort ascending. After this the `i`-th and `(i+1)`-th roots
+/// satisfy `roots[i].hi < roots[i+1].lo`, so any rational in the open interval
+/// `(hi, lo)` — the midpoint [`open_sample`] picks, in particular — sits
+/// strictly between the two real roots. Merely *touching* brackets would break
+/// that: see [`RootSample::overlaps`].
 fn normalize_roots(samples: Vec<RootSample>) -> Vec<RootSample> {
     // Deduplicate equal roots.
     let mut unique: Vec<RootSample> = Vec::new();
@@ -226,6 +244,11 @@ pub(crate) fn sign_at_rational(poly: &Polynomial, var: Var, r: &BigRational) -> 
 /// root in `[lo, hi]`; otherwise the interval is refined until `q` has no root
 /// inside it, at which point `q`'s sign is constant on the interval and is read
 /// off at the midpoint.
+///
+/// On refinement-budget exhaustion this returns a *midpoint approximation* of
+/// the sign, which is a guess, not a proof. Callers whose decision must be
+/// exact (accepting a satisfying witness, refuting a candidate point) must use
+/// [`try_sign_at_algebraic`] instead and treat `None` as "cannot decide".
 pub(crate) fn sign_at_algebraic(
     q: &Polynomial,
     var: Var,
@@ -233,12 +256,39 @@ pub(crate) fn sign_at_algebraic(
     lo: &BigRational,
     hi: &BigRational,
 ) -> i8 {
+    sign_at_algebraic_inner(q, var, defining, lo, hi).0
+}
+
+/// [`sign_at_algebraic`] without the approximate fallback: `None` means the
+/// refinement budget ran out before the sign could be *proved*, so nothing at
+/// all is known about it.
+pub(crate) fn try_sign_at_algebraic(
+    q: &Polynomial,
+    var: Var,
+    defining: &Polynomial,
+    lo: &BigRational,
+    hi: &BigRational,
+) -> Option<i8> {
+    let (sign, exhausted) = sign_at_algebraic_inner(q, var, defining, lo, hi);
+    (!exhausted).then_some(sign)
+}
+
+/// Shared implementation: `(sign, exhausted)`. When `exhausted` is `true` the
+/// sign is the midpoint approximation of the last refined interval and carries
+/// no proof.
+fn sign_at_algebraic_inner(
+    q: &Polynomial,
+    var: Var,
+    defining: &Polynomial,
+    lo: &BigRational,
+    hi: &BigRational,
+) -> (i8, bool) {
     if q.is_zero() {
-        return 0;
+        return (0, false);
     }
     if q.degree(var) == 0 {
         // Constant in `var`: sign is the constant's sign.
-        return sign_at_rational(q, var, lo);
+        return (sign_at_rational(q, var, lo), false);
     }
 
     // Exact test for q(alpha) == 0.
@@ -247,7 +297,7 @@ pub(crate) fn sign_at_algebraic(
     if !g.is_zero() && !g.is_constant() && g.degree(var) > 0 {
         let sturm = SturmSequence::new(&g, var);
         if sturm.count_roots_in(lo, hi) >= 1 {
-            return 0;
+            return (0, false);
         }
     }
 
@@ -260,7 +310,7 @@ pub(crate) fn sign_at_algebraic(
         let q_sturm = SturmSequence::new(q, var);
         if q_sturm.count_roots_in(&a, &b) == 0 {
             let mid = (&a + &b) / BigRational::from_integer(2.into());
-            return sign_at_rational(q, var, &mid);
+            return (sign_at_rational(q, var, &mid), false);
         }
         let mid = (&a + &b) / BigRational::from_integer(2.into());
         if def_sturm.count_roots_in(&a, &mid) >= 1 {
@@ -271,16 +321,29 @@ pub(crate) fn sign_at_algebraic(
     }
 
     // Unreachable for well-formed input; fall back to the (approximate) midpoint
-    // sign rather than fabricating a zero.
+    // sign rather than fabricating a zero — flagged as unproven.
     let mid = (&a + &b) / BigRational::from_integer(2.into());
-    sign_at_rational(q, var, &mid)
+    (sign_at_rational(q, var, &mid), true)
 }
 
 /// Try to recover an *exact* rational root of `poly` (in `var`) inside the
-/// isolating interval `[lo, hi]` via the rational root theorem. Returns `None`
+/// isolating interval `(lo, hi]` via the rational root theorem. Returns `None`
 /// when the root is irrational or the coefficients are too large to enumerate
 /// divisors economically (in which case the caller keeps the exact algebraic
 /// representation).
+///
+/// # The interval is half-open, and that matters
+///
+/// Sturm isolation counts roots in `(a, b]`, so a rational sitting exactly at
+/// `lo` is *not* the root this bracket isolates — it is the neighbouring
+/// bracket's. Accepting it collapses this bracket onto the wrong number and
+/// silently loses the root that actually lives here: for `x³ − 2x`, `−√2`'s
+/// bracket can be `(-3, 0]`, and admitting the rational root `0` at its lower
+/// endpoint replaced `−√2` with a duplicate of `0`, which deduplication then
+/// discarded — leaving the polynomial with two of its three real roots.
+/// Anything enumerating cells from these samples (`crate::cad`'s lifting,
+/// `crate::solver::witness_algebraic`'s candidate walk) would then never look
+/// at `−√2` or the cells beside it.
 fn try_exact_rational_root(
     poly: &Polynomial,
     var: Var,
@@ -310,7 +373,7 @@ fn try_exact_rational_root(
     // x = 0 is a root iff the constant term is zero.
     if a0.is_zero() {
         let zero = BigRational::zero();
-        if &zero >= lo && &zero <= hi {
+        if &zero > lo && &zero <= hi {
             return Some(zero);
         }
     }
@@ -326,8 +389,8 @@ fn try_exact_rational_root(
         for q in &q_divs {
             for sign in [BigInt::one(), -BigInt::one()] {
                 let cand = BigRational::new(&sign * p, q.clone());
-                if &cand < lo || &cand > hi {
-                    continue;
+                if &cand <= lo || &cand > hi {
+                    continue; // outside the half-open bracket `(lo, hi]`
                 }
                 if sign_at_rational(poly, var, &cand) == 0 {
                     return Some(cand);
@@ -428,12 +491,34 @@ impl CadPoint {
             } => sign_at_algebraic(poly, var, defining, lo, hi),
         }
     }
+
+    /// [`Self::sign_of`] with no approximate fallback: `None` means the sign
+    /// could not be *proved* within the refinement budget.
+    ///
+    /// Any decision that a wrong answer would ride on — accepting a point as a
+    /// satisfying witness, refuting it as part of an emptiness proof, deciding
+    /// a theory atom's truth value — must go through this and treat `None` as
+    /// "unknown", never as a sign. `sign_of`'s budget-exhaustion fallback is a
+    /// midpoint guess and would turn a fabricated sign into a fabricated
+    /// verdict.
+    pub fn try_sign_of(&self, poly: &Polynomial, var: Var) -> Option<i8> {
+        match self {
+            CadPoint::Rational(r) => Some(sign_at_rational(poly, var, r)),
+            CadPoint::Algebraic {
+                lo,
+                hi,
+                poly: defining,
+                ..
+            } => try_sign_at_algebraic(poly, var, defining, lo, hi),
+        }
+    }
 }
 
-/// A rational strictly between two consecutive (disjoint) roots, or strictly
-/// outside the outermost root when a neighbour is absent. With disjoint
-/// intervals `left.hi <= right.lo`, the midpoint of `[left.hi, right.lo]` is
-/// `> left` and `< right`.
+/// A rational strictly between two consecutive (strictly disjoint) roots, or
+/// strictly outside the outermost root when a neighbour is absent. With
+/// strictly disjoint intervals `left.hi < right.lo` (guaranteed by
+/// [`normalize_roots`]), the midpoint of `[left.hi, right.lo]` is `> left` and
+/// `< right`.
 pub(crate) fn open_sample(left: Option<&RootSample>, right: Option<&RootSample>) -> BigRational {
     match (left, right) {
         (None, None) => BigRational::zero(),
@@ -530,6 +615,43 @@ mod tests {
         assert!(before < rat(-2));
         let after = open_sample(Some(&roots[1]), None);
         assert!(after > rat(2));
+    }
+
+    /// Regression: an irrational root's wide bracket can end exactly where a
+    /// rational root sits (`−√2` isolated by `[-3, 0]`, next to the root `0`).
+    /// If merely-touching brackets were accepted as "disjoint", the open cell
+    /// between them would be sampled *at* the shared endpoint — i.e. at the
+    /// root — leaving that cell with no representative at all. A caller
+    /// enumerating one point per cell would then miss every solution in
+    /// `(−√2, 0)` and wrongly report the constraint set empty.
+    #[test]
+    fn consecutive_brackets_are_strictly_separated_and_open_samples_land_inside() {
+        // x * (x^2 - 2): roots -√2, 0, √2.
+        let p = Polynomial::univariate(0, &[rat(0), rat(-2), rat(0), rat(1)]);
+        let roots = isolate_root_samples(std::slice::from_ref(&p), 0);
+        assert_eq!(roots.len(), 3, "roots are -√2, 0, √2");
+
+        for pair in roots.windows(2) {
+            assert!(
+                pair[0].hi < pair[1].lo,
+                "brackets [{}, {}] and [{}, {}] must be strictly separated",
+                pair[0].lo,
+                pair[0].hi,
+                pair[1].lo,
+                pair[1].hi
+            );
+            let between = open_sample(Some(&pair[0]), Some(&pair[1]));
+            assert!(
+                between > pair[0].hi && between < pair[1].lo,
+                "{between} must sit strictly inside the gap"
+            );
+            // The strongest statement: the open sample is not a root of `p`.
+            assert_ne!(
+                sign_at_rational(&p, 0, &between),
+                0,
+                "{between} is an open-cell sample, so p must not vanish there"
+            );
+        }
     }
 
     /// Roots shared by two different polynomials must be deduplicated.

@@ -7,10 +7,11 @@
 //!
 //! Reference: Z3's `nlsat/nlsat_assignment.h`
 
+use crate::cad::CadPoint;
 use crate::interval_set::IntervalSet;
 use crate::types::{BoolVar, Lbool, Literal, NULL_BOOL_VAR};
 use num_rational::BigRational;
-use oxiz_math::polynomial::Var;
+use oxiz_math::polynomial::{Polynomial, Var};
 use rustc_hash::FxHashMap;
 
 /// Justification for why a literal was assigned.
@@ -38,10 +39,28 @@ pub struct TrailEntry {
 }
 
 /// Variable assignment for the NLSAT solver.
+///
+/// ## Rational and algebraic values
+///
+/// An arithmetic variable's value is a [`CadPoint`]: a plain rational, or an
+/// exact real-algebraic number (defining polynomial + isolating interval) for a
+/// witness such as `√2` that no rational can stand in for. The two are
+/// deliberately *not* interchangeable at the accessor level:
+///
+/// * [`Assignment::arith_value`] answers only for a rational slot and reports
+///   an algebraic one as `None`. Every reader that predates algebraic witnesses
+///   is written as `if let Some(value) = …` or `…?`, so this degrades each of
+///   them to "this variable is not usable here" — the sound direction (a wider
+///   feasible region, a `Lbool::Undef` evaluation), never a wrong value.
+/// * [`Assignment::arith_point`] answers for both, and is what code that can
+///   handle an algebraic number exactly (`CadPoint::try_sign_of`) must call.
 #[derive(Debug, Clone)]
 pub struct Assignment {
     /// Values of arithmetic variables.
-    arith_values: Vec<Option<BigRational>>,
+    ///
+    /// `None` means unassigned; `Some(CadPoint::Rational(_))` and
+    /// `Some(CadPoint::Algebraic { .. })` are both *assigned*.
+    arith_values: Vec<Option<CadPoint>>,
     /// Feasible regions for each arithmetic variable.
     feasible: Vec<IntervalSet>,
     /// Values of boolean variables.
@@ -128,20 +147,73 @@ impl Assignment {
     // ========== Arithmetic Variable Operations ==========
 
     /// Check if an arithmetic variable is assigned.
+    ///
+    /// # THIS IS TRUE FOR AN ALGEBRAIC VALUE TOO
+    ///
+    /// A variable holding an algebraic point is **assigned**, even though
+    /// [`Self::arith_value`] answers `None` for it. Never re-derive this
+    /// predicate as `arith_value(var).is_some()`: `NlsatSolver::next_arith_var`
+    /// picks "the first variable this says is unassigned" and
+    /// `NlsatSolver::is_complete` (see `solver/conflict.rs`) decides `Sat` on
+    /// "this says every variable is assigned". Reading an algebraic slot as
+    /// unassigned makes the search hand the same variable back to
+    /// `pick_arith_value` forever — a hang, not a wrong answer, but a hang in
+    /// the one case this whole feature exists to solve.
     pub fn is_arith_assigned(&self, var: Var) -> bool {
-        let idx = var as usize;
-        idx < self.arith_values.len() && self.arith_values[idx].is_some()
+        let assigned = self
+            .arith_values
+            .get(var as usize)
+            .is_some_and(|v| v.is_some());
+        debug_assert_eq!(
+            assigned,
+            self.arith_value(var).is_some() || self.arith_point(var).is_some(),
+            "assignedness must cover the algebraic slot as well as the rational one"
+        );
+        assigned
     }
 
-    /// Get the value of an arithmetic variable.
+    /// Get the value of an arithmetic variable, **only if it is rational**.
+    ///
+    /// A variable holding an algebraic value answers `None` here even though
+    /// [`Self::is_arith_assigned`] is `true` for it — see the type-level docs.
+    /// Use [`Self::arith_point`] when an algebraic value must be seen.
     pub fn arith_value(&self, var: Var) -> Option<&BigRational> {
+        self.arith_values
+            .get(var as usize)
+            .and_then(|v| v.as_ref())
+            .and_then(CadPoint::as_rational)
+    }
+
+    /// Get the value of an arithmetic variable as a [`CadPoint`], rational or
+    /// algebraic alike.
+    pub fn arith_point(&self, var: Var) -> Option<&CadPoint> {
         self.arith_values.get(var as usize).and_then(|v| v.as_ref())
     }
 
     /// Set the value of an arithmetic variable.
     pub fn set_arith(&mut self, var: Var, value: BigRational) {
         self.ensure_arith_var(var);
-        self.arith_values[var as usize] = Some(value);
+        self.arith_values[var as usize] = Some(CadPoint::rational(value));
+    }
+
+    /// Set the value of an arithmetic variable to an exact point, which may be
+    /// an algebraic number.
+    pub fn set_arith_point(&mut self, var: Var, point: CadPoint) {
+        self.ensure_arith_var(var);
+        self.arith_values[var as usize] = Some(point);
+    }
+
+    /// Whether any arithmetic variable currently holds a non-rational
+    /// (algebraic) value.
+    ///
+    /// The search uses this as a guard rather than an observation: a
+    /// polynomial over *two* algebraic points needs multivariate
+    /// real-algebraic arithmetic, which this crate does not have, so
+    /// `crate::solver::witness_algebraic` refuses to install a second one.
+    pub fn has_algebraic_value(&self) -> bool {
+        self.arith_values
+            .iter()
+            .any(|v| v.as_ref().is_some_and(|p| !p.is_rational()))
     }
 
     /// Unset the value of an arithmetic variable.
@@ -329,32 +401,102 @@ impl Assignment {
     }
 
     /// Evaluate an arithmetic value at the current assignment.
-    /// Returns None if any required variable is unassigned.
-    pub fn eval_poly(&self, poly: &oxiz_math::polynomial::Polynomial) -> Option<BigRational> {
+    ///
+    /// Returns `None` if any required variable is unassigned **or holds an
+    /// algebraic value**: this returns a `BigRational`, and there is no
+    /// rational that is `√2`. Rounding to the isolating interval's midpoint
+    /// here would silently turn `x² − 2` into a non-zero value at its own root,
+    /// which is precisely the unsoundness `CadPoint` exists to prevent. Use
+    /// [`Self::eval_poly_sign`] when only the sign is needed — that one *can*
+    /// answer exactly at an algebraic point.
+    pub fn eval_poly(&self, poly: &Polynomial) -> Option<BigRational> {
         // Build assignment map from current values
         let mut assignment = FxHashMap::default();
 
         // Get all variables in the polynomial
         let vars = poly.vars();
 
-        // Check that all variables are assigned and collect their values
+        // Check that all variables are assigned to a *rational* and collect
+        // their values.
         for &var in &vars {
-            let idx = var as usize;
-            if idx >= self.arith_values.len() {
-                return None; // Variable not in assignment
-            }
-            match &self.arith_values[idx] {
-                Some(value) => {
-                    assignment.insert(var, value.clone());
-                }
-                None => {
-                    return None; // Variable unassigned
-                }
-            }
+            let value = self.arith_value(var)?;
+            assignment.insert(var, value.clone());
         }
 
         // Evaluate the polynomial
         Some(poly.eval(&assignment))
+    }
+
+    /// Exact sign (`-1`, `0`, `1`) of `poly` under the current assignment, or
+    /// `None` when it cannot be *proved*.
+    ///
+    /// Three cases, and the honest answer to everything else is `None`:
+    ///
+    /// 1. Every variable of `poly` holds a rational value — the sign of
+    ///    [`Self::eval_poly`].
+    /// 2. Every variable of `poly` is assigned and exactly one of them holds
+    ///    an algebraic value — substitute the rationals, leaving a univariate
+    ///    polynomial in that one variable, and ask
+    ///    [`CadPoint::try_sign_of`], which decides `p(α) = 0` exactly by a gcd
+    ///    test and otherwise refines the isolating interval until the sign is
+    ///    constant on it.
+    /// 3. Anything else — an unassigned variable, *two* algebraic variables
+    ///    (that is multivariate real-algebraic arithmetic, which this crate
+    ///    does not have), or a refinement budget that ran out before the sign
+    ///    was proved.
+    ///
+    /// `None` never means "zero" and never means "some sign we could not pin
+    /// down": callers must treat it as undecided.
+    pub fn eval_poly_sign(&self, poly: &Polynomial) -> Option<i8> {
+        // One pass over the polynomial's variables: collect the rational
+        // values as an evaluation map and note the single algebraic one, if
+        // any. This runs for every factor of every atom on each theory
+        // propagation sweep, so it deliberately does not re-walk `vars()` per
+        // case.
+        let vars = poly.vars();
+        let mut rationals = FxHashMap::default();
+        let mut algebraic: Option<Var> = None;
+        for &var in &vars {
+            match self.arith_values.get(var as usize).and_then(|v| v.as_ref()) {
+                // Case 3a: unassigned.
+                None => return None,
+                Some(CadPoint::Rational(value)) => {
+                    rationals.insert(var, value.clone());
+                }
+                Some(CadPoint::Algebraic { .. }) => {
+                    if algebraic.is_some() {
+                        return None; // Case 3b: two algebraic variables.
+                    }
+                    algebraic = Some(var);
+                }
+            }
+        }
+
+        let Some(alpha_var) = algebraic else {
+            // Case 1: fully rational.
+            return Some(rational_sign(&poly.eval(&rationals)));
+        };
+
+        // Case 2: substitute every rational value, leaving a univariate
+        // polynomial in `alpha_var`.
+        let mut residual = poly.clone();
+        for (&var, value) in &rationals {
+            residual = residual.substitute(var, &Polynomial::constant(value.clone()));
+        }
+        self.arith_point(alpha_var)?
+            .try_sign_of(&residual, alpha_var)
+    }
+}
+
+/// Sign of `x` as `-1`, `0`, or `1`.
+fn rational_sign(x: &BigRational) -> i8 {
+    use num_traits::Zero;
+    if x.is_zero() {
+        0
+    } else if x > &BigRational::zero() {
+        1
+    } else {
+        -1
     }
 }
 
@@ -449,6 +591,95 @@ mod tests {
         // Unset
         a.unset_arith(2);
         assert!(!a.is_arith_assigned(2));
+    }
+
+    /// An algebraic slot is **assigned** but has no rational value: the exact
+    /// combination `next_arith_var` / `is_complete` depend on.
+    #[test]
+    fn test_algebraic_slot_is_assigned_but_has_no_rational_value() {
+        use oxiz_math::polynomial::Polynomial;
+
+        let mut a = Assignment::with_capacity(2, 0);
+        let x2_minus_2 = Polynomial::univariate(
+            0,
+            &[
+                BigRational::from_integer(num_bigint::BigInt::from(-2)),
+                BigRational::from_integer(num_bigint::BigInt::from(0)),
+                BigRational::from_integer(num_bigint::BigInt::from(1)),
+            ],
+        );
+        let sqrt2 = CadPoint::algebraic(
+            BigRational::from_integer(num_bigint::BigInt::from(1)),
+            BigRational::from_integer(num_bigint::BigInt::from(2)),
+            x2_minus_2.clone(),
+            2,
+        );
+        a.set_arith_point(0, sqrt2);
+
+        assert!(
+            a.is_arith_assigned(0),
+            "an algebraic slot must count as assigned, or the search never terminates"
+        );
+        assert!(a.arith_value(0).is_none(), "no rational is √2");
+        assert!(a.arith_point(0).is_some());
+        assert!(a.has_algebraic_value());
+
+        // Sign is exact at the root, and `eval_poly` refuses to round.
+        assert_eq!(a.eval_poly_sign(&x2_minus_2), Some(0));
+        assert!(a.eval_poly(&x2_minus_2).is_none());
+
+        // x - 1 is positive at √2 ≈ 1.414.
+        let x_minus_1 = Polynomial::univariate(
+            0,
+            &[
+                BigRational::from_integer(num_bigint::BigInt::from(-1)),
+                BigRational::from_integer(num_bigint::BigInt::from(1)),
+            ],
+        );
+        assert_eq!(a.eval_poly_sign(&x_minus_1), Some(1));
+
+        // Unsetting clears it, and a rational overwrite clears the flag.
+        a.unset_arith(0);
+        assert!(!a.is_arith_assigned(0));
+        assert!(!a.has_algebraic_value());
+    }
+
+    /// Two algebraic values leave a genuinely multivariate real-algebraic
+    /// problem, which must answer "undecided" rather than guess.
+    #[test]
+    fn test_two_algebraic_values_make_a_product_undecidable() {
+        use oxiz_math::polynomial::Polynomial;
+
+        fn rat(n: i64) -> BigRational {
+            BigRational::from_integer(num_bigint::BigInt::from(n))
+        }
+
+        let mut a = Assignment::with_capacity(2, 0);
+        a.set_arith_point(
+            0,
+            CadPoint::algebraic(
+                rat(1),
+                rat(2),
+                Polynomial::univariate(0, &[rat(-2), rat(0), rat(1)]),
+                2,
+            ),
+        );
+        a.set_arith_point(
+            1,
+            CadPoint::algebraic(
+                rat(1),
+                rat(2),
+                Polynomial::univariate(1, &[rat(-3), rat(0), rat(1)]),
+                2,
+            ),
+        );
+
+        let xy = Polynomial::mul(&Polynomial::from_var(0), &Polynomial::from_var(1));
+        assert_eq!(
+            a.eval_poly_sign(&xy),
+            None,
+            "√2 · √3 needs multivariate algebraic arithmetic this crate does not have"
+        );
     }
 
     #[test]

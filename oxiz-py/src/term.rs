@@ -421,9 +421,18 @@ impl PyTermManager {
         PyTerm::bare(tm.mk_bitvec(value, width))
     }
 
-    fn mk_bv_concat(&self, lhs: &PyTerm, rhs: &PyTerm) -> PyTerm {
+    /// Concatenate two bitvector terms.
+    ///
+    /// Raises `ValueError` if either operand is not bitvector-sorted: a
+    /// binding hands the term manager terms it did not sort-check itself, so
+    /// the sort error is surfaced to Python rather than absorbed into a
+    /// fabricated result width.
+    fn mk_bv_concat(&self, lhs: &PyTerm, rhs: &PyTerm) -> PyResult<PyTerm> {
         let mut tm = self.inner.borrow_mut();
-        PyTerm::bare(tm.mk_bv_concat(lhs.id, rhs.id))
+        let id = tm
+            .try_mk_bv_concat(lhs.id, rhs.id)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(PyTerm::bare(id))
     }
 
     fn mk_bv_extract(&self, high: u32, low: u32, arg: &PyTerm) -> PyTerm {

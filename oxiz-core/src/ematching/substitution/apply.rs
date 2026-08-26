@@ -675,7 +675,20 @@ fn rebuild(
         TermKind::BvConcat(a, b) => {
             let a = sub(a);
             let b = sub(b);
-            manager.mk_bv_concat(a, b)
+            // A sort-preserving substitution can never reach the error
+            // branch: the operands were BV-sorted before substitution, and a
+            // substitution that preserves sorts leaves them BV-sorted.
+            //
+            // The `id` fallback is a last resort for that unreachable case,
+            // not a good outcome: the early return above means some child
+            // *did* change, so `id` is the original, unsubstituted term —
+            // the very shape this module's header calls out as leaving a
+            // quantified variable free in an instantiation. It is still
+            // preferable to the fabricated 32-bit-wide term this used to
+            // build, because a wrong-width term is unsound in the theory
+            // rather than merely too weak, and an ill-typed map is a caller
+            // bug that cannot be repaired here.
+            manager.try_mk_bv_concat(a, b).unwrap_or(id)
         }
         TermKind::BvExtract { high, low, arg } => {
             let arg = sub(arg);

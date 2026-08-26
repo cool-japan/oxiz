@@ -11,9 +11,11 @@ pub mod heuristic;
 mod incremental;
 mod learn;
 mod lrat_trace;
+mod lucky;
 mod probe;
 mod propagate;
 mod search_ext;
+mod self_subsumption;
 
 pub use config::{RestartStrategy, SolverConfig};
 pub use heuristic::{BoxedBranchingHeuristic, BranchingHeuristic};
@@ -194,6 +196,39 @@ pub struct SolverStats {
     pub chrono_backtracks: u64,
     /// Number of non-chronological backtracks
     pub non_chrono_backtracks: u64,
+    /// Literals removed from live clauses by self-subsuming resolution during
+    /// inprocessing (see `Solver::self_subsuming_resolution`).
+    pub self_subsumed_literals: u64,
+    /// Number of pre-search *lucky* scans attempted (see `solver/lucky.rs`,
+    /// a private module). Cumulative across `solve()` calls, like every other
+    /// counter here: a single call runs each scan at most once and stops at
+    /// the first that succeeds, contributing its wasted guesses plus (on a
+    /// hit) one.
+    pub lucky_attempts: u64,
+    /// Number of lucky scans that produced a verified model, ending the solve
+    /// before the CDCL loop ran. At most one per `solve()` call, and — like
+    /// [`SolverStats::lucky_attempts`] — summed over all of them.
+    pub lucky_successes: u64,
+    /// Number of times the on-the-fly lazy hyper-binary resolution pass
+    /// (`Solver::check_hyper_binary_resolution`, gated by
+    /// [`SolverConfig::enable_lazy_hyper_binary`]) reached the point where it
+    /// does real work: the propagation happened at decision level >= 2 with no
+    /// proof being traced, *and* the reason clause turned out to be 2 to 4
+    /// literals wide. A wider reason is looked at and rejected without being
+    /// counted, so this is the number of scans performed rather than the
+    /// number of propagations the pass was offered.
+    /// Counts *work done*, not clauses produced; pair it with
+    /// [`SolverStats::hyper_binary_learned`] to see the hit rate. Cumulative
+    /// across `solve()` calls like every other counter here.
+    pub hyper_binary_attempts: u64,
+    /// Number of binary clauses the pass above actually learned. The
+    /// difference against [`SolverStats::hyper_binary_attempts`] is the pass's
+    /// wasted work: a reason clause whose literals do not fit the
+    /// "exactly one other current-level literal, all the rest false at level
+    /// 0" shape, or whose resolvent the binary implication graph already
+    /// contains. These clauses are also counted in
+    /// [`SolverStats::learned_clauses`].
+    pub hyper_binary_learned: u64,
 }
 
 impl SolverStats {
@@ -261,6 +296,8 @@ impl SolverStats {
         println!("Deleted clauses:        {:>12}", self.deleted_clauses);
         println!("Minimizations:          {:>12}", self.minimizations);
         println!("Literals removed:       {:>12}", self.literals_removed);
+        println!("Lucky scans:            {:>12}", self.lucky_attempts);
+        println!("  - Lucky hits:         {:>12}", self.lucky_successes);
         println!("Chrono backtracks:      {:>12}", self.chrono_backtracks);
         println!("Non-chrono backtracks:  {:>12}", self.non_chrono_backtracks);
         println!("---------------------------------------");
@@ -812,6 +849,22 @@ impl Solver {
             return SolverResult::Unsat;
         }
 
+        // Cheapest thing in the pre-search pipeline, and therefore first: a
+        // handful of structural guesses at a full assignment (all-true,
+        // all-false, greedy clause-ordered passes, the Horn/dual-Horn
+        // closures), each verified against the original clauses before it can
+        // be reported. See `solver/lucky.rs` — in particular for why this is
+        // sound to run unconditionally, ahead of the mechanisms below, and
+        // even while a proof is being traced: it touches nothing, and a `Sat`
+        // verdict carries no proof obligation. On a hit the inprocessing
+        // toolkit below never runs, which is the entire point (the instances
+        // this catches are solved before probing would have finished its
+        // first variable) but is also why a caller that depends on those
+        // mechanisms having run must set `enable_lucky_phase: false`.
+        if self.try_lucky_phase(&[]).is_some() {
+            return SolverResult::Sat;
+        }
+
         // One-shot inprocessing toolkit, run once before search proper
         // starts. Each mechanism below is individually opt-in (see the
         // `SolverConfig` fields it checks) and latches itself so calling it
@@ -1249,6 +1302,22 @@ impl Solver {
         // Initial propagation at level 0
         if self.propagate().is_some() {
             return (SolverResult::Unsat, Some(Vec::new()));
+        }
+
+        // Lucky phase, the assumption-aware variant: the resolved assumption
+        // literals are seeded into the candidate as frozen values, so a model
+        // it reports satisfies them by construction (see `solver/lucky.rs`).
+        // Placed after the level-0 propagation that establishes the facts it
+        // freezes and before the first assumption decision below, so a hit
+        // returns without ever touching the trail — there is nothing to
+        // backtrack, and no core is owed because the phase never concludes
+        // UNSAT. It declines outright when an assumption contradicts a level-0
+        // fact, leaving that verdict (and its core) to the loop below.
+        //
+        // Unlike `solve()` this entry point runs no inprocessing at all, so
+        // nothing downstream is skipped by a hit.
+        if self.try_lucky_phase(assumptions).is_some() {
+            return (SolverResult::Sat, None);
         }
 
         // Create a new decision level for assumptions

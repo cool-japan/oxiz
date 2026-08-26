@@ -1489,10 +1489,10 @@ mod deep_walk_tests {
     #[test]
     fn test_eliminate_exists_deep_nesting_does_not_overflow() {
         let handle = std::thread::Builder::new()
-            .stack_size(1 << 20)
+            .stack_size(1 << 17)
             .spawn(|| {
                 let mut tm = TermManager::new();
-                let f = deep_bool_formula(&mut tm, 50_000);
+                let f = deep_bool_formula(&mut tm, 6_250);
                 let mut elim = CooperEliminator::new();
                 let outcome = elim.eliminate_exists("x".to_string(), f, &mut tm);
                 let x_spur = tm.intern_str("x");
@@ -1616,14 +1616,14 @@ mod deep_walk_tests {
     #[test]
     fn test_cooper_walks_deep_nesting_do_not_overflow() {
         let handle = std::thread::Builder::new()
-            .stack_size(1 << 20)
+            .stack_size(1 << 17)
             .spawn(|| {
                 let mut tm = TermManager::new();
                 let int_sort = tm.sorts.int_sort;
                 let x = tm.mk_var("x", int_sort);
                 let one = tm.mk_int(1);
                 let mut term = x;
-                for _ in 0..60_000 {
+                for _ in 0..7_500 {
                     term = tm.mk_add([term, one]);
                 }
                 let x_spur = tm.intern_str("x");

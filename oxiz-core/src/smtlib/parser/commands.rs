@@ -31,6 +31,47 @@ enum CommandStep {
     Skipped,
 }
 
+/// The rounding-mode argument of an `fp.*` operator, as written.
+///
+/// SMT-LIB lets this position hold either a literal mode symbol or any
+/// `RoundingMode`-sorted term. OxiZ supports the two spellings a real
+/// benchmark uses — a literal, or a declared/bound rounding-mode symbol — and
+/// the distinction survives to the builder because the two are compiled very
+/// differently: a literal becomes the corresponding `TermKind::Fp*` node
+/// directly, while a symbolic mode has to be expanded into a five-way `ite`
+/// over the modes it could be.
+#[derive(Debug, Clone, Copy)]
+pub(super) enum RmOperand {
+    /// A literal `RNE`/`roundTowardZero`/... symbol.
+    Concrete(RoundingMode),
+    /// A `RoundingMode`-sorted term (a declared constant or a bound
+    /// variable), to be resolved by case split at build time.
+    Symbolic(TermId),
+}
+
+/// Whether `symbol` is one of the ten literal rounding-mode spellings.
+///
+/// The single source of truth for that set: [`Parser::parse_rounding_mode`]
+/// maps them to modes, [`Parser::parse_rounding_mode_operand`] uses this to
+/// give a literal priority over any symbol lookup, and
+/// `Parser::next_token_is_rounding_mode` uses it to tell the RM-first
+/// `to_fp` form from the bit-pattern one.
+pub(super) fn is_rounding_mode_literal(symbol: &str) -> bool {
+    matches!(
+        symbol,
+        "RNE"
+            | "roundNearestTiesToEven"
+            | "RNA"
+            | "roundNearestTiesToAway"
+            | "RTP"
+            | "roundTowardPositive"
+            | "RTN"
+            | "roundTowardNegative"
+            | "RTZ"
+            | "roundTowardZero"
+    )
+}
+
 impl<'a> Parser<'a> {
     /// Expect an opening parenthesis '('
     pub(super) fn expect_lparen(&mut self) -> Result<()> {
@@ -293,6 +334,52 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Parse the rounding-mode argument of an `fp.*` operator, accepting a
+    /// symbolic mode as well as a literal one.
+    ///
+    /// A literal spelling always wins: the ten mode names are SMT-LIB-reserved
+    /// so nothing may shadow them. Otherwise a symbol that resolves — through
+    /// the `let`/quantifier bindings first, then the declared constants — to a
+    /// `RoundingMode`-sorted term is taken symbolically. Anything else falls
+    /// through to [`Parser::parse_rounding_mode`], which produces exactly the
+    /// error it always did (so a typo'd mode name still reads as
+    /// "unknown rounding mode", not as an unknown constant).
+    pub(super) fn parse_rounding_mode_operand(&mut self) -> Result<RmOperand> {
+        let symbol = match self.lexer.peek().map(|t| t.kind) {
+            Some(TokenKind::Symbol(s)) => s,
+            _ => return self.parse_rounding_mode().map(RmOperand::Concrete),
+        };
+        if is_rounding_mode_literal(&symbol) {
+            return self.parse_rounding_mode().map(RmOperand::Concrete);
+        }
+        match self.rounding_mode_symbol_term(&symbol) {
+            Some(term) => {
+                self.lexer.next_token();
+                Ok(RmOperand::Symbolic(term))
+            }
+            None => self.parse_rounding_mode().map(RmOperand::Concrete),
+        }
+    }
+
+    /// The `RoundingMode`-sorted term a bare symbol denotes, if any.
+    ///
+    /// `None` means the symbol is not a rounding mode — either undeclared, or
+    /// declared at some other sort — and the caller reports it as such.
+    pub(super) fn rounding_mode_symbol_term(&mut self, symbol: &str) -> Option<TermId> {
+        let rm_sort = self.manager.sorts.rounding_mode_sort;
+        if let Some(&term) = self.bindings.get(symbol) {
+            return self
+                .manager
+                .get(term)
+                .is_some_and(|t| t.sort == rm_sort)
+                .then_some(term);
+        }
+        if self.constants.get(symbol) == Some(&rm_sort) {
+            return Some(self.manager.mk_var(symbol, rm_sort));
+        }
+        None
+    }
+
     /// Return the `:named` annotation attached to `term`, if any.
     ///
     /// Looks the term up in `self.annotations` (populated by the `(! ... )`
@@ -425,6 +512,22 @@ impl<'a> Parser<'a> {
                 if arg_sorts.is_empty() {
                     self.constants.insert(name.clone(), ret_sort_id);
                 } else {
+                    // A genuine function: `RoundingMode` may appear neither in
+                    // an argument nor in the result, because the closure axiom
+                    // that gives the sort its five elements attaches only to a
+                    // nullary declaration.  Checked here rather than in
+                    // `parse_sort` so that the nullary spelling
+                    // `(declare-fun m () RoundingMode)` still works.
+                    for &arg_sort_id in &arg_sort_ids {
+                        self.reject_unsupported_rounding_mode_position(
+                            arg_sort_id,
+                            "a function argument sort",
+                        )?;
+                    }
+                    self.reject_unsupported_rounding_mode_position(
+                        ret_sort_id,
+                        "the result sort of a function with arguments",
+                    )?;
                     self.functions
                         .insert(name.clone(), (arg_sort_ids.clone(), ret_sort_id));
                 }
@@ -794,17 +897,17 @@ impl<'a> Parser<'a> {
                     .declare_parametric_sort(&name, arity as usize);
                 Command::DeclareSort(name, arity)
             }
-            "define-fun-rec" | "define-funs-rec" => {
-                // Recursively-defined functions are not evaluated: silently
-                // treating the function as an unconstrained uninterpreted
-                // function (the previous "skip unknown command" behavior)
-                // can produce wrong sat/unsat answers with no diagnostic.
-                // Surface an explicit, honest error instead.
-                self.reject_command(
-                    &cmd_name,
-                    "recursive function definitions are not supported",
-                )?
-            }
+            // Recursive definitions used to be hard-rejected here, because the
+            // alternative at the time — balance-skipping the command — left the
+            // defined symbol as an unconstrained uninterpreted function and
+            // silently changed the sat/unsat answer. They are now parsed for
+            // real (see `parser::recfun`) and the definitional axiom is
+            // discharged by the solver. `Command::DefineFunsRec`'s doc comment
+            // carries the obligation the old rejection used to enforce: a
+            // consumer that cannot solve recursive definitions must still fail
+            // honestly rather than skip the command.
+            "define-fun-rec" => Command::DefineFunsRec(vec![self.parse_define_fun_rec()?]),
+            "define-funs-rec" => Command::DefineFunsRec(self.parse_define_funs_rec()?),
             "get-unsat-assumptions" => {
                 // The assumptions passed to the most recent
                 // `check-sat-assuming` are tracked by the solver context, which
@@ -831,30 +934,6 @@ impl<'a> Parser<'a> {
         };
 
         Ok(CommandStep::Parsed(cmd))
-    }
-
-    /// Consume the remainder of a recognized-but-unsupported command's
-    /// token stream (balanced-paren skip, mirroring the fallback used for
-    /// genuinely unrecognized commands) and then fail with an explicit,
-    /// honest error. Used for commands whose semantics we understand well
-    /// enough to know that silently ignoring them would risk a wrong
-    /// sat/unsat answer (e.g. `define-fun-rec`), so — unlike truly unknown
-    /// commands — they must never be balance-skipped and continued past.
-    fn reject_command(&mut self, cmd_name: &str, reason: &str) -> Result<Command> {
-        let position = self.lexer.position();
-        let mut depth = 1;
-        while depth > 0 {
-            match self.lexer.next_token().map(|t| t.kind) {
-                Some(TokenKind::LParen) => depth += 1,
-                Some(TokenKind::RParen) => depth -= 1,
-                Some(TokenKind::Eof) | None => break,
-                _ => {}
-            }
-        }
-        Err(OxizError::ParseError {
-            position,
-            message: format!("unsupported command '{cmd_name}': {reason}"),
-        })
     }
 
     /// Parse an optional numeral from the token stream; return `default` if none present
@@ -985,6 +1064,13 @@ impl<'a> Parser<'a> {
                 // parametric selector sorts like `(Array Int Int)` or
                 // `(_ BitVec 8)` parse correctly instead of erroring.
                 let selector_sort_id = self.resolve_sort()?;
+                // A datatype field is reached through a selector application,
+                // which is not a nullary declaration, so no closure axiom can
+                // pin its rounding mode to the five real ones.
+                self.reject_unsupported_rounding_mode_position(
+                    selector_sort_id,
+                    "a datatype field sort",
+                )?;
                 let selector_sort = self.sort_id_to_string(selector_sort_id);
                 self.expect_rparen()?;
                 selector_defs.push((self.manager.intern_str(&selector_name), selector_sort_id));

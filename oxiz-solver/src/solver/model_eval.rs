@@ -178,6 +178,8 @@ enum EagerKind {
         /// `true` for `<=`, `false` for `>=`.
         less: bool,
     },
+    /// Pass the single operand's value straight through (`let` → its body).
+    Identity,
 }
 
 /// How far an `ite` has got.
@@ -507,6 +509,10 @@ impl Frame {
 fn combine_eager(kind: EagerKind, values: &[EvalVal]) -> EvalOutcome {
     match (kind, values) {
         (EagerKind::Not, [EvalVal::Bool(b)]) => EvalOutcome::boolean(!b),
+        (EagerKind::Identity, [v]) => match v {
+            EvalVal::Bool(b) => EvalOutcome::boolean(*b),
+            EvalVal::Num(n) => EvalOutcome::number(*n),
+        },
         (EagerKind::Eq, [a, b]) => combine_eq(*a, *b),
         (EagerKind::Sub, [EvalVal::Num(x), EvalVal::Num(y)]) => match x.checked_sub(y) {
             Some(d) => EvalOutcome::number(d),
@@ -619,6 +625,78 @@ impl Solver {
                     return true;
                 }
                 _ => {}
+            }
+        }
+        self.model_violates_negated_equality(manager)
+    }
+
+    /// The half of the gate that [`combine_eq`] structurally cannot see: a
+    /// numeric equality atom the SAT core assigned **false** whose two sides
+    /// the arithmetic model gives the **same** value.
+    ///
+    /// # Why `combine_eq` cannot do this itself
+    ///
+    /// [`combine_eq`] answers `Undetermined` — deliberately, and it must keep
+    /// doing so — when two numeric operands are equal.  Its input is a pair of
+    /// values and nothing else, and a *collision* in the LP model is not by
+    /// itself evidence of anything: the tableau enforces a disequality by case
+    /// splitting, not by pinning distinct witnesses, so two variables that were
+    /// never asserted equal routinely share a value in a perfectly good model.
+    /// Returning `Bool(true)` there would turn every satisfiable `distinct`
+    /// into a spurious `Unknown`.
+    ///
+    /// The missing information is not in the values — it is the **trail
+    /// polarity**.  If the core committed `(= a b)` to *false* and the model it
+    /// then produced makes `a` and `b` equal, the assignment and the model
+    /// contradict each other outright.  That is a definite refutation, not a
+    /// coincidence, and it is exactly the witness the false-`sat` family left
+    /// behind: the disequality never reached the tableau, so the LP was free to
+    /// collide the two sides while the Boolean level believed they differed.
+    ///
+    /// This gate has the trail (`sat.model_value`) even though `combine_eq`
+    /// does not, so the check lives here and `combine_eq` is left untouched.
+    ///
+    /// # Conservatism
+    ///
+    /// Both sides must evaluate to a *definite* number.  `Solver::arith.value`
+    /// returns `None` for a term the tableau does not constrain, which reads
+    /// back `Undetermined` and is skipped — so a variable `build_model` merely
+    /// defaulted can never trigger this.  Only atoms the core actually assigned
+    /// `False` are considered; `LBool::Undef` and `True` are ignored.
+    fn model_violates_negated_equality(&self, manager: &TermManager) -> bool {
+        use super::types::Constraint;
+        use oxiz_sat::LBool;
+
+        let Some(model) = self.model.as_ref() else {
+            return false;
+        };
+        for (&var, constraint) in &self.var_to_constraint {
+            let Constraint::Eq(lhs, rhs) = *constraint else {
+                continue;
+            };
+            if self.sat.model_value(var) != LBool::False {
+                continue;
+            }
+            // Numeric operands only: a Bool/BV/EUF equality has its own
+            // theory and no arithmetic value to compare.
+            let is_numeric = manager.get(lhs).is_some_and(|t| {
+                t.sort == manager.sorts.int_sort || t.sort == manager.sorts.real_sort
+            });
+            if !is_numeric {
+                continue;
+            }
+            let (
+                EvalOutcome::Value(EvalVal::Num(lhs_val)),
+                EvalOutcome::Value(EvalVal::Num(rhs_val)),
+            ) = (
+                self.eval_in_model_outcome(lhs, model, manager, 0),
+                self.eval_in_model_outcome(rhs, model, manager, 0),
+            )
+            else {
+                continue;
+            };
+            if lhs_val == rhs_val {
+                return true;
             }
         }
         false
@@ -1005,6 +1083,27 @@ impl Solver {
                 EagerKind::CmpWeak { less: false },
                 depth,
             )),
+            // A `let` evaluates to its body.
+            //
+            // The SMT-LIB parser substitutes bindings into the body and returns
+            // it directly, so no `Let` reaches here on the parse path; this arm
+            // exists for terms built programmatically through
+            // `TermManager::mk_let`, and because falling into the opaque-leaf
+            // arm below made a `Let`-rooted assertion `Undetermined` *before*
+            // the gate ever looked at the formula underneath — the gate was
+            // blind to exactly the assertions the vacuous wrapper covered.
+            //
+            // Evaluating the body alone is sound for the substituted shape (the
+            // body is already the whole term) and stays *conservative* for a
+            // real binder: the bound name appears as a `Var` the model does not
+            // pin, which reads back `Undetermined` and propagates outward, so a
+            // genuine binder yields no verdict rather than a wrong one. It can
+            // never manufacture a definite `false` from a binding it ignored,
+            // because a value it did not substitute cannot make a comparison
+            // concrete.
+            TermKind::Let { body, .. } => {
+                Opened::Frame(Frame::unary(*body, EagerKind::Identity, depth))
+            }
             // Opaque leaves (uninterpreted applications, selects, …): the model
             // may pin a concrete value; otherwise inconclusive.
             _ => Opened::Done(match model.get(term) {
@@ -1056,6 +1155,9 @@ mod tests {
     /// evaluation on.  1 MiB is what an embedder's worker thread typically
     /// gets, and a native stack overflow aborts the process — so "the closure
     /// returned at all" is itself part of each assertion.
+    // STACK-1MIB: deliberately 1 MiB, not swept to 128 KiB — pins the
+    // realistic embedder worker-thread budget, not a scaled test depth.
+    // See TODO.md "v0.3.2 backlog".
     const WORKER_STACK: usize = 1 << 20;
 
     /// The stack the *past-the-budget* test below runs on.  It is an eighth of
@@ -1333,5 +1435,116 @@ mod tests {
 
         assert_eq!(value, EvalOutcome::Undetermined);
         assert!(!refused);
+    }
+
+    // -----------------------------------------------------------------
+    // The trail-polarity half of the gate.
+    // -----------------------------------------------------------------
+
+    /// Build a solver whose SAT core has committed `eq_term` to **false**, and
+    /// whose model gives `lhs` and `rhs` the same integer value.
+    ///
+    /// `lhs`/`rhs` are deliberately *uninterpreted applications*, not Int
+    /// `Var`s: the evaluator reads an Int `Var` from the arithmetic tableau
+    /// (`arith.value`), which a unit test cannot populate without running a
+    /// solve, whereas an opaque leaf is read straight from the model witness.
+    fn solver_with_false_equality(
+        manager: &mut TermManager,
+        eq_term: TermId,
+        lhs: TermId,
+        rhs: TermId,
+        value: TermId,
+    ) -> Solver {
+        use crate::solver::types::Constraint;
+        use oxiz_sat::Lit;
+
+        let mut solver = Solver::new();
+        let var = solver.get_or_create_var(eq_term);
+        solver.record_constraint(var, Constraint::Eq(lhs, rhs));
+        // Force the atom false and solve, so `sat.model_value(var)` really is
+        // `LBool::False` rather than `Undef`.
+        solver.sat.add_clause([Lit::neg(var)]);
+        let _ = solver.sat.solve();
+
+        let mut model = Model::new();
+        model.set(lhs, value);
+        model.set(rhs, value);
+        solver.model = Some(model);
+        let _ = manager;
+        solver
+    }
+
+    /// The witness the false-`sat` family left behind: the core committed
+    /// `(= (f 1) (g 1))` to **false**, then produced a model giving both sides
+    /// `7`. The assignment and the model contradict each other outright, so
+    /// the gate must refuse the verdict.
+    ///
+    /// `combine_eq` structurally cannot catch this — it sees two equal numbers
+    /// and answers `Undetermined` by design, because a collision in the LP
+    /// model is not by itself evidence of anything. The missing information is
+    /// the trail polarity, which only this gate has.
+    #[test]
+    fn a_trail_false_equality_whose_sides_collide_refutes_the_model() {
+        let mut manager = TermManager::new();
+        let int_sort = manager.sorts.int_sort;
+        let one = manager.mk_int(1);
+        let f1 = manager.mk_apply("f", [one], int_sort);
+        let g1 = manager.mk_apply("g", [one], int_sort);
+        let eq = manager.mk_eq(f1, g1);
+        let seven = manager.mk_int(7);
+
+        let solver = solver_with_false_equality(&mut manager, eq, f1, g1, seven);
+        assert!(
+            solver.model_refutes_assertions(&manager),
+            "an `Eq` assigned false whose sides the model makes equal is a \
+             definite refutation, not a coincidence"
+        );
+    }
+
+    /// The same shape with the model giving the two sides *different* values
+    /// is a perfectly good model of the disequality, and must pass the gate.
+    /// Without this control the test above would also pass if the gate simply
+    /// refused every trail-false equality.
+    #[test]
+    fn a_trail_false_equality_with_distinct_values_passes_the_gate() {
+        let mut manager = TermManager::new();
+        let int_sort = manager.sorts.int_sort;
+        let one = manager.mk_int(1);
+        let f1 = manager.mk_apply("f", [one], int_sort);
+        let g1 = manager.mk_apply("g", [one], int_sort);
+        let eq = manager.mk_eq(f1, g1);
+        let seven = manager.mk_int(7);
+        let eight = manager.mk_int(8);
+
+        let mut solver = solver_with_false_equality(&mut manager, eq, f1, g1, seven);
+        let Some(model) = solver.model.as_mut() else {
+            panic!("the helper always installs a model");
+        };
+        model.set(g1, eight);
+        assert!(
+            !solver.model_refutes_assertions(&manager),
+            "7 != 8 satisfies the disequality the core committed to"
+        );
+    }
+
+    /// A *Bool*-sorted equality assigned false must be ignored by this gate
+    /// even when both sides carry the same model witness: Booleans are the EUF
+    /// / SAT layer's business, and `Constraint::Eq` over them is also used to
+    /// feed congruence closure. Firing here would cost legitimate `sat`
+    /// verdicts.
+    #[test]
+    fn a_trail_false_boolean_equality_is_not_this_gates_business() {
+        let mut manager = TermManager::new();
+        let bool_sort = manager.sorts.bool_sort;
+        let p = manager.mk_var("p", bool_sort);
+        let q = manager.mk_var("q", bool_sort);
+        let eq = manager.mk_eq(p, q);
+        let t = manager.mk_true();
+
+        let solver = solver_with_false_equality(&mut manager, eq, p, q, t);
+        assert!(
+            !solver.model_refutes_assertions(&manager),
+            "a Bool-sorted equality has no arithmetic value to collide"
+        );
     }
 }

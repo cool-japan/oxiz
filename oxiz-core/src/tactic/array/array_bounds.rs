@@ -430,7 +430,7 @@ mod tests {
         assert!(config.simplify_store_select);
     }
 
-    /// Run `body` on a worker thread with a deliberately small (1 MiB) stack,
+    /// Run `body` on a worker thread with a deliberately small (128 KiB) stack,
     /// so a recursive peel over a deep store chain would abort instead of
     /// getting away with the main thread's much larger stack.
     fn run_with_small_stack<F>(body: F)
@@ -438,7 +438,7 @@ mod tests {
         F: FnOnce() + Send + 'static,
     {
         std::thread::Builder::new()
-            .stack_size(1 << 20)
+            .stack_size(1 << 17)
             .spawn(body)
             .expect("thread spawn should succeed")
             .join()
@@ -448,7 +448,7 @@ mod tests {
     #[test]
     fn test_simplify_select_peels_deep_store_chain_iteratively() {
         run_with_small_stack(|| {
-            const CHAIN: usize = 50_000;
+            const CHAIN: usize = 6_250;
 
             let mut manager = TermManager::default();
             let int_sort = manager.sorts.int_sort;

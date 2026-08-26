@@ -683,7 +683,7 @@ mod tests {
         assert_eq!(simp.stats().algebraic_simplifications, 1);
     }
 
-    /// Run `body` on a worker thread with a deliberately small (1 MiB) stack,
+    /// Run `body` on a worker thread with a deliberately small (128 KiB) stack,
     /// so a recursive walk over a deep `BvTerm` would abort instead of getting
     /// away with the main thread's much larger stack.
     fn run_with_small_stack<F>(body: F)
@@ -691,7 +691,7 @@ mod tests {
         F: FnOnce() + Send + 'static,
     {
         std::thread::Builder::new()
-            .stack_size(1 << 20)
+            .stack_size(1 << 17)
             .spawn(body)
             .expect("thread spawn should succeed")
             .join()
@@ -713,7 +713,7 @@ mod tests {
             use core::hash::{Hash, Hasher};
             use std::collections::hash_map::DefaultHasher;
 
-            const DEPTH: usize = 50_000;
+            const DEPTH: usize = 6_250;
 
             let term = deep_term(DEPTH);
             let copy = term.clone();
@@ -739,7 +739,7 @@ mod tests {
     #[test]
     fn test_deep_term_simplify_is_iterative() {
         run_with_small_stack(|| {
-            const DEPTH: usize = 50_000;
+            const DEPTH: usize = 6_250;
 
             let mut simp = BvSimplifier::default_config();
 

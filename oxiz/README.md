@@ -14,7 +14,7 @@ Next-Generation SMT Solver in Pure Rust
 designed to achieve feature parity with [Z3](https://github.com/Z3Prover/z3) while leveraging Rust's safety,
 performance, and concurrency features.
 
-OxiZ tracks honest, non-fabricated parity against a real Z3 binary via `bench/z3_parity`: **168/168 Correct, 0 Wrong, 0 Inconclusive, 0 Timeout, 0 Error** on the extended 19-logic / 168-benchmark differential suite against a real z3 4.15.4 binary under the honest comparator (Unknown never counts as a match). All 19 logic families are at 100% of the differential parity suite. See the [README](../README.md#z3-parity-differential-suite-results-honest-comparator-️) and [CHANGELOG](../CHANGELOG.md) for current status and known limitations before relying on it for production workloads.
+OxiZ tracks honest, non-fabricated parity against a real Z3 binary via `bench/z3_parity`: **170/170 Correct, 0 Wrong, 0 Inconclusive, 0 Timeout, 0 Error** on the extended 19-logic / 170-benchmark differential suite against a real z3 4.15.4 binary under the honest comparator (Unknown never counts as a match). All 19 logic families are at 100% of the differential parity suite. See the [README](../README.md#z3-parity-differential-suite-results-honest-comparator-️) and [CHANGELOG](../CHANGELOG.md) for current status and known limitations before relying on it for production workloads.
 
 ## Features
 

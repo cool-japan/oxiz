@@ -20,6 +20,16 @@
 [test-groups]
 oxiz-cli-subprocess = { max-threads = 1 }
 
+# A runaway allocation previously ran until the kernel OOM killer intervened;
+# nextest's default reports a test as SLOW at 60s but never terminates it.
+# Cap it so a stuck test is killed instead of consuming memory indefinitely.
+[profile.default]
+slow-timeout = { period = "60s", terminate-after = 3 }
+
+# Tighter budget for CI: fail fast on a stuck test instead of burning the job's wall clock.
+[profile.ci]
+slow-timeout = { period = "60s", terminate-after = 2 }
+
 [[profile.default.overrides]]
 filter = 'package(oxiz-cli) and (test(timeout) or test(bench))'
 test-group = 'oxiz-cli-subprocess'

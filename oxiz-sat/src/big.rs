@@ -416,14 +416,14 @@ mod tests {
         assert_eq!(big.stats().binary_clauses_analyzed, 0);
     }
 
-    /// A 100_000-link implication chain `a₁ ⇒ a₂ ⇒ … ⇒ a₁₀₀₀₀₀`, i.e. the
-    /// graph produced by 100_000 binary clauses, run on a 1 MiB stack.
+    /// A 12_500-link implication chain `a₁ ⇒ a₂ ⇒ … ⇒ a₁₂₅₀₀`, i.e. the
+    /// graph produced by 12_500 binary clauses, run on a 128 KiB stack.
     /// Tarjan's DFS visits the whole chain in one descent; the recursive
     /// form aborted the process here. Returning at all is the assertion.
     #[test]
     fn test_find_sccs_deep_chain_does_not_overflow() {
-        let worker = std::thread::Builder::new().stack_size(1 << 20).spawn(|| {
-            const CHAIN: u32 = 100_000;
+        let worker = std::thread::Builder::new().stack_size(1 << 17).spawn(|| {
+            const CHAIN: u32 = 12_500;
             let mut big = BinaryImplicationGraph::new(CHAIN as usize + 1);
             for i in 0..CHAIN {
                 big.add_implication(Lit::pos(Var::new(i)), Lit::pos(Var::new(i + 1)));

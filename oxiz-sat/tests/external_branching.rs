@@ -115,6 +115,10 @@ fn test_external_branching_called_during_solve() {
     let heuristic = Arc::new(Mutex::new(CountingHeuristic::new()));
     let config = SolverConfig {
         external_branching: Some(heuristic.clone()),
+        // The heuristic can only be called if the search makes a decision, and
+        // the pre-search lucky phase would solve this formula before it ever
+        // does (see `SolverConfig::enable_lucky_phase`).
+        enable_lucky_phase: false,
         ..SolverConfig::default()
     };
     let mut solver = Solver::with_config(config);

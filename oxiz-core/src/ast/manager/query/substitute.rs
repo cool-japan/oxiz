@@ -314,7 +314,7 @@ impl TermManager {
                 kind,
                 sort,
             } => {
-                let result = self.rebuild_substituted(&contexts[ctx], kind, sort);
+                let result = self.rebuild_substituted(&contexts[ctx], id, kind, sort);
                 contexts[ctx].cache.insert(id, result);
             }
 
@@ -666,7 +666,13 @@ impl TermManager {
     /// they are still listed explicitly (no catch-all) so that a newly
     /// added `TermKind` variant fails to compile, exactly like the
     /// recursive version's original exhaustiveness guarantee.
-    fn rebuild_substituted(&mut self, ctx: &SubstContext, kind: TermKind, sort: SortId) -> TermId {
+    fn rebuild_substituted(
+        &mut self,
+        ctx: &SubstContext,
+        id: TermId,
+        kind: TermKind,
+        sort: SortId,
+    ) -> TermId {
         let sub = |t: TermId| ctx.resolved(t).unwrap_or(t);
         match kind {
             TermKind::True
@@ -792,7 +798,18 @@ impl TermManager {
             TermKind::BvConcat(a, b) => {
                 let a = sub(a);
                 let b = sub(b);
-                self.mk_bv_concat(a, b)
+                // A sort-preserving substitution can never reach the error
+                // branch: the operands were BV-sorted before substitution,
+                // and a substitution that preserves sorts leaves them
+                // BV-sorted.
+                //
+                // The `id` fallback covers only that unreachable case, by
+                // declining to apply an ill-typed map and keeping the
+                // original term. That may leave a substitution unapplied,
+                // which is a weaker result but a sound one — unlike the
+                // fabricated 32-bit-wide term this used to build, which is
+                // ill-sorted and can flip an answer between sat and unsat.
+                self.try_mk_bv_concat(a, b).unwrap_or(id)
             }
             TermKind::BvExtract { high, low, arg } => {
                 let arg = sub(arg);
