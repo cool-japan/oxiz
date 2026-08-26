@@ -44,7 +44,7 @@ default-members = [
 ]
 
 [workspace.package]
-version = "0.3.3"
+version = "0.3.4"
 edition = "2024"
 # Edition 2024 itself only requires rustc 1.85, but the workspace makes
 # pervasive use of let-chains (`if ... && let Some(x) = ... { }`, ~350
@@ -74,7 +74,7 @@ collapsible_if = "allow"
 
 [workspace.dependencies]
 # Meta crate
-oxiz = { version = "0.3.3", path = "oxiz" }
+oxiz = { version = "0.3.4", path = "oxiz" }
 
 # Wasm-safe `std::time` drop-ins. Bottom of the workspace DAG (no deps of its
 # own) and depended on by every crate that reads a clock: `std::time::Instant`
@@ -87,20 +87,20 @@ oxiz = { version = "0.3.3", path = "oxiz" }
 # `features = ["std"]` on its dependency line, or `"oxiz-time/std"` in its own
 # `std` feature list. Getting that wrong is caught at compile time by the
 # `const _: () = assert!(!oxiz_time::IS_FROZEN)` guard each consumer carries.
-oxiz-time = { version = "0.3.3", path = "oxiz-time", default-features = false }
+oxiz-time = { version = "0.3.4", path = "oxiz-time", default-features = false }
 
 # Core crates (default-features = false so downstream can control std)
-oxiz-core = { version = "0.3.3", path = "oxiz-core", default-features = false }
-oxiz-math = { version = "0.3.3", path = "oxiz-math", default-features = false }
-oxiz-sat = { version = "0.3.3", path = "oxiz-sat", default-features = false }
-oxiz-nlsat = { version = "0.3.3", path = "oxiz-nlsat" }
-oxiz-theories = { version = "0.3.3", path = "oxiz-theories", default-features = false }
-oxiz-solver = { version = "0.3.3", path = "oxiz-solver", default-features = false }
-oxiz-opt = { version = "0.3.3", path = "oxiz-opt" }
-oxiz-spacer = { version = "0.3.3", path = "oxiz-spacer" }
-oxiz-proof = { version = "0.3.3", path = "oxiz-proof" }
-oxiz-smtcomp = { version = "0.3.3", path = "oxiz-smtcomp" }
-oxiz-ml = { version = "0.3.3", path = "oxiz-ml" }
+oxiz-core = { version = "0.3.4", path = "oxiz-core", default-features = false }
+oxiz-math = { version = "0.3.4", path = "oxiz-math", default-features = false }
+oxiz-sat = { version = "0.3.4", path = "oxiz-sat", default-features = false }
+oxiz-nlsat = { version = "0.3.4", path = "oxiz-nlsat" }
+oxiz-theories = { version = "0.3.4", path = "oxiz-theories", default-features = false }
+oxiz-solver = { version = "0.3.4", path = "oxiz-solver", default-features = false }
+oxiz-opt = { version = "0.3.4", path = "oxiz-opt" }
+oxiz-spacer = { version = "0.3.4", path = "oxiz-spacer" }
+oxiz-proof = { version = "0.3.4", path = "oxiz-proof" }
+oxiz-smtcomp = { version = "0.3.4", path = "oxiz-smtcomp" }
+oxiz-ml = { version = "0.3.4", path = "oxiz-ml" }
 
 # Memory & Interning
 bumpalo = "3.20"

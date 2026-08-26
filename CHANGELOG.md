@@ -5,6 +5,8 @@ All notable changes to OxiZ will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.4] - Unreleased
+
 ## [0.3.3] - 2026-08-26
 
 A soundness release. Issues [#44](https://github.com/cool-japan/oxiz/issues/44)-[#50](https://github.com/cool-japan/oxiz/issues/50) named seventeen `.smt2` files from the non-incremental SMT-LIB distribution, every one carrying `(set-info :status unsat)`. Fifteen were obtained and run against the 0.3.2 tree, and **all fifteen answered `sat`, most of them inside a second** — the worst class of SMT bug, and not a search-budget artifact. Eight independent soundness defects (plus one latency fix) came out of the diagnosis; none of the fifteen answers `sat` any more. Alongside that, three of this project's standing honest rejections became real support — recursive functions, a first-class `RoundingMode` sort, and algebraic-number witnesses for irrational roots — and the SAT engine picked up the pre-search "lucky" phase and the BVE wiring that [#35](https://github.com/cool-japan/oxiz/issues/35)/[#36](https://github.com/cool-japan/oxiz/issues/36) asked for.
