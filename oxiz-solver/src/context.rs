@@ -1366,9 +1366,24 @@ impl Context {
     }
 
     /// Get solver statistics
+    ///
+    /// The **outer** Boolean engine's counters, cumulative across every check
+    /// on this context; `(set-option :max-conflicts N)` and
+    /// `(set-option :max-decisions N)` bound their growth over a single check.
     #[must_use]
     pub fn stats(&self) -> &oxiz_sat::SolverStats {
         self.solver.stats()
+    }
+
+    /// Embedded bit-blasting conflicts spent by the last `(check-sat)`.
+    ///
+    /// `(set-option :max-conflicts N)` installs three independent budgets of
+    /// `N`; this reports the consumption of the bit-blasting one, which is a
+    /// total across every `BvSolver::check` probe and every repair round of a
+    /// single check.  See `Solver::bv_conflicts_spent`.
+    #[must_use]
+    pub fn bv_conflicts_spent(&self) -> u64 {
+        self.solver.bv_conflicts_spent()
     }
 }
 

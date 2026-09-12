@@ -3,13 +3,17 @@
 use crate::config::BvConfig;
 #[allow(unused_imports)]
 use crate::prelude::*;
-use crate::theory::{EqualityNotification, Theory, TheoryCombination, TheoryId, TheoryResult};
+use crate::theory::{EqualityNotification, Theory, TheoryId, TheoryResult};
 use num_bigint::BigUint;
 use oxiz_core::ast::TermId;
 use oxiz_core::error::Result;
 use oxiz_sat::{LBool, Lit, Solver as SatSolver, SolverConfig as SatConfig, SolverResult, Var};
 use smallvec::SmallVec;
 
+/// Resource budgets for the embedded bit-blasting SAT solver (U-Z12).
+mod budget;
+/// Nelson-Oppen combination: the `TheoryCombination` implementation.
+mod combination;
 /// Division / remainder encodings (`bvudiv`, `bvurem`, `bvsdiv`, `bvsrem`).
 mod division;
 /// Barrel-shifter encodings (`bvshl`, `bvlshr`, `bvashr`).
@@ -22,6 +26,29 @@ pub struct BvVar {
     bits: SmallVec<[Var; 32]>,
     /// Width in bits
     width: u32,
+}
+
+/// Bit `index` of `constant`, read as the bit of an arbitrarily wide
+/// bit-vector whose low 64 bits are `constant` and whose higher bits are `0`.
+///
+/// A `u64` has no bit at index 64 or above, so the answer there is `false`.
+/// Saying that *totally* is the point: OxiZ 0.3.3/0.3.4 wrote
+/// `((constant >> i) & 1) == 1` inside `encode_add_const`, where `i` runs over
+/// the bit-vector width. Rust's `>>` on a `u64` uses only the low 6 bits of the
+/// shift amount, so bit 64 of `constant = 1` read back as `1` in release builds
+/// (and panicked with "attempt to shift right with overflow" in debug ones).
+/// Every call site passes `constant = 1` as the `+1` of a two's-complement
+/// negation, so every `bvsub`/`bvneg` circuit wider than 64 bits was blasted
+/// against `1 + 2^64 + 2^128 + …` instead of `1` — a different formula, which
+/// fabricated both wrong `sat` answers and wrong `unsat` *proofs*
+/// (`oxiz-solver/tests/bv_wide_soundness.rs`, the `wide_*_above_64` group).
+#[inline]
+#[must_use]
+fn const_bit_of(constant: u64, index: usize) -> bool {
+    match u32::try_from(index) {
+        Ok(i) if i < u64::BITS => (constant >> i) & 1 == 1,
+        _ => false,
+    }
 }
 
 /// Comparison tracking for conflict detection
@@ -41,6 +68,12 @@ struct ContextMark {
     guard_terms_len: usize,
     /// Length of `outer_bool_journal`.
     outer_bool_len: usize,
+    /// Length of `term_to_bv_journal`.
+    term_to_bv_len: usize,
+    /// Length of `ult_cache_journal`.
+    ult_cache_len: usize,
+    /// Length of `bool_node_journal`.
+    bool_node_len: usize,
 }
 
 /// BitVector Theory Solver using bit-blasting
@@ -85,6 +118,40 @@ pub struct BvSolver {
     /// in reverse by [`Theory::pop`] so the link is retracted with the decision
     /// level that established it.
     outer_bool_journal: Vec<(TermId, Option<bool>)>,
+    /// Undo journal for `term_to_bv`: every term whose circuit was *created*
+    /// (not merely looked up) since the enclosing push.
+    ///
+    /// The invariant these three journals restore is the one the solver
+    /// silently assumed and did not maintain: *a term has a `term_to_bv` /
+    /// `ult_cache` / `bool_node` entry **iff** the clauses defining that entry
+    /// are live in the embedded SAT solver*. `sat.pop()` deletes exactly the
+    /// clauses added since the matching `push`, so a cache entry that survived
+    /// the pop handed the next `check()` a completely unconstrained bit-vector,
+    /// and the idempotence guard in `oxiz-solver`'s
+    /// `theory_bv_encode::encode_bv_term_recursive` then refused to re-encode
+    /// it. That is finding U-Z10: wrong `sat` on QF_BV with Boolean structure
+    /// over BV atoms (4.8 % of random unsat width-8 formulas).
+    term_to_bv_journal: Vec<TermId>,
+    /// Undo journal for `ult_cache`; see [`Self::term_to_bv_journal`].
+    ult_cache_journal: Vec<ComparisonKey>,
+    /// Undo journal for `bool_node`; see [`Self::term_to_bv_journal`].
+    bool_node_journal: Vec<TermId>,
+    /// Total conflict allowance for every embedded `solve()` until the next
+    /// [`Self::set_budget`], or `None` for unbounded.  See the `budget` module.
+    budget_max_conflicts: Option<u64>,
+    /// Wall-clock deadline shared by every embedded `solve()`, or `None`.
+    /// Shared rather than re-derived per probe, so `(set-option :timeout N)`
+    /// bounds the whole check instead of granting `N` ms to each of the
+    /// hundreds of probes a search makes.  See the `budget` module.
+    budget_deadline: Option<oxiz_time::Instant>,
+    /// Embedded SAT conflicts charged against `budget_max_conflicts` so far.
+    ///
+    /// The accumulator lives here, not in the embedded solver's statistics,
+    /// because [`Theory::reset`] calls `sat.reset()` — which zeroes those
+    /// statistics — and the owning solver resets this theory once per check
+    /// *and* once per repair round.  Keeping the running total here is what
+    /// makes the allowance a total rather than a per-round re-arm.
+    conflicts_spent: u64,
 }
 
 impl Default for BvSolver {
@@ -117,6 +184,12 @@ impl BvSolver {
             bool_node: FxHashMap::default(),
             outer_bool: FxHashMap::default(),
             outer_bool_journal: Vec::new(),
+            term_to_bv_journal: Vec::new(),
+            ult_cache_journal: Vec::new(),
+            bool_node_journal: Vec::new(),
+            budget_max_conflicts: None,
+            budget_deadline: None,
+            conflicts_spent: 0,
         }
     }
 
@@ -188,7 +261,14 @@ impl BvSolver {
     }
 
     /// Create a new bit vector variable
+    ///
+    /// A *creation* (as opposed to a cache hit) is journalled so that
+    /// [`Theory::pop`] retracts it together with the clauses `sat.pop()`
+    /// deletes; see [`Self::term_to_bv_journal`].
     pub fn new_bv(&mut self, term: TermId, width: u32) -> &BvVar {
+        if !self.term_to_bv.contains_key(&term) {
+            self.term_to_bv_journal.push(term);
+        }
         self.term_to_bv.entry(term).or_insert_with(|| {
             let bits: SmallVec<[Var; 32]> = (0..width).map(|_| self.sat.new_var()).collect();
             BvVar { bits, width }
@@ -226,6 +306,7 @@ impl BvSolver {
     ///
     /// Returns `false` — asserting nothing — when either operand has not been
     /// bit-blasted or the two have different widths.
+    #[must_use]
     pub fn assert_eq(&mut self, a: TermId, b: TermId) -> bool {
         if let Some((va, vb)) = self.binop_bits(a, b) {
             for i in 0..va.width as usize {
@@ -246,6 +327,7 @@ impl BvSolver {
     ///
     /// Returns `false` — asserting nothing — when either operand has not been
     /// bit-blasted or the two have different widths.
+    #[must_use]
     pub fn assert_neq(&mut self, a: TermId, b: TermId) -> bool {
         if let Some((va, vb)) = self.binop_bits(a, b) {
             // At least one bit must differ
@@ -284,6 +366,7 @@ impl BvSolver {
     ///
     /// Returns `false` — asserting nothing — when either operand has not been
     /// bit-blasted or the two have different widths.
+    #[must_use]
     pub fn assert_ult(&mut self, a: TermId, b: TermId) -> bool {
         if let Some((va, vb)) = self.binop_bits(a, b) {
             // Get or create comparison result variable for a < b
@@ -294,6 +377,7 @@ impl BvSolver {
                 let var = self.sat.new_var();
                 self.encode_ult_result(&va.bits, &vb.bits, var);
                 self.ult_cache.insert(key_ab.clone(), var);
+                self.ult_cache_journal.push(key_ab.clone());
                 var
             };
 
@@ -323,6 +407,7 @@ impl BvSolver {
     ///
     /// Returns `false` — asserting nothing — when either operand has not been
     /// bit-blasted or the two have different widths.
+    #[must_use]
     pub fn assert_ule(&mut self, a: TermId, b: TermId) -> bool {
         if let Some((va, vb)) = self.binop_bits(a, b) {
             // Encode b < a (unsigned) into `ult_ba`.
@@ -638,7 +723,9 @@ impl BvSolver {
             TermKind::BvSle(lhs, rhs) => self.bool_ule(lhs, rhs, manager, true)?,
             _ => return None,
         };
-        self.bool_node.insert(term, out);
+        if self.bool_node.insert(term, out).is_none() {
+            self.bool_node_journal.push(term);
+        }
         // Honour an outer assignment recorded before this node existed.
         if let Some(&value) = self.outer_bool.get(&term) {
             self.pin_bool_var(out, value);
@@ -909,6 +996,7 @@ impl BvSolver {
     /// Returns `false` — asserting nothing — when either operand has not been
     /// bit-blasted, the two have different widths, or the width is zero (a
     /// zero-width vector has no sign bit).
+    #[must_use]
     pub fn assert_slt(&mut self, a: TermId, b: TermId) -> bool {
         if let Some((va, vb)) = self.binop_bits(a, b) {
             let width = va.width as usize;
@@ -962,6 +1050,7 @@ impl BvSolver {
     /// Returns `false` — asserting nothing — when either operand has not been
     /// bit-blasted, the two have different widths, or the width is zero (a
     /// zero-width vector has no sign bit).
+    #[must_use]
     pub fn assert_sle(&mut self, a: TermId, b: TermId) -> bool {
         if let Some((va, vb)) = self.binop_bits(a, b) {
             let width = va.width as usize;
@@ -1106,6 +1195,10 @@ impl BvSolver {
     }
 
     /// Encode addition with constant: result = a + const
+    ///
+    /// `constant` is a `u64`, so every bit of it at index 64 and above is `0`;
+    /// [`const_bit_of`] says so totally, for any `result.len()` the SMT-LIB
+    /// parser can produce (widths up to 65536).
     fn encode_add_const(&mut self, result: &[Var], a: &[Var], constant: u64) {
         assert_eq!(result.len(), a.len());
 
@@ -1114,7 +1207,7 @@ impl BvSolver {
         self.sat.add_clause([Lit::neg(carry)]); // Initial carry = 0
 
         for i in 0..width {
-            let const_bit = ((constant >> i) & 1) == 1;
+            let const_bit = const_bit_of(constant, i);
             let next_carry = self.sat.new_var(); // Overflow carry ignored for last iteration
 
             if const_bit {
@@ -1531,7 +1624,19 @@ impl Theory for BvSolver {
         let committed_trail = self.sat.trail_size();
         let learned_before = self.sat.learned_clause_count();
 
+        // Resource budget (U-Z12).  This `solve()` is the call that used to run
+        // unbounded no matter what `(set-option :timeout N)` or
+        // `(set-option :max-conflicts N)` said: it happens inside the enclosing
+        // CDCL(T) search's `on_assignment` callback, so every budget poll in
+        // that layer is outside it.  `first_solve_allowance` keeps a quarter of
+        // the remaining conflict allowance back for the re-verification below;
+        // see the `budget` module for why the allowance is a total rather than
+        // a per-probe grant.
+        let first_allowance = self.first_solve_allowance();
+        self.apply_budget_to_embedded(first_allowance);
+        let conflicts_before = self.sat.stats().conflicts;
         let mut solve_result = self.sat.solve();
+        self.charge_embedded_conflicts(conflicts_before);
 
         // Defensive re-verification of an `Unsat` verdict.
         //
@@ -1557,7 +1662,21 @@ impl Theory for BvSolver {
         if matches!(solve_result, SolverResult::Unsat) {
             self.sat.restore_to_trail_size(committed_trail);
             self.sat.forget_learned_since(learned_before);
+            // The re-verification runs on whatever allowance the first solve
+            // left.  If that is nothing, this `solve()` stops at its first
+            // budget poll and returns `Unknown`, which overwrites the `Unsat`
+            // — and that is the intended, honest outcome, not a lost verdict:
+            // the whole reason this block exists is that a first-solve `Unsat`
+            // may rest on a learned clause that resolved through a clause-less
+            // level-0 decision, so an `Unsat` that was never re-verified is
+            // exactly the answer this solver refuses to trust.  Reporting
+            // `Unknown` costs precision; keeping the unverified `Unsat` would
+            // cost soundness.
+            let reverify_allowance = self.remaining_conflict_budget();
+            self.apply_budget_to_embedded(reverify_allowance);
+            let conflicts_before = self.sat.stats().conflicts;
             solve_result = self.sat.solve();
+            self.charge_embedded_conflicts(conflicts_before);
         }
 
         let result = match solve_result {
@@ -1599,6 +1718,9 @@ impl Theory for BvSolver {
             assertions_len: self.assertions.len(),
             guard_terms_len: self.assertion_guard_terms.len(),
             outer_bool_len: self.outer_bool_journal.len(),
+            term_to_bv_len: self.term_to_bv_journal.len(),
+            ult_cache_len: self.ult_cache_journal.len(),
+            bool_node_len: self.bool_node_journal.len(),
         });
         self.sat.push();
     }
@@ -1617,11 +1739,48 @@ impl Theory for BvSolver {
                     };
                 }
             }
+            // Retract every circuit node created above this mark, *before*
+            // `sat.pop()` runs: that call deletes the clauses which define and
+            // pin those nodes, so a surviving cache entry would hand the next
+            // `check()` an unconstrained bit-vector and the encoder's
+            // idempotence guard would never rebuild it (U-Z10).  Rebuilding can
+            // only add constraints relative to the broken behaviour, so this
+            // can turn a wrong `sat` into `unsat`, never a true `sat` into
+            // `unsat`.
+            while self.term_to_bv_journal.len() > mark.term_to_bv_len {
+                if let Some(term) = self.term_to_bv_journal.pop() {
+                    self.term_to_bv.remove(&term);
+                }
+            }
+            while self.ult_cache_journal.len() > mark.ult_cache_len {
+                if let Some(key) = self.ult_cache_journal.pop() {
+                    self.ult_cache.remove(&key);
+                }
+            }
+            while self.bool_node_journal.len() > mark.bool_node_len {
+                if let Some(term) = self.bool_node_journal.pop() {
+                    self.bool_node.remove(&term);
+                }
+            }
             self.sat.pop();
         }
     }
 
     fn reset(&mut self) {
+        // NOTE: the three budget fields (`budget_max_conflicts`,
+        // `budget_deadline`, `conflicts_spent`) are deliberately NOT cleared
+        // here, and this block's "clear everything" shape is exactly why the
+        // omission needs saying out loud.
+        //
+        // `sat.reset()` on the next line zeroes the embedded solver's
+        // `SolverStats`, and `oxiz-solver`'s `Solver::rebase_theory_state`
+        // calls this method once per `(check-sat)` *and* again on every repair
+        // round inside one.  A budget that lived in those statistics would
+        // therefore re-arm in full several times per check, granting the
+        // bit-blaster many times the conflicts the caller asked for.
+        // `conflicts_spent` is the running total that survives, so the
+        // allowance stays a total across the whole check; only
+        // `BvSolver::set_budget` re-arms it.
         self.sat.reset();
         self.term_to_bv.clear();
         self.assertions.clear();
@@ -1634,6 +1793,9 @@ impl Theory for BvSolver {
         self.bool_node.clear();
         self.outer_bool.clear();
         self.outer_bool_journal.clear();
+        self.term_to_bv_journal.clear();
+        self.ult_cache_journal.clear();
+        self.bool_node_journal.clear();
     }
 
     fn get_model(&self) -> Vec<(TermId, TermId)> {
@@ -1645,14 +1807,24 @@ impl Theory for BvSolver {
         //
         // Additionally, each term maps to itself as a self-assignment to
         // record its participation in the model.
+        //
+        // Keyed by `BigUint` rather than `u64`, for the reason
+        // [`Self::extract_model_equalities`] already documents: bit-vectors
+        // wider than 64 bits are fully supported by the bit-blaster, so a `u64`
+        // key needs `1u64 << i` for `i >= 64`, which panics in debug builds and
+        // in release ones ORs bit `i` into bit `i % 64` — silently folding two
+        // *different* wide values onto one key. Since equal keys are what make
+        // two terms share a representative here, such a collision would report
+        // unequal terms as having the same value. Same convention, same reason,
+        // in both functions.
         let model = self.sat.model();
-        let mut value_to_terms: FxHashMap<(u64, u32), Vec<TermId>> = FxHashMap::default();
+        let mut value_to_terms: FxHashMap<(BigUint, u32), Vec<TermId>> = FxHashMap::default();
 
         for (&term, bv_var) in &self.term_to_bv {
-            let mut value = 0u64;
+            let mut value = BigUint::ZERO;
             for (i, &var) in bv_var.bits.iter().enumerate() {
                 if model.get(var.index()).is_some_and(|v| v.is_true()) {
-                    value |= 1u64 << i;
+                    value.set_bit(i as u64, true);
                 }
             }
             // Key by (value, width) so terms of different widths stay separate
@@ -1674,55 +1846,6 @@ impl Theory for BvSolver {
             }
         }
         assignments
-    }
-}
-
-impl TheoryCombination for BvSolver {
-    fn notify_equality(&mut self, eq: EqualityNotification) -> bool {
-        // Check if both terms are relevant to the BV theory
-        let lhs_known = self.term_to_bv.contains_key(&eq.lhs);
-        let rhs_known = self.term_to_bv.contains_key(&eq.rhs);
-
-        if lhs_known && rhs_known {
-            // Both terms are BV variables -- enforce bit-level equality
-            // via SAT encoding and check for consistency
-            self.assert_eq(eq.lhs, eq.rhs);
-            self.equality_notifications.push(eq);
-
-            // After encoding the equality, check if the SAT solver detects
-            // an immediate conflict (e.g., the two BVs were already constrained
-            // to different constant values)
-            match self.sat.solve() {
-                SolverResult::Unsat => {
-                    // The equality is inconsistent with current BV constraints
-                    self.sat.backtrack_to_root();
-                    false
-                }
-                _ => {
-                    // Extract model-based equalities: if two BV terms now have
-                    // the same value in the model, propagate that equality
-                    self.extract_model_equalities();
-                    self.sat.backtrack_to_root();
-                    true
-                }
-            }
-        } else if lhs_known || rhs_known {
-            // One term is a BV term, the other is foreign (shared variable).
-            // Record the notification for later processing.
-            self.equality_notifications.push(eq);
-            true
-        } else {
-            // Neither term is relevant to this theory
-            false
-        }
-    }
-
-    fn get_shared_equalities(&self) -> Vec<EqualityNotification> {
-        self.shared_equalities.clone()
-    }
-
-    fn is_relevant(&self, term: TermId) -> bool {
-        self.term_to_bv.contains_key(&term)
     }
 }
 

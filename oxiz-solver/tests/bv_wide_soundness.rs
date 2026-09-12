@@ -222,3 +222,216 @@ fn mixed_width_bv_op_does_not_abort() {
 ";
     assert_ne!(run_script(script), SolverResult::Unsat);
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// 5. `encode_add_const` must read bit `i >= 64` of a `u64` as zero (U-Z11)
+// ─────────────────────────────────────────────────────────────────────────
+//
+// `oxiz-theories/src/bv/solver.rs::encode_add_const` used to read the bit of
+// its `u64` constant as `((constant >> i) & 1) == 1` with `i` running over the
+// bit-vector width.  Rust's `>>` on a `u64` keeps only the low 6 bits of the
+// shift amount, so for `i >= 64` bit `i` was read as bit `i % 64` (release) or
+// the process aborted with "attempt to shift right with overflow" (debug).
+// All three call sites pass `constant = 1` as the `+1` of a two's-complement
+// negation (`bv_neg`, `bv_sub`, and the `~a + 1` helper), so **every**
+// `bvsub`/`bvneg` circuit wider than 64 bits was blasted against
+// `1 + 2^64 + 2^128 + …`.
+//
+// That does not merely weaken the circuit — it encodes a *different* formula,
+// so it fabricated wrong `sat` answers **and wrong `unsat` proofs**.  Measured
+// on the unmodified 0.3.4 tree (`p2-oxiz-034/report.md` §6.1/§6.2, re-measured
+// for this suite at widths 65, 96 and 128 — all twelve rows below were wrong
+// at every one of the three widths):
+//
+// | property below                       | correct | 0.3.3/0.3.4 answered |
+// |--------------------------------------|---------|----------------------|
+// | `(x + x) - x = x`                     | `unsat` | **`sat`**            |
+// | `(x + y) - y = x`                     | `unsat` | **`sat`**            |
+// | `x = 0 ∧ (x + x) - x = 0`             | `sat`   | **`unsat`** (proof!) |
+// | `x = 0 ∧ -x = 0`                      | `sat`   | **`unsat`** (proof!) |
+// | `a = b ∧ a - b = 0`                   | `sat`   | **`unsat`** (proof!) |
+// | `x = 0 ∧ (x + x) - x = 2^64`          | `unsat` | **`sat`**            |
+// | `a >=u b ∧ ¬(a - b <=u a)`            | `unsat` | **`sat`**            |
+//
+// The three widths are 65 (one bit past the boundary), 96 (a non-multiple of
+// 64) and 128 (`u128`, the width cargo-formal's encoder emits for `u128`/`i128`
+// Rust code).  Width 64 was correct throughout and stays as the control.
+
+/// Widths exercised by the `encode_add_const` group: just past the `u64`
+/// boundary, a non-multiple of 64, and `u128`.
+const WIDE_WIDTHS: [u32; 3] = [65, 96, 128];
+
+/// `2^64`, the first value a `u64` cannot hold — the bit the broken shift
+/// injected.
+const TWO_POW_64: &str = "18446744073709551616";
+
+/// `(not (= (bvsub (bvadd x x) x) x))` — the negation of an identity, so
+/// `unsat` at every width.  0.3.3/0.3.4: `sat` at 65, 96 and 128.
+#[test]
+fn wide_sub_of_add_is_identity_above_64_bits() {
+    for w in WIDE_WIDTHS {
+        let script = format!(
+            "(set-logic QF_BV)\n\
+             (declare-const x (_ BitVec {w}))\n\
+             (assert (not (= (bvsub (bvadd x x) x) x)))\n\
+             (check-sat)\n"
+        );
+        assert_eq!(
+            run_script(&script),
+            SolverResult::Unsat,
+            "(x + x) - x = x must hold at width {w}"
+        );
+    }
+}
+
+/// The two-variable form `(not (= (bvsub (bvadd x y) y) x))`, so the result is
+/// not reachable by folding a repeated operand.  0.3.3/0.3.4: `sat` at 65, 96
+/// and 128.
+#[test]
+fn wide_sub_of_add_two_vars_is_identity_above_64_bits() {
+    for w in WIDE_WIDTHS {
+        let script = format!(
+            "(set-logic QF_BV)\n\
+             (declare-const x (_ BitVec {w}))\n\
+             (declare-const y (_ BitVec {w}))\n\
+             (assert (not (= (bvsub (bvadd x y) y) x)))\n\
+             (check-sat)\n"
+        );
+        assert_eq!(
+            run_script(&script),
+            SolverResult::Unsat,
+            "(x + y) - y = x must hold at width {w}"
+        );
+    }
+}
+
+/// `x = 0 ∧ (x + x) - x = 0` is satisfiable at `x = 0`.  0.3.3/0.3.4 answered
+/// **`unsat`** at 65, 96 and 128 — a fabricated proof (report §6.2 W1): the
+/// corrupted circuit forces the subtraction to `2^64`.
+#[test]
+fn wide_zero_sub_of_add_is_satisfiable_above_64_bits() {
+    for w in WIDE_WIDTHS {
+        let script = format!(
+            "(set-logic QF_BV)\n\
+             (declare-const x (_ BitVec {w}))\n\
+             (assert (= x (_ bv0 {w})))\n\
+             (assert (= (bvsub (bvadd x x) x) (_ bv0 {w})))\n\
+             (check-sat)\n"
+        );
+        assert_eq!(
+            run_script(&script),
+            SolverResult::Sat,
+            "x = 0 must satisfy (x + x) - x = 0 at width {w}"
+        );
+    }
+}
+
+/// `x = 0 ∧ -x = 0` is satisfiable at `x = 0`.  0.3.3/0.3.4 answered
+/// **`unsat`** at 65, 96 and 128 (report §6.2 W4) — `bvneg` is the second call
+/// site of the broken constant.
+#[test]
+fn wide_neg_of_zero_is_zero_above_64_bits() {
+    for w in WIDE_WIDTHS {
+        let script = format!(
+            "(set-logic QF_BV)\n\
+             (declare-const x (_ BitVec {w}))\n\
+             (assert (= x (_ bv0 {w})))\n\
+             (assert (= (bvneg x) (_ bv0 {w})))\n\
+             (check-sat)\n"
+        );
+        assert_eq!(
+            run_script(&script),
+            SolverResult::Sat,
+            "-0 = 0 must be satisfiable at width {w}"
+        );
+    }
+}
+
+/// `a = b ∧ a - b = 0`, the ordinary "two equal values have zero difference"
+/// shape.  0.3.3/0.3.4 answered **`unsat`** at 65, 96 and 128 (report §6.2 v3
+/// at 128) — in cargo-formal's verdict mapping that is a silent `proved`.
+#[test]
+fn wide_equal_operands_have_zero_difference_above_64_bits() {
+    for w in WIDE_WIDTHS {
+        let script = format!(
+            "(set-logic QF_BV)\n\
+             (declare-const a (_ BitVec {w}))\n\
+             (declare-const b (_ BitVec {w}))\n\
+             (assert (= a b))\n\
+             (assert (= (bvsub a b) (_ bv0 {w})))\n\
+             (check-sat)\n"
+        );
+        assert_eq!(
+            run_script(&script),
+            SolverResult::Sat,
+            "a = b ∧ a - b = 0 must be satisfiable at width {w}"
+        );
+    }
+}
+
+/// The direct confirmation of the mechanism: asserting the *corrupted* value
+/// `2^64` for `(x + x) - x` at `x = 0` must be `unsat`.  0.3.3/0.3.4 answered
+/// **`sat`** at 65, 96 and 128 (report §6.2 W2), which is what pins the wrong
+/// value the broken constant produced.
+#[test]
+fn wide_sub_of_add_is_not_two_pow_64_above_64_bits() {
+    for w in WIDE_WIDTHS {
+        let script = format!(
+            "(set-logic QF_BV)\n\
+             (declare-const x (_ BitVec {w}))\n\
+             (assert (= x (_ bv0 {w})))\n\
+             (assert (= (bvsub (bvadd x x) x) (_ bv{TWO_POW_64} {w})))\n\
+             (check-sat)\n"
+        );
+        assert_eq!(
+            run_script(&script),
+            SolverResult::Unsat,
+            "(x + x) - x must be 0, not 2^64, at x = 0 and width {w}"
+        );
+    }
+}
+
+/// A realistic verification condition: "subtracting a smaller unsigned value
+/// never grows it", i.e. `a >=u b ⇒ a - b <=u a`.  Negated it must be `unsat`.
+/// 0.3.3/0.3.4 answered **`sat`** at 65, 96 and 128 (report §6.2 v1 at 128),
+/// i.e. it handed back a bogus counterexample to a true `u128` VC.
+#[test]
+fn wide_unsigned_subtraction_no_underflow_vc_above_64_bits() {
+    for w in WIDE_WIDTHS {
+        let script = format!(
+            "(set-logic QF_BV)\n\
+             (declare-const a (_ BitVec {w}))\n\
+             (declare-const b (_ BitVec {w}))\n\
+             (assert (bvuge a b))\n\
+             (assert (not (bvule (bvsub a b) a)))\n\
+             (check-sat)\n"
+        );
+        assert_eq!(
+            run_script(&script),
+            SolverResult::Unsat,
+            "a >=u b implies a - b <=u a at width {w}"
+        );
+    }
+}
+
+/// Width 64 is the control: it was correct before the fix and must stay
+/// correct.  One row of each direction.
+#[test]
+fn width_64_control_group_is_unchanged() {
+    let identity = "\
+(set-logic QF_BV)
+(declare-const x (_ BitVec 64))
+(assert (not (= (bvsub (bvadd x x) x) x)))
+(check-sat)
+";
+    assert_eq!(run_script(identity), SolverResult::Unsat);
+
+    let zero_sub = "\
+(set-logic QF_BV)
+(declare-const x (_ BitVec 64))
+(assert (= x (_ bv0 64)))
+(assert (= (bvsub (bvadd x x) x) (_ bv0 64)))
+(check-sat)
+";
+    assert_eq!(run_script(zero_sub), SolverResult::Sat);
+}

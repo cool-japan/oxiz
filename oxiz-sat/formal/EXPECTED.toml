@@ -1,0 +1,182 @@
+# Machine-readable mirror of the "Measured L1 verdict" doc comment on every
+# `#[harness]` entry point in this package, in exactly the format
+# `cargo-formal`'s own `examples/checked-arith/EXPECTED.toml` uses.
+#
+# **MEASURED, not predicted** (2026-09-08/09, release `cargo-formal` 0.1.0 CLI
+# + release `formal-driver` with dependency-body and monomorphic-instance
+# lowering, OxiZ 0.3.3, rustc `nightly-2026-06-20`). The harnesses call the
+# public API of `oxiz-sat` by path (`..`);
+# `[package.metadata.formal] dep-crates` names that one crate, and the run
+# lowered 19 dependency bodies (all 19 reachable) and 0 monomorphic instances
+# into the verification conditions. No verdict below was written before the run
+# that produced it.
+#
+# Two versions of one file. The harnesses verify
+# `oxiz-sat/src/literal.rs` **of this working tree**, which carries the Phase 2b
+# fix (`Var::MAX_INDEX`, the `debug_assert!`s, the checked `to_dimacs`,
+# `try_to_dimacs`). The solver that decides them is crates.io OxiZ `=0.3.3`,
+# whose own embedded SAT core still carries the *unfixed* copy of that same
+# file. `README.md` states what that does and does not license.
+#
+# Naming. A property key is the word the **encoder actually mints**, never a
+# description:
+#
+#   * a user-written `oxiformal::assert(..)` is `assert`; a second distinct
+#     assertion raised at the *same* source site is `assert-2`, a third
+#     `assert-3`, and so on.
+#   * an `#[ensures]` clause checked through `#[proof_for_contract]` is
+#     `ensures`, and is reported under layer `contract`. This package has none.
+#   * everything else is the design section 9 closed vocabulary MIR's own
+#     inserted checks produce: `arith-overflow`, `shift-overflow`,
+#     `bounds-check`, `division-by-zero`, `remainder-by-zero`,
+#     `division-overflow`, `neg-overflow`, `unwrap`, `expect`, `panic`,
+#     `slice-range`, `unwinding-assertion`. A bare `debug_assert!` with no
+#     format arguments lowers to `core::panicking::panic`, so its key is
+#     `panic`, not `assert` -- which is why the two refutations below are
+#     `panic` rows.
+#   * the pseudo-key `harness` is a **whole-harness** verdict and nothing else:
+#     `"proved"` means "no obligation of this harness is anything but proved"
+#     (including a harness that raises none at all), and `"unsupported"` covers
+#     both `Verdict::Unsupported` and `Verdict::Unverifiable`. This package
+#     needs it nowhere: every harness encodes.
+#
+# What is listed. Every obligation the harness is *about* -- its `assert`s,
+# plus every `panic` row (six harnesses have one; five of those rows come from
+# a `debug_assert!` and one from `to_dimacs`'s unconditional panic, and both
+# refutations are among them) -- and every incidental MIR-inserted check whose
+# verdict is **not** `proved` (there are none: the three `unknown`s are
+# `assert` rows).
+# The `neg-overflow` rows of the three DIMACS harnesses are listed although
+# they are incidental and proved, because the pre-fix twin vendored into
+# cargo-formal as `examples/ecosystem/oxiz-sat-lit` measures the one on
+# `dimacs_negation_harness` as `refuted`; that contrast is the point of this
+# package. Other incidental checks that came out `proved` (`arith-overflow`,
+# `shift-overflow`) are
+# deliberately not enumerated: they are numerous, they carry no information,
+# and listing them would make this file a copy of `report.json` rather than a
+# statement of intent.
+#
+# Keying rule. `[harness.expected]` is a map, so several obligations of one
+# harness that carry the same property name at *different* source sites share
+# one row. The row records the **worst** of their verdicts (`refuted` >
+# `timeout` > `unknown` > `unsupported`/`unverifiable` > `proved`), and a row
+# comment says how many sites there are and how the others came out. Two rows
+# in this file use that rule and disagree across their sites, and both say so:
+# `dimacs_negation_harness`'s `panic` (2 sites, 1 refuted / 1 proved) and
+# `lbool_negate_involution_harness`'s `assert` (8 sites, 5 proved / 3 unknown).
+#
+# Measured tally (2026-09-09): 18 property rows over 9 harnesses --
+# 15 proved / 2 refuted / 1 unknown. The run's own layer counters, which
+# include the incidental `proved` rows this file does not enumerate, are:
+# bmc 65 proved / 2 refuted / 3 unknown / 0 timeout / 0 unsupported /
+# 0 unverifiable over 70 obligations, every one of them backed by a
+# `vc/NNNN.smt2` reproduction, and contract 0 proved / 0 refuted. Hygiene
+# passes with 0 errors, 0 warnings and 0 notes over 2 files and 0 `unsafe`
+# sites. The audit layer's `unverifiable` histogram is **empty**: nothing in
+# the 19 lowered dependency bodies is refused for a reason at all.
+#
+# `solver-model-rejected` count: **3**, all three of them `assert` sites of
+# `lbool_negate_involution_harness`. cargo-formal is pinned to OxiZ 0.3.3,
+# whose Boolean-structure-over-bit-vector queries can return a model that does
+# not satisfy the verification condition (upstream item U-Z10); cargo-formal's
+# mandatory model check refuses such a model, so the answer is `unknown` and
+# never a `refuted` with an invented witness. Those three rows are the only
+# ones in this file that can move when the pin advances to the OxiZ release
+# carrying the Phase 2b fixes -- and the fix that would move them is in the
+# same working tree as the code under test. `README.md` section "Self-host"
+# spells that out; it is measured that the rows are *not* sensitive to how the
+# harness is spelled (two re-spellings were tried; see the harness doc
+# comment).
+
+[[harness]]
+name = "lit_pos_roundtrip_bounded_harness"
+
+[harness.expected]
+"assert" = "proved"  # 5 sites, all proved
+# The `debug_assert!`s of `Var::new` (`../src/literal.rs:36`) and `Lit::pos`
+# (`:61`) share one obligation: both expand at the same `core` macro site.
+"panic" = "proved"
+
+[[harness]]
+name = "lit_neg_roundtrip_bounded_harness"
+
+[harness.expected]
+"assert" = "proved"  # 5 sites, all proved
+"panic" = "proved"   # `Var::new` + `Lit::neg` + `Lit::pos` debug assertions
+
+[[harness]]
+name = "lit_pos_roundtrip_unbounded_harness"
+
+[harness.expected]
+# `debug_assert!(var.0 <= Var::MAX_INDEX)` at `../src/literal.rs:61`;
+# counterexample index = 4294967295 (`u32::MAX`). The smallest witness is
+# `Var::MAX_INDEX + 1`; `plain_tests` runs both.
+"panic" = "refuted"
+# The round trip itself is proved, not refuted: the encoder raises the
+# assertion as its own obligation and continues along the edge where it holds,
+# so `Lit::var` inverts `Lit::pos` for every index the constructor now accepts.
+"assert" = "proved"
+"shift-overflow" = "proved"  # 2 sites; `var.0 << 1` is in range on that edge
+
+[[harness]]
+name = "lit_negate_involution_harness"
+
+[harness.expected]
+"assert" = "proved"  # 4 sites, all proved
+
+[[harness]]
+name = "lit_code_roundtrip_harness"
+
+[harness.expected]
+"assert" = "proved"  # 3 sites, all proved
+
+[[harness]]
+name = "dimacs_roundtrip_harness"
+
+[harness.expected]
+"assert" = "proved"  # 3 sites, all proved
+# 2 sites, both proved: `from_dimacs`'s `debug_assert!` (`:89`) is discharged
+# by the two `assume`s, and `to_dimacs`'s unconditional panic (`:113`) is
+# unreachable on that edge.
+"panic" = "proved"
+# `-magnitude` in `try_to_dimacs` (`:129`). Proved here and (unlisted, because
+# proved) in the vendored pre-fix twin too: both `assume`s keep the index
+# inside the bound. The before/after contrast lives on
+# `dimacs_negation_harness`, which drops the second `assume`.
+"neg-overflow" = "proved"
+
+[[harness]]
+name = "dimacs_negation_harness"
+
+[harness.expected]
+# 2 sites and they disagree. Refuted: `from_dimacs`'s
+# `debug_assert!(lit != 0 && lit != i32::MIN)` (`../src/literal.rs:89`),
+# counterexample dimacs = -2147483648 (`i32::MIN`). Proved: `to_dimacs`'s own
+# unconditional panic (`:113`), which no public constructor can reach.
+"panic" = "refuted"
+# Proved here, `refuted` in the vendored pre-fix twin: this is the overflow the
+# upstream fix removed, and the refutation moved to the `panic` row above.
+"neg-overflow" = "proved"
+
+[[harness]]
+name = "try_to_dimacs_is_total_harness"
+
+[harness.expected]
+"assert" = "proved"  # 5 sites, all proved
+# The `from_dimacs` round trip inside the `Some` arm. This row was `unknown`
+# (`solver-model-rejected`) until the harness was strengthened with an explicit
+# `assert(dimacs != i32::MIN)`; see the harness doc comment.
+"panic" = "proved"
+"neg-overflow" = "proved"
+
+[[harness]]
+name = "lbool_negate_involution_harness"
+
+[harness.expected]
+# 8 sites, 5 proved / 3 unknown, so the row is `unknown` under the keying rule.
+# The three undecided ones are the negation identities (`src/harness.rs:330`,
+# `:331`, `:332`), all `solver-model-rejected`: OxiZ 0.3.3 returned a model
+# that does not satisfy the verification condition and cargo-formal's model
+# check refused it. Not spelling-sensitive -- two re-spellings were measured,
+# one strictly worse and one identical.
+"assert" = "unknown"

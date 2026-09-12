@@ -1,0 +1,66 @@
+# Standalone package: deliberately its own `[workspace]` so it is NOT a member
+# of the `oxiz` root workspace. It depends on the real `oxiz-sat` crate by
+# relative path and on `oxiformal` by relative path, and it is built and
+# verified on its own (`cargo build`, `cargo test`, `cargo formal check`).
+#
+# Nothing outside this directory belongs to this package: its `target/` and its
+# `Cargo.lock` are ignored by `formal/.gitignore` (load-bearing here -- the
+# repository root `.gitignore` anchors its `Cargo.lock` rule to the root), and
+# the root workspace never sees it (a nested package that declares its own
+# `[workspace]` is invisible to the parent, and the root manifest has no
+# globbed `members` entry).
+[workspace]
+
+[package]
+name = "oxiz-sat-formal"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "cargo-formal self-host harnesses over oxiz-sat's public Lit/Var/LBool API, with measured L1 verdicts"
+
+[dependencies]
+# The real crate, by relative path. `default-features = false` **alone does not
+# compile**: `oxiz-sat`'s `no_std` path is broken upstream (18 errors, measured
+# 2026-09-08 by the wave-0 probe), so `std` is mandatory rather than a choice.
+oxiz-sat = { path = "..", default-features = false, features = ["std"] }
+# Becomes a crates.io version once `oxiformal` is published; a relative path to
+# the cargo-formal checkout beside this repository until then.
+oxiformal = { path = "../../../cargo-formal/crates/oxiformal" }
+
+[package.metadata.formal]
+schema = 1
+default-layers = ["hygiene", "bmc", "contract"]
+# Every harness here is loop-free: `Lit`, `Var` and `LBool` are shift/mask
+# arithmetic over one `u32`. 4 is enough for the `unwinding-assertion`s the
+# encoder inserts anyway, and there is nothing for a larger bound to buy.
+unwind = 4
+budget = { max-conflicts = 200000, timeout-ms = 30000, seed = 1 }
+# `oxiz-sat` is the SAT core of the solver `cargo-formal` itself calls, so this
+# package verifies part of its own verifier's trusted computing base. See
+# `README.md` for what that does and does not mean.
+self-host = true
+# Explicit, not the cargo-formal default (which would be "every path
+# dependency"): the default would also sweep in `oxiz-core` and `oxiz-time`,
+# whose bodies no harness here reaches.
+dep-crates = ["oxiz-sat"]
+
+[[package.metadata.formal.target]]
+path = "src/lib.rs"
+layers = ["hygiene", "bmc", "contract"]
+
+[lints.rust]
+unsafe_code = "forbid"
+# `formal` is set by the `cargo-formal` driver build; `oxiformal_runtime_checks`
+# is set via RUSTFLAGS for the randomized-execution build. Declared here so
+# `unexpected_cfgs` stays quiet in all three builds (see the crate's module
+# docs for what each build proves).
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(formal)', 'cfg(oxiformal_runtime_checks)'] }
+
+[lints.clippy]
+unwrap_used = "deny"
+
+[profile.dev]
+# Left at the Rust default (`debug-assertions = true`, and with it
+# `overflow-checks = true`): the whole point of the
+# `RUSTFLAGS="--cfg oxiformal_runtime_checks" cargo test` build is that the
+# `debug_assert!`s the L1 encoder reports as refuted really do panic there.

@@ -663,12 +663,20 @@ impl Context {
                     format!("(/ {} {})", r.numer(), r.denom())
                 }
             }
-            Some(TermKind::BitVecConst { value, width }) => {
-                format!(
-                    "#b{:0>width$}",
-                    format!("{:b}", value),
-                    width = *width as usize
-                )
+            // A bit-vector value obeys one radix rule everywhere (U-Z13): `#x`
+            // with `width / 4` hex digits when the width is a multiple of
+            // four, `#b` with exactly `width` binary digits otherwise.  The
+            // rule lives in the shared SMT-LIB printer, so this arm delegates
+            // rather than restating it — the hand-rolled `format!("#b..")`
+            // that used to sit here printed `#b` at *every* width, so the very
+            // same 8-bit constant came back as `#x05` from `(get-value)` (which
+            // reaches the shared printer) and as `#b00000101` from
+            // `(get-model)`.  Delegating also picks up the printer's unsigned
+            // wrap, so a value the BV theory hands back outside `[0, 2^width)`
+            // no longer prints as `#b-101`.
+            Some(TermKind::BitVecConst { .. }) => {
+                let printer = oxiz_core::smtlib::Printer::new(&self.terms);
+                printer.print_term(term)
             }
             // Floating-point constants, array store/const-array chains, string
             // literals and datatype constructor applications are structured
@@ -763,8 +771,17 @@ impl Context {
                     // value; the old `?` fallback was not valid SMT-LIB
                     // output at all.
                     SortKind::String => break "\"\"".to_string(),
+                    // The all-zero bit-vector, spelled by the shared SMT-LIB
+                    // printer so that an *unconstrained* constant and an
+                    // assigned one come back in the same radix.  This path
+                    // holds `&self` and so cannot intern the constant term
+                    // `Printer::print_term` would need, which is why it calls
+                    // the value-level entry point rather than the printer;
+                    // the radix rule itself lives in exactly one place
+                    // (`oxiz_core::smtlib::format_bitvec_literal`) and is
+                    // documented there.
                     SortKind::BitVec(w) => {
-                        break format!("#b{:0>width$}", "0", width = *w as usize);
+                        break oxiz_core::smtlib::format_bitvec_literal(&BigInt::zero(), *w);
                     }
                     // Positive zero is a canonical, valid ground FP value.
                     SortKind::FloatingPoint { eb, sb } => break format!("(_ +zero {eb} {sb})"),
@@ -1172,7 +1189,10 @@ mod tests {
         assert_eq!(ctx.default_value(int_sort), "0");
         assert_eq!(ctx.default_value(real_sort), "0.0");
         assert_eq!(ctx.default_value(string_sort), "\"\"");
-        assert_eq!(ctx.default_value(bv8), "#b00000000");
+        // U-Z13: a width divisible by four prints `#x`, matching what the
+        // shared printer answers for the same value through `(get-value)`.
+        // 0.3.3/0.3.4 answered `#b00000000` here.
+        assert_eq!(ctx.default_value(bv8), "#x00");
         assert_eq!(ctx.default_value(f32_sort), "(_ +zero 8 24)");
 
         let spur = ctx.terms.intern_str("Widget");

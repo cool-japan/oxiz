@@ -35,7 +35,7 @@ fn test_mul_add_no_ult() {
     solver.bv_add(sum, product, remainder);
 
     // sum == 100
-    solver.assert_eq(sum, target);
+    assert!(solver.assert_eq(sum, target));
 
     // NO ULT constraint
 
@@ -80,10 +80,10 @@ fn test_add_ult_unknowns() {
     solver.bv_add(sum, a, b);
 
     // sum == 100
-    solver.assert_eq(sum, target);
+    assert!(solver.assert_eq(sum, target));
 
     // a < b
-    solver.assert_ult(a, b);
+    assert!(solver.assert_ult(a, b));
 
     match solver.check() {
         Ok(oxiz_theories::TheoryCheckResult::Sat) => {
@@ -130,10 +130,10 @@ fn test_mul_ult_no_add() {
     solver.bv_mul(product, five, divisor);
 
     // product == 100 (so divisor = 20)
-    solver.assert_eq(product, target);
+    assert!(solver.assert_eq(product, target));
 
     // remainder < divisor (remainder is otherwise unconstrained)
-    solver.assert_ult(remainder, divisor);
+    assert!(solver.assert_ult(remainder, divisor));
 
     match solver.check() {
         Ok(oxiz_theories::TheoryCheckResult::Sat) => {
@@ -182,10 +182,10 @@ fn test_add_ult_product_fixed() {
     solver.bv_add(sum, product, remainder);
 
     // sum == 100 => remainder = 0
-    solver.assert_eq(sum, target);
+    assert!(solver.assert_eq(sum, target));
 
     // remainder < divisor => 0 < divisor
-    solver.assert_ult(remainder, divisor);
+    assert!(solver.assert_ult(remainder, divisor));
 
     match solver.check() {
         Ok(oxiz_theories::TheoryCheckResult::Sat) => {
@@ -249,10 +249,10 @@ fn test_all_three_two_unknowns() {
     solver.bv_add(s, p, r);
 
     // s == 100
-    solver.assert_eq(s, target);
+    assert!(solver.assert_eq(s, target));
 
     // r < d
-    solver.assert_ult(r, d);
+    assert!(solver.assert_ult(r, d));
 
     // At this point, we need: 5*d + r = 100 with r < d
     // Valid solutions:

@@ -58,7 +58,7 @@ fn test_empty_conflict_fixed_with_guard_terms() {
     // x = 5, y = 5, x != y — UNSAT
     solver.assert_const(x, 5, 4);
     solver.assert_const(y, 5, 4);
-    solver.assert_neq(x, y);
+    assert!(solver.assert_neq(x, y));
 
     // Simulate what TheoryManager does: record the constraint TermId
     let guard = TermId::new(99);
@@ -92,7 +92,7 @@ fn test_conflict_clause_contains_all_guard_terms() {
     // a = 100, b = 200, a = b — UNSAT
     solver.assert_const(a, 100, 8);
     solver.assert_const(b, 200, 8);
-    solver.assert_eq(a, b);
+    assert!(solver.assert_eq(a, b));
 
     let guard1 = TermId::new(101);
     let guard2 = TermId::new(102);
@@ -124,7 +124,7 @@ fn test_sat_case_unaffected() {
     solver.new_bv(y, 8);
 
     solver.assert_const(x, 42, 8);
-    solver.assert_eq(x, y);
+    assert!(solver.assert_eq(x, y));
 
     let guard = TermId::new(99);
     solver.record_constraint_term(guard);
@@ -339,7 +339,7 @@ fn test_assert_neq_self_is_unsat() {
     let x = TermId::new(1);
     solver.new_bv(x, 8);
 
-    solver.assert_neq(x, x);
+    assert!(solver.assert_neq(x, x));
 
     match solver.check().expect("check should not error") {
         TheoryCheckResult::Unsat(_) => {}
@@ -356,7 +356,7 @@ fn test_assert_neq_distinct_is_sat() {
     solver.new_bv(x, 8);
     solver.new_bv(y, 8);
 
-    solver.assert_neq(x, y);
+    assert!(solver.assert_neq(x, y));
 
     match solver.check().expect("check should not error") {
         TheoryCheckResult::Sat => {}
@@ -375,7 +375,7 @@ fn test_assert_neq_with_equal_consts_is_unsat() {
 
     solver.assert_const(x, 5, 8);
     solver.assert_const(y, 5, 8);
-    solver.assert_neq(x, y);
+    assert!(solver.assert_neq(x, y));
 
     match solver.check().expect("check should not error") {
         TheoryCheckResult::Unsat(_) => {}
@@ -394,7 +394,7 @@ fn test_assert_ule_reflexive_is_sat() {
     let x = TermId::new(1);
     solver.new_bv(x, 8);
 
-    solver.assert_ule(x, x);
+    assert!(solver.assert_ule(x, x));
 
     match solver.check().expect("check should not error") {
         TheoryCheckResult::Sat => {}
@@ -411,8 +411,8 @@ fn test_assert_ule_with_reverse_ult_is_unsat() {
     solver.new_bv(x, 8);
     solver.new_bv(y, 8);
 
-    solver.assert_ule(x, y);
-    solver.assert_ult(y, x);
+    assert!(solver.assert_ule(x, y));
+    assert!(solver.assert_ult(y, x));
 
     match solver.check().expect("check should not error") {
         TheoryCheckResult::Unsat(_) => {}
@@ -429,8 +429,8 @@ fn test_assert_ule_both_directions_is_sat() {
     solver.new_bv(x, 8);
     solver.new_bv(y, 8);
 
-    solver.assert_ule(x, y);
-    solver.assert_ule(y, x);
+    assert!(solver.assert_ule(x, y));
+    assert!(solver.assert_ule(y, x));
 
     match solver.check().expect("check should not error") {
         TheoryCheckResult::Sat => {}
@@ -449,7 +449,7 @@ fn test_assert_ule_violated_by_consts_is_unsat() {
 
     solver.assert_const(x, 7, 8);
     solver.assert_const(y, 3, 8);
-    solver.assert_ule(x, y);
+    assert!(solver.assert_ule(x, y));
 
     match solver.check().expect("check should not error") {
         TheoryCheckResult::Unsat(_) => {}
@@ -468,7 +468,7 @@ fn test_assert_ule_satisfied_by_consts_is_sat() {
 
     solver.assert_const(x, 3, 8);
     solver.assert_const(y, 7, 8);
-    solver.assert_ule(x, y);
+    assert!(solver.assert_ule(x, y));
 
     match solver.check().expect("check should not error") {
         TheoryCheckResult::Sat => {}
@@ -507,7 +507,7 @@ fn test_incremental_mul_aux_diseq_then_const_is_sat() {
     solver.bv_mul(prod, x, three);
     solver.new_bv(aux, 4);
     // aux = prod
-    solver.assert_eq(aux, prod);
+    assert!(solver.assert_eq(aux, prod));
 
     // Probe 1: aux = x*3 is satisfiable on its own.
     match solver.check().expect("check should not error") {
@@ -516,7 +516,7 @@ fn test_incremental_mul_aux_diseq_then_const_is_sat() {
     }
 
     // Probe 2: add aux != x — still satisfiable.
-    solver.assert_neq(aux, x);
+    assert!(solver.assert_neq(aux, x));
     match solver.check().expect("check should not error") {
         TheoryCheckResult::Sat => {}
         other => panic!("Expected SAT after adding aux!=x, got {:?}", other),
@@ -549,7 +549,7 @@ fn test_incremental_mul_aux_unreachable_const_is_unsat() {
     solver.new_bv(prod, 4);
     solver.bv_mul(prod, x, four);
     solver.new_bv(aux, 4);
-    solver.assert_eq(aux, prod);
+    assert!(solver.assert_eq(aux, prod));
 
     // Probe 1: satisfiable on its own.
     match solver.check().expect("check should not error") {
@@ -599,7 +599,7 @@ fn test_repeated_check_keeps_comparator_refutation() {
     solver.new_bv(y, 8);
     solver.assert_const(x, 5, 8);
     solver.assert_const(y, 3, 8);
-    solver.assert_ult(x, y);
+    assert!(solver.assert_ult(x, y));
 
     for probe in 0..5 {
         match solver.check().expect("check should not error") {

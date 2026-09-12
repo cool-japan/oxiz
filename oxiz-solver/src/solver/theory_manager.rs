@@ -11,11 +11,12 @@ use oxiz_theories::euf::EufSolver;
 use oxiz_theories::{EqualityNotification, Theory, TheoryCombination};
 use smallvec::SmallVec;
 
-use super::theory_bv_encode::{debug_verify_bv_circuits, encode_bv_term_recursive};
+use super::theory_bv_encode::encode_bv_term_recursive;
 use super::types::{
     ArithConstraintType, Constraint, ParsedArithConstraint, Statistics, TheoryMode,
 };
 
+mod bv_bridge;
 mod conflict_clause;
 mod derived_reasons;
 mod intern;
@@ -223,13 +224,36 @@ pub(crate) struct TheoryManager<'a> {
     /// exists so that the *release* build degrades to `Unknown` instead of
     /// emitting the empty clause, which claims an unconditional refutation.
     unjustified_conflict: bool,
-    /// Wall-clock deadline for this solve, derived from `timeout_ms`.  `None`
-    /// means no timeout.  Checked in the theory callbacks so a single
-    /// uninterruptible `solve_with_theory` call cannot run past the budget:
-    /// once the deadline passes we set `resource_exhausted` and stop reporting
-    /// conflicts, forcing the search to terminate; the owning `Solver` then
-    /// answers `Unknown`.
-    #[cfg(feature = "std")]
+    /// Set to `true` when a bit-vector atom reached the BV dispatch but no
+    /// `assert_*` ever reached the bit-blasted circuit — `BvSolver` refused the
+    /// pair (operands not bit-blasted, or of unequal width), or the atom's
+    /// `Constraint` kind has no BV encoding.  The atom then survives as a *free*
+    /// Boolean: `BvSolver::check()`'s `Sat` says nothing about it, `final_check`
+    /// never re-checks the BV solver, and the model gate cannot evaluate
+    /// bit-vectors — so an overall `Sat` would rest on an abstraction, which is
+    /// how U-Z10's sibling family (`(> bv bv)`, whose `Constraint::Gt` had no arm
+    /// at all) produced a wrong `sat`.  Read through
+    /// [`Self::resource_exhausted`] so the owning `Solver` answers `Unknown`
+    /// instead.  `Unsat` stays sound: dropping information can only lose
+    /// refutations, never manufacture one.
+    bv_atom_unmodelled: bool,
+    /// Wall-clock deadline for this solve.  `None` means no timeout.  Checked
+    /// in the theory callbacks so a single uninterruptible `solve_with_theory`
+    /// call cannot run past the budget: once the deadline passes we set
+    /// `resource_exhausted` and stop reporting conflicts, forcing the search to
+    /// terminate; the owning `Solver` then answers `Unknown`.
+    ///
+    /// Computed **once** by `check_core`, from `SolverConfig::timeout_ms`, and
+    /// handed to every `TheoryManager` it builds — including the ones it
+    /// rebuilds for a case-split, array-lemma or MBQI refinement round.  It used
+    /// to be derived here, from `timeout_ms`, which re-read the clock on every
+    /// construction and silently granted a script with `N` refinement rounds
+    /// `N * timeout_ms`.
+    ///
+    /// Not `cfg`-gated on `std`: `oxiz_time::Instant` exists on every target,
+    /// and where no clock does the frozen stub makes the comparison a
+    /// documented no-op — the same behaviour the `#[cfg(not(feature = "std"))]`
+    /// arm of `timed_out` used to hand-roll.
     deadline: Option<oxiz_time::Instant>,
     /// Latest SAT-assignment polarity of each theory-atom variable
     /// (`true` = atom assigned true, `false` = assigned false).  Recorded in
@@ -321,16 +345,8 @@ impl<'a> TheoryManager<'a> {
         has_bv_arith_ops: bool,
         has_quantifiers: bool,
         quantifier_uf_funcs: &'a FxHashSet<oxiz_core::interner::Spur>,
-        timeout_ms: u64,
+        deadline: Option<oxiz_time::Instant>,
     ) -> Self {
-        #[cfg(feature = "std")]
-        let deadline = if timeout_ms > 0 {
-            oxiz_time::Instant::now().checked_add(core::time::Duration::from_millis(timeout_ms))
-        } else {
-            None
-        };
-        #[cfg(not(feature = "std"))]
-        let _ = timeout_ms;
         Self {
             manager,
             euf,
@@ -359,8 +375,8 @@ impl<'a> TheoryManager<'a> {
             bool_true_node: None,
             bool_false_node: None,
             resource_exhausted: false,
+            bv_atom_unmodelled: false,
             unjustified_conflict: false,
-            #[cfg(feature = "std")]
             deadline,
             assigned_pol_gen: Vec::new(),
             assigned_pol_val: Vec::new(),
@@ -400,28 +416,26 @@ impl<'a> TheoryManager<'a> {
     }
 
     /// Returns `true` once the configured wall-clock deadline has passed.
-    /// Always `false` when no timeout was set or in `no_std` builds (no clock).
+    /// Always `false` when no timeout was set, and on a target whose clock is
+    /// frozen (`wasm32-unknown-unknown` / `no_std`), where `Instant::now()` is
+    /// a constant t = 0 and can never reach a deadline built from it.
     #[inline]
     fn timed_out(&self) -> bool {
-        #[cfg(feature = "std")]
-        {
-            match self.deadline {
-                Some(d) => oxiz_time::Instant::now() >= d,
-                None => false,
-            }
-        }
-        #[cfg(not(feature = "std"))]
-        {
-            false
+        match self.deadline {
+            Some(d) => oxiz_time::Instant::now() >= d,
+            None => false,
         }
     }
 
-    /// Returns `true` if a real theory conflict was suppressed because the
-    /// conflict limit was reached during this solve.  When set, the caller must
-    /// treat any subsequent `Sat` as `Unknown`: the dropped conflict means the
-    /// current assignment is not a verified model.
+    /// Returns `true` when a subsequent `Sat` must be downgraded to `Unknown`
+    /// because this manager dropped information the verdict would rest on.
+    ///
+    /// Two causes, both meaning "the current assignment is not a verified
+    /// model": a real theory conflict suppressed at the conflict limit
+    /// ([`Self::resource_exhausted`]), and a bit-vector atom that never reached
+    /// the bit-blasted circuit ([`Self::bv_atom_unmodelled`]).
     pub(crate) fn resource_exhausted(&self) -> bool {
-        self.resource_exhausted
+        self.resource_exhausted || self.bv_atom_unmodelled
     }
 
     /// Returns `true` if a theory conflict was dropped because its justification
@@ -839,108 +853,6 @@ impl<'a> TheoryManager<'a> {
         }
     }
 
-    /// Look up the BV bit-width of a term from its sort, if it has a BV sort.
-    fn bv_width_of(&self, term: TermId, manager: &TermManager) -> Option<u32> {
-        manager
-            .get(term)
-            .and_then(|t| manager.sorts.get(t.sort))
-            .and_then(|s| s.bitvec_width())
-    }
-
-    /// Bit-blast both operands of a BV constraint into the embedded SAT solver.
-    ///
-    /// Each side is encoded recursively; a bare leaf that the recursive encoder
-    /// cannot handle falls back to a fresh BV variable of the operand's width.
-    /// Returns `true` if both operands are BV-sorted with equal width (so that
-    /// `assert_eq` / `assert_neq` may be called safely), `false` otherwise.
-    fn bit_blast_bv_pair(&mut self, lhs: TermId, rhs: TermId, manager: &TermManager) -> bool {
-        let (lw, rw) = match (
-            self.bv_width_of(lhs, manager),
-            self.bv_width_of(rhs, manager),
-        ) {
-            (Some(lw), Some(rw)) if lw == rw => (lw, rw),
-            _ => return false,
-        };
-        let mut encoded: FxHashSet<TermId> = FxHashSet::default();
-        if !encode_bv_term_recursive(self.bv, lhs, manager, &mut encoded) {
-            self.bv.new_bv(lhs, lw);
-        }
-        if !encode_bv_term_recursive(self.bv, rhs, manager, &mut encoded) {
-            self.bv.new_bv(rhs, rw);
-        }
-        true
-    }
-
-    /// Run the embedded BV SAT check after the caller has asserted a constraint.
-    ///
-    /// Records `constraint_term` so the conflict clause is non-empty, then
-    /// returns `Some(Conflict(..))` if the embedded solver reports UNSAT and
-    /// `None` otherwise (so the caller falls through to its conservative path).
-    ///
-    /// `operands` are the two sides of the atom just asserted.  When the check
-    /// comes back SAT they are handed to [`debug_verify_bv_circuits`], the
-    /// debug-only model-validity net: every bit-blasted node under them must
-    /// reproduce its own operation concretely on the model the solver just
-    /// found.  That is the check which distinguishes "the search is right" from
-    /// "the circuit is wrong", and it costs nothing in release builds.
-    fn bv_run_check(
-        &mut self,
-        constraint_term: TermId,
-        operands: (TermId, TermId),
-        manager: &TermManager,
-    ) -> Option<TheoryCheckResult> {
-        use oxiz_theories::Theory;
-        use oxiz_theories::TheoryCheckResult as TheoryCheckResultEnum;
-        self.bv.record_constraint_term(constraint_term);
-        match self.bv.check() {
-            Ok(TheoryCheckResultEnum::Unsat(conflict_terms)) => {
-                Some(self.conflict_from_terms(&conflict_terms))
-            }
-            Ok(TheoryCheckResultEnum::Sat) => {
-                debug_verify_bv_circuits(self.bv, operands.0, manager);
-                debug_verify_bv_circuits(self.bv, operands.1, manager);
-                None
-            }
-            _ => None,
-        }
-    }
-
-    /// Bit-blast `lhs`/`rhs`, assert `lhs != b` at the bit level, and check.
-    ///
-    /// Returns `Some(Conflict(..))` on a detected BV theory conflict, `None`
-    /// otherwise (including when the operands are not equal-width BV terms).
-    fn bv_check_neq(
-        &mut self,
-        lhs: TermId,
-        rhs: TermId,
-        constraint_term: TermId,
-        manager: &TermManager,
-    ) -> Option<TheoryCheckResult> {
-        if !self.bit_blast_bv_pair(lhs, rhs, manager) {
-            return None;
-        }
-        self.bv.assert_neq(lhs, rhs);
-        self.bv_run_check(constraint_term, (lhs, rhs), manager)
-    }
-
-    /// Bit-blast `lhs`/`rhs`, assert `lhs = b` at the bit level, and check.
-    ///
-    /// Returns `Some(Conflict(..))` on a detected BV theory conflict, `None`
-    /// otherwise (including when the operands are not equal-width BV terms).
-    fn bv_check_eq(
-        &mut self,
-        lhs: TermId,
-        rhs: TermId,
-        constraint_term: TermId,
-        manager: &TermManager,
-    ) -> Option<TheoryCheckResult> {
-        if !self.bit_blast_bv_pair(lhs, rhs, manager) {
-            return None;
-        }
-        self.bv.assert_eq(lhs, rhs);
-        self.bv_run_check(constraint_term, (lhs, rhs), manager)
-    }
-
     /// Process a theory constraint
     fn process_constraint(
         &mut self,
@@ -1190,24 +1102,46 @@ impl<'a> TheoryManager<'a> {
                             matches!(t.kind, TermKind::BvSlt(_, _) | TermKind::BvSle(_, _))
                         });
 
-                        if is_positive {
+                        // `Gt`/`Ge` carry no signedness of their own: `is_signed`
+                        // is read above from `TermKind::BvSlt`/`BvSle` on the
+                        // constraint term, and a `Constraint::Gt`/`Ge` can only
+                        // come from `TermKind::Gt`/`Ge` (`encode.rs`) — so it is
+                        // unconditionally `false` here and a signed branch would
+                        // be dead code.  (An ill-sorted `(> bv bv)` has no
+                        // principled signedness to recover; rejecting it in the
+                        // parser is the better repair, and these arms are defence
+                        // in depth for a term built through the API.)  `asserted`
+                        // answers "did anything reach the circuit": before this
+                        // fix both matches ended in a silent `_ => {}`, so
+                        // `Constraint::Gt`/`Ge` asserted *nothing* and
+                        // `(= a #x0f) ∧ (> a #x0f)` answered `sat`.
+                        let asserted = if is_positive {
                             // Positive assignment: constraint holds
                             match constraint {
                                 Constraint::Lt(a, b) => {
                                     if is_signed {
-                                        self.bv.assert_slt(a, b);
+                                        self.bv.assert_slt(a, b)
                                     } else {
-                                        self.bv.assert_ult(a, b);
+                                        self.bv.assert_ult(a, b)
                                     }
                                 }
-                                Constraint::Le(a, b) if is_signed => {
-                                    self.bv.assert_sle(a, b);
-                                }
+                                Constraint::Le(a, b) if is_signed => self.bv.assert_sle(a, b),
                                 Constraint::Le(a, b) => {
                                     // Unsigned a <= b ≡ NOT(b <u a).
-                                    self.bv.assert_ule(a, b);
+                                    self.bv.assert_ule(a, b)
                                 }
-                                _ => {}
+                                // a >u b ≡ b <u a.
+                                Constraint::Gt(a, b) => self.bv.assert_ult(b, a),
+                                // a >=u b ≡ b <=u a.
+                                Constraint::Ge(a, b) => self.bv.assert_ule(b, a),
+                                // Unreachable: the enclosing arm matched only
+                                // `Lt`/`Le`/`Gt`/`Ge`.  Spelled out rather than
+                                // left to a silent `_ => {}` so that a future
+                                // `Constraint` kind routed here is *recorded* as
+                                // not modelled instead of quietly abstracted.
+                                Constraint::Eq(..)
+                                | Constraint::Diseq(..)
+                                | Constraint::BoolApp(..) => false,
                             }
                         } else {
                             // Negated assignment: the negation of the comparator
@@ -1215,31 +1149,38 @@ impl<'a> TheoryManager<'a> {
                             // swapped non-strict / strict comparator:
                             //   ¬(a <u  b) ≡ b <=u a   ¬(a <=u b) ≡ b <u  a
                             //   ¬(a <s  b) ≡ b <=s a   ¬(a <=s b) ≡ b <s  a
+                            //   ¬(a >u  b) ≡ a <=u b   ¬(a >=u b) ≡ a <u  b
                             match constraint {
                                 Constraint::Lt(a, b) => {
                                     if is_signed {
-                                        self.bv.assert_sle(b, a);
+                                        self.bv.assert_sle(b, a)
                                     } else {
-                                        self.bv.assert_ule(b, a);
+                                        self.bv.assert_ule(b, a)
                                     }
                                 }
                                 Constraint::Le(a, b) => {
                                     if is_signed {
-                                        self.bv.assert_slt(b, a);
+                                        self.bv.assert_slt(b, a)
                                     } else {
-                                        self.bv.assert_ult(b, a);
+                                        self.bv.assert_ult(b, a)
                                     }
                                 }
-                                _ => {}
+                                Constraint::Gt(a, b) => self.bv.assert_ule(a, b),
+                                Constraint::Ge(a, b) => self.bv.assert_ult(a, b),
+                                Constraint::Eq(..)
+                                | Constraint::Diseq(..)
+                                | Constraint::BoolApp(..) => false,
                             }
-                        }
+                        };
 
                         // Check BV solver for conflicts.  Routed through
                         // `bv_run_check` so the comparison path shares the
-                        // (dis)equality path's debug-only model-validity net.
+                        // (dis)equality path's debug-only model-validity net,
+                        // and so that `asserted == false` is recorded rather
+                        // than read as "no theory objection".
                         let constraint_term = self.term_for_var(var);
                         if let Some(result) =
-                            self.bv_run_check(constraint_term, (lhs, rhs), manager)
+                            self.bv_run_check(constraint_term, (lhs, rhs), manager, asserted)
                         {
                             return result;
                         }
@@ -1461,12 +1402,19 @@ impl TheoryCallback for TheoryManager<'_> {
             // downstream by the model-verification gate in `Solver::check`.
             //
             // Scope: the rebuild covers the EUF and arithmetic solvers, so we
-            // engage it only when the problem has no bit-vector content.  The BV
-            // solver's bit-blasted circuits are rebuilt from scratch on every
-            // `check` (see `mod.rs`) and its incremental push/pop already handles
-            // flips soundly; resetting and replaying it mid-search would instead
-            // corrupt its embedded SAT state.  BV problems therefore retain the
-            // existing (correct) incremental behaviour.
+            // engage it only when the problem has no bit-vector content.  The
+            // justification this guard used to carry — "the BV solver's
+            // bit-blasted circuits are rebuilt from scratch on every `check`" —
+            // was false, and is the belief that made U-Z10's missing scope
+            // rollback look safe: `BvSolver::check()` solves the *accumulated*
+            // clause database and rebuilds nothing.  What is true after the
+            // U-Z10 fix is that `BvSolver::pop()` rolls its three circuit memo
+            // caches (`term_to_bv`, `ult_cache`, `bool_node`) back with the
+            // clauses `sat.pop()` deletes, so the incremental push/pop is a
+            // genuine undo again.  The guard is kept because replaying the BV
+            // solver mid-search would corrupt its embedded SAT state, and
+            // because the wrong-`unsat` a stale polarity could fabricate here is
+            // an unverified hypothesis with no witness (`TODO.md`).
             Some(idx)
                 if self.assignment_trail[idx].is_positive != is_positive
                     && self.bv_terms.is_empty() =>

@@ -322,7 +322,7 @@ mod tests {
                 false,
                 false,
                 &self.quantifier_uf_funcs,
-                0,
+                None,
             )
         }
     }

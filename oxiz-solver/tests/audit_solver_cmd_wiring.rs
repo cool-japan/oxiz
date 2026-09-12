@@ -112,8 +112,11 @@ fn declare_const_bitvec_sort_resolves_correctly() {
         .find(|(n, _, _)| n == "bv")
         .expect("bv must be a registered constant");
     assert_eq!(sort, "(_ BitVec 8)");
-    // 200 = 0b1100_1000
-    assert_eq!(value, "#b11001000", "unexpected bv value: {value}");
+    // 200 = 0b1100_1000 = 0xc8. U-Z13: a width that is a multiple of four
+    // prints `#x`, the same way `(get-value)` has always printed it; before
+    // that fix `(get-model)` answered `#b11001000` here while `(get-value)`
+    // answered `#xc8` for the same constant.
+    assert_eq!(value, "#xc8", "unexpected bv value: {value}");
 }
 
 /// A nullary `define-fun` must be observable in `get-model`/`get-value`

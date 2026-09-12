@@ -22,6 +22,7 @@ pub(super) mod int_range_lp;
 pub(super) mod model_blocking;
 pub(super) mod model_builder;
 pub(super) mod model_eval;
+pub(super) mod model_eval_bv;
 pub(super) mod pigeonhole;
 pub(super) mod term_walk;
 pub(super) mod theory_bv_encode;
@@ -517,10 +518,37 @@ pub(super) const ENCODE_DEPTH_LIMIT: u32 = 512;
 /// A fully-evaluated ground value used by the model-verification soundness gate
 /// ([`Solver::model_refutes_assertions`]).  Integers and reals are unified as an
 /// exact rational so mixed Int/Real arithmetic and comparisons fold without loss.
-#[derive(Debug, Clone, Copy, PartialEq)]
+///
+/// # Why this is not `Copy`
+///
+/// [`EvalVal::Bv`] owns a [`num_bigint::BigInt`], so the enum owns a heap
+/// allocation and cannot be `Copy`.  The alternative — keeping `Copy` by
+/// storing a bit-vector's low 64 bits — is the exact shape of the wide-BV
+/// soundness bugs this crate has already had to fix (a 128-bit constant read
+/// through its low limb made `2^64` compare equal to `0`), and a *model gate*
+/// that folds `bvadd` at the wrong width does not merely miss a refutation:
+/// it can manufacture one.  Full width, allocation and all, is the only
+/// honest representation.
+#[derive(Debug, Clone, PartialEq)]
 pub(super) enum EvalVal {
     Bool(bool),
     Num(num_rational::Rational64),
+    /// A bit-vector value.
+    ///
+    /// # Invariant
+    ///
+    /// `value` is **reduced**, i.e. `0 <= value < 2^width`.  Every producer
+    /// establishes it (leaves through `bv_fold::bv_wrap_unsigned`, operators
+    /// because every `bv_fold` rule is range-preserving) and every consumer
+    /// relies on it: the unsigned comparisons compare `value` directly, and
+    /// the signed ones reinterpret it through `bv_fold::to_signed`, both of
+    /// which are wrong for an unreduced operand.
+    Bv {
+        /// The bit-vector's unsigned value, in `[0, 2^width)`.
+        value: num_bigint::BigInt,
+        /// The width, in bits, this value was folded at.
+        width: u32,
+    },
 }
 
 impl Default for Solver {
@@ -1702,9 +1730,31 @@ impl Solver {
     }
 
     /// Get solver statistics
+    ///
+    /// These are the **outer** Boolean engine's counters, and they are
+    /// cumulative across every check on this solver.  `(set-option
+    /// :max-conflicts N)` / `(set-option :max-decisions N)` bound
+    /// `SolverStats::conflicts` / `SolverStats::decisions` per check (see
+    /// `check_core`), so a caller reading them back after a check sees at most
+    /// `N` more than before it.
     #[must_use]
     pub fn stats(&self) -> &oxiz_sat::SolverStats {
         self.sat.stats()
+    }
+
+    /// Embedded bit-blasting conflicts spent by the last check.
+    ///
+    /// `(set-option :max-conflicts N)` installs three independent budgets of
+    /// `N` (see `check_core`); this is the consumption of the third one, the
+    /// total across every `BvSolver::check` probe and every repair round of a
+    /// single `(check-sat)`.  The other two are visible through
+    /// [`Self::stats`] (outer Boolean) and [`Self::get_statistics`] (theory).
+    ///
+    /// Reset when the next check arms the budget, so read it after a check and
+    /// before the next one.
+    #[must_use]
+    pub fn bv_conflicts_spent(&self) -> u64 {
+        self.bv.conflicts_spent()
     }
 }
 

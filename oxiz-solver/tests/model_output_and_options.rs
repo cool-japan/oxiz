@@ -514,7 +514,9 @@ fn test_get_value_unconstrained_var_has_default() {
         ("QF_LIA", "Int", "i", "0"),
         ("QF_UF", "Bool", "b", "false"),
         ("QF_LRA", "Real", "r", "0.0"),
-        ("QF_BV", "(_ BitVec 8)", "v", "#b00000000"),
+        // U-Z13: `#x00`, not `#b00000000` — the radix follows the width, not
+        // whether the model pinned the value. 0.3.3/0.3.4: `#b00000000`.
+        ("QF_BV", "(_ BitVec 8)", "v", "#x00"),
         ("QF_S", "String", "s", "\"\""),
     ] {
         let script = format!(
@@ -1158,8 +1160,10 @@ fn control_bv_bool_string_model_output_is_unchanged() {
     "#);
     assert_eq!(output[0], "sat");
     let model = &output[1];
+    // U-Z13: width 4 is a multiple of four, so the value prints `#x5`;
+    // 0.3.3/0.3.4 answered `#b0101` from `(get-model)` here.
     assert!(
-        model.contains("(define-fun b () (_ BitVec 4) #b0101)"),
+        model.contains("(define-fun b () (_ BitVec 4) #x5)"),
         "{model}"
     );
     assert!(model.contains("(define-fun p () Bool true)"), "{model}");

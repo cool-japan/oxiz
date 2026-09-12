@@ -36,10 +36,10 @@ fn test_ult_two_unknowns() {
     solver.bv_add(sum, product, remainder);
 
     // sum == 100
-    solver.assert_eq(sum, target);
+    assert!(solver.assert_eq(sum, target));
 
     // remainder < divisor
-    solver.assert_ult(remainder, divisor);
+    assert!(solver.assert_ult(remainder, divisor));
 
     match solver.check() {
         Ok(oxiz_theories::TheoryCheckResult::Sat) => {
@@ -85,7 +85,7 @@ fn test_simple_ult_unknowns() {
     solver.new_bv(b, width);
 
     // a < b (both unknown)
-    solver.assert_ult(a, b);
+    assert!(solver.assert_ult(a, b));
 
     match solver.check() {
         Ok(oxiz_theories::TheoryCheckResult::Sat) => {
@@ -118,7 +118,7 @@ fn test_ult_b_constrained() {
     solver.assert_const(b, 20, width);
 
     // a < 20
-    solver.assert_ult(a, b);
+    assert!(solver.assert_ult(a, b));
 
     match solver.check() {
         Ok(oxiz_theories::TheoryCheckResult::Sat) => {
@@ -151,7 +151,7 @@ fn test_ult_a_constrained() {
     solver.assert_const(a, 0, width);
 
     // 0 < b
-    solver.assert_ult(a, b);
+    assert!(solver.assert_ult(a, b));
 
     match solver.check() {
         Ok(oxiz_theories::TheoryCheckResult::Sat) => {

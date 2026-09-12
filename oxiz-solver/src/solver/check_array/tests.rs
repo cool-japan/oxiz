@@ -259,7 +259,10 @@ fn store_equality_scan_survives_a_doubling_dag() {
 // Nelson–Oppen bridge carries the equality across.  Nor does any honesty gate
 // cover the shape — `array_atoms_need_theory` needs a positive `store = store`
 // equality, `arith_atoms_need_theory` skips non-Int atoms, and the
-// model-verification gate's `EvalVal` has no bit-vector variant.
+// model-verification gate — which now does read bit-vector values
+// (`EvalVal::Bv`, `solver/model_eval_bv.rs`) — only inspects a finished
+// candidate model, while this check runs during the search and is what
+// produces the `Unsat` these tests expect.
 //
 // So every operator that `evaluate_bv_expr` could not fold made this formula
 // come back `sat`, and each of the five below did until the evaluator delegated

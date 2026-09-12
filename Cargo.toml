@@ -177,8 +177,8 @@ web-sys = { version = "0.3", features = [
 wasm-bindgen-test = "0.3"
 
 # Compression (OxiARC - Pure Rust)
-oxiarc-deflate = "0.4.1"
-oxiarc-brotli = "0.4.1"
+oxiarc-deflate = "0.4.2"
+oxiarc-brotli = "0.4.2"
 
 # PDF (Pure Rust)
 pdf-writer = "0.15"

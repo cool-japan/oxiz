@@ -162,6 +162,80 @@ impl Solver {
             return SolverResult::Unknown;
         }
 
+        // Wall-clock deadline for the whole check.  `timeout_ms == 0` means "no
+        // timeout".  Computed exactly once, here, and then handed to every
+        // consumer below: the MBQI round boundary in the search loop, every
+        // `TheoryManager` this function builds (including the ones it rebuilds
+        // for a refinement round -- deriving it inside `TheoryManager::new`
+        // used to restart the clock on each, granting a script with `N` rounds
+        // `N * timeout_ms`), the outer SAT solver, and the bit-vector solver's
+        // embedded one.
+        //
+        // Placed here, *above* the pure-equality fast path, for two reasons:
+        // that path runs its own `self.sat.solve()` and must be budgeted like
+        // every other solve on this engine (a budget-induced `Unknown` there
+        // costs a wasted probe and falls through -- `eq_skeleton`'s `Unknown`
+        // arm returns `None`, never a verdict), and because the ceilings below
+        // are relative to the engine's *current* counters, leaving them
+        // un-refreshed until after that solve would let the previous check's
+        // exhausted ceiling silently abort it.
+        //
+        // Not `cfg`-gated on `std`: `oxiz_time::Instant` exists on every
+        // target, and on one whose clock is frozen
+        // (`wasm32-unknown-unknown` / `no_std`) `now()` is a constant t = 0, so
+        // no deadline built from it can ever be reached and `:timeout` is the
+        // documented no-op `oxiz_time`'s crate docs describe.
+        let deadline: Option<oxiz_time::Instant> = if self.config.timeout_ms > 0 {
+            oxiz_time::Instant::now()
+                .checked_add(core::time::Duration::from_millis(self.config.timeout_ms))
+        } else {
+            None
+        };
+
+        // Arm the two SAT engines this check will run (finding U-Z12).
+        //
+        // Until this existed, `(set-option :max-conflicts N)` bounded only
+        // *theory* conflicts (`Statistics::conflicts`, incremented solely next
+        // to a `theory_conflicts += 1`), `(set-option :max-decisions N)` was
+        // wired to nothing at all, and `(set-option :timeout N)` was polled
+        // only between MBQI rounds and at the entry of a theory callback -- all
+        // of them outside the one place a bit-blasted goal actually spends its
+        // time, `BvSolver::check`'s embedded `solve()`.
+        //
+        // After this, `N` is *three independent budgets of `N`*, one per kind
+        // of work, all re-armed once per check:
+        //   * outer Boolean conflicts / decisions -- `oxiz_sat::SolverStats`
+        //     on `self.sat`, bounded here;
+        //   * embedded bit-blasting conflicts -- the total across every probe
+        //     and repair round of this check, bounded by `BvSolver`'s own
+        //     `conflicts_spent` accumulator;
+        //   * theory conflicts -- `Statistics::conflicts`, unchanged, still
+        //     compared inside `TheoryManager`.
+        // They are separate counters because they count different work; a
+        // single shared counter would need the embedded solver to report into
+        // the outer `Statistics`.  `:timeout`, by contrast, is one wall-clock
+        // deadline shared by all of them.
+        //
+        // The ceilings are relative to the counters' current values because
+        // `oxiz_sat::SolverStats` is cumulative across `solve()` calls and the
+        // outer solver is never reset between checks (only backtracked to the
+        // root): a raw `Some(N)` would give the second `(check-sat)` of a
+        // script whatever the first left over, and eventually nothing.
+        let conflict_budget = (self.config.max_conflicts > 0).then_some(self.config.max_conflicts);
+        let decision_budget = (self.config.max_decisions > 0).then_some(self.config.max_decisions);
+        // Read into locals first: `stats()` borrows `self.sat` immutably while
+        // the setters borrow it mutably.
+        let conflicts_so_far = self.sat.stats().conflicts;
+        let decisions_so_far = self.sat.stats().decisions;
+        self.sat
+            .set_max_conflicts(conflict_budget.map(|n| conflicts_so_far.saturating_add(n)));
+        self.sat
+            .set_max_decisions(decision_budget.map(|n| decisions_so_far.saturating_add(n)));
+        self.sat.set_deadline(deadline);
+        // `set_budget` re-arms the bit-vector solver's total allowance, so the
+        // budget's period is one call to this function.
+        self.bv.set_budget(conflict_budget, deadline);
+
         // Pure Equality Logic fast path: static transitivity clauses (see
         // `eq_skeleton`'s module doc) make plain SAT a complete decision
         // procedure for a formula built only from Boolean connectives over
@@ -198,18 +272,6 @@ impl Solver {
         // `Solver::push` / `pop` and would leak across a user scope as well.
         self.rebase_theory_state();
 
-        // Wall-clock deadline for the CDCL(T)/MBQI search.  `timeout_ms == 0`
-        // means "no timeout".  The deadline is enforced (a) between MBQI
-        // rounds here and (b) mid-search inside the theory callbacks, so a
-        // single long `solve_with_theory` call cannot run past the budget.
-        #[cfg(feature = "std")]
-        let deadline: Option<oxiz_time::Instant> = if self.config.timeout_ms > 0 {
-            oxiz_time::Instant::now()
-                .checked_add(core::time::Duration::from_millis(self.config.timeout_ms))
-        } else {
-            None
-        };
-
         // Run SAT solver with theory integration
         let mut theory_manager = TheoryManager::new(
             manager,
@@ -229,7 +291,7 @@ impl Solver {
             self.has_bv_arith_ops,
             self.has_quantifiers,
             &self.quantifier_uf_funcs,
-            self.config.timeout_ms,
+            deadline,
         );
 
         // MBQI loop for quantified formulas
@@ -252,8 +314,8 @@ impl Solver {
 
         loop {
             // Enforce the wall-clock timeout between MBQI rounds.  Mid-`solve`
-            // enforcement lives in the theory callbacks (see TheoryManager).
-            #[cfg(feature = "std")]
+            // enforcement lives in the theory callbacks (see TheoryManager) and,
+            // since U-Z12, inside both SAT engines themselves.
             if let Some(d) = deadline {
                 if oxiz_time::Instant::now() >= d {
                     return SolverResult::Unknown;
@@ -406,7 +468,7 @@ impl Solver {
                                 self.has_bv_arith_ops,
                                 self.has_quantifiers,
                                 &self.quantifier_uf_funcs,
-                                self.config.timeout_ms,
+                                deadline,
                             );
                             continue;
                         }
@@ -470,7 +532,7 @@ impl Solver {
                                 self.has_bv_arith_ops,
                                 self.has_quantifiers,
                                 &self.quantifier_uf_funcs,
-                                self.config.timeout_ms,
+                                deadline,
                             );
                             continue;
                         }
@@ -527,7 +589,7 @@ impl Solver {
                                     self.has_bv_arith_ops,
                                     self.has_quantifiers,
                                     &self.quantifier_uf_funcs,
-                                    self.config.timeout_ms,
+                                    deadline,
                                 );
                                 continue;
                             }
@@ -897,7 +959,7 @@ impl Solver {
                         self.has_bv_arith_ops,
                         self.has_quantifiers,
                         &self.quantifier_uf_funcs,
-                        self.config.timeout_ms,
+                        deadline,
                     );
                 }
             }

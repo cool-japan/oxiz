@@ -24,7 +24,7 @@ fn test_add_sum_only() {
     solver.assert_const(target, 100, width);
 
     solver.bv_add(sum, a, b);
-    solver.assert_eq(sum, target);
+    assert!(solver.assert_eq(sum, target));
 
     match solver.check() {
         Ok(oxiz_theories::TheoryCheckResult::Sat) => {
@@ -59,10 +59,10 @@ fn test_add_then_ult() {
 
     // First: add equation
     solver.bv_add(sum, a, b);
-    solver.assert_eq(sum, target);
+    assert!(solver.assert_eq(sum, target));
 
     // Then: ult constraint
-    solver.assert_ult(a, b);
+    assert!(solver.assert_ult(a, b));
 
     match solver.check() {
         Ok(oxiz_theories::TheoryCheckResult::Sat) => {
@@ -101,11 +101,11 @@ fn test_ult_then_add() {
     solver.assert_const(target, 100, width);
 
     // First: ult constraint
-    solver.assert_ult(a, b);
+    assert!(solver.assert_ult(a, b));
 
     // Then: add equation
     solver.bv_add(sum, a, b);
-    solver.assert_eq(sum, target);
+    assert!(solver.assert_eq(sum, target));
 
     match solver.check() {
         Ok(oxiz_theories::TheoryCheckResult::Sat) => {
@@ -144,8 +144,8 @@ fn test_add_ult_4bit() {
     solver.assert_const(target, 10, width);
 
     solver.bv_add(sum, a, b);
-    solver.assert_eq(sum, target);
-    solver.assert_ult(a, b);
+    assert!(solver.assert_eq(sum, target));
+    assert!(solver.assert_ult(a, b));
 
     // Solutions: a=0,b=10; a=1,b=9; a=2,b=8; a=3,b=7; a=4,b=6
     // (Needs a < b, so a+b=10 => a < 5)
@@ -188,8 +188,8 @@ fn test_add_ult_2bit() {
     solver.assert_const(target, 2, width); // 10 in binary
 
     solver.bv_add(sum, a, b);
-    solver.assert_eq(sum, target);
-    solver.assert_ult(a, b);
+    assert!(solver.assert_eq(sum, target));
+    assert!(solver.assert_ult(a, b));
 
     // Valid solutions:
     // a=0, b=2 (0+2=2, 0<2) ✓

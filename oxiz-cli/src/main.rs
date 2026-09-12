@@ -1098,15 +1098,16 @@ enum ScriptOutcome {
 
 /// Run `ctx.execute_script(script)` under a hard wall-clock `timeout`.
 ///
-/// `Context`/`Solver` do not currently expose cooperative cancellation for an
-/// in-progress `check-sat` (`SolverConfig::timeout_ms` is set by
-/// `Solver::set_timeout` but is not consulted by the CDCL search loop, and
-/// `Context` has no public method to reach it anyway). Enforcing a real
-/// wall-clock bound from the CLI therefore requires moving the solve to its
-/// own thread: if it does not finish by the deadline, the thread is
-/// abandoned (never joined) and the CLI honestly reports "unknown" instead
-/// of hanging forever or fabricating a sat/unsat answer. The abandoned
-/// thread keeps running in the background until the process exits.
+/// `Context`/`Solver` do expose a cooperative deadline for an in-progress
+/// `check-sat` — `SolverConfig::timeout_ms` reaches both SAT engines and the
+/// theory callbacks — but it is *cooperative*: it is polled between CDCL loop
+/// iterations, and a single `propagate()` over a large clause database is not
+/// itself interruptible, so it bounds the search without bounding the process.
+/// Enforcing a *hard* wall-clock bound from the CLI therefore still requires
+/// moving the solve to its own thread: if it does not finish by the deadline,
+/// the thread is abandoned (never joined) and the CLI honestly reports
+/// "unknown" instead of hanging forever or fabricating a sat/unsat answer. The
+/// abandoned thread keeps running in the background until the process exits.
 ///
 /// # Why a dedicated watchdog thread owns the exit
 ///

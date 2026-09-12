@@ -18,7 +18,7 @@ fn test_basic_equality() {
     // x = 13, y = 13 - should be SAT
     solver.assert_const(x, 13, 8);
     solver.assert_const(y, 13, 8);
-    solver.assert_eq(x, y);
+    assert!(solver.assert_eq(x, y));
 
     match solver.check().expect("check failed") {
         oxiz_theories::TheoryCheckResult::Sat => {}
@@ -40,7 +40,7 @@ fn test_basic_inequality_unsat() {
     // x = 13, y = 6, but assert x == y - should be UNSAT
     solver.assert_const(x, 13, 8);
     solver.assert_const(y, 6, 8);
-    solver.assert_eq(x, y);
+    assert!(solver.assert_eq(x, y));
 
     match solver.check().expect("check failed") {
         oxiz_theories::TheoryCheckResult::Unsat(_) => {}

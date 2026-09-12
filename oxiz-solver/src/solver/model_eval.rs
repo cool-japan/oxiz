@@ -26,14 +26,22 @@
 //!   [`EvalOutcome::Unrepresentable`] rather than overflowing — see that
 //!   variant's documentation for why the unchecked version was a soundness bug
 //!   and not merely a robustness one.
+//! * **It folds the DAG, not the tree.**  Terms are hash-consed, so a formula
+//!   that mentions a shared subterm twice is one node with two parents; a
+//!   per-call memo table in [`Solver::eval_in_model_outcome`] keeps the cost
+//!   proportional to the number of distinct subterms.  Without it a chain of
+//!   `n` shared doublings costs `2^n` visits, which is 22.8 s at `n = 28` and
+//!   unbounded thereafter — see that table's comment for the measurements.
 //!
 //! Reference: Z3's `smt_model_checker.cpp` plays the same role — re-checking a
 //! candidate model against the assertions before the verdict is trusted.
 
+use super::model_eval_bv::{self, BvBinaryOp, BvCompareOp};
 use super::types::Model;
 use super::{ENCODE_DEPTH_LIMIT, EvalVal, Solver};
 #[allow(unused_imports)]
 use crate::prelude::*;
+use num_bigint::BigInt;
 use num_rational::Rational64;
 use num_traits::{CheckedAdd, CheckedMul, CheckedSub, ToPrimitive};
 use oxiz_core::ast::{TermId, TermKind, TermManager};
@@ -65,6 +73,14 @@ impl ArgKey {
         match outcome {
             EvalOutcome::Value(EvalVal::Bool(b)) => Some(Self::Bool(b)),
             EvalOutcome::Value(EvalVal::Num(n)) => Some(Self::Num(*n.numer(), *n.denom())),
+            // A bit-vector application value is deliberately not keyed.  This
+            // is the *congruence* half of the quantified gate, which fires
+            // when one function has two different values at the same argument
+            // tuple; skipping bit-vector values keeps its behaviour exactly
+            // what it was before bit-vectors became evaluable (a `BitVecConst`
+            // witness read back `Undetermined` and produced `None` here), so
+            // no quantified problem changes verdict because of this module.
+            EvalOutcome::Value(EvalVal::Bv { .. }) => None,
             EvalOutcome::Undetermined | EvalOutcome::Unrepresentable => None,
         }
     }
@@ -74,7 +90,13 @@ impl ArgKey {
 ///
 /// The two non-value answers are deliberately *not* the same thing, and the
 /// gate treats them differently — see [`Solver::model_refutes_assertions`].
-#[derive(Debug, Clone, Copy, PartialEq)]
+///
+/// Not `Copy`: [`EvalVal::Bv`] owns a [`BigInt`] (see that variant for why
+/// truncating it to keep `Copy` would be a soundness bug rather than a
+/// convenience).  The two non-value variants carry nothing, so cloning an
+/// `Undetermined` or an `Unrepresentable` — which is what the driver's carried
+/// outcomes always are — allocates nothing.
+#[derive(Debug, Clone, PartialEq)]
 pub(super) enum EvalOutcome {
     /// A concrete value the model determines.
     Value(EvalVal),
@@ -107,16 +129,23 @@ pub(super) enum EvalOutcome {
 
 impl EvalOutcome {
     /// The outcome for a term whose value the model does not determine.
-    const UNDETERMINED: EvalOutcome = EvalOutcome::Undetermined;
+    pub(super) const UNDETERMINED: EvalOutcome = EvalOutcome::Undetermined;
 
     /// A Boolean outcome.
-    fn boolean(value: bool) -> Self {
+    pub(super) fn boolean(value: bool) -> Self {
         EvalOutcome::Value(EvalVal::Bool(value))
     }
 
     /// A numeric outcome.
     fn number(value: Rational64) -> Self {
         EvalOutcome::Value(EvalVal::Num(value))
+    }
+
+    /// A bit-vector outcome.  `value` must already be reduced into
+    /// `[0, 2^width)` — see [`EvalVal::Bv`]'s invariant; every producer in
+    /// [`super::model_eval_bv`] establishes it.
+    pub(super) fn bits(value: BigInt, width: u32) -> Self {
+        EvalOutcome::Value(EvalVal::Bv { value, width })
     }
 
     /// The value this outcome carries, if any.
@@ -180,6 +209,19 @@ enum EagerKind {
     },
     /// Pass the single operand's value straight through (`let` → its body).
     Identity,
+    /// `bvnot`.
+    BvNot,
+    /// A binary bit-vector operator producing a bit-vector.
+    BvBinary(BvBinaryOp),
+    /// `(_ extract high low)`.
+    BvExtract {
+        /// High bit index, inclusive.
+        high: u32,
+        /// Low bit index, inclusive.
+        low: u32,
+    },
+    /// One of the four bit-vector comparisons, producing a truth value.
+    BvCompare(BvCompareOp),
 }
 
 /// How far an `ite` has got.
@@ -192,7 +234,11 @@ enum IteState {
 }
 
 /// How far an `=>` has got.
-#[derive(Debug, Clone, Copy)]
+///
+/// Not `Copy`: [`ImpliesState::ConsequentMayRescue`] carries an
+/// [`EvalOutcome`], which stopped being `Copy` when [`EvalVal`] gained its
+/// bit-vector variant.
+#[derive(Debug, Clone)]
 enum ImpliesState {
     /// The antecedent has not produced a value yet.
     Antecedent,
@@ -245,6 +291,13 @@ enum Op {
         else_branch: TermId,
         /// How far the `ite` has got.
         state: IteState,
+    },
+    /// `distinct`, which this gate decides only when every operand folds to a
+    /// bit-vector value of one width; see [`Frame::accept`]'s arm for why the
+    /// other cases end the frame the moment they are seen.
+    Distinct {
+        /// Operand term ids in evaluation order.
+        operands: SmallVec<[TermId; 4]>,
     },
     /// `=>`, whose antecedent decides whether the consequent is consulted at
     /// all and how its answer is used.
@@ -348,13 +401,13 @@ impl Frame {
         match &mut self.op {
             // A fixed-arity operator gives up at the first operand it cannot
             // use, exactly as the recursive version's `rec(a)?` did.
-            Op::Eager { .. } => match result.value() {
-                Some(value) => {
+            Op::Eager { .. } => match result {
+                EvalOutcome::Value(value) => {
                     values.push(value);
                     self.filled += 1;
                     None
                 }
-                None => Some(result.demote()),
+                other => Some(other.demote()),
             },
             Op::Connective { conjunction, .. } => {
                 let conjunction = *conjunction;
@@ -374,15 +427,40 @@ impl Frame {
                     // later operand may still decide the connective.
                     other => {
                         let demoted = other.demote();
-                        self.carried = Some(match self.carried {
+                        let carried = match self.carried.take() {
                             Some(existing) => existing.worse(demoted),
                             None => demoted,
-                        });
+                        };
+                        self.carried = Some(carried);
                         self.filled += 1;
                         None
                     }
                 }
             }
+            // `distinct` is decided ONLY when every operand is a definite
+            // bit-vector value of one width (the width check is
+            // `model_eval_bv::all_distinct`'s).  Anything else — a Boolean, a
+            // number, an unpinned leaf, an arithmetic `Unrepresentable` — ends
+            // the frame as `Undetermined` here and now, which is *exactly* the
+            // answer this gate gave for every `distinct` before bit-vectors
+            // became evaluable.  So no arithmetic `distinct` changes verdict,
+            // and in particular an overflowing operand cannot turn a `distinct`
+            // into an `Unrepresentable` refutation it never used to be.
+            //
+            // The arithmetic case must stay inconclusive on its own merits
+            // too: the linear-arithmetic solver enforces a disequality by case
+            // splitting rather than by pinning distinct witnesses, so
+            // colliding values in its LP model are not evidence of anything.
+            // A bit-vector model witness names every bit and carries no such
+            // caveat.
+            Op::Distinct { .. } => match result {
+                EvalOutcome::Value(value @ EvalVal::Bv { .. }) => {
+                    values.push(value);
+                    self.filled += 1;
+                    None
+                }
+                _ => Some(EvalOutcome::UNDETERMINED),
+            },
             Op::Arith { product, acc, .. } => {
                 let product = *product;
                 let EvalOutcome::Value(EvalVal::Num(operand)) = result else {
@@ -443,7 +521,9 @@ impl Frame {
                 // `_ => true` is `true` whatever the antecedent was.
                 ImpliesState::ConsequentMayRescue(carried) => Some(match result {
                     EvalOutcome::Value(EvalVal::Bool(true)) => EvalOutcome::boolean(true),
-                    other => carried.worse(other.demote()),
+                    // `carried` is always a demoted outcome, so it carries no
+                    // payload and the clone allocates nothing.
+                    other => carried.clone().worse(other.demote()),
                 }),
             },
         }
@@ -473,10 +553,17 @@ impl Frame {
                     // No operand decided the connective.  If every one agreed
                     // with it the connective holds; otherwise the most cautious
                     // outcome seen stands.
-                    Step::Done(match self.carried {
+                    Step::Done(match self.carried.clone() {
                         Some(carried) => carried,
                         None => EvalOutcome::boolean(*conjunction),
                     })
+                }
+            }
+            Op::Distinct { operands } => {
+                if self.filled < operands.len() {
+                    Step::Need(operands[self.filled])
+                } else {
+                    Step::Done(model_eval_bv::all_distinct(&values[self.base..]))
                 }
             }
             Op::Arith { operands, acc, .. } => {
@@ -509,11 +596,8 @@ impl Frame {
 fn combine_eager(kind: EagerKind, values: &[EvalVal]) -> EvalOutcome {
     match (kind, values) {
         (EagerKind::Not, [EvalVal::Bool(b)]) => EvalOutcome::boolean(!b),
-        (EagerKind::Identity, [v]) => match v {
-            EvalVal::Bool(b) => EvalOutcome::boolean(*b),
-            EvalVal::Num(n) => EvalOutcome::number(*n),
-        },
-        (EagerKind::Eq, [a, b]) => combine_eq(*a, *b),
+        (EagerKind::Identity, [v]) => EvalOutcome::Value(v.clone()),
+        (EagerKind::Eq, [a, b]) => combine_eq(a, b),
         (EagerKind::Sub, [EvalVal::Num(x), EvalVal::Num(y)]) => match x.checked_sub(y) {
             Some(d) => EvalOutcome::number(d),
             None => EvalOutcome::Unrepresentable,
@@ -532,8 +616,45 @@ fn combine_eager(kind: EagerKind, values: &[EvalVal]) -> EvalOutcome {
         (EagerKind::CmpWeak { less }, [EvalVal::Num(x), EvalVal::Num(y)]) => {
             EvalOutcome::boolean(if less { x <= y } else { x >= y })
         }
-        // Ill-typed operands (a Bool where a number was wanted, or the other
-        // way round).  The gate has nothing to say about such a term.
+        // ---- bit-vectors ------------------------------------------------
+        // No arithmetic is written here: `model_eval_bv` adapts to
+        // `oxiz_core::ast::bv_fold`, the workspace's single definition of the
+        // SMT-LIB folding rules.
+        (EagerKind::BvNot, [EvalVal::Bv { value, width }]) => {
+            model_eval_bv::complement(value, *width)
+        }
+        (
+            EagerKind::BvBinary(op),
+            [
+                EvalVal::Bv {
+                    value: left,
+                    width: left_width,
+                },
+                EvalVal::Bv {
+                    value: right,
+                    width: right_width,
+                },
+            ],
+        ) => model_eval_bv::binary(op, left, *left_width, right, *right_width),
+        (EagerKind::BvExtract { high, low }, [EvalVal::Bv { value, width }]) => {
+            model_eval_bv::extract(high, low, value, *width)
+        }
+        (
+            EagerKind::BvCompare(op),
+            [
+                EvalVal::Bv {
+                    value: left,
+                    width: left_width,
+                },
+                EvalVal::Bv {
+                    value: right,
+                    width: right_width,
+                },
+            ],
+        ) => model_eval_bv::compare(op, left, *left_width, right, *right_width),
+        // Ill-typed operands (a Bool where a number was wanted, a number where
+        // a bit-vector was wanted, or the other way round).  The gate has
+        // nothing to say about such a term.
         _ => EvalOutcome::UNDETERMINED,
     }
 }
@@ -547,7 +668,7 @@ fn combine_eager(kind: EagerKind, values: &[EvalVal]) -> EvalOutcome {
 /// when they were never asserted equal.  Reporting a collision as
 /// `Undetermined` also keeps a negated equality (`distinct` / `not (= ..)`)
 /// inconclusive there instead of a false violation.
-fn combine_eq(a: EvalVal, b: EvalVal) -> EvalOutcome {
+fn combine_eq(a: &EvalVal, b: &EvalVal) -> EvalOutcome {
     match (a, b) {
         (EvalVal::Bool(x), EvalVal::Bool(y)) => EvalOutcome::boolean(x == y),
         (EvalVal::Num(x), EvalVal::Num(y)) => {
@@ -557,6 +678,23 @@ fn combine_eq(a: EvalVal, b: EvalVal) -> EvalOutcome {
                 EvalOutcome::boolean(false)
             }
         }
+        // Bit-vectors are exact in BOTH directions, unlike the numeric arm
+        // above: a bit-vector model witness is a `BitVecConst` naming every
+        // bit, produced by a bit-blasted decision procedure, so a collision is
+        // evidence where an LP collision is not.  Making `=` weaker than
+        // `bvule` would also be incoherent, since `(= a b)` is
+        // `(and (bvule a b) (bvule b a))`.  Unequal widths are an ill-sorted
+        // term — the parser's problem, not the gate's.
+        (
+            EvalVal::Bv {
+                value: x,
+                width: x_width,
+            },
+            EvalVal::Bv {
+                value: y,
+                width: y_width,
+            },
+        ) => model_eval_bv::equal(x, *x_width, y, *y_width),
         _ => EvalOutcome::UNDETERMINED,
     }
 }
@@ -905,16 +1043,44 @@ impl Solver {
         depth: u32,
     ) -> EvalOutcome {
         let mut frames: Vec<Frame> = Vec::new();
+        // The term each frame on `frames` is evaluating, so a finished frame
+        // can be memoised.  It lives beside the stack rather than inside
+        // `Frame` because it is the driver's bookkeeping, exactly like
+        // `Frame::base`.
+        let mut frame_terms: Vec<TermId> = Vec::new();
         // Operand values of every frame on the stack, concatenated; a frame
         // owns `values[frame.base..]` while it is the innermost one.
         let mut values: Vec<EvalVal> = Vec::new();
         // A finished operand outcome travelling back to the frame that asked
         // for it.
         let mut carry: Option<EvalOutcome> = None;
+        // Outcomes of the compound terms already finished on this call, so the
+        // walk costs the term's DAG size rather than its TREE size.
+        //
+        // Terms are hash-consed, so a formula that mentions a shared subterm
+        // twice really is one node with two parents — and without this table a
+        // chain of `n` such nodes (`y1 = x+x`, `y2 = y1+y1`, ...) costs `2^n`
+        // visits.  Measured on the bit-vector doubling chain
+        // `dag<n>_shared_doubling`: 90 ms at n = 20, 1.4 s at n = 24, 22.8 s at
+        // n = 28, i.e. a factor of two per level.  That cost was invisible
+        // while bit-vector operators fell into `open_in_model`'s closing arm
+        // and answered `Undetermined` at the first node without descending; it
+        // became reachable the moment they gained arms.
+        //
+        // Sound because the walk is pure: it reads `model`, `self.arith` and
+        // the term arena, mutates none of them, and the table lives exactly as
+        // long as one call.  `depth` is the one input not in the key, and that
+        // is deliberate — it is a *work* bound whose only effect is to answer
+        // `Undetermined`, so re-using a value computed at a shallower depth can
+        // only make a deep occurrence more precise, never wrong.
+        let mut memo: FxHashMap<TermId, EvalOutcome> = FxHashMap::default();
 
         match self.open_in_model(term, model, manager, depth) {
             Opened::Done(outcome) => return outcome,
-            Opened::Frame(frame) => frames.push(frame),
+            Opened::Frame(frame) => {
+                frames.push(frame);
+                frame_terms.push(term);
+            }
         }
 
         loop {
@@ -927,6 +1093,10 @@ impl Solver {
 
             match step {
                 Step::Need(child) => {
+                    if let Some(cached) = memo.get(&child) {
+                        carry = Some(cached.clone());
+                        continue;
+                    }
                     let child_depth = match frames.last() {
                         Some(top) => top.depth.saturating_add(1),
                         None => depth,
@@ -936,6 +1106,7 @@ impl Solver {
                         Opened::Frame(mut frame) => {
                             frame.base = values.len();
                             frames.push(frame);
+                            frame_terms.push(child);
                         }
                     }
                 }
@@ -943,9 +1114,13 @@ impl Solver {
                     let Some(frame) = frames.pop() else {
                         return EvalOutcome::UNDETERMINED;
                     };
+                    let finished = frame_terms.pop();
                     values.truncate(frame.base);
                     if frames.is_empty() {
                         return outcome;
+                    }
+                    if let Some(finished) = finished {
+                        memo.insert(finished, outcome.clone());
                     }
                     carry = Some(outcome);
                 }
@@ -972,10 +1147,20 @@ impl Solver {
             return Opened::Done(EvalOutcome::UNDETERMINED);
         };
         let sort = t.sort;
+        // The two bit-vector shapes that repeat twenty times below.  Both are
+        // ordinary `Op::Eager` frames: bit-vector operators have fixed arity
+        // and no short-circuit, so the driver's existing machinery carries
+        // them unchanged and no new frame kind is needed.
+        let bv_binary = |a: TermId, b: TermId, op: BvBinaryOp| {
+            Opened::Frame(Frame::binary(a, b, EagerKind::BvBinary(op), depth))
+        };
+        let bv_compare = |a: TermId, b: TermId, op: BvCompareOp| {
+            Opened::Frame(Frame::binary(a, b, EagerKind::BvCompare(op), depth))
+        };
         match &t.kind {
             TermKind::True => Opened::Done(EvalOutcome::boolean(true)),
             TermKind::False => Opened::Done(EvalOutcome::boolean(false)),
-            TermKind::IntConst(_) | TermKind::RealConst(_) => {
+            TermKind::IntConst(_) | TermKind::RealConst(_) | TermKind::BitVecConst { .. } => {
                 Opened::Done(parse_value_term(term, manager))
             }
             TermKind::Var(_) => Opened::Done({
@@ -1031,8 +1216,9 @@ impl Solver {
                 depth,
             )),
             TermKind::Eq(a, b) => Opened::Frame(Frame::binary(*a, *b, EagerKind::Eq, depth)),
-            // `distinct` is deliberately INCONCLUSIVE for the gate.  A model in
-            // which two operands share a value does NOT reliably indicate a real
+            // `distinct` is INCONCLUSIVE for the gate on everything except a
+            // uniform-width bit-vector tuple.  A model in which two ARITHMETIC
+            // operands share a value does NOT reliably indicate a real
             // violation: the linear-arithmetic solver enforces disequalities by
             // case-splitting, not by pinning distinct witnesses in its LP model,
             // so `arith.value` routinely reports colliding integer values for a
@@ -1040,7 +1226,18 @@ impl Solver {
             // correct `Sat`s into spurious `Unknown`s; the gate targets violated
             // POSITIVE structure (a falsified equality or an all-false clause)
             // instead, which the arithmetic model represents faithfully.
-            TermKind::Distinct(_) => Opened::Done(EvalOutcome::UNDETERMINED),
+            //
+            // A bit-vector witness carries no such caveat — it is a
+            // `BitVecConst` naming every bit — so `Op::Distinct` decides the
+            // all-bit-vector case and bails out to `Undetermined` on the first
+            // operand that is anything else, which reproduces the old answer
+            // for every arithmetic, Boolean or opaque `distinct` exactly.
+            TermKind::Distinct(args) => Opened::Frame(Frame::new(
+                Op::Distinct {
+                    operands: args.clone(),
+                },
+                depth,
+            )),
             TermKind::Add(args) => Opened::Frame(Frame::new(
                 Op::Arith {
                     operands: args.clone(),
@@ -1083,6 +1280,49 @@ impl Solver {
                 EagerKind::CmpWeak { less: false },
                 depth,
             )),
+            // ---- bit-vector operators ---------------------------------
+            // Every one of these fell into the closing `_ =>` arm before this
+            // module gained a bit-vector value: `model.get` found nothing (an
+            // operator term is not a model leaf) and the gate answered
+            // `Undetermined`, so it vouched for every candidate model of a
+            // QF_BV formula whatever the model said.  Structural recomputation
+            // from the leaves — never a read-back of a cached gate value — is
+            // what makes the gate sound; see `eval_in_model_outcome`.
+            TermKind::BvNot(a) => Opened::Frame(Frame::unary(*a, EagerKind::BvNot, depth)),
+            TermKind::BvAnd(a, b) => bv_binary(*a, *b, BvBinaryOp::And),
+            TermKind::BvOr(a, b) => bv_binary(*a, *b, BvBinaryOp::Or),
+            TermKind::BvXor(a, b) => bv_binary(*a, *b, BvBinaryOp::Xor),
+            TermKind::BvAdd(a, b) => bv_binary(*a, *b, BvBinaryOp::Add),
+            TermKind::BvSub(a, b) => bv_binary(*a, *b, BvBinaryOp::Sub),
+            TermKind::BvMul(a, b) => bv_binary(*a, *b, BvBinaryOp::Mul),
+            TermKind::BvUdiv(a, b) => bv_binary(*a, *b, BvBinaryOp::Udiv),
+            TermKind::BvSdiv(a, b) => bv_binary(*a, *b, BvBinaryOp::Sdiv),
+            TermKind::BvUrem(a, b) => bv_binary(*a, *b, BvBinaryOp::Urem),
+            TermKind::BvSrem(a, b) => bv_binary(*a, *b, BvBinaryOp::Srem),
+            TermKind::BvShl(a, b) => bv_binary(*a, *b, BvBinaryOp::Shl),
+            TermKind::BvLshr(a, b) => bv_binary(*a, *b, BvBinaryOp::Lshr),
+            TermKind::BvAshr(a, b) => bv_binary(*a, *b, BvBinaryOp::Ashr),
+            TermKind::BvConcat(a, b) => bv_binary(*a, *b, BvBinaryOp::Concat),
+            TermKind::BvExtract { high, low, arg } => Opened::Frame(Frame::unary(
+                *arg,
+                EagerKind::BvExtract {
+                    high: *high,
+                    low: *low,
+                },
+                depth,
+            )),
+            TermKind::BvUlt(a, b) => bv_compare(*a, *b, BvCompareOp::Ult),
+            TermKind::BvUle(a, b) => bv_compare(*a, *b, BvCompareOp::Ule),
+            TermKind::BvSlt(a, b) => bv_compare(*a, *b, BvCompareOp::Slt),
+            TermKind::BvSle(a, b) => bv_compare(*a, *b, BvCompareOp::Sle),
+            // `TermKind` has no variant for `bvnand` / `bvnor` / `bvxnor` /
+            // `bvcomp` / `bvsmod` / `bvneg` / `zero_extend` / `sign_extend` /
+            // `rotate_left` / `rotate_right` / `repeat`: the term builder and
+            // the parser's indexed-identifier path lower every one of them to
+            // the primitives above (`TermManager::mk_bv_nand` and friends,
+            // `smtlib::parser::indexed`), so they are covered here without an
+            // arm of their own.
+            //
             // A `let` evaluates to its body.
             //
             // The SMT-LIB parser substitutes bindings into the body and returns
@@ -1135,6 +1375,12 @@ fn parse_value_term(term: TermId, manager: &TermManager) -> EvalOutcome {
             None => EvalOutcome::UNDETERMINED,
         },
         TermKind::RealConst(r) => EvalOutcome::number(*r),
+        // A bit-vector witness, either an interned literal or the value
+        // `build_model` recorded for a variable or an opaque application
+        // (`model_builder` writes them as real `BitVecConst` terms through
+        // `mk_bitvec`).  Reading it is what lets the `Var` and fallback arms of
+        // `open_in_model` see a bit-vector at all.
+        TermKind::BitVecConst { value, width } => model_eval_bv::leaf(value, *width),
         _ => EvalOutcome::UNDETERMINED,
     }
 }

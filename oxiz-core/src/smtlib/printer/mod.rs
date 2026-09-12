@@ -34,7 +34,30 @@ pub use basic::Printer;
 ///   four; any other width must use the `#b` form with exactly `width` binary
 ///   digits.  Emitting `#x` with `width.div_ceil(4)` digits (as the printers
 ///   previously did) silently widens e.g. a 5-bit value to 8 bits.
-pub(crate) fn format_bitvec_literal(value: &num_bigint::BigInt, width: u32) -> String {
+///
+/// # `#x` is a canonicalization choice, `#b` is forced
+///
+/// The `#b` half of the radix rule is forced: a hex digit *is* four bits, so
+/// there is no legal `#x` spelling at all at a width that is not a multiple of
+/// four.  The `#x` half is a choice — `#b` with exactly `width` digits is
+/// valid SMT-LIB at *every* width, multiples of four included — and this
+/// function is where that choice is made, once, for the whole workspace.  It
+/// matches what Z3 prints.  Legitimate `#b` output elsewhere, such as the
+/// `(fp #b.. #b.. #b..)` bit-triples in this module's pretty printer, denotes
+/// a different construct and must stay `#b`.
+///
+/// # Why this is `pub`
+///
+/// Every bit-vector *value* rendered anywhere in the workspace must come from
+/// here, or the same constant comes back spelled two ways.  That is exactly
+/// what finding U-Z13 was: an 8-bit constant printed `#x05` by `(get-value)`,
+/// which reached this function, and `#b00000101` by `(get-model)`, which had a
+/// hand-rolled `format!("#b{:0>width$}", ..)` of its own.  Callers that hold a
+/// [`crate::ast::TermManager`] can print the interned constant through
+/// [`Printer`]; callers that only have a value and a width — such as
+/// `oxiz-solver`'s `Context::default_value`, which holds `&self` and cannot
+/// intern anything — call this directly.
+pub fn format_bitvec_literal(value: &num_bigint::BigInt, width: u32) -> String {
     // Width 0 is not a legal SMT-LIB bit-vector sort; there is no literal
     // syntax for it, so fall back to the shortest well-formed binary literal
     // rather than emit a zero-digit `#x`/`#b` token that no parser accepts.

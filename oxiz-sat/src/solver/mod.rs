@@ -167,6 +167,18 @@ impl std::fmt::Display for SolverError {
 
 impl std::error::Error for SolverError {}
 
+/// Number of `should_stop_search` polls between two reads of the wall clock.
+///
+/// `should_stop_search` runs once per outer CDCL loop iteration (propagate /
+/// analyze / decide), not once per conflict, so this throttles the clock to
+/// roughly one read per 256 propagation rounds — cheap enough to sit in the hot
+/// loop, and still fine-grained enough for a budget in the tens of
+/// milliseconds. It does not make the deadline exact: a single `propagate()`
+/// over a large clause database is not itself interruptible, so the search can
+/// overshoot the deadline by one such round (`Solver::propagate_step_limit` is
+/// the second lever for callers who need a harder bound).
+pub(super) const DEADLINE_POLL_INTERVAL: u32 = 256;
+
 /// Statistics for the solver
 #[derive(Debug, Default, Clone)]
 pub struct SolverStats {
@@ -459,6 +471,33 @@ pub struct Solver {
     /// the resource budget consulted by the CDCL loop and drives, e.g.,
     /// `oxiz-cli --timeout`-style bounded solving.
     pub(super) max_conflicts: Option<u64>,
+    /// Optional decision budget. When `Some(n)`, the search loop returns
+    /// [`SolverResult::Unknown`] once `n` decisions have been made. `None` (the
+    /// default) means no decision limit. Counted against
+    /// [`SolverStats::decisions`], which — like every counter in that struct —
+    /// is *cumulative* across `solve()` calls on this solver, so a caller that
+    /// wants a per-solve budget must set the ceiling relative to the current
+    /// count (that is what `oxiz-solver`'s `check_core` does for
+    /// `(set-option :max-decisions N)`).
+    pub(super) max_decisions: Option<u64>,
+    /// Optional wall-clock deadline for the search. When `Some(t)`, the search
+    /// loop returns [`SolverResult::Unknown`] once `oxiz_time::Instant::now()`
+    /// has reached `t`. `None` (the default) means no deadline.
+    ///
+    /// Not `cfg`-gated: `oxiz_time::Instant` exists on every target. On a
+    /// target without a clock (`wasm32-unknown-unknown`, or any
+    /// `--no-default-features` build) the clock is *frozen* at t = 0, so
+    /// `now() >= deadline` is never true and the deadline is a documented
+    /// no-op — see the `oxiz_time` crate docs, which tell such callers to use
+    /// [`Solver::set_max_conflicts`] instead.
+    pub(super) deadline: Option<oxiz_time::Instant>,
+    /// Poll throttle for [`Solver::deadline`]: the clock is read at most once
+    /// per [`DEADLINE_POLL_INTERVAL`] calls to `should_stop_search`, which is
+    /// once per outer CDCL loop iteration (propagate / analyze / decide). Zero
+    /// means "read the clock on the next poll", which is what
+    /// [`Solver::set_deadline`] resets it to so a freshly-set deadline is
+    /// honoured immediately.
+    pub(super) deadline_poll_countdown: u32,
     /// Optional DRAT proof logger. When `Some`, the CDCL loop emits a DRAT
     /// addition line for every learned clause, a deletion line for every clause
     /// dropped by clause-database reduction / subsumption / vivification /
@@ -615,6 +654,9 @@ impl Solver {
             pure_literal_reconstruction: Vec::new(),
             interrupt: None,
             max_conflicts: None,
+            max_decisions: None,
+            deadline: None,
+            deadline_poll_countdown: 0,
             drat: None,
             lrat: None,
             clause_lrat_id: Vec::new(),
@@ -735,16 +777,61 @@ impl Solver {
 
     /// Set the conflict budget (`None` clears it). When set, the CDCL search
     /// loop returns [`SolverResult::Unknown`] once the budget is reached.
+    ///
+    /// The budget is compared against [`SolverStats::conflicts`], which is
+    /// cumulative across every `solve()` call on this solver and is only
+    /// cleared by [`Solver::reset`]. A caller that means "at most `n` conflicts
+    /// *from here on*" must therefore pass `Some(self.stats().conflicts + n)`.
     pub fn set_max_conflicts(&mut self, max_conflicts: Option<u64>) {
         self.max_conflicts = max_conflicts;
     }
 
-    /// Returns `true` when the search must stop early: the conflict budget has
-    /// been reached or an external interrupt flag has been raised.
+    /// Set the decision budget (`None` clears it). When set, the CDCL search
+    /// loop returns [`SolverResult::Unknown`] once the budget is reached.
+    ///
+    /// Same cumulative-counter caveat as [`Solver::set_max_conflicts`]: the
+    /// budget is compared against [`SolverStats::decisions`].
+    pub fn set_max_decisions(&mut self, max_decisions: Option<u64>) {
+        self.max_decisions = max_decisions;
+    }
+
+    /// Set a wall-clock deadline for the search (`None` clears it).
+    ///
+    /// Polled from `should_stop_search`, at most once per
+    /// [`DEADLINE_POLL_INTERVAL`] polls so the hot loop does not read the clock
+    /// on every iteration; the throttle is reset here so a freshly-set deadline
+    /// is checked on the very first poll. When the deadline has passed, the
+    /// search returns [`SolverResult::Unknown`].
+    ///
+    /// Deliberately **not** `cfg`-gated on `std`: `oxiz_time::Instant` exists on
+    /// every target. Where no clock exists (`wasm32-unknown-unknown`, or a
+    /// `--no-default-features` build) the clock is frozen at t = 0, so the
+    /// deadline never fires and this is a documented no-op — such callers
+    /// should bound the search with [`Solver::set_max_conflicts`] /
+    /// [`Solver::set_max_decisions`] instead. See the `oxiz_time` crate docs.
+    pub fn set_deadline(&mut self, deadline: Option<oxiz_time::Instant>) {
+        self.deadline = deadline;
+        self.deadline_poll_countdown = 0;
+    }
+
+    /// Returns `true` when the search must stop early: the conflict budget or
+    /// the decision budget has been reached, an external interrupt flag has
+    /// been raised, or the wall-clock deadline has passed.
+    ///
+    /// Takes `&mut self` because of the deadline poll throttle (the countdown
+    /// is state, and a `Cell` would buy nothing: all three call sites —
+    /// [`Solver::solve`], `Solver::solve_with_theory` and
+    /// `Solver::solve_under_assumptions` — already hold `&mut self` and call
+    /// this in statement position).
     #[inline]
-    pub(super) fn should_stop_search(&self) -> bool {
+    pub(super) fn should_stop_search(&mut self) -> bool {
         if let Some(max) = self.max_conflicts
             && self.stats.conflicts >= max
+        {
+            return true;
+        }
+        if let Some(max) = self.max_decisions
+            && self.stats.decisions >= max
         {
             return true;
         }
@@ -752,6 +839,16 @@ impl Solver {
             && flag.load(Ordering::Relaxed)
         {
             return true;
+        }
+        if let Some(d) = self.deadline {
+            if self.deadline_poll_countdown == 0 {
+                self.deadline_poll_countdown = DEADLINE_POLL_INTERVAL;
+                if oxiz_time::Instant::now() >= d {
+                    return true;
+                }
+            } else {
+                self.deadline_poll_countdown -= 1;
+            }
         }
         false
     }
@@ -1641,6 +1738,16 @@ impl Solver {
     }
 
     /// Reset the solver
+    ///
+    /// The externally-configured budgets — [`Solver::set_max_conflicts`],
+    /// [`Solver::set_max_decisions`], [`Solver::set_deadline`] and
+    /// [`Solver::set_interrupt`] — are deliberately **not** cleared: they
+    /// belong to the caller that armed this solver, not to the problem being
+    /// reset. `self.stats` *is* zeroed below, so a conflict/decision ceiling
+    /// expressed relative to the old counter is stale after a reset; re-arm it
+    /// (that is what `oxiz-theories`' `BvSolver` does with its own
+    /// `conflicts_spent` accumulator, which is why its total allowance survives
+    /// the `sat.reset()` inside `BvSolver::reset`).
     pub fn reset(&mut self) {
         self.clauses = ClauseDatabase::new();
         self.trail.clear();
