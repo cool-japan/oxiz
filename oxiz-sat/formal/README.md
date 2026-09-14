@@ -44,11 +44,14 @@ prints `self_host: true`.
 Three facts keep that claim honest, and they are worth stating separately:
 
 1. **Two versions of one file are involved.** The harnesses verify
-   `oxiz-sat/src/literal.rs` *of this working tree*, reached by relative path.
-   The solver that decides them is crates.io OxiZ `=0.3.3`, whose embedded SAT
-   core still carries the **unfixed** copy of that same file. The code under
-   test and the copy inside the solver deciding it are the same source file at
-   two different versions.
+   `oxiz-sat/src/literal.rs` *of this working tree* — `oxiz-sat` 0.3.4,
+   unpublished, reached by relative path. The solver that decides them is
+   crates.io OxiZ `=0.3.3`: that is the pin `cargo-formal` builds against, it
+   is what the report's `pins` field says (`"oxiz": "0.3.3"`) and what every
+   item's evidence records, and its embedded SAT core still carries the
+   **unfixed** copy of that same file. No 0.3.4 solver decides anything here —
+   the code under test and the copy inside the solver deciding it are the same
+   source file at two different versions.
 2. **That is a circularity of trust, not of logic.** A verification condition
    is a formula; a wrong answer from the solver is a wrong answer whether or
    not the solver's own code is the subject. What the arrangement buys is
@@ -84,7 +87,7 @@ RUSTFLAGS="--cfg formal -Zcrate-attr=feature(register_tool) -Zcrate-attr=registe
   cargo +nightly-2026-06-20 check --target-dir target/formal-check
 ```
 
-Measured 2026-09-08/09:
+Measured 2026-09-08/09, and re-run 2026-09-14 with identical results:
 
 | build | result |
 |---|---|
@@ -122,6 +125,13 @@ with the release CLI (`cargo-formal` 0.1.0), the release driver with
 dependency-body and monomorphic-instance lowering, OxiZ 0.3.3 and rustc
 `nightly-2026-06-20`. `EXPECTED.toml` is the machine-readable mirror of this
 table, and each harness's doc comment carries the same verdict.
+
+Re-measured 2026-09-14 with rebuilt release binaries on the same pins
+(`cargo-formal` 0.1.0, OxiZ 0.3.3, rustc `nightly-2026-06-20`): every verdict
+below is identical — the same 18 rows, 15 proved / 2 refuted / 1 unknown, the
+same two counterexamples, the same layer counters (`bmc` 65 proved / 2 refuted
+/ 3 unknown over 70 obligations), `solver-model-rejected: 3`, and the same
+`cargo formal check` exit 1.
 
 | # | Harness | Property | Verdict |
 |---|---|---|---|
@@ -174,6 +184,12 @@ crate root), so this is the measurement that matters:
 dependency-body lowering is driven by reachability from the harnesses, and
 nine harnesses over one `u32` type pull in nineteen bodies, not the crate.
 
+The 2026-09-14 re-measurement, also from a cold `--target-dir`, took **21 s**
+wall clock, of which the driver-attached `cargo check` is 19.54 s; the 70
+solver calls sum to 2.0 s of per-item solver time (the report's `time_ms`,
+summed, not elapsed). It lowered the same 19 bodies (19 reachable), and again
+**no `FORMAL_DEP_BUDGET` warning appeared**.
+
 ### `solver-model-rejected`: 3
 
 cargo-formal is pinned to OxiZ **0.3.3**, whose Boolean-structure-over-
@@ -184,7 +200,7 @@ reported counterexample, so such an answer becomes `unknown` and never a
 
 All three rejections in this run are `assert` sites of
 `lbool_negate_involution_harness` — the three negation identities
-(`src/harness.rs:330`, `:331`, `:332`). Nothing else in the package is
+(`src/harness.rs:333`, `:334`, `:335`). Nothing else in the package is
 `unknown`, so the three are also the only rows that can move when the pin
 advances.
 

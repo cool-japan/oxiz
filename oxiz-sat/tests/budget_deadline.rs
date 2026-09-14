@@ -126,7 +126,25 @@ fn clearing_the_deadline_restores_unbounded_search() {
 
 #[test]
 fn reset_preserves_the_budgets_and_zeroes_the_stats() {
-    let mut solver = pigeonhole(8, 7);
+    // PHP(7,6), not a larger instance. Everything this test asserts is about
+    // *which* verdict each solve reaches, and all three still hold here: the
+    // two budgeted solves are cut off (`Unknown`) and the unbudgeted one
+    // refutes (`Unsat`). The instance size only decides how long that last,
+    // unbudgeted refutation takes — the whole cost of the test — and it is the
+    // one solve no budget bounds.
+    //
+    // Measured in the dev profile (`[profile.dev]` is `opt-level = 1`) on the
+    // development machine under load, single-threaded:
+    //
+    // | instance | unbudgeted refutation | this test |
+    // |---|---|---|
+    // | PHP(8,7) | 43.9 s | 63.2 s — `cargo nextest` reports SLOW |
+    // | PHP(7,6) |  0.41 s |  0.42 s |
+    //
+    // The repo's `.config/nextest.toml` sets `slow-timeout = { period = "60s",
+    // terminate-after = 3 }`, so at PHP(8,7) this test sat just past the SLOW
+    // threshold in an unoptimized build and grew with machine load.
+    let mut solver = pigeonhole(7, 6);
     solver.set_max_conflicts(Some(1));
     solver.set_max_decisions(Some(1));
     solver.set_deadline(Some(two_hours_ago()));
@@ -144,7 +162,7 @@ fn reset_preserves_the_budgets_and_zeroes_the_stats() {
     // is still cut off. This is the property `BvSolver::reset` depends on — its
     // `sat.reset()` must not silently re-arm an exhausted allowance, which is
     // why `BvSolver` accumulates its spend in a field of its own.
-    add_pigeonhole(&mut solver, 8, 7);
+    add_pigeonhole(&mut solver, 7, 6);
     assert_eq!(
         solver.solve(),
         SolverResult::Unknown,

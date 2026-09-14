@@ -372,6 +372,18 @@ pub struct Solver {
     pub(super) assertion_trail_sizes: Vec<usize>,
     /// Clause IDs added at each assertion level (for proper pop)
     pub(super) assertion_clause_ids: Vec<Vec<ClauseId>>,
+    /// Value of [`Solver::trivially_unsat`] at each open assertion level's
+    /// `push`, so `pop` can restore it instead of zeroing it.
+    ///
+    /// `trivially_unsat` is a latch over the *whole* clause database, and
+    /// `pop` used to clear it unconditionally — which threw away a
+    /// contradiction that had been proved **before** the matching `push`, and
+    /// made `(assert (distinct b b)) (push 1) (pop 1) (check-sat)` answer
+    /// `sat`.  Restoring the push-time value keeps a contradiction latched
+    /// below the retracted scope and still drops one latched inside it (whose
+    /// clauses this `pop` is removing), which is all the old unconditional
+    /// clear was ever meant to do.
+    pub(super) assertion_trivially_unsat: Vec<bool>,
     /// Model (if sat)
     pub(super) model: Vec<LBool>,
     /// Whether formula is trivially unsatisfiable
@@ -619,6 +631,7 @@ impl Solver {
             assertion_levels: vec![0],
             assertion_trail_sizes: vec![0],
             assertion_clause_ids: vec![Vec::new()],
+            assertion_trivially_unsat: Vec::new(),
             model: Vec::new(),
             trivially_unsat: false,
             phase: Vec::new(),
@@ -1628,6 +1641,9 @@ impl Solver {
         self.assertion_levels.push(self.clauses.num_original());
         self.assertion_trail_sizes.push(self.trail.size());
         self.assertion_clause_ids.push(Vec::new());
+        // Snapshot the contradiction latch so the matching `pop` restores it
+        // rather than clearing it outright -- see the field's doc comment.
+        self.assertion_trivially_unsat.push(self.trivially_unsat);
     }
 
     /// Pop to previous assertion level
@@ -1640,7 +1656,26 @@ impl Solver {
 
             // Remove all clauses added at this assertion level
             if let Some(clause_ids_to_remove) = self.assertion_clause_ids.pop() {
-                for clause_id in clause_ids_to_remove {
+                for &clause_id in &clause_ids_to_remove {
+                    // Skip a clause some earlier mechanism already retracted:
+                    // clause-database reduction, on-the-fly subsumption
+                    // (`check_subsumption`) and `forget_learned_since` all
+                    // remove clauses without pruning this level's id list, and
+                    // since `learn_clause` started registering here that list
+                    // routinely names clauses already gone. `ClauseDatabase::
+                    // remove` and `purge_binary_edges` are both no-ops on a
+                    // clause flagged `deleted`, but `drat_delete` /
+                    // `lrat_delete` are not: a second deletion line for the
+                    // same clause would make the proof log disagree with the
+                    // database it describes.
+                    if self
+                        .clauses
+                        .get(clause_id)
+                        .is_none_or(|clause| clause.deleted)
+                    {
+                        continue;
+                    }
+
                     // Purge any binary-implication-graph edges for this clause
                     // before removing it. Unlike the watch lists (which lazily
                     // skip deleted clauses during propagation), the binary graph
@@ -1653,14 +1688,28 @@ impl Solver {
                     self.drat_delete(clause_id);
                     self.lrat_delete(clause_id);
 
-                    // Remove from clause database
+                    // Remove from clause database. Safe against any stale id
+                    // the guard above did not catch, because a `ClauseId` is
+                    // never recycled for a different clause (see
+                    // `ClauseDatabase::add`).
                     self.clauses.remove(clause_id);
-
-                    // Remove from learned clause tracking if it's a learned clause
-                    self.learned_clause_ids.retain(|&id| id != clause_id);
 
                     // Note: Watch lists will be cleaned up naturally during propagation
                     // as they check if clauses are deleted before using them
+                }
+
+                // Drop the retracted ids from the learned-clause registry in a
+                // single pass. This used to be one `retain` per removed clause
+                // inside the loop above, which is quadratic — affordable while
+                // only the handful of clauses `probe`/`propagate` register here
+                // could be learned, but not since `learn_clause` registers every
+                // clause it learns (without which a learned clause outlived the
+                // scope that entailed it; see
+                // `Solver::register_learned_at_assertion_level`).
+                if !clause_ids_to_remove.is_empty() && !self.learned_clause_ids.is_empty() {
+                    let removed: FxHashSet<ClauseId> =
+                        clause_ids_to_remove.iter().copied().collect();
+                    self.learned_clause_ids.retain(|id| !removed.contains(id));
                 }
             }
 
@@ -1722,8 +1771,25 @@ impl Solver {
             // in `Solver::restore_to_trail_size`.
             self.trail.reset_propagation_head();
 
-            // Clear the trivially_unsat flag as we've removed problematic clauses
-            self.trivially_unsat = false;
+            // Restore the contradiction latch to what it was when this scope
+            // was pushed, instead of clearing it outright.
+            //
+            // Clearing is right for a contradiction this `pop` has just
+            // dismantled -- the clauses that proved it are gone -- and wrong
+            // for one that was already latched before the `push`, which no
+            // amount of popping can undo: the clauses proving *it* live at a
+            // level still in force. The unconditional clear could not tell the
+            // two apart, so `(assert (distinct b b)) (push 1) (pop 1)
+            // (check-sat)` came back `sat` (the Tseitin encoding of
+            // `(distinct x x)` contradicts a level-0 fact inside `add_clause`,
+            // which latches the flag at the base level). Restoring the
+            // push-time snapshot keeps exactly the second case and drops
+            // exactly the first.
+            //
+            // Conservative in the safe direction: a contradiction that was
+            // latched inside this scope but is in fact provable without it is
+            // dropped and simply re-derived by the next `solve()`.
+            self.trivially_unsat = self.assertion_trivially_unsat.pop().unwrap_or(false);
         }
     }
 
@@ -1773,6 +1839,7 @@ impl Solver {
         self.assertion_trail_sizes.push(0);
         self.assertion_clause_ids.clear();
         self.assertion_clause_ids.push(Vec::new());
+        self.assertion_trivially_unsat.clear();
         self.model.clear();
         self.num_vars = 0;
         self.restart_threshold = self.config.restart_interval;

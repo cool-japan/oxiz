@@ -62,7 +62,7 @@ Recounted at the 0.3.1 release (2026-07-31) directly from the checkboxes under "
 - **Rustdoc / cargo-deny**: `cargo doc` clean under `-D warnings`; `cargo deny check bans` clean
 - **Largest File**: 1,997 lines (`oxiz-solver/src/solver/tests.rs`) — all files under 2,000 lines; largest non-test file is 1,989 lines (`oxiz-solver/src/mbqi/model_completion.rs`)
 - **Toolchain**: cargo/rustc 1.95.0
-- **2026-09-09 (0.3.4 working tree, cargo-formal intake — see that section)**: **10,437 workspace tests** (nextest, release, `--workspace`; 10,437 passed, 13 skipped, 0 failures) after the U-Z10/U-Z11/U-Z12/U-Z13/U-Z14/U-Z17 and `oxiz-sat` `Lit` fixes, up from 9,953 at the 0.3.2 measurement above. The other figures in this section are still the 0.3.2 release-time numbers and were not re-measured.
+- **2026-09-14 (0.3.4 working tree, cargo-formal intake — see that section)**: **10,465 workspace tests** (nextest, release, `--workspace`; 10,465 passed, 13 skipped, 0 failures) after the U-Z10/U-Z11/U-Z12/U-Z13/U-Z14/U-Z17, `oxiz-sat` `Lit` and `#P2b-19`–`#P2b-22` push/pop fixes, up from 10,437 / 13 / 0 on the same gate on 2026-09-09 and from 9,953 at the 0.3.2 measurement above. The other figures in this section are still the 0.3.2 release-time numbers and were not re-measured.
 
 ---
 
@@ -1518,313 +1518,227 @@ accept an arbitrary path, so no new harness is required.
 
 [cargo-formal](https://github.com/cool-japan/cargo-formal) is a Cargo subcommand for formal
 verification of Rust — it lowers reachable MIR into its own IR, generates bounded verification
-conditions, and discharges them through **OxiZ as its SMT backend**. Its Phase 2 capability
-probes and its `formal-conformance` differential suite exercised OxiZ from outside, at the
-`(check-sat)` / `(get-value)` / `(get-proof)` boundary. What came back is the seventeen numbered
-findings `U-Z1` … `U-Z17` below, plus the two `oxiz-sat` `Lit` bugs that cargo-formal's own
-self-hosting harness turned up independently of that catalogue; the `#P2b-*` items are new,
-raised while fixing them. The fixtures live in the cargo-formal repository at
-`crates/formal-conformance/fixtures/{c,u}*.smt2`; each `u*.expected` carries an
-`upstream: U-ZNN` line naming the finding it pins, and its test asserts that OxiZ currently
-*disagrees* in exactly the documented way — so a fixture flipping to agreement makes that test
-fail on purpose, which is how the tag gets removed rather than forgotten.
+conditions, and discharges them through **OxiZ as its SMT backend**. Its Phase 2 probes and its
+`formal-conformance` differential suite exercised OxiZ from outside, at the `(check-sat)` /
+`(get-value)` / `(get-proof)` boundary: the seventeen findings `U-Z1` … `U-Z17` below, plus the
+two `oxiz-sat` `Lit` bugs its own self-hosting harness turned up; the `#P2b-*` items were raised
+while fixing them. Fixtures live in that repo at `crates/formal-conformance/fixtures/{c,u}*.smt2`;
+each `u*.expected` carries an `upstream: U-ZNN` line and fails on purpose once OxiZ agrees.
 
-**Every `[x]` below was fixed in the 0.3.4 working tree on 2026-09-08/09**, and the whole set
-was gated together on the integrated tree: `cargo nextest run --release --workspace`
-**10,437 passed / 13 skipped / 0 failures**, `cargo clippy --release --workspace --all-targets
--- -D warnings` clean, `cargo deny check bans` ok, every touched file under 2,000 lines, the
-22 conformance fixtures **21 agree / 1 disagree** (the one is `u06`, U-Z16, out of scope for
-this phase), and the differential fuzz that measured U-Z10 in the first place **0 wrong `sat`
-and 0 wrong `unsat` in 12,000 trials** (11,297 truly-sat / 703 truly-unsat at width 8; the
-0.3.3 baseline was 34/703 wrong `sat`, 4.8 %). cargo-formal keeps its own crates.io pin at
-`oxiz = "=0.3.3"` and keeps its Rule-W width restriction in force **until the release that
-carries these fixes ships** — the fixes are in this working tree, not in a published version.
+**Every `[x]` below was fixed in the 0.3.4 working tree on 2026-09-08/09, except
+`#P2b-19`–`#P2b-22`, fixed on 2026-09-14**, and the whole set was gated together on the integrated
+tree: `cargo nextest run --release --workspace` **10,465 passed / 13 skipped / 0 failures**
+(10,437 / 13 / 0 was this same gate on 2026-09-09), `cargo clippy --release --workspace
+--all-targets -- -D warnings` clean, `cargo deny check bans` ok, every touched file under 2,000
+lines, the 22 conformance fixtures **21 agree / 1 disagree** (`u06`, U-Z16), and the differential
+fuzz that measured U-Z10 **0 wrong `sat`, 0 wrong `unsat`, 0 `unknown`** on its final re-run —
+2026-09-14, independent per-block seeds, **24,054 verdicts at width 8, 17,713 truly-sat / 6,341
+truly-unsat**, against crates.io 0.3.3's 846 wrong `sat` (this tree: 1 + 12 + 21 before
+`#P2b-19`/`#P2b-20`). It supersedes *as the 0.3.3 baseline* the earlier "12,000 trials, 11,297
+truly-sat / 703 truly-unsat, 34/703" figures, whose block seeds overlapped; per-family table
+(A/B/C; B 6,300 trials at widths 65/96/128, C 1,600) in CHANGELOG 0.3.4. cargo-formal keeps its
+`oxiz = "=0.3.3"` pin and Rule-W width restriction **until that release ships**.
 
-Line numbers below were re-verified against the tree on 2026-09-09, after the two file splits
-this work forced (`theory_manager.rs` → `theory_manager/bv_bridge.rs`, `bv/solver.rs` →
-`bv/solver/{budget,combination}.rs`); where a line would rot quickly the anchor is a function
-name instead.
+Line numbers below were re-verified on 2026-09-09, after the two file splits this work forced
+(`theory_manager.rs` → `theory_manager/bv_bridge.rs`, `bv/solver.rs` →
+`bv/solver/{budget,combination}.rs`); where a line would rot quickly the anchor is a name.
 
 ### Fixed in the 0.3.4 working tree
 
-- [x] **U-Z10 — Boolean structure over bit-vector atoms answered `sat` for unsatisfiable
-  formulas, at a measured 4.8–9.2 % rate.** `(= a #x0f)` with `(not (and (bvule a #x0f)
-  (bvule a #x10)))` came back `sat`; the rate did not move when `:random-seed` was changed
-  (2/1,500 → 34/12,000), so re-seeding was never a workaround. Fixtures
-  `u01_boolean_structure_and_ule`, `u08_boolean_structure_ult_ugt`,
-  `u09_boolean_structure_ugt_ult` (all `upstream: U-Z10`); evidence
-  `p2-oxiz-capabilities.md` §2.1, `p2-notes-s0b-oxiz.md` F1. The root cause is **not** the
-  model gate that the original report guessed at: `BvSolver::pop`
-  (`oxiz-theories/src/bv/solver.rs:1728`) deleted the embedded SAT clauses but left
-  `term_to_bv`, `ult_cache` and `bool_node` populated, and the idempotence guard in
-  `oxiz-solver/src/solver/theory_bv_encode.rs:164` (`if bv.get_bv(tid).is_some()`) then
-  refused to re-encode the circuit those clauses used to define — so after any backjump the
-  atom was live in the cache and unconstrained in the solver. — **(fixed in 0.3.4: three undo
-  journals `term_to_bv_journal` / `ult_cache_journal` / `bool_node_journal`
-  (`oxiz-theories/src/bv/solver.rs:134-138`), pushed at the three insertion sites (`:270`,
-  `:380`, `:727`), snapshotted into `ContextMark` by `push` (`:1716-1723`) and truncated by
-  `pop` **before** `sat.pop()` (`:1728`), cleared by `reset`. The struct doc states the restored
-  invariant: a term has a `term_to_bv` / `ult_cache` / `bool_node` entry iff the clauses
-  defining it are live in the embedded SAT solver. Tests: `oxiz-solver/tests/bv_scope_rollback.rs`
-  (19) and `oxiz-theories/tests/bv_wide_scope_and_model.rs` (7). Of the 32 script- and
-  unit-level tests written for U-Z10 and U-Z11 together (those two files plus §5 of
-  `bv_wide_soundness.rs`), **23 fail on the pre-fix tree**; the 9 that pass on both are labelled
-  as controls in the source, and two early versions were rewritten after this check because they
-  passed on the pre-fix tree and so witnessed nothing. Acceptance: the differential fuzz above.)**
-
-- [x] **U-Z10 (backstop) — the model-verification gate could not read a single bit-vector
-  value, so it approved every QF_BV model whatever the model said.** `EvalVal` was
-  `Bool | Num`, `parse_value_term` answered `Undetermined` for a `BitVecConst`, and every
-  `Bv*` `TermKind` fell into `open_in_model`'s closing `_ =>` arm, so
-  `Solver::model_refutes_assertions` returned "go ahead and report `sat`" for any bit-vector
-  formula. Measured on the pre-fix tree, five conformance fixtures were answered `sat` with a
-  model falsifying one of their own assertions. — **(fixed in 0.3.4: `EvalVal::Bv { value:
-  BigInt, width: u32 }` (`oxiz-solver/src/solver/mod.rs:546`) at full width — `Copy` was
-  dropped from `EvalVal`/`EvalOutcome` rather than truncating to 64 bits, since a 64-bit window
-  is the exact shape of the wide-BV bugs this crate has already fixed; new module
-  `oxiz-solver/src/solver/model_eval_bv.rs`, which writes **no** operator arithmetic of its own
-  and delegates every fold to `oxiz_core::ast::bv_fold`, the workspace's single definition of
-  the SMT-LIB `FixedSizeBitVectors` semantics, contributing only the width rules (`concat` sums
-  the widths, every other operator including the three shifts requires equal widths and is
-  otherwise `Undetermined`); 20 primitive `Bv*` arms plus `BitVecConst` and `Distinct` in
-  `open_in_model`. `bvnand`/`bvnor`/`bvxnor`/`bvcomp`/`bvsmod`/`bvneg`/`zero_extend`/
-  `sign_extend`/`rotate_*`/`repeat` have no `TermKind` and are covered by desugaring, which two
-  named tests pin. Tests: 17 unit tests against an independent `u128` reference at widths
-  1/7/8/64/65/128 (plus a width-200 case the reference cannot follow) and
-  `oxiz-solver/tests/model_gate_bv.rs` (8), whose 47-script satisfiable table is the
-  false-`unknown` guard — all 47 already answered `sat` before this change and still do, and no
-  `c*` fixture moved. The gate also backstops U-Z11: `u02` and `u10` moved from wrong `sat` to
-  `unknown` on a tree carrying only this change.)**
-
-- [x] **U-Z10 (sibling family) — `Constraint::Gt` / `Ge` over bit-vector operands asserted
-  nothing at all.** `(= a #x0f) ∧ (> a #x0f)` answered `sat`; the `<` control under the same
-  shape correctly answered `unsat`, which isolated it. Both inner `match constraint` blocks of
-  the BV comparison arm handled only `Lt` and `Le` and ended in a silent `_ => {}`, so the atom
-  survived as a free Boolean. Independent of the scope-rollback bug — wrong on the pre-fix tree
-  and on a tree carrying only the U-Z10 journals. Evidence: cargo-formal `p2b/w0/I0-a.md` §4.1.
-  — **(fixed in 0.3.4 twice over, at both layers I0-a §4.1 asked for. (a) The four missing arms
-  in `oxiz-solver/src/solver/theory_manager.rs`: positive `Gt(a,b) => assert_ult(b,a)` (`:1134`)
-  and `Ge(a,b) => assert_ule(b,a)` (`:1136`), negative `Gt(a,b) => assert_ule(a,b)` (`:1168`)
-  and `Ge(a,b) => assert_ult(a,b)` (`:1169`); no signed branch, because `is_signed` is read from
-  `TermKind::BvSlt`/`BvSle` on the constraint term and a `Constraint::Gt`/`Ge` can only come
-  from `TermKind::Gt`/`Ge`, so a signed arm would be dead code. Both matches now end in
-  spelled-out `Eq | Diseq | BoolApp => false` arms instead of `_ => {}`, so a future
-  `Constraint` kind is *recorded* as unmodelled rather than silently abstracted. (b) U-Z14 now
-  rejects `(> bv bv)` at parse time, which I0-a called the better repair — so after both fixes
-  the arms are reachable only for a term built through the `TermManager` API, which is exactly
-  how the seven regression tests in `oxiz-solver/tests/bv_scope_rollback.rs` drive them
-  (`mk_gt`/`mk_ge`/`mk_lt` + `Solver::assert`), with two further tests pinning the parser
-  rejection end to end. Falsification check on record: replacing the four arms with `=> false`
-  makes all six `Gt`/`Ge` rows fail while the `<` control still passes.)**
-
+- [x] **U-Z10 — Boolean structure over bit-vector atoms answered `sat` for unsatisfiable formulas,
+  at a measured 4.8–9.2 % rate** (`(= a #x0f)` with `(not (and (bvule a #x0f) (bvule a #x10)))`;
+  re-seeding never moved it, 2/1,500 → 34/12,000). `BvSolver::pop`
+  (`oxiz-theories/src/bv/solver.rs:1728`) deleted the embedded SAT clauses but left `term_to_bv` /
+  `ult_cache` / `bool_node` populated, so the idempotence guard
+  (`oxiz-solver/src/solver/theory_bv_encode.rs:164`) refused to rebuild the circuit — **not** the
+  model gate the original report guessed at. Fixtures `u01_boolean_structure_and_ule`,
+  `u08_boolean_structure_ult_ugt`, `u09_boolean_structure_ugt_ult`; evidence
+  `p2-oxiz-capabilities.md` §2.1, `p2-notes-s0b-oxiz.md` F1. — **(fixed in 0.3.4 by three undo
+  journals — `term_to_bv_journal`/`ult_cache_journal`/`bool_node_journal`, `bv/solver.rs:134-138`
+  — filled at `:270`/`:380`/`:727`, snapshotted at `:1716-1723`, truncated at `:1728`; CHANGELOG
+  0.3.4. Tests: `oxiz-solver/tests/bv_scope_rollback.rs` (19),
+  `oxiz-theories/tests/bv_wide_scope_and_model.rs` (7); of the 32 for U-Z10 + U-Z11 (those two
+  plus §5 of `bv_wide_soundness.rs`) **23 fail pre-fix**, the 9 passing on both are controls.)**
+- [x] **U-Z10 (backstop) — the model-verification gate could not read a single bit-vector value,
+  so it approved every QF_BV model unconditionally.** `EvalVal` was `Bool | Num`,
+  `parse_value_term` answered `Undetermined` for a `BitVecConst`, and every `Bv*` `TermKind` fell
+  in `open_in_model`'s `_ =>` arm; pre-fix, five fixtures answered `sat` with a model falsifying
+  their own assertions. — **(fixed in 0.3.4 by `EvalVal::Bv { value: BigInt, width: u32 }`
+  (`oxiz-solver/src/solver/mod.rs:546`) at full width, `Copy` dropped, `solver/model_eval_bv.rs`
+  folding through `oxiz_core::ast::bv_fold`; 20 primitive `Bv*` arms plus `BitVecConst` and
+  `Distinct`, the desugared
+  `bvnand`/`bvnor`/`bvxnor`/`bvcomp`/`bvsmod`/`bvneg`/`zero_extend`/`sign_extend`/
+  `rotate_*`/`repeat` pinned by two named tests; CHANGELOG 0.3.4. Tests: 17 unit tests vs an
+  independent `u128` reference at widths 1/7/8/64/65/128 (plus width 200) and
+  `oxiz-solver/tests/model_gate_bv.rs` (8), whose 47-script table is the false-`unknown` guard
+  (all 47 answered `sat` before and still do). backstops U-Z11: `u02`/`u10` moved wrong `sat` →
+  `unknown` with only this change.)**
+- [x] **U-Z10 (sibling family) — `Constraint::Gt` / `Ge` over bit-vector operands asserted nothing
+  at all.** `(= a #x0f) ∧ (> a #x0f)` answered `sat` while the `<` control answered `unsat`; both
+  inner `match constraint` blocks of the BV comparison arm handled only `Lt`/`Le` and ended in a
+  silent `_ => {}`. Independent of the scope-rollback bug. Evidence: cargo-formal `p2b/w0/I0-a.md`
+  §4.1. — **(fixed in 0.3.4 at both layers I0-a asked for: the four arms in
+  `oxiz-solver/src/solver/theory_manager.rs` — `Gt(a,b) => assert_ult(b,a)` (`:1134`), `Ge(a,b) =>
+  assert_ule(b,a)` (`:1136`), negatives at `:1168`/`:1169`, no signed branch (a
+  `Constraint::Gt`/`Ge` can only come from `TermKind::Gt`/`Ge`, never from `BvSlt`/`BvSle`), both
+  matches ending in spelled-out `Eq | Diseq | BoolApp => false` — and U-Z14's parse-time rejection
+  of `(> bv bv)`; CHANGELOG 0.3.4. Tests: seven rows in `oxiz-solver/tests/bv_scope_rollback.rs`
+  driving `mk_gt`/`mk_ge`/`mk_lt` + `Solver::assert`, two more pinning the parser rejection;
+  replacing the four arms with `=> false` fails all six.)**
 - [x] **U-Z10 (fallout) — the model evaluator folded the term *tree*, not the DAG.** Terms are
-  hash-consed, so a chain of `n` shared doublings is one node with two parents per level and
-  cost `2^n` visits; `ENCODE_DEPTH_LIMIT` bounds *depth*, not node count. Invisible while every
-  bit-vector operator answered `Undetermined` at the first node, and immediately reachable once
-  they gained arms: measured 90 ms at depth 20, 1,376 ms at 24, 22,809 ms at 28 — a factor of
-  two per level. — **(fixed in 0.3.4: a per-call `FxHashMap<TermId, EvalOutcome>` memo in
-  `Solver::eval_in_model_outcome`, `oxiz-solver/src/solver/model_eval.rs:1076` / `:1096` /
-  `:1123`, with the pending frames' terms kept in a `frame_terms` stack beside `frames`. Sound
-  because the walk is pure and the table lives exactly as long as one call; `depth` is
-  deliberately not in the key, since it is a work bound whose only effect is `Undetermined`.
-  Regression test `model_gate_bv.rs::a_shared_bit_vector_dag_is_not_folded_as_a_tree` at depth
-  60, 0.024 s. Also speeds up the arithmetic path, which had the same shape.)**
-
-- [x] **U-Z11 — nested arithmetic over *free* bit-vectors wider than 64 bits answered both
-  `sat` and `unsat` wrongly.** `encode_add_const` (`oxiz-theories/src/bv/solver.rs:1202`,
-  reached from the three two's-complement negation sites) read bit `i` of a `u64` constant as
-  `(constant >> i) & 1` with `i` ranging over the full bit-vector width: for `i >= 64` that is
-  a debug-build panic (`attempt to shift right with overflow`) and, in release, bit `i % 64` —
-  so every `bvsub`/`bvneg` circuit above 64 bits silently added `2^64 + 2^128 + …`. Fixtures
-  `u02_wide_bv_self_add_sub`, `u10_wide_bv_two_free_vars` (`upstream: U-Z11`); evidence
-  `p2-oxiz-034/report.md` §6. Measured before/after on seven shapes at widths 65/96/128:
-  **21 wrong verdicts before** (four wrong `sat`, three wrong `unsat` — i.e. false proofs —
-  at each width), 0 after. — **(fixed in 0.3.4: a total `const_bit_of(constant, index)`
-  (`oxiz-theories/src/bv/solver.rs:47`) that answers `false` for every index at or above
-  `u64::BITS`. Two further shifts on the same file's paths were made total in the same pass:
-  `oxiz-theories/src/bv/propagator.rs` gained a saturating `width_mask` (`:34`) replacing the
-  open-coded `if width == 64 { u64::MAX } else { (1 << width) - 1 }` in `Interval::new`
-  (`:56`), `Interval::full` (`:67`), `contains` and `propagate_not` — before this,
-  `Interval::full(65)` was `[0, 1]` and `full(128)` was `[0, 0]`, an abstraction claiming a
-  128-bit vector can only be zero — and `propagate_sign_extend` (`:281`) now returns the full
-  range when no sign bit is representable. `<BvSolver as Theory>::get_model` (`:1801`) built
-  its grouping key by OR-ing bit `i` into a `u64`, which panicked in debug above 64 bits and in
-  release merged two *different* wide values that share a 64-bit fold (`1` and `2^64`); the key
-  is now the full `BigUint`, matching what `extract_model_equalities` already documented. Tests:
+  hash-consed, so a chain of `n` shared doublings costs `2^n` visits while `ENCODE_DEPTH_LIMIT`
+  bounds depth, not node count — invisible until the bit-vector arms above landed: 90 ms at depth
+  20, 1,376 ms at 24, 22,809 ms at 28. — **(fixed in 0.3.4 by a per-call `FxHashMap<TermId,
+  EvalOutcome>` memo in `Solver::eval_in_model_outcome`
+  (`oxiz-solver/src/solver/model_eval.rs:1076`/`:1096`/`:1123`), a `frame_terms` stack beside
+  `frames`, `depth` not in the key. Test
+  `model_gate_bv.rs::a_shared_bit_vector_dag_is_not_folded_as_a_tree`, depth 60, 0.024 s.)**
+- [x] **U-Z11 — nested arithmetic over *free* bit-vectors wider than 64 bits answered both `sat`
+  and `unsat` wrongly.** `encode_add_const` (`oxiz-theories/src/bv/solver.rs:1202`, reached from
+  the three two's-complement negation sites) read bit `i` of a `u64` constant as `(constant >> i)
+  & 1` over the full width: for `i >= 64` a debug panic, in release bit `i % 64` — so every
+  `bvsub`/`bvneg` circuit above 64 bits silently added `2^64 + 2^128 + …`. Fixtures
+  `u02_wide_bv_self_add_sub`, `u10_wide_bv_two_free_vars`; evidence `p2-oxiz-034/report.md` §6.
+  Seven shapes at widths 65/96/128: **21 wrong verdicts before** (per width: four wrong `sat`,
+  three wrong `unsat` — false proofs), 0 after. — **(fixed in 0.3.4 by a total `const_bit_of`
+  (`oxiz-theories/src/bv/solver.rs:47`); a saturating `width_mask`
+  (`oxiz-theories/src/bv/propagator.rs:34`) replacing the open-coded mask in `Interval::new`
+  (`:56`), `Interval::full` (`:67`), `contains`, `propagate_not` — `full(65)` was `[0, 1]`,
+  `full(128)` `[0, 0]` — and `propagate_sign_extend` (`:281`); and `get_model` (`:1801`), whose
+  `u64` key merged `1` and `2^64`, now the full `BigUint`; CHANGELOG 0.3.4. Tests:
   `oxiz-solver/tests/bv_wide_soundness.rs` §5 (8 tests, 7 shapes × 3 widths plus a width-64
-  control) and 3 unit tests in `propagator.rs`, each recording what 0.3.3/0.3.4 answered.)**
-
+  control), 3 unit tests in `propagator.rs`.)**
 - [x] **U-Z12 — `:timeout`, `:max-conflicts` and `:max-decisions` were not polled inside a
   bit-blasted solve; one 64-bit multiplier VC ran past 600 s under `(set-option :timeout
-  20000)`.** The budgets were checked in `check_core` *before* the search and between MBQI
-  rounds, and `TheoryManager::timed_out()` was polled at the entry of `on_assignment` and
-  `final_check` — always *before* the work — while `BvSolver::check` ran `self.sat.solve()` on
-  its embedded `oxiz_sat::Solver` with no budget at all. Evidence `p2-oxiz-capabilities.md`
-  §5.1 and cargo-formal `p2b/w0/I0-b.md` §1. — **(fixed in 0.3.4: `oxiz_sat::Solver` gained
-  `set_deadline(Option<oxiz_time::Instant>)` (`oxiz-sat/src/solver/mod.rs:812`) and
-  `set_max_decisions(Option<u64>)` (`:794`), both polled in `should_stop_search` (`:827`) with
-  the clock read once per `DEADLINE_POLL_INTERVAL = 256` polls (`:180`) so the hot loop does not
-  read it every conflict; `BvSolver::set_budget` (`oxiz-theories/src/bv/solver/budget.rs:69`)
-  applies a conflict allowance and the deadline to the embedded solver before **both**
-  `sat.solve()` calls in `check()`, with a `conflicts_spent` accumulator that survives
-  `BvSolver::reset` so the allowance is a *total* across every probe and every repair round of
-  one check, and a 1/4 reservation (`first_solve_allowance`, `:105`) for the `Unsat`
-  re-verification — an unverified first `Unsat` with no budget left becomes `Unknown`, never a
-  verdict. `check_core` computes one deadline for the whole check (`check_core.rs:188`) and arms
-  all three budgets once, above the pure-equality fast path (`:231-237`), with the outer
-  ceilings *relative* to the cumulative `SolverStats` (`conflicts_so_far + N`) so that the
-  second `(check-sat)` of a script is not starved by the first.
-  `theory_manager/bv_bridge.rs:84`'s `bv_run_check` no longer swallows the outcome in a
-  `_ => None`: `Propagate(_)` is spelled out at `:109` and `Unknown | Err(_)` at `:128` sets
-  `resource_exhausted`, which `check_core`'s existing gate turns into an overall `unknown`.
-  `BvSolver::notify_equality` (`oxiz-theories/src/bv/solver/combination.rs:25`) gained the
-  `SolverResult::Unknown` arm at `:83` that its former `_ =>` catch-all would have turned into
-  a model read out of an unfinished solve. Measured, one OS process per case: the multiplier VC
-  `unsat` in 2,808 ms unbudgeted (verdict preserved); under `:timeout 100` **`unknown` in
-  105 ms** where 0.3.3 ran 17,052 ms; under `:timeout 1000` `unknown` in 1,003 ms; under
-  `:max-conflicts 50` `unknown` in 30 ms where 0.3.3 ran 13,079 ms; two fast satisfiable cases
-  unchanged at ~12 ms. `:max-decisions 50` does **not** cut this VC and is not expected to —
-  it bounds the *outer* Boolean search, and 99.95 % of this instance's time is inside one
-  embedded solve. Tests: `oxiz-sat/tests/budget_deadline.rs` (10),
-  `oxiz-theories/tests/bv_budget.rs` (5), `oxiz-solver/tests/budget_bitblast.rs` (8, one
-  `#[ignore]`d as the no-budget control at 12.24 s). Four residual leaks are recorded below as
-  `#P2b-6` … `#P2b-9`: this closes the reported defect, it does not make the budget total.)**
-
-- [x] **U-Z13 — `(get-value)` and `(get-model)` disagreed about a bit-vector value's radix, and
-  an unassigned constant changed radix on its own.** The same 8-bit constant came back `#x05`
-  from `(get-value)` and `#b00000101` from `(get-model)`; unconstrained, both said
-  `#b00000000`. Two hand-rolled `format!("#b{:0>width$}", …)` calls in `model_fmt.rs` never
-  consulted the width, while the assigned-`(get-value)` path already went through
-  `oxiz_core::smtlib::printer::format_bitvec_literal`, which had the rule right. Evidence
-  `p2-oxiz-capabilities.md` §4.1. — **(fixed in 0.3.4: one rule — `#x` when the width is a
-  multiple of 4, `#b` otherwise, independent of whether the constant was assigned — stated in
-  exactly one place. `format_bitvec_literal` (`oxiz-core/src/smtlib/printer/mod.rs:60`) is now
-  `pub` and re-exported as `oxiz_core::smtlib::format_bitvec_literal`
-  (`oxiz-core/src/smtlib/mod.rs:33`); `Context::format_value`
-  (`oxiz-solver/src/context/model_fmt.rs:654`) delegates to the shared `Printer` and
-  `default_value` (`:753`, arm at `:784`) calls the value-level entry point directly, because it
-  holds `&self` and cannot intern. The interim duplicate `bitvec_zero_literal` was deleted; the
-  radix rule now has no second copy in the tree. Every other bit-vector printer was audited and
-  already agreed: `printer/model.rs`'s `model_value_repr` delegates, `zero_value_for_sort`
-  emits the radix-free `(_ bv0 w)` spelling, and the `(fp #b.. #b.. #b..)` triples in
-  `printer/pretty.rs` are a different construct that must stay `#b`. Note for readers: `#b` is
-  legal at every width, so this was an *inconsistency* bug, not an illegality one, and `#x` is
-  a canonicalization choice — made here once for the whole workspace, and said so in the doc
-  comment so nobody later "fixes" the FP triples. Tests: `oxiz-solver/tests/get_value_radix.rs`
-  (4 tests × widths 8/12/13/64/65 × assigned/unconstrained × `(get-value)`/`(get-model)`).
-  Three pre-existing test expectations that pinned the old `#b`-at-every-width output were
-  updated with a comment each.)**
-
+  20000)`.** Polled only *before* the work — `check_core`, between MBQI rounds,
+  `TheoryManager::timed_out()` at `on_assignment`/`final_check` entry — while `BvSolver::check`
+  ran `self.sat.solve()` unbudgeted. Evidence `p2-oxiz-capabilities.md` §5.1, cargo-formal
+  `p2b/w0/I0-b.md` §1. — **(fixed in 0.3.4, see CHANGELOG 0.3.4; anchors: `set_deadline`
+  (`oxiz-sat/src/solver/mod.rs:812`) and `set_max_decisions` (`:794`) polled in
+  `should_stop_search` (`:827`), clock read once per `DEADLINE_POLL_INTERVAL = 256` (`:180`);
+  `BvSolver::set_budget` (`oxiz-theories/src/bv/solver/budget.rs:69`) applied before **both**
+  `sat.solve()` calls, with `conflicts_spent` surviving `BvSolver::reset` (a *total* allowance),
+  1/4 reserved for `Unsat` re-verification (`first_solve_allowance`, `:105`); one deadline per
+  check (`check_core.rs:188`), all three budgets armed at `:231-237`, ceilings relative to
+  `conflicts_so_far + N`; `bv_run_check` (`theory_manager/bv_bridge.rs:84`) spelling out
+  `Propagate(_)` (`:109`) and `Unknown | Err(_)` (`:128`); `notify_equality`
+  (`bv/solver/combination.rs:25`) gaining `Unknown` at `:83`. Measured (one process each):
+  multiplier VC `unsat` 2,808 ms unbudgeted; `:timeout 100` **`unknown` in 105 ms** vs 0.3.3's
+  17,052 ms; `:timeout 1000` 1,003 ms; `:max-conflicts 50` 30 ms vs 13,079 ms; two fast sat cases
+  ~12 ms; `:max-decisions 50` does **not** cut it (99.95 % of its time is one embedded solve).
+  Tests: `oxiz-sat/tests/budget_deadline.rs` (10), `oxiz-theories/tests/bv_budget.rs` (5),
+  `oxiz-solver/tests/budget_bitblast.rs` (8, one `#[ignore]`d control, 12.24 s). Residual leaks:
+  `#P2b-6`…`#P2b-9`.)**
+- [x] **U-Z13 — `(get-value)` and `(get-model)` disagreed about a bit-vector value's radix, and an
+  unassigned constant changed radix on its own.** The same 8-bit constant came back `#x05` from
+  `(get-value)` and `#b00000101` from `(get-model)`; unconstrained, both said `#b00000000`. Two
+  hand-rolled `format!("#b{:0>width$}", …)` calls in `model_fmt.rs` ignored the width. Evidence
+  `p2-oxiz-capabilities.md` §4.1. — **(fixed in 0.3.4 by putting the rule — `#x` when the width is
+  a multiple of 4, `#b` otherwise, assigned or not — in one place: `format_bitvec_literal`
+  (`oxiz-core/src/smtlib/printer/mod.rs:60`), now `pub` and re-exported
+  (`oxiz-core/src/smtlib/mod.rs:33`), with `Context::format_value`
+  (`oxiz-solver/src/context/model_fmt.rs:654`) delegating to the shared `Printer` and
+  `default_value` (`:753`, arm at `:784`) calling the value-level entry directly; the interim
+  `bitvec_zero_literal` was deleted; the audit found `printer/model.rs`'s `model_value_repr` and
+  `zero_value_for_sort` already agreeing and `printer/pretty.rs`'s `(fp …)` triples staying `#b`;
+  CHANGELOG 0.3.4. Tests: `oxiz-solver/tests/get_value_radix.rs` (4 tests × widths 8/12/13/64/65 ×
+  assigned/unconstrained × `(get-value)`/`(get-model)`); three expectations updated.)**
 - [x] **U-Z14 — `=`, `distinct`, `ite`, `not`/`and`/`or`/`=>`/`xor` and `<`/`<=`/`>`/`>=` had
   no sort check, so contradictory scripts answered `sat`.** `(= a8 b16)`, `(not a8)` and
-  `(> a8 #x0f)` all interned silently and were then abstracted to free Booleans —
+  `(> a8 #x0f)` all interned silently and were abstracted to free Booleans;
   `check_bv_binary_widths` guarded only the `bvadd` family. Fixtures `u03_width_mismatch_eq`,
-  `u04_width_mismatch_literal`, `u05_width_mismatch_not` (`upstream: U-Z14`, all `sat` where
-  the answer is an error); the comparison half is cargo-formal `p2b/w0/I0-a.md` §4.1(b), which
-  extended the finding beyond the three fixtures. — **(fixed in 0.3.4:
+  `u04_width_mismatch_literal`, `u05_width_mismatch_not` (all `sat` where the answer is an
+  error); the comparison half is cargo-formal `p2b/w0/I0-a.md` §4.1(b). — **(fixed in 0.3.4:
   `oxiz-core/src/smtlib/parser/build.rs` gained `sorts_are_compatible` (`:176`),
-  `check_same_sorts` (`:190`), `check_bool_operands` (`:215`), `is_untyped_placeholder`
-  (`:242`) and `check_arith_operands` (`:266`), wired into `build_unary` (`not`),
-  `build_ternary` (`ite`) and `build_variadic` (the connectives, `=`/`distinct`, and the four
-  comparisons). The four measured messages:
-  `operands of = must have the same sort, got (_ BitVec 8) and (_ BitVec 16)`;
-  `operands of not must have sort Bool, got (_ BitVec 8)`;
-  `operands of > must have sort Int or Real, got (_ BitVec 8) and (_ BitVec 8)`;
-  `operands of ite must have the same sort, got (_ BitVec 8) and (_ BitVec 16)`.
-  **They surface as an `Err` from `Context::execute_script`, not as an `(error …)` response
-  line**, because `execute_script` parses the whole script before executing anything. Two
-  deliberate relaxations, both documented in the code: `Int` and `Real` still mix (every
-  SMT-LIB numeral is `Int`-sorted, so a strict rule would reject `(= r 1)` for `r : Real`,
-  which Z3 accepts — two different bit-vector widths never mix, which is the case this exists
-  to reject), and `parse_term`'s documented lenient bare-term placeholders still work, so
-  `parse_term("(< x y)")` outside script mode is still accepted. **No existing test was changed
-  for the sort checks.** Tests: `oxiz-core/tests/parser_sort_checks.rs` (9, the three fixtures
-  verbatim plus `(> bv bv)`, `distinct`, the connectives, `ite`, a cross-theory `=` and
-  positive controls).)**
-
+  `check_same_sorts` (`:190`), `check_bool_operands` (`:215`), `is_untyped_placeholder` (`:242`)
+  and `check_arith_operands` (`:266`), wired into `build_unary`, `build_ternary` and
+  `build_variadic`; the four messages and the two relaxations (`Int`/`Real` still mix;
+  `parse_term("(< x y)")` outside script mode still accepted) are quoted in CHANGELOG 0.3.4. They
+  surface as an `Err` from `Context::execute_script`, not an `(error …)` line, and **no existing
+  test was changed.** Tests: `oxiz-core/tests/parser_sort_checks.rs` (9 — the three
+  fixtures verbatim plus `(> bv bv)`, `distinct`, the connectives, `ite`, a cross-theory `=`).)**
 - [x] **U-Z17 — the SMT-LIB 2.7 bit-vector overflow predicates did not exist in the parser.**
-  `bvuaddo`, `bvsaddo`, `bvusubo`, `bvssubo`, `bvumulo`, `bvsmulo` and `bvnego` were rejected
-  as unknown symbols; fixture `u07_bvuaddo_unsupported` (`upstream: U-Z17`) errored where the
-  answer is `unsat`. Evidence `p2-oxiz-capabilities.md` §1.2. — **(fixed in 0.3.4 as
-  desugarings into existing term kinds only — no new `TermKind`, no bit-blaster change, no new
-  dependency: `oxiz-core/src/smtlib/parser/build.rs:367` `build_bv_overflow_binary` plus the
-  `bvnego` arm of `build_unary` at `:488`, arities at `:43`/`:52`, width discipline shared with
-  `bvadd` at `:648`. The definitions, with `s(x)` the sign bit `((_ extract w-1 w-1) x)`:
-  `bvuaddo(a,b)` = `bvult(bvadd(a,b), a)`; `bvusubo(a,b)` = `bvult(a,b)`;
-  `bvnego(a)` = `(= a (_ bvMIN w))` with MIN = `1 << (w-1)`;
-  `bvsaddo(a,b)` = `(and (= s(a) s(b)) (distinct s(a) s(bvadd a b)))`;
-  `bvssubo(a,b)` = `(and (distinct s(a) s(b)) (distinct s(a) s(bvsub a b)))`;
-  `bvumulo(a,b)` = `(distinct ((_ extract 2w-1 w) (bvmul (zero_extend w a) (zero_extend w b))) 0)`;
-  `bvsmulo(a,b)` = `(distinct p ((_ sign_extend w) ((_ extract w-1 0) p)))` for
-  `p = (bvmul (sign_extend w a) (sign_extend w b))`. Degenerate width 0 and a `2w` overflow are
-  rejected with named messages. Tests: `oxiz-solver/tests/overflow_predicates.rs` (13) — **all
-  256 ordered pairs at width 4 for all seven predicates in both polarities** (assert-agreeing →
-  `sat`, assert-contradicting → `unsat`, so a predicate constraining nothing would be caught),
-  200 pseudo-random pairs plus 5 extremes at width 8 against a reference itself cross-checked
-  exhaustively over all 65,536 pairs against `u8::overflowing_add/sub/mul`,
-  `i8::overflowing_add/sub/mul` and `i8::checked_neg`, plus width 64. Correction to the plan
-  this was written from: the `2w`-wide forms were predicted to depend on the U-Z11 fix; measured,
-  they do **not** (a 128-bit `bvmul` never reaches `encode_add_const`). What actually depended on
-  another fix was `bvsaddo`/`bvssubo`, whose definitions are a conjunction of two bit-vector
-  atoms — i.e. exactly U-Z10's shape — and which failed until the U-Z10 journals landed in the
-  same tree.)**
+  `bvuaddo`, `bvsaddo`, `bvusubo`, `bvssubo`, `bvumulo`, `bvsmulo` and `bvnego` were rejected as
+  unknown symbols; fixture `u07_bvuaddo_unsupported` errored where the answer is `unsat`. Evidence
+  `p2-oxiz-capabilities.md` §1.2. — **(fixed in 0.3.4 as desugarings into existing term kinds — no
+  new `TermKind`, no bit-blaster change, no new dep: `oxiz-core/src/smtlib/parser/build.rs:367`
+  `build_bv_overflow_binary`, the `bvnego` arm of `build_unary` at `:488`, arities at `:43`/`:52`,
+  width discipline shared with `bvadd` at `:648`; the seven definitions are in CHANGELOG 0.3.4
+  "Added"; width 0 and a `2w` overflow get named errors. Tests:
+  `oxiz-solver/tests/overflow_predicates.rs` (13) — **all 256 ordered pairs at width 4, all seven
+  predicates, both polarities**, 200 pseudo-random pairs plus 5 extremes at width 8 against a
+  reference cross-checked over all 65,536 pairs vs `u8::overflowing_add/sub/mul`,
+  `i8::overflowing_add/sub/mul`, `i8::checked_neg`, plus width 64. The `2w` forms were predicted
+  to need the U-Z11 fix and do **not**; `bvsaddo`/`bvssubo` did, being U-Z10's shape.)**
+- [x] **U-Z2 — the same seven SMT-LIB 2.7 overflow predicates, tracked twice.** A blueprint
+  backlog item predating the conformance suite's U-Z17; checked on 2026-09-09 against the fixed
+  tree, the two lists are identical (`bvuaddo`, `bvsaddo`, `bvumulo`, `bvsmulo`, `bvnego`,
+  `bvusubo`, `bvssubo`) and all seven parse and solve. — **(fixed in 0.3.4 by the U-Z17 change.)**
 
-- [x] **U-Z2 — the same seven SMT-LIB 2.7 overflow predicates, tracked twice.** The blueprint
-  carried this as a separate backlog item before the conformance suite fixtured it as U-Z17.
-  Checked on 2026-09-09 against the fixed tree: the two lists are identical (`bvuaddo`,
-  `bvsaddo`, `bvumulo`, `bvsmulo`, `bvnego`, `bvusubo`, `bvssubo`) and all seven parse and
-  solve. — **(fixed in 0.3.4 by the U-Z17 change above; nothing beyond those seven predicates
-  remained under this number.)**
-
-- [x] **#P2b-15 — `oxiz-sat` `Lit::pos` / `Lit::neg` truncated silently above `2^31`
-  variables.**
-  `Lit::pos(var)` computed `var.0 << 1`, so `Lit::pos(Var(2^31))` is `0` and denotes
-  **variable 0** — a different variable, with no diagnostic. Found by cargo-formal's own
-  `oxiz-sat-lit` self-hosting harness (blueprint §14, independent of the U-Z catalogue and
-  previously unreported upstream). — **(fixed in 0.3.4: `Var::MAX_INDEX = (1 << 31) - 2`
-  (`oxiz-sat/src/literal.rs:27`) with a doc comment stating both halves of the invariant — the
-  largest index a `Lit` can pack (`< 2^31`) and the largest DIMACS can carry with both signs
-  (`index + 1 <= i32::MAX`) — enforced by `debug_assert!` in `Var::new` (`:36`), `Lit::pos`
-  (`:61`) and `Lit::neg` (`:73`). `debug_assert!` is allowed in `const fn` on rustc 1.95.0, so
-  no non-const helper was needed and there is no release-mode cost. Tests: round trips at `0`,
-  `1` and `MAX_INDEX`, plus four `#[cfg(debug_assertions)] #[should_panic]` tests.)**
-
+- [x] **#P2b-15 — `oxiz-sat` `Lit::pos` / `Lit::neg` truncated silently above `2^31` variables.**
+  `Lit::pos(var)` computed `var.0 << 1`, so `Lit::pos(Var(2^31))` is `0` — **variable 0**, with no
+  diagnostic. Found by cargo-formal's `oxiz-sat-lit` self-hosting harness (blueprint §14,
+  independent of the U-Z catalogue, previously unreported upstream). — **(fixed in 0.3.4 by
+  `Var::MAX_INDEX = (1 << 31) - 2` (`oxiz-sat/src/literal.rs:27`), whose doc comment states both
+  halves of the invariant, enforced by `debug_assert!` in `Var::new` (`:36`), `Lit::pos` (`:61`),
+  `Lit::neg` (`:73`) — `const fn`-legal on rustc 1.95.0, no release cost. Tests: round trips at
+  `0`, `1`, `MAX_INDEX` plus four `#[cfg(debug_assertions)] #[should_panic]` tests.)**
 - [x] **#P2b-16 — `oxiz-sat` `Lit::to_dimacs` returned a wrong number for the literal built
   from `i32::MIN`.** `from_dimacs(i32::MIN)` yields `Var(2^31 - 1)`, whose `to_dimacs` computed
-  `(2147483647 + 1) as i32 = i32::MIN` and then negated it — `i32::MIN` for **both**
-  polarities in release, an overflow panic in debug. Same harness as the previous item. —
-  **(fixed in 0.3.4: `to_dimacs` (`oxiz-sat/src/literal.rs:110`) delegates to the new
-  non-panicking `try_to_dimacs` (`:127`, `checked_add` + `i32::try_from`) and, on failure,
-  panics with a message naming the invariant, written as an explicit `match` — no `unwrap`, no
-  `expect`. A documented panic is the honest replacement for a silently wrong number, and
-  `try_to_dimacs` is there for callers who want neither. `from_dimacs` (`:88`) gained
-  `debug_assert!(lit != 0 && lit != i32::MIN)`. Tests: `dimacs_round_trip_at_the_index_extremes`,
-  `from_dimacs_i32_max_round_trips`, `try_to_dimacs_is_none_exactly_where_to_dimacs_panics`,
-  `to_dimacs_panics_above_max_index`.)**
-
+  `(2147483647 + 1) as i32 = i32::MIN` and negated it — `i32::MIN` for **both** polarities in
+  release, an overflow panic in debug. Same harness as the previous item. — **(fixed in 0.3.4:
+  `to_dimacs` (`oxiz-sat/src/literal.rs:110`) delegates to the new non-panicking `try_to_dimacs`
+  (`:127`, `checked_add` + `i32::try_from`) and otherwise panics with an explicit `match` — no
+  `unwrap`, no `expect`; `from_dimacs` (`:88`) gained `debug_assert!`. Tests:
+  `dimacs_round_trip_at_the_index_extremes`, `from_dimacs_i32_max_round_trips`,
+  `try_to_dimacs_is_none_exactly_where_to_dimacs_panics`, `to_dimacs_panics_above_max_index`.)**
 - [x] **#P2b-17 — `#[must_use]` on the six `BvSolver::assert_*` methods, and 74 call sites that
-  discarded the answer.** All six of `assert_eq` / `assert_neq` / `assert_ult` (`:370`) / `assert_ule`
-  (`:411`) / `assert_slt` / `assert_sle` in `oxiz-theories/src/bv/solver.rs` return `bool`
-  meaning "I actually asserted something", and a discarded `false` at a theory-manager call site
-  read as "no theory objection" about an atom the circuit was never told about — the same class
-  of silence as the missing `Gt`/`Ge` arms. — **(fixed in 0.3.4: the attribute added to all six,
-  and all 74 discarding call sites across 10 files rewritten as `assert!(<call>)` rather than
-  `let _ = <call>` — the stronger form, because it also pins that the call really did assert;
-  every one of the 74 passes, so every site genuinely asserts today. `bv_run_check`
-  (`oxiz-solver/src/solver/theory_manager/bv_bridge.rs:84`) now takes the answer as an
-  `asserted: bool` parameter and, when it is `false`, sets a `bv_atom_unmodelled` flag
-  (`theory_manager.rs:239`) that `resource_exhausted()` (`:437`) folds in, turning a final `Sat`
-  into `Unknown` — see `#P2b-12` for that flag's untested status.)**
-
+  discarded the answer.** All six of `assert_eq` / `assert_neq` / `assert_ult` (`:370`) /
+  `assert_ule` (`:411`) / `assert_slt` / `assert_sle` in `oxiz-theories/src/bv/solver.rs` return
+  `bool` meaning "I actually asserted something", and a discarded `false` read as "no theory
+  objection" about an atom the circuit was never told about. — **(fixed in 0.3.4: the attribute
+  on all six, all 74 discarding sites across 10 files rewritten as `assert!(<call>)`, every one
+  passing; `bv_run_check` (`oxiz-solver/src/solver/theory_manager/bv_bridge.rs:84`) takes an
+  `asserted: bool` and sets `bv_atom_unmodelled` (`theory_manager.rs:239`), folded into
+  `resource_exhausted()` (`:437`) to turn a final `Sat` into `Unknown` — `#P2b-12`.)**
 - [x] **#P2b-18 — two comments describing the model gate as bit-vector-blind became false.**
   `oxiz-solver/src/solver/check_array/eval_bv.rs`'s module doc and the section banner at
   `check_array/tests.rs:262` both said the gate's `EvalVal` "has no bit-vector variant at all",
-  and both are the load-bearing rationale for `check_array/eval_bv.rs` existing. —
-  **(fixed in 0.3.4 by rewriting, not deleting: the gate does now read bit-vector values, but it
-  only inspects a *finished candidate model* after the search has decided to report `Sat`, while
-  this evaluator runs *during* the search on the partial assignment — the gate can at best
-  downgrade a wrong `Sat` to `Unknown`, whereas the conflict found here is what lets the search
-  reach the correct `Unsat`.)**
+  and both are the load-bearing rationale for `check_array/eval_bv.rs` existing. — **(fixed in
+  0.3.4 by rewriting, not deleting: the gate now reads bit-vector values but inspects a *finished
+  candidate model*, while this evaluator runs *during* the search on the partial assignment, so
+  it can find the conflict that lets the search reach the correct `Unsat`.)**
+- [x] **#P2b-19 (2026-09-14) — a learned clause outlived the `push`ed scope that entailed it,
+  producing a false `unsat` after `pop`.** `(assert A) (push 1) (assert B) (check-sat) (pop 1)
+  (assert C) (check-sat)` answered `unsat` for a `{A, C}` the same tree answered `sat` for when
+  the two were spelled flat. `learn_clause` (`oxiz-sat/src/solver/learn.rs`, all three arms)
+  pushed each id to `learned_clause_ids` but — alone among the crate's six clause-installing sites
+  — **not** to `assertion_clause_ids.last_mut()`, which `Solver::pop`
+  (`oxiz-sat/src/solver/mod.rs`) deletes. Reachable only once the U-Z10 journals made the popped
+  circuit be re-encoded, so crates.io 0.3.3 answers all thirteen witnesses correctly. — **(fixed
+  in 0.3.4 by `Solver::register_learned_at_assertion_level` (`oxiz-sat/src/solver/learn.rs:129`)
+  called from all three arms; CHANGELOG 0.3.4. Two follow-on changes in `Solver::pop`: the
+  per-clause `learned_clause_ids.retain(..)` became one `FxHashSet`-backed pass — that per-clause
+  form was quadratic in the number of clauses a scope learned, which is no longer a handful — and
+  the removal loop skips an id already deleted elsewhere, so no second `drat_delete`/`lrat_delete`
+  line is emitted; that skip is pinned by `oxiz-sat/tests/pop_proof_deletion_regressions.rs`,
+  which has `reduce_clause_database` delete 114 of a scope's 187 learned clauses mid-solve and
+  parses every LRAT `d` id — 554 ids, 0 duplicates, against 668 ids of which 114 are duplicates
+  once the guard's `continue` is removed. Tests: `oxiz-solver/tests/bv_scope_rollback_pushpop.rs`
+  — 4 minimal reproducers, the 13 witnesses with full verdict lists, a 200-trial differential
+  test; **all 18 fail pre-fix** (16 wrong verdicts + 2 over nextest's 180 s cap).)**
+- [x] **#P2b-20 (2026-09-14) — a bare `push`/`pop` discarded a contradiction proved before the
+  `push`.** `(assert (distinct b b)) (push 1) (pop 1) (check-sat)` answered `sat` where the same
+  script without the pair answered `unsat`, and with a `(check-sat)` before the `push` the script
+  answered `["unsat", "sat"]`. Sort-independent (bit-vector, `Int`, `Bool`) and **not** a 0.3.4
+  regression: 0.3.3 drops it too. `Solver::pop` ended with an unconditional `self.trivially_unsat
+  = false`, a latch over the whole clause database with no record of its level; `(distinct x x)`
+  is the shortest trigger: its Tseitin encoding latches the flag at base level in `add_clause`.
+  The model gate missed it too (`#P2b-22`). — **(fixed in 0.3.4 by a parallel
+  `assertion_trivially_unsat: Vec<bool>` snapshot stack (`oxiz-sat/src/solver/mod.rs:386`), pushed
+  by `push` (`:1646`) and restored by `pop` (`:1792`); CHANGELOG 0.3.4. The pre-existing
+  `test_push_pop_simple` still passes. Tests: the four `minimal_*` cases in
+  `oxiz-solver/tests/bv_scope_rollback_pushpop.rs` plus witness `wrong_005`.)**
 
 ### Still open
 
@@ -1862,9 +1776,8 @@ name instead.
 - [ ] **U-Z16 — `(set-option :produce-proofs true)` is accepted and `(get-proof)` then always
   errors.** The verdict itself is correct; only the certificate is missing. This is **the one
   remaining disagreement of the 22 conformance fixtures**, measured on the fixed tree:
-  `u06_proof_not_enabled` `expected=unsat`, `actual=error`,
-  `(error "Proof generation not enabled. Set :produce-proofs to true")`. Fixture
-  `u06_proof_not_enabled` (`upstream: U-Z16`); the fix is U-Z1.
+  `u06_proof_not_enabled` `expected=unsat`, `actual=error`, `(error "Proof generation not enabled.
+  Set :produce-proofs to true")`; that fixture carries `upstream: U-Z16`, and the fix is U-Z1.
 - [ ] **#P2b-1 — `BvSolver::assert_ule` memoises nothing, which the U-Z10 rollback makes more
   expensive.** `oxiz-theories/src/bv/solver.rs:411` allocates a fresh comparison variable and
   re-runs `encode_ult_result` on *every* call, unlike `assert_ult` (`:370`), which memoises in
@@ -1891,27 +1804,75 @@ name instead.
   *old* polarity's assertion stays live in the BV circuit as a unit clause; a spurious conflict
   from that stale over-constraint would be handed back as a genuine theory conflict. The comment
   that justified the guard was false (it claimed `BvSolver::check` rebuilds its circuits every
-  check; it does not) and was replaced in Phase 2b with the guard's real reasons. **A focused
-  hunt found no witness**: an instrumented copy printing every flip in the guarded arm saw
-  **0 flip events in a BV problem** across 20,000 differential fuzz trials (40,000 solves), the
-  whole probe battery (~450 cases in four modes), 14 hand-built BV disjunctive chains and
-  pigeonholes, and 8 runs of the `repro_disjunctive_lia.rs` LIA chain made "BV" by an inert
-  8-bit constant — the last being the one formula family known to trigger the flip at all.
-  Crucially, **it was not confirmed that the flip fires at all on 0.3.4**: the non-BV arm was
-  never instrumented, so "unreachable in BV problems" and "unreachable, full stop" are not yet
-  distinguished. Next step for whoever picks this up: instrument the non-BV arm first —
-  evidence: cargo-formal Phase 2b, `p2b/w0/I0-a.md` §4.2 and `p2b/w1/W1-a.md` §5.
-- [ ] **#P2b-4 — clauses injected during `solve()` outside the learned list escape both
-  `forget_learned_since` and `pop` (unverified).** `BvSolver::check`
-  (`oxiz-theories/src/bv/solver.rs:1601`) calls `sat.restore_to_trail_size` +
-  `sat.forget_learned_since` after every probe (`:1663-1664`, `:1710`), and
-  `forget_learned_since`'s own doc comment (`oxiz-sat/src/solver/incremental.rs:57`) says it
-  only covers clauses registered in the learned-clause list. Any other clause a search feature
-  injects during `solve()` survives both that cleanup and the enclosing `pop()`, and — because
-  the BV unit constraints sit on the trail as bare level-0 decisions — could implicitly depend
-  on a since-retracted assignment and spuriously force `Unsat`. Not tested against 0.3.4; same
-  class of bug as U-Z10 (a cache/database pair maintained by two different rules), and the
-  U-Z10 journal fix does not touch it — evidence: cargo-formal Phase 2b, `p2b/w0/I0-a.md` §4.3.
+  check; it does not) and was replaced in Phase 2b with the guard's real reasons. **A focused hunt
+  found no witness**: an instrumented copy printing every flip in the guarded arm saw **0 flip
+  events in a BV problem** across 20,000 differential fuzz trials (40,000 solves), the whole probe
+  battery (~450 cases in four modes), 14 hand-built BV disjunctive chains and pigeonholes, and 8
+  runs of the `repro_disjunctive_lia.rs` LIA chain made "BV" by an inert 8-bit constant — the last
+  being the one formula family known to trigger the flip at all. Crucially, **it was not confirmed
+  that the flip fires at all on 0.3.4**: the non-BV arm was never instrumented, so "unreachable in
+  BV problems" and "unreachable, full stop" are not yet distinguished. Next step for whoever picks
+  this up: instrument the non-BV arm first — evidence: cargo-formal Phase 2b, `p2b/w0/I0-a.md`
+  §4.2 and `p2b/w1/W1-a.md` §5. **Update 2026-09-14**: the false `unsat` family this was raised to
+  explain — 12 wrong `unsat` in push/pop shapes, 0 in plain scripts — is root-caused to `#P2b-19`,
+  all 12 witnesses answering correctly with only that fix, so the flip explains nothing measured.
+- [x] **#P2b-4 (closed 2026-09-14) — clauses injected during `solve()` escape `pop`.** Raised as
+  "clauses injected *outside* the learned list escape both `forget_learned_since` and `pop`";
+  confirmed with the polarity inverted — the escapees were **in** the learned list and escaped
+  `pop`: `#P2b-19` above. — **(closed in 0.3.4 by the `#P2b-19` fix, after enumerating every
+  `ClauseDatabase::add*` site in `oxiz-sat/src` reachable from a live `solve()`:
+  `add_clause.rs:289`/`:324`/`:399`, `propagate.rs:357`, `probe.rs:232`, `mod.rs:1123`/`:1173`
+  and, after this fix, `learn.rs`'s three arms all register in `assertion_clause_ids`;
+  `bve.rs:185` and `els.rs:279` are reached only from `bounded_variable_elimination` (`bve.rs:52`)
+  and `fold_equivalent_literals` (`equiv.rs:55`), both returning early when
+  `assertion_levels.len() > 1` and off by default; the `preprocessing_core.rs` /
+  `asymmetric_branching.rs` sites inherit that gate through the post-BVE sweep;
+  `check_subsumption` (`learn.rs:220`) deletes rather than adds. Exactly one live site was in
+  **neither** list: `#P2b-21`.)**
+- [x] **#P2b-21 (2026-09-14) — `add_theory_reason_clause` is registered in neither the learned
+  list nor the assertion level (argued sound, untested).** `oxiz-sat/src/solver/learn.rs:292`
+  installs a theory propagation's justifying clause via `clauses.add_learned` without pushing to
+  `learned_clause_ids` or `assertion_clause_ids`, so it survived `forget_learned_since` and `pop`
+  — the last instance of `#P2b-4`'s shape. Believed sound as a *theory tautology* `propagated ∨
+  ¬l₁ ∨ … ∨ ¬lₙ`; untested, and only as strong as the theory's own reasons. Found while closing
+  `#P2b-4`. — **(fixed in 0.3.4 by the cheaper remedy: `add_theory_reason_clause` now calls
+  `register_learned_at_assertion_level` on the id `add_learned` returns, as `learn_clause`'s arms
+  have since `#P2b-19`; still deliberately **not** in `learned_clause_ids`, which
+  `reduce_clause_database` and `check_subsumption` delete from; CHANGELOG 0.3.4. Tests:
+  `oxiz-sat/tests/theory_reason_clause_scope_regression.rs`, a `TheoryCallback` propagating `p`
+  from reason `[q]` while its scope is open. **All three fail pre-fix**: after the `pop`,
+  `num_learned_clauses()` is 1 not 0, and the satisfiable `(¬p) ∧ (q)` comes back `Unsat`.)**
+- [x] **#P2b-22 (2026-09-14) — the model gate answers `Undetermined` for an assertion whose
+  variables the encoder folded away, instead of refuting it structurally.** `mk_eq(b, b)` folds to
+  `true`, so `(assert (distinct b b))` encodes to `¬true`, `b` never reaches the bit-blaster and
+  has no model value, and `Solver::model_refutes_assertions` evaluated `(distinct b b)` to
+  `Undetermined` under the published model (`(get-model)` printed `b = #x00`), approving a wrong
+  `sat` — which is why `#P2b-20` had no second line of defence. Found while root-causing
+  `#P2b-20`. — **(fixed in 0.3.4 by a structural pre-pass in `Solver::open_in_model`
+  (`oxiz-solver/src/solver/model_eval.rs`), two guarded arms ahead of the existing `Eq` /
+  `Distinct` ones: `Eq(x, x)` is `true`, `Distinct(…)` naming the same operand twice anywhere is
+  `false` for any sort, via `has_repeated_operand` (pairwise ≤ 16 operands, `FxHashSet` above);
+  identity is `TermId` equality, and a test pins `TermManager::mk_eq`'s `x = x` fold; CHANGELOG
+  0.3.4. Measured on a scratch copy with the `#P2b-20` fix reverted: `(assert (distinct x x))
+  (push 1) (pop 1) (check-sat)` answers `sat` (wrong) with the pre-pass off and `unknown` with it
+  on, for `(_ BitVec 8)`, `Int` and `Bool` alike. The real tree answers `unsat`, so coverage is
+  the five unit tests in `oxiz-solver/src/solver/model_eval/tests.rs` (three fail pre-fix); that
+  file is `model_eval.rs`'s old inline `mod tests`, split out at 1,990 lines.)**
+- [ ] **#P2b-23 (2026-09-14) — incremental LRAT cannot produce a checkable proof across a
+  `push`/`pop`.** Two independent mechanisms, each deliberate alone, leave no script shape where a
+  `pop` emits deletion records *and* the trace concludes with a checkable empty clause. (1)
+  `Solver::lrat_emit_empty_from` (`oxiz-sat/src/solver/lrat_trace.rs`) does `self.lrat.take()` the
+  instant it concludes an `Unsat`, so a trace whose *first* verdict is `Unsat` records nothing any
+  later `pop` does. (2) `crate::proof::LratWriter` hands out original and derived clause ids from
+  one monotone `next_id` (`reserve_original_id` and `add_clause` share it), but
+  `oxiz_proof::lrat_check::check_lrat_proof` numbers the original formula `1..=n` in the order it
+  is given, so original clauses added *after* learning began get ids the checker cannot reproduce
+  and their hints dangle. Measured on the fixed tree by
+  `oxiz-sat/tests/pop_proof_deletion_regressions.rs`: `LratCheckReport { verified: false,
+  additions_checked: 187, deletions_applied: 554, failure: Some("line 742: addition of clause 577
+  failed to verify: hint 575 does not reference a currently active clause (never added, or deleted
+  before this point)") }` — id 575 is the first original clause added after the `pop`. **The `pop`
+  path is not the cause**; the test pins the rejection so a future fix fails loudly (cf. `U-Z9`).
 - [ ] **#P2b-5 — the congruence half of the quantified model gate still ignores bit-vector-sorted
   applications.** `ArgKey::from_outcome` (`oxiz-solver/src/solver/model_eval.rs:72`) maps the new
   `EvalVal::Bv` to `None`, preserving pre-0.3.4 behaviour, so

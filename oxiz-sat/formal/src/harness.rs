@@ -13,7 +13,7 @@
 //! `index <= Var::MAX_INDEX` (`= (1 << 31) - 2`), which is simultaneously the
 //! largest index the shift can hold and the largest index whose DIMACS form
 //! `index + 1` has an `i32` negation. The pair
-//! [`lit_pos_roundtrip_bounded_harness`] / [`lit_pos_roundtrip_unbounded_harness`]
+//! `lit_pos_roundtrip_bounded_harness` / `lit_pos_roundtrip_unbounded_harness`
 //! states exactly that: the round trip under the bound, and the bound's
 //! necessity without it.
 //!
@@ -37,10 +37,10 @@
 //!
 //! A bare `debug_assert!` lowers to `core::panicking::panic`, so the property
 //! key for one is `panic`, not `assert`. Six of the measured rows below carry
-//! that key -- five raised by `debug_assert!`s and one by `to_dimacs`'s
-//! documented unconditional panic -- and they are the interesting ones: they
-//! are the checks the upstream fix added, and both refutations are among
-//! them.
+//! that key, over eight obligations -- six `debug_assert!` expansions and two
+//! reaches of `to_dimacs`'s documented unconditional panic -- and they are the
+//! interesting ones: they are the checks the upstream fix added, and both
+//! refutations are among them.
 
 use oxiformal::prelude::*;
 
@@ -108,7 +108,7 @@ fn lit_neg_roundtrip_bounded_harness() {
 /// `index = 4294967295` (`u32::MAX`); **`assert` proved**, and both
 /// `shift-overflow` obligations proved.
 ///
-/// This is [`lit_pos_roundtrip_bounded_harness`] with the precondition
+/// This is `lit_pos_roundtrip_bounded_harness` with the precondition
 /// removed, and it is the harness that says the bound is *necessary* rather
 /// than decorative. It builds the variable with the public tuple field
 /// (`Var(index)`, `../src/literal.rs:9`) instead of `Var::new`, precisely so
@@ -196,7 +196,7 @@ fn lit_code_roundtrip_harness() {
 /// here is that the two `panic` sites the fix added are *also* proved: the
 /// preconditions are now checked, and on this domain they hold. The harness
 /// that shows the fix changing an answer is
-/// [`dimacs_negation_harness`], which drops the second `assume`.
+/// `dimacs_negation_harness`, which drops the second `assume`.
 ///
 /// Runtime-checks build: green, unmarked (measured).
 #[harness]
@@ -218,7 +218,7 @@ fn dimacs_roundtrip_harness() {
 /// and the three `shift-overflow` obligations: 6 of this harness's 7
 /// obligations are proved.
 ///
-/// This is [`dimacs_roundtrip_harness`] with the `i32::MIN` precondition
+/// This is `dimacs_roundtrip_harness` with the `i32::MIN` precondition
 /// removed, so that the one input DIMACS cannot represent is inside the
 /// harness's domain. Two facts are measured here, and together they are the
 /// upstream fix:

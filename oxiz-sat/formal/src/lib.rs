@@ -39,7 +39,7 @@
 //! 1. **`cargo build`** (plain, stable). Harnesses vanish entirely (neither
 //!    `#[cfg(formal)]` nor `#[cfg(all(test, oxiformal_runtime_checks))]`
 //!    applies), so this only checks that the package and `oxiz-sat` type-check
-//!    on stable. `cargo test` additionally runs [`harness::plain_tests`],
+//!    on stable. `cargo test` additionally runs `harness::plain_tests`,
 //!    which holds a concrete witness for every `refuted` row plus the
 //!    boundary facts no harness reaches -- ordinary Rust tests, no solver
 //!    involved.
@@ -81,10 +81,10 @@
 //!
 //! A `debug_assert!` with no format arguments lowers to
 //! `core::panicking::panic`, so its property key is `panic`, not `assert`.
-//! Six of this package's measured rows carry that key -- five raised by
-//! `debug_assert!`s and one by `to_dimacs`'s documented unconditional panic --
-//! and they are the interesting ones: they are the checks the fix added, and
-//! the two `refuted` rows are among them.
+//! Six of this package's measured rows carry that key, over eight obligations
+//! -- six `debug_assert!` expansions and two reaches of `to_dimacs`'s
+//! documented unconditional panic -- and they are the interesting ones: they
+//! are the checks the fix added, and the two `refuted` rows are among them.
 
 #![forbid(unsafe_code)]
 

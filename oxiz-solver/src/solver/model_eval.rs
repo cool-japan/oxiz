@@ -46,7 +46,7 @@ use num_rational::Rational64;
 use num_traits::{CheckedAdd, CheckedMul, CheckedSub, ToPrimitive};
 use oxiz_core::ast::{TermId, TermKind, TermManager};
 use oxiz_core::interner::Spur;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
 use std::collections::hash_map::Entry;
 
@@ -1215,7 +1215,34 @@ impl Solver {
                 },
                 depth,
             )),
+            // ---- the structural pre-pass (`#P2b-22`) ------------------
+            //
+            // `x = x` is true and `(distinct … x … x …)` is false in *every*
+            // interpretation, whatever sort `x` has and whether or not the
+            // model pins a value for it.  Deciding them here, before any model
+            // lookup, is what lets the gate refute a candidate model for an
+            // assertion whose variables the encoder folded away.
+            //
+            // That was a measured hole, not a hypothetical one:
+            // `(assert (distinct b b))` encodes to `¬true` because `mk_eq(b, b)`
+            // folds to `true`, so `b` never reaches the bit-blaster and the
+            // published model has no value for it.  The value-based evaluator
+            // below can only answer `Undetermined` for such a term, and the
+            // gate therefore approved the `sat` that `#P2b-20` produced —
+            // leaving that defect with no second line of defence at all.  A
+            // value-based evaluator cannot refute what has no value; this
+            // needs no value.
+            //
+            // Sound in the only direction that matters: it manufactures a
+            // definite answer *only* for a syntactic identity, which no
+            // interpretation can disagree with.  Terms are hash-consed, so
+            // operand identity is `TermId` equality — no traversal, no
+            // normalisation.
+            TermKind::Eq(a, b) if a == b => Opened::Done(EvalOutcome::boolean(true)),
             TermKind::Eq(a, b) => Opened::Frame(Frame::binary(*a, *b, EagerKind::Eq, depth)),
+            TermKind::Distinct(args) if has_repeated_operand(args) => {
+                Opened::Done(EvalOutcome::boolean(false))
+            }
             // `distinct` is INCONCLUSIVE for the gate on everything except a
             // uniform-width bit-vector tuple.  A model in which two ARITHMETIC
             // operands share a value does NOT reliably indicate a real
@@ -1354,6 +1381,36 @@ impl Solver {
     }
 }
 
+/// Does `args` name the same operand twice?
+///
+/// Terms are hash-consed, so two syntactically identical operands *are* the
+/// same [`TermId`] and this is exact — no traversal and no normalisation.  A
+/// `true` answer makes `(distinct …)` false in every interpretation, which is
+/// the structural half of the model gate (`#P2b-22`); see the pre-pass arms in
+/// [`Solver::open_in_model`].
+///
+/// The pairwise scan is the fast path for the two- to four-operand `distinct`
+/// terms that make up essentially all real input (a `SmallVec<[TermId; 4]>` is
+/// what the AST stores them in); the hash-set fallback keeps a pathologically
+/// wide one linear rather than quadratic, since this runs once per `distinct`
+/// node on every gate evaluation.
+fn has_repeated_operand(args: &[TermId]) -> bool {
+    /// Above this many operands the pairwise scan stops being the cheaper one.
+    const PAIRWISE_LIMIT: usize = 16;
+
+    if args.len() < 2 {
+        return false;
+    }
+    if args.len() <= PAIRWISE_LIMIT {
+        return args
+            .iter()
+            .enumerate()
+            .any(|(i, a)| args[i + 1..].contains(a));
+    }
+    let mut seen = FxHashSet::with_capacity_and_hasher(args.len(), rustc_hash::FxBuildHasher);
+    args.iter().any(|arg| !seen.insert(*arg))
+}
+
 /// Parse a constant value term (`IntConst` / `RealConst` / `True` / `False`)
 /// into an outcome.
 ///
@@ -1386,411 +1443,4 @@ fn parse_value_term(term: TermId, manager: &TermManager) -> EvalOutcome {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{ENCODE_DEPTH_LIMIT, EvalOutcome, EvalVal};
-    use crate::solver::Solver;
-    use crate::solver::types::Model;
-    use num_rational::Rational64;
-    use oxiz_core::ast::{TermId, TermManager};
-
-    /// `2^62` fits `i64`, but `2^62 + 2^62 = 2^63` does not — the smallest
-    /// round number that makes `Rational64` addition overflow.
-    const HALF_MAX: i64 = 1 << 62;
-
-    /// The stack the in-budget regression tests in this module run their
-    /// evaluation on.  1 MiB is what an embedder's worker thread typically
-    /// gets, and a native stack overflow aborts the process — so "the closure
-    /// returned at all" is itself part of each assertion.
-    // STACK-1MIB: deliberately 1 MiB, not swept to 128 KiB — pins the
-    // realistic embedder worker-thread budget, not a scaled test depth.
-    // See TODO.md "v0.3.2 backlog".
-    const WORKER_STACK: usize = 1 << 20;
-
-    /// The stack the *past-the-budget* test below runs on.  It is an eighth of
-    /// [`WORKER_STACK`], paired with an eighth of that test's depth, so the
-    /// bytes-per-frame threshold the test really pins (~21 B per level) is
-    /// unchanged while the term the test has to build — and keep interned —
-    /// shrinks by 8x.  Never change one of the two without the other.
-    const DEEP_WORKER_STACK: usize = 1 << 17;
-
-    /// Run `body` on a fresh thread with `stack_size` bytes of stack.
-    fn on_stack<T: Send + 'static>(
-        stack_size: usize,
-        body: impl FnOnce() -> T + Send + 'static,
-    ) -> T {
-        std::thread::Builder::new()
-            .stack_size(stack_size)
-            .spawn(body)
-            .expect("spawn worker thread")
-            .join()
-            .expect("worker thread must return, not abort")
-    }
-
-    /// Run `body` on a fresh [`WORKER_STACK`] thread and return its result.
-    fn on_worker_stack<T: Send + 'static>(body: impl FnOnce() -> T + Send + 'static) -> T {
-        on_stack(WORKER_STACK, body)
-    }
-
-    /// A solver holding exactly `assertions`, with an empty (but present)
-    /// model, ready for the gate.
-    fn solver_with(assertions: Vec<TermId>) -> Solver {
-        let mut solver = Solver::new();
-        solver.assertions = assertions;
-        solver.model = Some(Model::new());
-        solver
-    }
-
-    /// The gate's answer for a single assertion.
-    fn gate_refuses(manager: &TermManager, assertion: TermId) -> bool {
-        solver_with(vec![assertion]).model_refutes_assertions(manager)
-    }
-
-    /// The evaluator's outcome for a single term.
-    fn outcome(manager: &TermManager, term: TermId) -> EvalOutcome {
-        let solver = solver_with(Vec::new());
-        let model = Model::new();
-        solver.eval_in_model_outcome(term, &model, manager, 0)
-    }
-
-    /// An overflowing `+` under an assertion the model genuinely **violates**.
-    ///
-    /// `(< (+ 2^62 2^62) 0)` is false — `2^63` is positive — so the gate must
-    /// refuse the model.  Unchecked, this wrapped to `i64::MIN < 0` in release
-    /// and reported `true`, hiding the violation; in debug it aborted with
-    /// `attempt to add with overflow` before answering anything at all.
-    #[test]
-    fn overflowing_addition_never_hides_a_violated_assertion() {
-        let mut manager = TermManager::new();
-        let half = manager.mk_int(HALF_MAX);
-        let sum = manager.mk_add([half, half]);
-        let zero = manager.mk_int(0);
-        let assertion = manager.mk_lt(sum, zero);
-
-        assert_eq!(outcome(&manager, sum), EvalOutcome::Unrepresentable);
-        assert!(gate_refuses(&manager, assertion));
-    }
-
-    /// The same overflow under an assertion the model **satisfies**.
-    ///
-    /// `(>= (+ 2^62 2^62) 0)` is true, so refusing the model costs precision —
-    /// the caller answers `Unknown` for a formula it could have called `Sat`.
-    /// That is the deliberate direction: a `false` answer from the gate is
-    /// consumed as "report `Sat`", and an assertion the evaluator could not
-    /// evaluate is no evidence that the model satisfies it.  Unchecked, this
-    /// wrapped the other way and refuted the model on garbage.
-    #[test]
-    fn overflowing_addition_never_vouches_for_a_model() {
-        let mut manager = TermManager::new();
-        let half = manager.mk_int(HALF_MAX);
-        let sum = manager.mk_add([half, half]);
-        let zero = manager.mk_int(0);
-        let assertion = manager.mk_ge(sum, zero);
-
-        assert!(gate_refuses(&manager, assertion));
-    }
-
-    /// Every arithmetic operator the evaluator folds is checked, not just `+`.
-    #[test]
-    fn every_arithmetic_operator_reports_overflow() {
-        let mut manager = TermManager::new();
-        let half = manager.mk_int(HALF_MAX);
-        let two = manager.mk_int(2);
-        let min = manager.mk_int(i64::MIN);
-        let max = manager.mk_int(i64::MAX);
-
-        let product = manager.mk_mul([half, two]);
-        let difference = manager.mk_sub(min, max);
-        let negation = manager.mk_neg(min);
-
-        for term in [product, difference, negation] {
-            assert_eq!(outcome(&manager, term), EvalOutcome::Unrepresentable);
-        }
-    }
-
-    /// An overflow the surrounding formula never depends on must not leak out.
-    ///
-    /// `(or true (< (+ 2^62 2^62) 0))` is decided by its first disjunct, and
-    /// `(and false …)` by its first conjunct, so neither may be downgraded.
-    /// This is what the three-valued outcome buys over a "saw an overflow
-    /// anywhere" flag.
-    #[test]
-    fn short_circuited_overflow_does_not_downgrade() {
-        let mut manager = TermManager::new();
-        let half = manager.mk_int(HALF_MAX);
-        let sum = manager.mk_add([half, half]);
-        let zero = manager.mk_int(0);
-        let overflowing = manager.mk_lt(sum, zero);
-        // `mk_or` / `mk_and` drop a literal `true` / `false` operand outright,
-        // so the deciding operand has to be a comparison the *evaluator*
-        // folds rather than one the builder does.
-        let one = manager.mk_int(1);
-        let truth = manager.mk_lt(zero, one);
-
-        let disjunction = manager.mk_or([truth, overflowing]);
-        assert_eq!(
-            outcome(&manager, disjunction),
-            EvalOutcome::Value(EvalVal::Bool(true))
-        );
-        assert!(!gate_refuses(&manager, disjunction));
-
-        // `(and <overflow> false)` is `false` whatever the overflow was: the
-        // gate refuses, but as a genuine refutation rather than a shrug.
-        let falsehood = manager.mk_lt(one, zero);
-        let conjunction = manager.mk_and([overflowing, falsehood]);
-        assert_eq!(
-            outcome(&manager, conjunction),
-            EvalOutcome::Value(EvalVal::Bool(false))
-        );
-        assert!(gate_refuses(&manager, conjunction));
-    }
-
-    /// An unevaluable term that is *not* an overflow stays inconclusive.
-    ///
-    /// `distinct`, a numeric equality collision and a strict comparison at its
-    /// boundary are all `Undetermined`, and none of them may downgrade a `Sat`
-    /// — that distinction is the whole reason the outcome is three-valued and
-    /// not two.
-    #[test]
-    fn ordinary_inconclusiveness_never_downgrades() {
-        let mut manager = TermManager::new();
-        let one = manager.mk_int(1);
-        let zero = manager.mk_int(0);
-        // Terms are hash-consed, so `mk_int(1)` twice is the *same* term and
-        // `mk_eq` would fold it to `true`.  `(+ 0 1)` is a distinct term with
-        // the same value, which is exactly the collision the gate distrusts.
-        let other_one = manager.mk_add([zero, one]);
-
-        let collision = manager.mk_eq(one, other_one);
-        let boundary = manager.mk_lt(one, other_one);
-        let unconstrained = manager.mk_var("x", manager.sorts.int_sort);
-        let opaque = manager.mk_ge(unconstrained, one);
-
-        for term in [collision, boundary, opaque] {
-            assert_eq!(outcome(&manager, term), EvalOutcome::Undetermined);
-            assert!(!gate_refuses(&manager, term));
-        }
-    }
-
-    /// The evaluator still computes what it always did for ordinary terms.
-    #[test]
-    fn arithmetic_and_comparisons_still_fold() {
-        let mut manager = TermManager::new();
-        let two = manager.mk_int(2);
-        let three = manager.mk_int(3);
-        let seven = manager.mk_int(7);
-
-        let sum = manager.mk_add([two, three]);
-        assert_eq!(
-            outcome(&manager, sum),
-            EvalOutcome::Value(EvalVal::Num(Rational64::from_integer(5)))
-        );
-        let product = manager.mk_mul([two, three]);
-        assert_eq!(
-            outcome(&manager, product),
-            EvalOutcome::Value(EvalVal::Num(Rational64::from_integer(6)))
-        );
-        let difference = manager.mk_sub(three, seven);
-        assert_eq!(
-            outcome(&manager, difference),
-            EvalOutcome::Value(EvalVal::Num(Rational64::from_integer(-4)))
-        );
-        let negated = manager.mk_neg(seven);
-        assert_eq!(
-            outcome(&manager, negated),
-            EvalOutcome::Value(EvalVal::Num(Rational64::from_integer(-7)))
-        );
-
-        let less = manager.mk_lt(sum, product);
-        assert_eq!(
-            outcome(&manager, less),
-            EvalOutcome::Value(EvalVal::Bool(true))
-        );
-        let at_least = manager.mk_ge(difference, seven);
-        assert_eq!(
-            outcome(&manager, at_least),
-            EvalOutcome::Value(EvalVal::Bool(false))
-        );
-        let implication = manager.mk_implies(less, at_least);
-        assert_eq!(
-            outcome(&manager, implication),
-            EvalOutcome::Value(EvalVal::Bool(false))
-        );
-        let choice = manager.mk_ite(less, difference, seven);
-        assert_eq!(
-            outcome(&manager, choice),
-            EvalOutcome::Value(EvalVal::Num(Rational64::from_integer(-4)))
-        );
-    }
-
-    /// A deeply nested assertion is evaluated on the heap, not the native
-    /// stack, and still produces the *exact* right verdict.
-    ///
-    /// The chain is built with an iterative loop (a recursive test helper would
-    /// move the overflow into the test itself) and evaluated on a 1 MiB thread.
-    /// Each level is one `Sub` frame, which the recursive evaluator paid for
-    /// with a native frame; 1900 of them are well inside the depth budget and
-    /// were comfortably enough to exhaust that stack.
-    #[test]
-    fn deeply_nested_assertion_evaluates_on_a_worker_stack() {
-        // Track the real budget so the pin survives future limit changes:
-        // stay just inside ENCODE_DEPTH_LIMIT (the chain is DEPTH levels deep,
-        // and the `(>= chain 1)` assertion adds one more).
-        const DEPTH: i64 = ENCODE_DEPTH_LIMIT as i64 - 50;
-
-        let refused = on_worker_stack(|| {
-            let mut manager = TermManager::new();
-            let one = manager.mk_int(1);
-            let mut chain = manager.mk_int(0);
-            for _ in 0..DEPTH {
-                chain = manager.mk_sub(chain, one);
-            }
-            // `chain` is exactly `-DEPTH`, so `(>= chain 0)` is false: the gate
-            // must refute, and refute for the right reason.
-            let value = outcome(&manager, chain);
-            let assertion = manager.mk_ge(chain, one);
-            (value, gate_refuses(&manager, assertion))
-        });
-
-        assert_eq!(
-            refused.0,
-            EvalOutcome::Value(EvalVal::Num(Rational64::from_integer(-DEPTH)))
-        );
-        assert!(refused.1);
-    }
-
-    /// A chain past the evaluator's depth budget answers `Undetermined` — the
-    /// same answer the recursive version gave — rather than aborting the
-    /// process on the way there.
-    ///
-    /// Stack and depth scale together (1 MiB/50k -> 128 KiB/6.25k): the
-    /// ~21 B-per-frame threshold is the pin, so never raise one alone.
-    #[test]
-    fn assertion_past_the_depth_budget_stays_inconclusive() {
-        const DEPTH: usize = 6_250;
-
-        let (value, refused) = on_stack(DEEP_WORKER_STACK, || {
-            let mut manager = TermManager::new();
-            let one = manager.mk_int(1);
-            let mut chain = manager.mk_int(0);
-            for _ in 0..DEPTH {
-                chain = manager.mk_sub(chain, one);
-            }
-            let assertion = manager.mk_ge(chain, one);
-            (outcome(&manager, chain), gate_refuses(&manager, assertion))
-        });
-
-        assert_eq!(value, EvalOutcome::Undetermined);
-        assert!(!refused);
-    }
-
-    // -----------------------------------------------------------------
-    // The trail-polarity half of the gate.
-    // -----------------------------------------------------------------
-
-    /// Build a solver whose SAT core has committed `eq_term` to **false**, and
-    /// whose model gives `lhs` and `rhs` the same integer value.
-    ///
-    /// `lhs`/`rhs` are deliberately *uninterpreted applications*, not Int
-    /// `Var`s: the evaluator reads an Int `Var` from the arithmetic tableau
-    /// (`arith.value`), which a unit test cannot populate without running a
-    /// solve, whereas an opaque leaf is read straight from the model witness.
-    fn solver_with_false_equality(
-        manager: &mut TermManager,
-        eq_term: TermId,
-        lhs: TermId,
-        rhs: TermId,
-        value: TermId,
-    ) -> Solver {
-        use crate::solver::types::Constraint;
-        use oxiz_sat::Lit;
-
-        let mut solver = Solver::new();
-        let var = solver.get_or_create_var(eq_term);
-        solver.record_constraint(var, Constraint::Eq(lhs, rhs));
-        // Force the atom false and solve, so `sat.model_value(var)` really is
-        // `LBool::False` rather than `Undef`.
-        solver.sat.add_clause([Lit::neg(var)]);
-        let _ = solver.sat.solve();
-
-        let mut model = Model::new();
-        model.set(lhs, value);
-        model.set(rhs, value);
-        solver.model = Some(model);
-        let _ = manager;
-        solver
-    }
-
-    /// The witness the false-`sat` family left behind: the core committed
-    /// `(= (f 1) (g 1))` to **false**, then produced a model giving both sides
-    /// `7`. The assignment and the model contradict each other outright, so
-    /// the gate must refuse the verdict.
-    ///
-    /// `combine_eq` structurally cannot catch this — it sees two equal numbers
-    /// and answers `Undetermined` by design, because a collision in the LP
-    /// model is not by itself evidence of anything. The missing information is
-    /// the trail polarity, which only this gate has.
-    #[test]
-    fn a_trail_false_equality_whose_sides_collide_refutes_the_model() {
-        let mut manager = TermManager::new();
-        let int_sort = manager.sorts.int_sort;
-        let one = manager.mk_int(1);
-        let f1 = manager.mk_apply("f", [one], int_sort);
-        let g1 = manager.mk_apply("g", [one], int_sort);
-        let eq = manager.mk_eq(f1, g1);
-        let seven = manager.mk_int(7);
-
-        let solver = solver_with_false_equality(&mut manager, eq, f1, g1, seven);
-        assert!(
-            solver.model_refutes_assertions(&manager),
-            "an `Eq` assigned false whose sides the model makes equal is a \
-             definite refutation, not a coincidence"
-        );
-    }
-
-    /// The same shape with the model giving the two sides *different* values
-    /// is a perfectly good model of the disequality, and must pass the gate.
-    /// Without this control the test above would also pass if the gate simply
-    /// refused every trail-false equality.
-    #[test]
-    fn a_trail_false_equality_with_distinct_values_passes_the_gate() {
-        let mut manager = TermManager::new();
-        let int_sort = manager.sorts.int_sort;
-        let one = manager.mk_int(1);
-        let f1 = manager.mk_apply("f", [one], int_sort);
-        let g1 = manager.mk_apply("g", [one], int_sort);
-        let eq = manager.mk_eq(f1, g1);
-        let seven = manager.mk_int(7);
-        let eight = manager.mk_int(8);
-
-        let mut solver = solver_with_false_equality(&mut manager, eq, f1, g1, seven);
-        let Some(model) = solver.model.as_mut() else {
-            panic!("the helper always installs a model");
-        };
-        model.set(g1, eight);
-        assert!(
-            !solver.model_refutes_assertions(&manager),
-            "7 != 8 satisfies the disequality the core committed to"
-        );
-    }
-
-    /// A *Bool*-sorted equality assigned false must be ignored by this gate
-    /// even when both sides carry the same model witness: Booleans are the EUF
-    /// / SAT layer's business, and `Constraint::Eq` over them is also used to
-    /// feed congruence closure. Firing here would cost legitimate `sat`
-    /// verdicts.
-    #[test]
-    fn a_trail_false_boolean_equality_is_not_this_gates_business() {
-        let mut manager = TermManager::new();
-        let bool_sort = manager.sorts.bool_sort;
-        let p = manager.mk_var("p", bool_sort);
-        let q = manager.mk_var("q", bool_sort);
-        let eq = manager.mk_eq(p, q);
-        let t = manager.mk_true();
-
-        let solver = solver_with_false_equality(&mut manager, eq, p, q, t);
-        assert!(
-            !solver.model_refutes_assertions(&manager),
-            "a Bool-sorted equality has no arithmetic value to collide"
-        );
-    }
-}
+mod tests;

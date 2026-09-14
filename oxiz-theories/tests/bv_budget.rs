@@ -31,7 +31,36 @@ use oxiz_theories::{EqualityNotification, Theory, TheoryCheckResult, TheoryCombi
 /// constraint the chain costs zero conflicts and every budget assertion over it
 /// passes vacuously.
 fn build_multiplier_chain(solver: &mut BvSolver, vars: u32) {
-    const WIDTH: u32 = 32;
+    // 16 bits, not 32.
+    //
+    // Every assertion in this file is expressed in *conflicts* — the unit the
+    // budget itself is expressed in — so the width changes nothing any of them
+    // observes; it only sets how long each bit-blasted `solve()` takes.
+    // Measured in the dev profile (`[profile.dev]` is `opt-level = 1`) on the
+    // development machine, load average ~11, for `spend_under(Some(b), 4, 4)`
+    // on an 8-variable chain:
+    //
+    // | width | b = 150 | b = 400 | b = 2000 |
+    // |---|---|---|---|
+    // | 32 | 5.44 s | 17.2 s | 116.0 s |
+    // | 16 | 0.77 s |  2.70 s |  13.4 s |
+    //
+    // The spend is identical in both rows (`spent == b` throughout): the
+    // allowance, not the arithmetic, is what ends these searches, which is the
+    // property the file tests. The same change at the other two call sites,
+    // same conditions:
+    //
+    // | call site | 32 bits | 16 bits | spend |
+    // |---|---|---|---|
+    // | `set_budget_re_arms_the_allowance` (8 vars, 4 probes, 200) | 8.89 s | 1.87 s | 200 |
+    // | `a_generous_allowance_leaves_notify_equality_working` | 17.8 s | 0.35 s | 135 |
+    //
+    // (the second row is the 4-variable chain under a 20 000 allowance)
+    //
+    // Under `cargo nextest` on a loaded machine those three tests measured 91 s
+    // (past the repo's 60 s SLOW threshold in `.config/nextest.toml`), 18.8 s
+    // and 38.3 s at 32 bits.
+    const WIDTH: u32 = 16;
     for i in 0..vars {
         solver.new_bv(TermId::new(i + 1), WIDTH);
     }
@@ -48,7 +77,16 @@ fn build_multiplier_chain(solver: &mut BvSolver, vars: u32) {
     }
     let threshold = TermId::new(3000);
     solver.new_bv(threshold, WIDTH);
-    assert!(solver.assert_const(threshold, 0x7fff_ffff, WIDTH));
+    // Half the widest value this width can hold (`0x7fff_ffff` at WIDTH = 32,
+    // `0x7fff` at 16). It has to scale with the width rather than stay a
+    // literal: `assert_const` reads its value modulo `2^WIDTH`, so a
+    // hard-coded `0x7fff_ffff` at WIDTH = 16 would pin the threshold to
+    // `0xffff`, the *widest* 16-bit value — `threshold < product` would then be
+    // unsatisfiable by construction, the chain would cost zero conflicts, and
+    // every budget assertion over it would pass vacuously (see this function's
+    // doc comment).
+    let threshold_value = (1u64 << (WIDTH - 1)) - 1;
+    assert!(solver.assert_const(threshold, threshold_value, WIDTH));
     assert!(solver.assert_ult(threshold, TermId::new(1000)));
 }
 
@@ -81,11 +119,21 @@ fn the_conflict_allowance_is_a_total_across_probes_and_survives_reset() {
     // itself a bound (rather than `None`) only to keep this test's wall time
     // down: unbounded, the chain runs for tens of seconds, which is the
     // property being relied on.
-    let unbounded_spend = spend_under(Some(2_000), 4, 4);
+    //
+    // 400 rather than 2000: the assertion only needs the larger allowance to be
+    // *spent past* `BUDGET`, and it is spent in full at either size (the chain
+    // never finishes on its own), so 400 witnesses the same thing at a fifth of
+    // the cost.  Measured in the dev profile (`opt-level = 1`), load average
+    // ~11, for the two `spend_under` calls of this test together: 32-bit/2000
+    // = 121 s, 16-bit/2000 = 14.1 s, 16-bit/400 = 3.5 s. The 32-bit/2000
+    // version measured 91 s as a whole test under `cargo nextest`, past its
+    // 60 s SLOW threshold.
+    const GENEROUS: u64 = 400;
+    let unbounded_spend = spend_under(Some(GENEROUS), 4, 4);
     assert!(
         unbounded_spend > BUDGET,
         "the chain must genuinely cost more than {BUDGET} embedded conflicts for the bound below \
-         to mean anything; under a 2000-conflict allowance it spent {unbounded_spend}"
+         to mean anything; under a {GENEROUS}-conflict allowance it spent {unbounded_spend}"
     );
 
     let bounded_spend = spend_under(Some(BUDGET), 4, 4);
