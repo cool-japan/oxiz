@@ -565,3 +565,77 @@ fn an_equality_of_a_term_with_itself_is_folded_away_before_the_gate() {
         "`true` is satisfied by every model"
     );
 }
+
+/// The gate's other refusal (`#P2b-27`): an assertion that evaluates
+/// `Undetermined` *because a Boolean variable in it has no model entry* is
+/// not skipped — the published model prints a default for that variable and
+/// may falsify the assertion with it.  `(= x (ite p #x01 #x02))` with
+/// `x = #x01` in the model and no entry for `p` is the shape that let the
+/// pre-`#P2b-24` free-bit model through; with `p` present the same
+/// assertion evaluates and the refusal does not fire.
+#[test]
+fn an_undetermined_assertion_over_an_unassigned_boolean_is_refused() {
+    let mut manager = TermManager::new();
+    let bv8 = manager.sorts.bitvec(8);
+    let bool_sort = manager.sorts.bool_sort;
+    let p = manager.mk_var("p", bool_sort);
+    let x = manager.mk_var("x", bv8);
+    let one = manager.mk_bitvec(1, 8);
+    let two = manager.mk_bitvec(2, 8);
+    let ite = manager.mk_ite(p, one, two);
+    let assertion = manager.mk_eq(x, ite);
+
+    let mut solver = solver_with(vec![assertion]);
+    let mut model = Model::new();
+    model.set(x, one);
+    solver.model = Some(model);
+    assert!(
+        !solver.model_refutes_assertions(&manager),
+        "without p the assertion is Undetermined, which the refuting gate skips"
+    );
+    assert!(
+        solver.model_leaves_a_boolean_undetermined(&manager),
+        "with p completed by the printed default `false` the assertion is false: refused"
+    );
+
+    let mut model = Model::new();
+    model.set(x, one);
+    let true_term = manager.mk_true();
+    model.set(p, true_term);
+    solver.model = Some(model);
+    assert!(
+        !solver.model_leaves_a_boolean_undetermined(&manager),
+        "with p published the assertion evaluates (to true) and nothing is refused"
+    );
+    assert!(!solver.model_refutes_assertions(&manager));
+}
+
+/// A tautology over a Boolean the encoder folded away — `(or a (not a))`,
+/// the shape the model counter enumerates — holds under the printed default
+/// and is *not* refused: the refusal is about models the user would see
+/// falsify an assertion, not about missing entries as such.
+#[test]
+fn a_tautology_over_an_unassigned_boolean_is_not_refused() {
+    let mut manager = TermManager::new();
+    let bool_sort = manager.sorts.bool_sort;
+    let a = manager.mk_var("a", bool_sort);
+    let not_a = manager.mk_not(a);
+    let assertion = manager.mk_or([a, not_a]);
+    let solver = solver_with(vec![assertion]);
+    assert!(!solver.model_leaves_a_boolean_undetermined(&manager));
+}
+
+/// A numeric variable without a tableau value is *not* what the Boolean
+/// refusal is about: `(distinct i j)` over two unconstrained integers stays
+/// `Undetermined` and passes both gates, exactly as before.
+#[test]
+fn an_undetermined_assertion_over_numeric_variables_is_not_refused() {
+    let mut manager = TermManager::new();
+    let int_sort = manager.sorts.int_sort;
+    let i = manager.mk_var("i", int_sort);
+    let j = manager.mk_var("j", int_sort);
+    let assertion = manager.mk_distinct([i, j]);
+    let solver = solver_with(vec![assertion]);
+    assert!(!solver.model_refutes_assertions(&manager));
+    assert!(!solver.model_leaves_a_boolean_undetermined(&manager));
+}

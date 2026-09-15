@@ -107,9 +107,12 @@ impl Solver {
                         if let Some(width) = sort.bitvec_width() {
                             self.bv.new_bv(current, width);
                         }
-                        // Also intern in ArithSolver for BV comparison constraints
-                        // (BV comparisons are handled as bounded integer arithmetic)
-                        self.arith.intern(current);
+                        // Deliberately *not* interned into the `ArithSolver`:
+                        // the bounded-integer relaxation of unsigned
+                        // comparisons that needed a tableau column per
+                        // bit-vector variable was retired in `#P2b-28`, and
+                        // the circuit is the only theory that reasons about
+                        // bit-vector variables now.
                     }
                 }
 

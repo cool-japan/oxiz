@@ -768,6 +768,84 @@ impl Solver {
         self.model_violates_negated_equality(manager)
     }
 
+    /// The other half of the `#P2b-27` repair, on the gate's side: an
+    /// assertion the gate cannot evaluate because a **Boolean variable in it
+    /// has no model entry** is judged on the model the user will actually
+    /// see, not skipped.
+    ///
+    /// [`Self::model_refutes_assertions`] skips an `Undetermined` assertion,
+    /// and its doc gives the reason that is right for numeric variables: a
+    /// variable the tableau never constrained reads back `Undetermined`, and
+    /// a satisfiable `distinct` over two such variables must not be mistaken
+    /// for a violation.  A Boolean variable is different.  Its value is not a
+    /// witness some theory declined to pin; it is a truth value the
+    /// published model *prints* — `(get-value)` and `(get-model)` fall back
+    /// to `false` for a variable with no entry — so an assertion that is
+    /// `Undetermined` only because such a variable has no entry may be
+    /// falsified by the very model that is printed, and the gate has no
+    /// opinion about it.  That is exactly how the free-bit-vector model of
+    /// the pre-`#P2b-24` fuzz campaign got past the gate: the selector `p0`
+    /// occurred in no outer clause, the SAT core never assigned it,
+    /// `build_model` recorded nothing, every assertion above it evaluated
+    /// `Undetermined`, and `(bvsgt (ite (distinct t6 #xc3) t9 v1) v0)` was
+    /// published `sat` under a model that falsifies it.
+    ///
+    /// `build_model` now publishes the circuit's value for every selector
+    /// (`BvSolver::bool_value`), so the common case never reaches here.
+    /// What is left is a Boolean variable no theory decided at all, and the
+    /// question is then whether the *printed* model satisfies the assertion:
+    /// the missing variables are completed with the printed default and the
+    /// assertion is evaluated once more.  `true` is accepted — `(or a (not
+    /// a))`, whose `a` the encoder folds away, holds under any default, and
+    /// the model counter enumerates exactly such tautologies — while `false`
+    /// or a still-`Undetermined` answer is refused, so the answer is
+    /// `unknown` rather than a `sat` with a model nobody vouched for.
+    /// Conservative in the safe direction: a `true` here costs precision
+    /// (the caller answers `Unknown`), never soundness.
+    ///
+    /// Returns `true` when some assertion evaluates `Undetermined`, has a
+    /// Bool-sorted free variable with no model entry, and does not evaluate
+    /// to `true` once those variables take the printed default.
+    pub(super) fn model_leaves_a_boolean_undetermined(&self, manager: &TermManager) -> bool {
+        let Some(model) = self.model.as_ref() else {
+            return false;
+        };
+        let bool_sort = manager.sorts.bool_sort;
+        let printed_default = manager.mk_false();
+        for &assertion in &self.assertions {
+            if !matches!(
+                self.eval_in_model_outcome(assertion, model, manager, 0),
+                EvalOutcome::Undetermined
+            ) {
+                continue;
+            }
+            let unassigned: Vec<TermId> = manager
+                .free_vars(assertion)
+                .into_iter()
+                .filter(|&var| {
+                    manager
+                        .get(var)
+                        .is_some_and(|t| t.sort == bool_sort && matches!(t.kind, TermKind::Var(_)))
+                        && model.get(var).is_none()
+                })
+                .collect();
+            if unassigned.is_empty() {
+                continue;
+            }
+            let mut completed = model.clone();
+            for var in unassigned {
+                completed.set(var, printed_default);
+            }
+            if !matches!(
+                self.eval_in_model_outcome(assertion, &completed, manager, 0),
+                EvalOutcome::Value(EvalVal::Bool(true))
+            ) {
+                return true;
+            }
+        }
+        false
+    }
+
     /// The half of the gate that [`combine_eq`] structurally cannot see: a
     /// numeric equality atom the SAT core assigned **false** whose two sides
     /// the arithmetic model gives the **same** value.

@@ -425,9 +425,13 @@ fn corpus_effects_match_the_recursive_implementation() {
     assert!(solver.has_bv_arith_ops, "bvudiv/bvsdiv/... set this flag");
     assert!(solver.has_array_ops, "select sets this flag");
 
+    // Re-pinned at `#P2b-28`: a bit-vector variable no longer gets an
+    // `ArithSolver` column (the bounded-integer relaxation of unsigned
+    // comparisons that needed one was retired), so the `arith_var` probe
+    // sequence changed while every set, flag and trail entry stayed the same.
     let digest = fnv1a(&render_effects(&mut solver, &terms));
     assert_eq!(
-        digest, 0x3d75_800b_80fe_510f,
+        digest, 0x06c5_ed03_a710_bb5d,
         "observable effects of the theory-variable walk changed"
     );
 }
@@ -450,8 +454,9 @@ fn per_term_effects_match_the_recursive_implementation() {
         let d = fnv1a(&render_effects(&mut solver, &terms));
         combined = combined.rotate_left(7) ^ d;
     }
+    // Re-pinned at `#P2b-28` for the same reason as the corpus digest above.
     assert_eq!(
-        combined, 0xd969_4bf7_3c09_27f5,
+        combined, 0x1547_d833_407c_90d0,
         "per-term observable effects of the theory-variable walk changed"
     );
 }
@@ -496,8 +501,9 @@ fn registers_arith_bv_and_opaque_atoms() {
     assert!(solver.arith_terms.contains(&fi));
     // The integer literal is a value, not a variable.
     assert!(!solver.arith_terms.contains(&seven));
-    // Bitvector leaves get a BV variable of the right width, and are also
-    // interned arithmetically (BV comparisons run as bounded integers).
+    // Bitvector leaves get a BV variable of the right width — and, since
+    // `#P2b-28`, nothing in the arithmetic solver: the bounded-integer
+    // relaxation of unsigned comparisons that needed a column there is gone.
     assert!(solver.bv_terms.contains(&v));
     assert!(solver.bv_terms.contains(&w));
     assert!(solver.bv.get_bv(v).is_some());

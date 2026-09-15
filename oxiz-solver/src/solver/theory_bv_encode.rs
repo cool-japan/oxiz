@@ -12,23 +12,41 @@ use oxiz_theories::bv::BvSolver;
 use crate::prelude::FxHashMap;
 use crate::prelude::FxHashSet;
 
-/// Post-order, memoised BV term encoding.
-///
 /// Bit-blast every BV-sorted operand reachable through a boolean condition
-/// `cond` (the kind that appears as an `ite` selector). Walks the boolean
-/// connective/comparison structure and bit-blasts the BV terms underneath the
-/// `Eq`/comparison leaves, so that `BvSolver::encode_bool_node` can look them
-/// up. Returns `false` if any BV operand fails to encode.
+/// `cond` (the kind that appears as an `ite` selector), so that
+/// `BvSolver::encode_bool_node` finds a circuit for each comparison leaf.
 ///
-/// Iterative (explicit work stack), so the boolean nesting of the condition is
-/// bounded by memory rather than by the native call stack.  The walk is a pure
-/// conjunction over the condition's boolean structure, and the traversal order
-/// and the short-circuit are preserved exactly: children are pushed in reverse
-/// so they are processed left to right, and the first failing sub-term returns
-/// `false` immediately without blasting anything further.  `done` skips a
-/// boolean sub-term that already succeeded, so a shared sub-condition of the
-/// hash-consed DAG is blasted once instead of once per path.
+/// Walks the boolean structure — `not`/`and`/`or`/`xor`/`=>`, a Bool-sorted
+/// `ite`, `=` and `distinct` over Bool operands — down to its leaves, which
+/// are `=`/`distinct`/`bvult`/`bvule`/`bvslt`/`bvsle` over BV operands, bare
+/// Bool variables and the constants.  That is exactly the fragment
+/// `encode_bool_node` models, so a `true` here means the selector *will*
+/// encode.  Returns `false` for anything else (an arithmetic comparison, a
+/// Bool-returning application, a quantifier), and the caller then treats
+/// the whole `ite` as unencodable — which `bv_run_check` turns into an
+/// *unmodelled* atom and the owning `Solver` into `unknown`.
+///
+/// Two things this deliberately no longer does (`#P2b-24`):
+///
+/// * it does not accept only `not`/`and`/`or` over comparisons — cargo-formal
+///   emits `xor`, `=>` and `distinct` inside selectors, and each of them made
+///   the whole term unencodable;
+/// * a comparison operand that fails to encode is no longer replaced by a
+///   fresh, free bit-vector.  The encoder itself now abstracts the only
+///   operands that legitimately have no circuit (uninterpreted leaves, see
+///   [`encode_bv_term_recursive`]), so a failure here is a genuine gap and
+///   is reported as one.
+///
+/// Iterative (explicit work stack), so the boolean nesting of the condition
+/// is bounded by memory rather than by the native call stack.  Children are
+/// pushed in reverse so they are processed left to right, the first failing
+/// sub-term returns `false` immediately, and `done` skips a shared
+/// sub-condition of the hash-consed DAG after its first visit.
 fn bit_blast_cond_operands(bv: &mut BvSolver, cond: TermId, mgr: &TermManager) -> bool {
+    let is_bool = |t: TermId| {
+        mgr.get(t)
+            .is_some_and(|term| term.sort == mgr.sorts.bool_sort)
+    };
     let mut done: FxHashSet<TermId> = FxHashSet::default();
     let mut stack: Vec<TermId> = vec![cond];
     while let Some(cond) = stack.pop() {
@@ -44,6 +62,29 @@ fn bit_blast_cond_operands(bv: &mut BvSolver, cond: TermId, mgr: &TermManager) -
             TermKind::And(args) | TermKind::Or(args) => {
                 stack.extend(args.iter().rev().copied());
             }
+            TermKind::Xor(lhs, rhs) | TermKind::Implies(lhs, rhs) => {
+                stack.push(*rhs);
+                stack.push(*lhs);
+            }
+            // A Bool-sorted `ite` is boolean structure; a BV-sorted one
+            // cannot be a condition at all.
+            TermKind::Ite(c, t, e) => {
+                if !is_bool(cond) {
+                    return false;
+                }
+                stack.push(*e);
+                stack.push(*t);
+                stack.push(*c);
+            }
+            // `=` / `distinct` over Bool operands are connectives (`iff`,
+            // pairwise `xor`); over BV operands they are comparison leaves.
+            TermKind::Eq(lhs, rhs) if is_bool(*lhs) => {
+                stack.push(*rhs);
+                stack.push(*lhs);
+            }
+            TermKind::Distinct(args) if args.first().is_some_and(|&a| is_bool(a)) => {
+                stack.extend(args.iter().rev().copied());
+            }
             // Comparison/equality leaves: their operands are BV terms.
             TermKind::Eq(lhs, rhs)
             | TermKind::BvUlt(lhs, rhs)
@@ -51,32 +92,18 @@ fn bit_blast_cond_operands(bv: &mut BvSolver, cond: TermId, mgr: &TermManager) -
             | TermKind::BvSlt(lhs, rhs)
             | TermKind::BvSle(lhs, rhs) => {
                 let mut encoded: FxHashSet<TermId> = FxHashSet::default();
-                let lhs_ok = encode_bv_term_recursive(bv, *lhs, mgr, &mut encoded) || {
-                    if let Some(w) = mgr
-                        .get(*lhs)
-                        .and_then(|t| mgr.sorts.get(t.sort))
-                        .and_then(|s| s.bitvec_width())
-                    {
-                        bv.new_bv(*lhs, w);
-                        true
-                    } else {
-                        false
-                    }
-                };
-                let rhs_ok = encode_bv_term_recursive(bv, *rhs, mgr, &mut encoded) || {
-                    if let Some(w) = mgr
-                        .get(*rhs)
-                        .and_then(|t| mgr.sorts.get(t.sort))
-                        .and_then(|s| s.bitvec_width())
-                    {
-                        bv.new_bv(*rhs, w);
-                        true
-                    } else {
-                        false
-                    }
-                };
-                if !(lhs_ok && rhs_ok) {
+                if !encode_bv_term_recursive(bv, *lhs, mgr, &mut encoded)
+                    || !encode_bv_term_recursive(bv, *rhs, mgr, &mut encoded)
+                {
                     return false;
+                }
+            }
+            TermKind::Distinct(args) => {
+                let mut encoded: FxHashSet<TermId> = FxHashSet::default();
+                for &arg in args {
+                    if !encode_bv_term_recursive(bv, arg, mgr, &mut encoded) {
+                        return false;
+                    }
                 }
             }
             // A bare boolean variable / constant has no BV operands to blast.
@@ -134,8 +161,38 @@ fn bitvec_const_pow2_shift(mgr: &TermManager, tid: TermId) -> Option<u32> {
 /// overflowing the call stack.  A `FxHashSet<TermId>` memo prevents duplicate
 /// encoding when the same sub-term appears in multiple branches of the DAG.
 ///
-/// Returns `true` when `root` was fully encoded, `false` when an unrecognised
-/// TermKind is encountered.
+/// Returns `true` when `root` was fully encoded.  A `false` means some
+/// *interpreted* structure under `root` has no circuit — an `ite` whose
+/// selector is outside `bit_blast_cond_operands`' fragment, a width-mismatched
+/// or otherwise malformed application, a negative literal — and the caller
+/// must then treat the atom as **unmodelled** (see
+/// `TheoryManager::bit_blast_bv_pair`), never as "free bits".
+///
+/// # Opaque leaves are abstracted here, at the leaf
+///
+/// A BV-sorted term whose head is not a bit-vector operation — an `Apply` of
+/// an uninterpreted function, an array `select`, a floating-point conversion
+/// — has no circuit and becomes a fresh, unconstrained bit-vector.  That is
+/// a sound abstraction for a value the theory knows nothing about *only
+/// together with* the equality exchange in
+/// `TheoryManager::combine_bv_with_euf`: the leaf is journalled by
+/// [`BvSolver::new_opaque_leaf`], the manager interns it into congruence
+/// closure, two leaves EUF proves equal (`f(a) = f(b)` from `a = b`) get
+/// their bit-equality asserted into this circuit with EUF's explanation, and
+/// in the other direction the partition of the application arguments the
+/// circuit's model induces is checked against congruence closure, whose
+/// refusals come back as lemmas.  Before `#P2b-29` nothing crossed that
+/// boundary in either direction: `(= a b) ∧ (distinct (bvadd (f a) #x01)
+/// (bvadd (f b) #x01))` and `(= (bvadd x #x01) (bvadd y #x01)) ∧ (distinct
+/// (g x) (g y))` both answered `sat`.  Until
+/// `#P2b-24` the encoder returned `false` for such a leaf and every caller
+/// then abstracted the whole *root* instead: `(bvadd (f x) y)` became one
+/// free bit-vector, and — the actual defect — so did any root whose `ite`
+/// selector merely used `distinct`.  A shared sub-term that had a real
+/// circuit elsewhere then disagreed with its free copy, which is what the
+/// debug-build self-check in [`debug_verify_bv_circuits`] reported as
+/// `BvSub`/`Ite` "admits assignments the operation forbids", and what a
+/// release build published as `sat` until the model gate refused the model.
 pub(super) fn encode_bv_term_recursive(
     bv: &mut BvSolver,
     root: TermId,
@@ -240,8 +297,19 @@ pub(super) fn encode_bv_term_recursive(
                 }
                 // Leaves: Var, BitVecConst — no children to push
                 TermKind::Var(_) | TermKind::BitVecConst { .. } => {}
-                // Unknown term kind — cannot encode, abort
-                _ => return false,
+                // An opaque leaf (not a bit-vector operation): a fresh free
+                // bit-vector *for this leaf only*, see the function doc.  The
+                // `(tid, true)` frame pushed above is withdrawn — there is
+                // no encode phase for it.  Recorded on the solver's
+                // opaque-leaf journal so the theory manager can intern it
+                // into congruence closure and share the equalities EUF
+                // derives for it (`#P2b-29`).
+                _ => {
+                    stack.pop();
+                    bv.new_opaque_leaf(tid, width);
+                    encoded.insert(tid);
+                    continue;
+                }
             }
         } else {
             // Encode this node (children already encoded).
@@ -399,7 +467,9 @@ pub(super) fn encode_bv_term_recursive(
                     if !bit_blast_cond_operands(bv, *cond, mgr) {
                         return false;
                     }
-                    bv.bv_ite(tid, *cond, *then_t, *else_t, mgr);
+                    if !bv.bv_ite(tid, *cond, *then_t, *else_t, mgr) {
+                        return false;
+                    }
                 }
                 TermKind::BvUdiv(a, b) => {
                     if !operands_have_width(mgr, &[*a, *b], width) {

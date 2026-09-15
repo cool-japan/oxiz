@@ -36,6 +36,39 @@ impl Solver {
             }
         }
 
+        // A Bool-sorted variable that occurs *only* as an `ite` selector has
+        // no outer clause, so the SAT core never assigned it and the loop
+        // above recorded nothing — but the bit-blasted circuit did decide it:
+        // the selector is a SAT variable of the *embedded* solver, chosen by
+        // its search.  Publish that value.  Printing the sort default `false`
+        // instead gave `(= x (ite p #x01 #x02)) ∧ (= x #x01)` the model
+        // `p = false, x = #x01`, which violates the first assertion, and the
+        // same missing entry made every assertion above `p` `Undetermined` to
+        // the model gate, so the gate could not refuse it either (`#P2b-27`).
+        // Only bare variables are published: a connective or comparison node
+        // is evaluated from its operands wherever it is read.
+        let mut circuit_bools: Vec<TermId> = self.bv.bool_node_terms().collect();
+        circuit_bools.sort_unstable_by_key(|t| t.raw());
+        for term in circuit_bools {
+            if model.get(term).is_some() {
+                continue;
+            }
+            let is_bool_var = manager.get(term).is_some_and(|t| {
+                t.sort == manager.sorts.bool_sort && matches!(t.kind, TermKind::Var(_))
+            });
+            if !is_bool_var {
+                continue;
+            }
+            if let Some(value) = self.bv.bool_value(term) {
+                let value_term = if value {
+                    manager.mk_true()
+                } else {
+                    manager.mk_false()
+                };
+                model.set(term, value_term);
+            }
+        }
+
         // Extract values from equality constraints (e.g., x = 5)
         // This handles cases where a variable is equated to a constant
         for (&var, constraint) in &self.var_to_constraint {
@@ -148,23 +181,19 @@ impl Solver {
             }
         }
 
-        // Get bitvector values.  Which theory owns a BV variable's value depends
-        // on how it was actually constrained (see `bv_solver_is_authoritative`):
+        // Get bitvector values from the bit-blasted circuit.  Every bit-vector
+        // atom — structure, (dis)equality, comparison — is bit-blasted with
+        // constant bits pinned, so `BvSolver::get_value_big` is the witness;
+        // a variable the circuit never saw (it took part in no asserted atom)
+        // is unconstrained and defaults to `0`.  There is no second source:
+        // the unbounded-integer relaxation of unsigned comparisons that the
+        // `ArithSolver` used to hold was retired in `#P2b-28` — it decided
+        // nothing the circuit does not, and overflowed `i64` at width 64.
         //
-        //   * BV structure (arithmetic, bitwise, shifts, concat/extract), BV
-        //     (dis)equalities and BV *comparisons* are all genuinely bit-blasted
-        //     — with constant operands pinned to their concrete bits — so
-        //     `BvSolver::get_value` is a real witness.
-        //   * Unsigned BV comparisons are *additionally* relaxed into the linear
-        //     `ArithSolver` as unbounded integers.  That relaxation carries no
-        //     `0 <= x < 2^width` domain bound, so its value can fall outside the
-        //     bit-vector's range; it is only consulted when the BV solver has
-        //     nothing, and is wrapped into range below either way.
-        //
-        // Establishing a single owning theory per problem keeps the extracted
-        // model self-consistent instead of reading a stale value from the wrong
-        // solver.
-        let bv_authoritative = self.bv_solver_is_authoritative(manager);
+        // `get_value_big` rather than `get_value`: the latter answers `None`
+        // for every bit-vector wider than 64 bits, so a 96-bit witness fell
+        // through to `0` — the model printed `#x000…0` for a variable the
+        // search had pinned to a huge constant.
         for &term in &self.bv_terms {
             // Don't overwrite if already set (shouldn't happen, but be safe)
             if model.get(term).is_some() {
@@ -178,44 +207,53 @@ impl Solver {
                 .and_then(|s| s.bitvec_width())
                 .unwrap_or(64);
 
-            // `get_value_big` rather than `get_value`: the latter answers `None`
-            // for every bit-vector wider than 64 bits, so a 96-bit witness fell
-            // through to the arithmetic relaxation and finally to `0` — the
-            // model printed `#x000…0` for a variable the search had pinned to a
-            // huge constant.
-            let bv_value = self.bv.get_value_big(term);
-            let arith_value = self.arith.value(term);
-
-            let raw_value = if bv_authoritative {
-                // BV theory owns the model: prefer its bit-blasted witness, then
-                // fall back to any bounded-integer value, then a default of 0.
-                if let Some(bv_value) = bv_value {
-                    num_bigint::BigInt::from(bv_value)
-                } else if let Some(arith_value) = arith_value {
-                    arith_value.to_integer().into()
-                } else {
-                    num_bigint::BigInt::ZERO
-                }
-            } else {
-                // No BV atom was bit-blasted (e.g. a BV variable that only ever
-                // appears under an uninterpreted function): the ArithSolver's
-                // relaxation is all we have.
-                if let Some(arith_value) = arith_value {
-                    arith_value.to_integer().into()
-                } else if let Some(bv_value) = bv_value {
-                    num_bigint::BigInt::from(bv_value)
-                } else {
-                    num_bigint::BigInt::ZERO
-                }
-            };
+            let raw_value = self
+                .bv
+                .get_value_big(term)
+                .map(num_bigint::BigInt::from)
+                .unwrap_or(num_bigint::BigInt::ZERO);
             // A bit-vector model value must be a well-formed literal of the
-            // declared width.  The arithmetic relaxation has no domain bound, so
-            // it can hand back a negative or oversized integer (`(bvult x #x00)`
-            // used to yield `x = -1`, printed as the malformed `#x-1`).  Wrap
-            // into `[0, 2^width)` — the two's-complement reading SMT-LIB
-            // prescribes — before interning the constant.
+            // declared width: wrap into `[0, 2^width)` — the two's-complement
+            // reading SMT-LIB prescribes — before interning the constant.
             let value_term =
                 manager.mk_bitvec(oxiz_core::ast::bv_wrap_unsigned(&raw_value, width), width);
+            model.set(term, value_term);
+        }
+
+        // A bit-vector variable that occurs only as the argument of an
+        // uninterpreted function is not a theory variable of any atom, so
+        // `bv_terms` never lists it — but the bit-vector / EUF equality
+        // exchange (`#P2b-29`) gives it a circuit and *chooses* its value
+        // (`(distinct (g x) (g y))` needs `x ≠ y`).  Publish that choice:
+        // printing the sort default `#x00` for both sides handed the user a
+        // model that violates the assertion, while the verdict was right.
+        let mut circuit_vars: Vec<TermId> = self
+            .bv
+            .circuit_terms()
+            .filter(|&term| model.get(term).is_none())
+            .filter(|&term| {
+                manager.get(term).is_some_and(|t| {
+                    matches!(t.kind, TermKind::Var(_))
+                        && manager.sorts.get(t.sort).is_some_and(|s| s.is_bitvec())
+                })
+            })
+            .collect();
+        circuit_vars.sort_unstable_by_key(|t| t.raw());
+        for term in circuit_vars {
+            let Some(width) = manager
+                .get(term)
+                .and_then(|t| manager.sorts.get(t.sort))
+                .and_then(|s| s.bitvec_width())
+            else {
+                continue;
+            };
+            let Some(value) = self.bv.get_value_big(term) else {
+                continue;
+            };
+            let value_term = manager.mk_bitvec(
+                oxiz_core::ast::bv_wrap_unsigned(&num_bigint::BigInt::from(value), width),
+                width,
+            );
             model.set(term, value_term);
         }
 
@@ -1008,87 +1046,6 @@ impl Solver {
             return Some(manager.mk_bitvec(wrapped, width));
         }
         None
-    }
-
-    /// Decide whether the `BvSolver`'s bit-blasted model is authoritative for
-    /// BV terms in the current problem.
-    ///
-    /// It is authoritative when the problem contains genuine BV *structure* —
-    /// any BV arithmetic/bitwise/shift/concat/extract operation — or any BV
-    /// (dis)equality or comparison constraint.  All of those paths bit-blast
-    /// their operands with constant bits pinned to concrete values, so
-    /// `BvSolver::get_value` is a faithful witness.
-    ///
-    /// Comparisons count because `TheoryManager::process_constraint` now
-    /// bit-blasts their operands through `encode_bv_term_recursive` (pinning
-    /// `BitVecConst` bits) instead of allocating free bits via `new_bv`.  While
-    /// they were unpinned the BV model was arbitrary for a comparison-only
-    /// problem and the linear relaxation had to be trusted instead — but that
-    /// relaxation carries no `0 <= x < 2^width` bound and, for signed
-    /// comparisons, is deliberately never populated at all, so it produced
-    /// values that violate the very atom that made the query SAT (`x = 0` for
-    /// `(bvsle x #b10000000)`).
-    fn bv_solver_is_authoritative(&self, manager: &TermManager) -> bool {
-        // Any structural BV operation implies real bit-blasting.
-        for &term in &self.bv_terms {
-            if let Some(t) = manager.get(term)
-                && Self::is_structural_bv_op(&t.kind)
-            {
-                return true;
-            }
-        }
-
-        // Any BV (dis)equality or comparison also bit-blasts both operands with
-        // pinned constants.  A disequality `a != b` is stored as an `Eq` atom
-        // whose SAT variable is assigned false, so both cases surface as `Eq`;
-        // `bvult`/`bvule`/`bvslt`/`bvsle` surface as `Lt`/`Le`.
-        let is_bv = |tid: TermId| -> bool {
-            manager
-                .get(tid)
-                .and_then(|t| manager.sorts.get(t.sort))
-                .is_some_and(|s| s.is_bitvec())
-        };
-        for constraint in self.var_to_constraint.values() {
-            let operands = match constraint {
-                Constraint::Eq(lhs, rhs)
-                | Constraint::Lt(lhs, rhs)
-                | Constraint::Le(lhs, rhs)
-                | Constraint::Gt(lhs, rhs)
-                | Constraint::Ge(lhs, rhs) => (*lhs, *rhs),
-                _ => continue,
-            };
-            if is_bv(operands.0) || is_bv(operands.1) {
-                return true;
-            }
-        }
-
-        false
-    }
-
-    /// Whether a `TermKind` is a structural BV operation (arithmetic, bitwise,
-    /// shift, concat, or extract) — as opposed to a comparison, constant, or
-    /// variable.  Structural ops are the ones the BV solver genuinely
-    /// bit-blasts, making its model authoritative.
-    fn is_structural_bv_op(kind: &TermKind) -> bool {
-        matches!(
-            kind,
-            TermKind::BvNot(_)
-                | TermKind::BvAnd(_, _)
-                | TermKind::BvOr(_, _)
-                | TermKind::BvXor(_, _)
-                | TermKind::BvAdd(_, _)
-                | TermKind::BvSub(_, _)
-                | TermKind::BvMul(_, _)
-                | TermKind::BvUdiv(_, _)
-                | TermKind::BvSdiv(_, _)
-                | TermKind::BvUrem(_, _)
-                | TermKind::BvSrem(_, _)
-                | TermKind::BvShl(_, _)
-                | TermKind::BvLshr(_, _)
-                | TermKind::BvAshr(_, _)
-                | TermKind::BvConcat(_, _)
-                | TermKind::BvExtract { .. }
-        )
     }
 
     /// Canonical EUF congruence-class representative node for `term`.

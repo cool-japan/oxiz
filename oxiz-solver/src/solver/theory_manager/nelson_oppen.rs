@@ -200,7 +200,10 @@ impl TheoryManager<'_> {
     /// Turn a theory-refuted term set into a [`TheoryCheckResult`], bumping
     /// conflict statistics and honouring the conflict-count resource limit
     /// the same way every other conflict site in this file does.
-    fn report_theory_conflict(&mut self, conflict_terms: Vec<TermId>) -> TheoryCheckResult {
+    pub(super) fn report_theory_conflict(
+        &mut self,
+        conflict_terms: Vec<TermId>,
+    ) -> TheoryCheckResult {
         self.statistics.theory_conflicts += 1;
         self.statistics.conflicts += 1;
         if self.max_conflicts > 0 && self.statistics.conflicts >= self.max_conflicts {

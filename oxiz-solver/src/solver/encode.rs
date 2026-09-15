@@ -1255,30 +1255,35 @@ impl Solver {
                 let var = self.get_or_create_var(term);
                 Lit::pos(var)
             }
+            // Bit-vector unsigned comparisons.  The `Constraint::Lt` / `Le`
+            // recorded here is consumed by the bit-vector path of
+            // `TheoryManager::process_constraint`, which bit-blasts both
+            // operands and asserts the exact comparator into the circuit.
+            //
+            // They are deliberately *not* mirrored into `var_to_parsed_arith`
+            // any more (`#P2b-28`).  Until then every `bvult`/`bvule` was also
+            // parsed as a linear constraint over unbounded integers and
+            // asserted into the `ArithSolver` as a "bounded-integer
+            // relaxation".  The relaxation was redundant — the circuit decides
+            // every comparison exactly — and it lived in `Rational64`: a
+            // width-64 or width-63 literal at the top of the `i64` range made
+            // `assert_lt`'s `x < k ⇒ x ≤ k − 1` and `assert_le`'s `−rhs`
+            // overflow, so `(assert (bvult #x7fffffffffffffff v))` alone
+            // panicked in a debug build ("attempt to negate with overflow")
+            // and answered `unknown` in release, where the wrapped constant
+            // was silently a different bound.  `bvslt`/`bvsle` below never had
+            // the mirror for a related reason (signed vs. unsigned reading).
             TermKind::BvUlt(lhs, rhs) => {
-                // Bitvector unsigned less-than: treat as integer comparison
                 let var = self.get_or_create_var(term);
                 self.record_constraint(var, Constraint::Lt(*lhs, *rhs));
-                // Parse as arithmetic constraint (bitvector as bounded integer)
-                if let Some(parsed) =
-                    self.parse_arith_comparison(*lhs, *rhs, ArithConstraintType::Lt, term, manager)
-                {
-                    self.var_to_parsed_arith.insert(var, parsed);
-                }
                 // Track theory variables for model extraction
                 self.track_theory_vars(*lhs, manager);
                 self.track_theory_vars(*rhs, manager);
                 Lit::pos(var)
             }
             TermKind::BvUle(lhs, rhs) => {
-                // Bitvector unsigned less-than-or-equal: treat as integer comparison
                 let var = self.get_or_create_var(term);
                 self.record_constraint(var, Constraint::Le(*lhs, *rhs));
-                if let Some(parsed) =
-                    self.parse_arith_comparison(*lhs, *rhs, ArithConstraintType::Le, term, manager)
-                {
-                    self.var_to_parsed_arith.insert(var, parsed);
-                }
                 // Track theory variables for model extraction
                 self.track_theory_vars(*lhs, manager);
                 self.track_theory_vars(*rhs, manager);

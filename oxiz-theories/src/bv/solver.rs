@@ -10,6 +10,9 @@ use oxiz_core::error::Result;
 use oxiz_sat::{LBool, Lit, Solver as SatSolver, SolverConfig as SatConfig, SolverResult, Var};
 use smallvec::SmallVec;
 
+/// Boolean nodes: `ite` selectors, the outer-assignment pins and the conflict
+/// hypotheses they contribute (`#P2b-24`, `#P2b-25`).
+mod bool_node;
 /// Resource budgets for the embedded bit-blasting SAT solver (U-Z12).
 mod budget;
 /// Nelson-Oppen combination: the `TheoryCombination` implementation.
@@ -74,6 +77,10 @@ struct ContextMark {
     ult_cache_len: usize,
     /// Length of `bool_node_journal`.
     bool_node_len: usize,
+    /// Length of `pinned_terms`.
+    pinned_len: usize,
+    /// Length of `opaque_leaves`.
+    opaque_len: usize,
 }
 
 /// BitVector Theory Solver using bit-blasting
@@ -136,6 +143,40 @@ pub struct BvSolver {
     ult_cache_journal: Vec<ComparisonKey>,
     /// Undo journal for `bool_node`; see [`Self::term_to_bv_journal`].
     bool_node_journal: Vec<TermId>,
+    /// Every outer Boolean atom whose truth value is *currently pinned* into
+    /// a live boolean node by a unit clause (see [`Self::pin_bool_var`]), in
+    /// pin order, truncated by [`Theory::pop`] to the length `push` recorded.
+    ///
+    /// These are conflict hypotheses.  A pin is an assertion the embedded SAT
+    /// solver may resolve against exactly like an `assert_eq` unit, so an
+    /// `Unsat` it contributes to is `Unsat` *under that atom's value*; an
+    /// explanation that omitted it made the owning CDCL(T) core learn a clause
+    /// stronger than the theory derived — a **false proof**.  `(= x (ite c a
+    /// b))` with `c` pinned `true` and `x = b` asserted is unsatisfiable only
+    /// while `c` holds, and the conflict clause used to say it was
+    /// unsatisfiable outright.  See [`Self::collect_conflict_terms`] and the
+    /// `#P2b-25` entry in `TODO.md`.
+    pinned_terms: Vec<TermId>,
+    /// The set behind [`Self::pinned_terms`], so a re-pin of an already
+    /// blamed atom is not journalled twice.
+    pinned_set: FxHashSet<TermId>,
+    /// Every bit-vector-sorted term whose circuit is a *free* bit-vector
+    /// standing in for a value this theory knows nothing about — an
+    /// uninterpreted application, an array `select` — in creation order,
+    /// truncated by [`Theory::pop`] to the length `push` recorded, exactly
+    /// like `term_to_bv_journal` (the leaf's circuit goes with the same pop).
+    ///
+    /// These are the terms the *EUF* layer may prove equal by congruence
+    /// (`f(a) = f(b)` from `a = b`) while this circuit still holds two
+    /// unrelated free vectors for them; `oxiz-solver`'s theory manager reads
+    /// the list back through [`Self::opaque_leaves()`], interns every entry
+    /// into congruence closure, and asserts the bit-equality of any two that
+    /// congruence puts in one class (`#P2b-29`).  Without that crossing,
+    /// `(= a b) ∧ (distinct (bvadd (f a) #x01) (bvadd (f b) #x01))` answered
+    /// `sat`.
+    opaque_leaves: Vec<TermId>,
+    /// The set behind [`Self::opaque_leaves()`].
+    opaque_leaf_set: FxHashSet<TermId>,
     /// Total conflict allowance for every embedded `solve()` until the next
     /// [`Self::set_budget`], or `None` for unbounded.  See the `budget` module.
     budget_max_conflicts: Option<u64>,
@@ -187,6 +228,10 @@ impl BvSolver {
             term_to_bv_journal: Vec::new(),
             ult_cache_journal: Vec::new(),
             bool_node_journal: Vec::new(),
+            pinned_terms: Vec::new(),
+            pinned_set: FxHashSet::default(),
+            opaque_leaves: Vec::new(),
+            opaque_leaf_set: FxHashSet::default(),
             budget_max_conflicts: None,
             budget_deadline: None,
             conflicts_spent: 0,
@@ -252,19 +297,37 @@ impl BvSolver {
         }
     }
 
-    /// Collect all recorded constraint terms as the conflict explanation.
+    /// Every hypothesis the embedded SAT solver may have resolved against, as
+    /// the conflict explanation: the recorded constraint terms **and** the
+    /// outer Boolean atoms currently pinned into the circuit
+    /// ([`Self::pinned_terms`]).
     ///
-    /// This is a sound superset: the UNSAT is definitely caused by the set of
-    /// all constraints that have been asserted since the last push/reset.
+    /// A sound superset: the `Unsat` is caused by the conjunction of
+    /// everything asserted since the last push/reset, and a clause that
+    /// blames more than the minimal core is merely weaker, never wrong.  What
+    /// is *not* sound is blaming less.  Until `#P2b-25` this returned the
+    /// constraint terms alone, while `assert_bool_value` had installed the
+    /// values of `ite` selectors and comparison nodes as level-scoped unit
+    /// clauses the same solver resolved through; a conflict that rested on
+    /// such a unit was handed back as if it rested on the constraints only,
+    /// and the CDCL(T) core learned a lemma that the theory never derived.
+    /// Measured in the 0.3.4 tree: a satisfiable width-63 script answered
+    /// `unsat` (`oxiz-solver/tests/bv_ite_selfcheck_regressions.rs`).
     fn collect_conflict_terms(&self) -> Vec<TermId> {
-        self.assertion_guard_terms.clone()
+        let mut terms = self.assertion_guard_terms.clone();
+        for &term in &self.pinned_terms {
+            if !terms.contains(&term) {
+                terms.push(term);
+            }
+        }
+        terms
     }
 
     /// Create a new bit vector variable
     ///
     /// A *creation* (as opposed to a cache hit) is journalled so that
     /// [`Theory::pop`] retracts it together with the clauses `sat.pop()`
-    /// deletes; see [`Self::term_to_bv_journal`].
+    /// deletes; see the `term_to_bv_journal` field.
     pub fn new_bv(&mut self, term: TermId, width: u32) -> &BvVar {
         if !self.term_to_bv.contains_key(&term) {
             self.term_to_bv_journal.push(term);
@@ -279,6 +342,47 @@ impl BvSolver {
     #[must_use]
     pub fn get_bv(&self, term: TermId) -> Option<&BvVar> {
         self.term_to_bv.get(&term)
+    }
+
+    /// Create the free bit-vector standing in for an *opaque leaf* — a
+    /// bit-vector-sorted term that is not a bit-vector operation (an
+    /// uninterpreted application, an array `select`, …) — and record it on
+    /// [`Self::opaque_leaves()`] so the owning theory manager can share the
+    /// equalities congruence closure derives for it (`#P2b-29`).
+    ///
+    /// Same journalling as [`Self::new_bv`]: the record is retracted by the
+    /// `pop` that retracts the circuit.
+    pub fn new_opaque_leaf(&mut self, term: TermId, width: u32) -> &BvVar {
+        if self.opaque_leaf_set.insert(term) {
+            self.opaque_leaves.push(term);
+        }
+        self.new_bv(term, width)
+    }
+
+    /// The opaque leaves currently holding a live free circuit, in creation
+    /// order (see [`Self::new_opaque_leaf`]).
+    #[must_use]
+    pub fn opaque_leaves(&self) -> &[TermId] {
+        &self.opaque_leaves
+    }
+
+    /// Every Bool-sorted term that currently has a boolean node in this
+    /// circuit (an `ite` selector, or a connective / comparison underneath
+    /// one), in no particular order.  Paired with [`Self::bool_value`] this
+    /// is how a model can publish the value the circuit chose for a Boolean
+    /// the enclosing search never assigned (`#P2b-27`).
+    pub fn bool_node_terms(&self) -> impl Iterator<Item = TermId> + '_ {
+        self.bool_node.keys().copied()
+    }
+
+    /// Every term that currently has a bit-blasted circuit, in no
+    /// particular order.  Paired with [`Self::get_value_big`] this is how a
+    /// model can publish the value the circuit chose for a bit-vector
+    /// variable the owning solver never tracked as a theory variable — one
+    /// that occurs only as the argument of an uninterpreted function, whose
+    /// circuit the equality exchange built (`#P2b-29`).
+    pub fn circuit_terms(&self) -> impl Iterator<Item = TermId> + '_ {
+        self.term_to_bv.keys().copied()
     }
 
     /// Get the current configuration
@@ -541,8 +645,16 @@ impl BvSolver {
     ///
     /// `cond` is encoded to a single truth variable via [`Self::encode_bool_node`]
     /// (so boolean structure such as `not(c)` is respected); `then` and `else`
-    /// must already be bit-blasted to equal-width BVs. No-op if any operand is
-    /// missing or the condition is not encodable.
+    /// must already be bit-blasted to equal-width BVs.
+    ///
+    /// Returns `false` — encoding nothing — when either branch is missing,
+    /// the branches differ in width, or the condition is outside the
+    /// fragment `encode_bool_node` models.  It used to return `()` and fail
+    /// silently, and the encoder in `oxiz-solver` then went on as if the
+    /// `ite` had a circuit: the parent operation's `new_bv` handed the term
+    /// a *free* bit-vector, which is the shape behind the width-64 `ite`
+    /// self-check failures cargo-formal reported (`#P2b-24`).
+    #[must_use]
     pub fn bv_ite(
         &mut self,
         result: TermId,
@@ -550,243 +662,24 @@ impl BvSolver {
         then_t: TermId,
         else_t: TermId,
         manager: &oxiz_core::ast::TermManager,
-    ) {
+    ) -> bool {
         let Some(sel) = self.encode_bool_node(cond, manager) else {
-            return;
+            return false;
         };
         let (vt, ve) = match (
             self.term_to_bv.get(&then_t).cloned(),
             self.term_to_bv.get(&else_t).cloned(),
         ) {
             (Some(vt), Some(ve)) if vt.width == ve.width => (vt, ve),
-            _ => return,
+            _ => return false,
         };
-        let r = self.new_bv(result, vt.width).clone();
+        let Some(r) = self.result_bits(result, vt.width) else {
+            return false;
+        };
         for i in 0..vt.width as usize {
             self.encode_mux(r.bits[i], sel, vt.bits[i], ve.bits[i]);
         }
-    }
-
-    /// Fix a Bool-sorted term's truth value from the *enclosing* CDCL(T) search.
-    ///
-    /// A bit-blasted `ite` selector that is a bare boolean variable has no
-    /// circuit of its own: [`Self::encode_bool_node`] gives it a fresh, free SAT
-    /// variable inside the embedded solver. Free means the embedded search may
-    /// pick the branch the outer solver has *ruled out*, so
-    /// `(= (ite c #x01 #x02) x) ∧ ¬c ∧ (= x #x01)` looked satisfiable: the outer
-    /// solver knows `c` is false, the BV solver did not, and each considered its
-    /// own half consistent.
-    ///
-    /// The theory manager therefore replays every atom assignment here. The unit
-    /// lands on the embedded solver's trail at the current level, which is kept
-    /// in lockstep with the outer decision levels, so it is retracted on
-    /// backtrack exactly like the (dis)equality and comparison assertions. The
-    /// value is also remembered so a selector that is *first encoded later*
-    /// still picks it up — the outer assignment and the bit-blasting can happen
-    /// in either order.
-    pub fn assert_bool_value(&mut self, term: TermId, value: bool) {
-        let previous = self.outer_bool.insert(term, value);
-        self.outer_bool_journal.push((term, previous));
-        if let Some(&var) = self.bool_node.get(&term) {
-            self.pin_bool_var(var, value);
-        }
-    }
-
-    /// Add the unit clause forcing `var` to `value`.
-    fn pin_bool_var(&mut self, var: Var, value: bool) {
-        let lit = if value { Lit::pos(var) } else { Lit::neg(var) };
-        self.sat.add_clause([lit]);
-    }
-
-    /// Encode a Bool-sorted term into a single SAT truth variable, recursively
-    /// bit-blasting any BV operands it compares. Returns `None` for boolean
-    /// shapes outside the supported connective/comparison set.
-    ///
-    /// Supported: bool `Var`, `True`/`False`, `Not`, `And`, `Or`, `Eq` over BV
-    /// operands, and the BV comparisons `BvUlt`/`BvUle`/`BvSlt`/`BvSle`. This is
-    /// exactly the condition fragment the SplitRS QF_BV encoder can emit.
-    pub fn encode_bool_node(
-        &mut self,
-        term: TermId,
-        manager: &oxiz_core::ast::TermManager,
-    ) -> Option<Var> {
-        use oxiz_core::ast::TermKind;
-        if let Some(&v) = self.bool_node.get(&term) {
-            // Re-apply any outer truth value: the node may have been created
-            // below a decision level that has since been popped, which retracts
-            // the unit clause but not the cached variable.
-            if let Some(&value) = self.outer_bool.get(&term) {
-                self.pin_bool_var(v, value);
-            }
-            return Some(v);
-        }
-        let kind = manager.get(term)?.kind.clone();
-        let out = match kind {
-            TermKind::Var(_) => {
-                // Free boolean variable: a single fresh SAT var stands for it.
-                self.sat.new_var()
-            }
-            TermKind::True => {
-                let v = self.sat.new_var();
-                self.sat.add_clause([Lit::pos(v)]);
-                v
-            }
-            TermKind::False => {
-                let v = self.sat.new_var();
-                self.sat.add_clause([Lit::neg(v)]);
-                v
-            }
-            TermKind::Not(inner) => {
-                let iv = self.encode_bool_node(inner, manager)?;
-                let v = self.sat.new_var();
-                self.encode_not(v, iv);
-                v
-            }
-            TermKind::And(ref args) => {
-                // Conjunction of all operands.
-                let mut acc: Option<Var> = None;
-                for &arg in args {
-                    let av = self.encode_bool_node(arg, manager)?;
-                    acc = Some(match acc {
-                        None => av,
-                        Some(prev) => {
-                            let v = self.sat.new_var();
-                            self.encode_and(v, prev, av);
-                            v
-                        }
-                    });
-                }
-                match acc {
-                    Some(v) => v,
-                    None => {
-                        // Empty conjunction is `true`.
-                        let v = self.sat.new_var();
-                        self.sat.add_clause([Lit::pos(v)]);
-                        v
-                    }
-                }
-            }
-            TermKind::Or(ref args) => {
-                let mut acc: Option<Var> = None;
-                for &arg in args {
-                    let av = self.encode_bool_node(arg, manager)?;
-                    acc = Some(match acc {
-                        None => av,
-                        Some(prev) => {
-                            let v = self.sat.new_var();
-                            self.encode_or(v, prev, av);
-                            v
-                        }
-                    });
-                }
-                match acc {
-                    Some(v) => v,
-                    None => {
-                        // Empty disjunction is `false`.
-                        let v = self.sat.new_var();
-                        self.sat.add_clause([Lit::neg(v)]);
-                        v
-                    }
-                }
-            }
-            TermKind::Eq(lhs, rhs) => {
-                // Operands are pre-bit-blasted by the caller; `out <=> AND_i
-                // (lhs[i] <=> rhs[i])`.
-                let (va, vb) = match (
-                    self.term_to_bv.get(&lhs).cloned(),
-                    self.term_to_bv.get(&rhs).cloned(),
-                ) {
-                    (Some(va), Some(vb)) if va.width == vb.width => (va, vb),
-                    _ => return None,
-                };
-                let mut acc: Option<Var> = None;
-                for i in 0..va.width as usize {
-                    // bit_eq <=> (a[i] <=> b[i])
-                    let bit_eq = self.sat.new_var();
-                    let xor = self.sat.new_var();
-                    self.encode_xor(xor, va.bits[i], vb.bits[i]);
-                    self.encode_not(bit_eq, xor);
-                    acc = Some(match acc {
-                        None => bit_eq,
-                        Some(prev) => {
-                            let v = self.sat.new_var();
-                            self.encode_and(v, prev, bit_eq);
-                            v
-                        }
-                    });
-                }
-                acc?
-            }
-            TermKind::BvUlt(lhs, rhs) => self.bool_ult(lhs, rhs, manager, false)?,
-            TermKind::BvUle(lhs, rhs) => self.bool_ule(lhs, rhs, manager, false)?,
-            TermKind::BvSlt(lhs, rhs) => self.bool_ult(lhs, rhs, manager, true)?,
-            TermKind::BvSle(lhs, rhs) => self.bool_ule(lhs, rhs, manager, true)?,
-            _ => return None,
-        };
-        if self.bool_node.insert(term, out).is_none() {
-            self.bool_node_journal.push(term);
-        }
-        // Honour an outer assignment recorded before this node existed.
-        if let Some(&value) = self.outer_bool.get(&term) {
-            self.pin_bool_var(out, value);
-        }
-        Some(out)
-    }
-
-    /// Encode a strict less-than (signed or unsigned) comparison result var.
-    /// Operands are assumed already bit-blasted by the caller.
-    fn bool_ult(
-        &mut self,
-        lhs: TermId,
-        rhs: TermId,
-        _manager: &oxiz_core::ast::TermManager,
-        signed: bool,
-    ) -> Option<Var> {
-        let (va, vb) = match (
-            self.term_to_bv.get(&lhs).cloned(),
-            self.term_to_bv.get(&rhs).cloned(),
-        ) {
-            (Some(va), Some(vb)) if va.width == vb.width => (va, vb),
-            _ => return None,
-        };
-        let width = va.width as usize;
-        let result = self.sat.new_var();
-        if signed {
-            // Signed: if sign bits differ, lhs<rhs iff sign_lhs=1; else unsigned.
-            let sign_a = va.bits[width - 1];
-            let sign_b = vb.bits[width - 1];
-            let diff_sign = self.sat.new_var();
-            self.encode_xor(diff_sign, sign_a, sign_b);
-            self.sat
-                .add_clause([Lit::neg(diff_sign), Lit::neg(sign_a), Lit::pos(result)]);
-            self.sat
-                .add_clause([Lit::neg(diff_sign), Lit::pos(sign_a), Lit::neg(result)]);
-            let ult = self.sat.new_var();
-            self.encode_ult_result(&va.bits, &vb.bits, ult);
-            self.sat
-                .add_clause([Lit::pos(diff_sign), Lit::neg(ult), Lit::pos(result)]);
-            self.sat
-                .add_clause([Lit::pos(diff_sign), Lit::pos(ult), Lit::neg(result)]);
-        } else {
-            self.encode_ult_result(&va.bits, &vb.bits, result);
-        }
-        Some(result)
-    }
-
-    /// Encode a less-than-or-equal (signed or unsigned) comparison result var
-    /// as `not(rhs < lhs)`.
-    fn bool_ule(
-        &mut self,
-        lhs: TermId,
-        rhs: TermId,
-        manager: &oxiz_core::ast::TermManager,
-        signed: bool,
-    ) -> Option<Var> {
-        // a <= b  ≡  not(b < a).
-        let gt = self.bool_ult(rhs, lhs, manager, signed)?;
-        let v = self.sat.new_var();
-        self.encode_not(v, gt);
-        Some(v)
+        true
     }
 
     /// The result bit-vector of a unary/binary operation at `width`, or `None`
@@ -1697,8 +1590,17 @@ impl Theory for BvSolver {
                 let conflict = if !self.assertion_guard_terms.is_empty() {
                     self.collect_conflict_terms()
                 } else {
-                    // Fallback: use terms from the assertions list
-                    self.assertions.iter().map(|(t, _)| *t).collect()
+                    // Fallback: use terms from the assertions list, still
+                    // together with the pinned atoms (see
+                    // `collect_conflict_terms`).
+                    let mut conflict: Vec<TermId> =
+                        self.assertions.iter().map(|(t, _)| *t).collect();
+                    for &term in &self.pinned_terms {
+                        if !conflict.contains(&term) {
+                            conflict.push(term);
+                        }
+                    }
+                    conflict
                 };
                 Ok(TheoryResult::Unsat(conflict))
             }
@@ -1721,6 +1623,8 @@ impl Theory for BvSolver {
             term_to_bv_len: self.term_to_bv_journal.len(),
             ult_cache_len: self.ult_cache_journal.len(),
             bool_node_len: self.bool_node_journal.len(),
+            pinned_len: self.pinned_terms.len(),
+            opaque_len: self.opaque_leaves.len(),
         });
         self.sat.push();
     }
@@ -1762,6 +1666,20 @@ impl Theory for BvSolver {
                     self.bool_node.remove(&term);
                 }
             }
+            // The pins installed inside this scope go with the unit clauses
+            // `sat.pop()` retracts; a hypothesis that is no longer asserted
+            // must not be blamed by a later conflict.
+            while self.pinned_terms.len() > mark.pinned_len {
+                if let Some(term) = self.pinned_terms.pop() {
+                    self.pinned_set.remove(&term);
+                }
+            }
+            // An opaque leaf's record goes with its circuit (same mark).
+            while self.opaque_leaves.len() > mark.opaque_len {
+                if let Some(term) = self.opaque_leaves.pop() {
+                    self.opaque_leaf_set.remove(&term);
+                }
+            }
             self.sat.pop();
         }
     }
@@ -1796,6 +1714,10 @@ impl Theory for BvSolver {
         self.term_to_bv_journal.clear();
         self.ult_cache_journal.clear();
         self.bool_node_journal.clear();
+        self.pinned_terms.clear();
+        self.pinned_set.clear();
+        self.opaque_leaves.clear();
+        self.opaque_leaf_set.clear();
     }
 
     fn get_model(&self) -> Vec<(TermId, TermId)> {

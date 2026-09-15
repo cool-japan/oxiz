@@ -811,7 +811,7 @@ impl Solver {
     /// Set a wall-clock deadline for the search (`None` clears it).
     ///
     /// Polled from `should_stop_search`, at most once per
-    /// [`DEADLINE_POLL_INTERVAL`] polls so the hot loop does not read the clock
+    /// `DEADLINE_POLL_INTERVAL` polls so the hot loop does not read the clock
     /// on every iteration; the throttle is reset here so a freshly-set deadline
     /// is checked on the very first poll. When the deadline has passed, the
     /// search returns [`SolverResult::Unknown`].

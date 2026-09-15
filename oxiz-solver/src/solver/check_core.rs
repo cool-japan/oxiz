@@ -602,6 +602,19 @@ impl Solver {
                             self.unsat_core = None;
                             return SolverResult::Unknown;
                         }
+                        // The gate's other refusal (`#P2b-27`): an assertion
+                        // it could not evaluate *because a Boolean variable
+                        // has no model entry* is not "no opinion" — the
+                        // published model prints a default for that
+                        // variable, and may falsify the assertion with it.
+                        // Nothing to block and re-solve here (the variable
+                        // was never assigned, so the candidate would come
+                        // back unchanged): the honest answer is `unknown`.
+                        if self.model_leaves_a_boolean_undetermined(manager) {
+                            self.model = None;
+                            self.unsat_core = None;
+                            return SolverResult::Unknown;
+                        }
                         self.unsat_core = None;
                         self.debug_check_invariants("check_core: before returning sat");
                         return SolverResult::Sat;

@@ -237,6 +237,22 @@ pub(crate) struct TheoryManager<'a> {
     /// instead.  `Unsat` stays sound: dropping information can only lose
     /// refutations, never manufacture one.
     bv_atom_unmodelled: bool,
+    /// Whether an outer Boolean was pinned into a live bit-vector node since
+    /// the embedded solver was last consulted.  `final_check` runs one
+    /// deferred check when it is set, so a pin that no later constraint
+    /// checks cannot end the search unexamined (`#P2b-24`); every BV check
+    /// clears it.
+    bv_pin_pending: bool,
+    /// Set when the bit-vector / EUF equality exchange
+    /// (`bv_bridge::combine_bv_with_euf`, `#P2b-29`) could not decide
+    /// whether the current assignment is consistent: the circuit entails a
+    /// *disjunction* of argument equalities none of which it entails alone
+    /// (the non-convex case a probe cannot split), an argument term has no
+    /// circuit the encoder can build, or a round bound was hit.  Read
+    /// through [`Self::resource_exhausted`] so the owning `Solver` answers
+    /// `Unknown`; a `sat` that rests on an undecided combination is exactly
+    /// the wrong-`sat` family the exchange exists to close.
+    bv_euf_undecided: bool,
     /// Wall-clock deadline for this solve.  `None` means no timeout.  Checked
     /// in the theory callbacks so a single uninterruptible `solve_with_theory`
     /// call cannot run past the budget: once the deadline passes we set
@@ -376,6 +392,8 @@ impl<'a> TheoryManager<'a> {
             bool_false_node: None,
             resource_exhausted: false,
             bv_atom_unmodelled: false,
+            bv_pin_pending: false,
+            bv_euf_undecided: false,
             unjustified_conflict: false,
             deadline,
             assigned_pol_gen: Vec::new(),
@@ -430,12 +448,14 @@ impl<'a> TheoryManager<'a> {
     /// Returns `true` when a subsequent `Sat` must be downgraded to `Unknown`
     /// because this manager dropped information the verdict would rest on.
     ///
-    /// Two causes, both meaning "the current assignment is not a verified
+    /// Three causes, all meaning "the current assignment is not a verified
     /// model": a real theory conflict suppressed at the conflict limit
-    /// ([`Self::resource_exhausted`]), and a bit-vector atom that never reached
-    /// the bit-blasted circuit ([`Self::bv_atom_unmodelled`]).
+    /// ([`Self::resource_exhausted`]), a bit-vector atom that never reached
+    /// the bit-blasted circuit ([`Self::bv_atom_unmodelled`]), and a
+    /// bit-vector / EUF equality exchange that could not decide the
+    /// assignment ([`Self::bv_euf_undecided`]).
     pub(crate) fn resource_exhausted(&self) -> bool {
-        self.resource_exhausted || self.bv_atom_unmodelled
+        self.resource_exhausted || self.bv_atom_unmodelled || self.bv_euf_undecided
     }
 
     /// Returns `true` if a theory conflict was dropped because its justification
@@ -1061,7 +1081,7 @@ impl<'a> TheoryManager<'a> {
                         _ => None,
                     };
 
-                    if let Some(width) = width {
+                    if width.is_some() {
                         // Bit-blast both operands *with constant bits pinned*.
                         //
                         // `new_bv` alone allocates a fresh, completely
@@ -1084,12 +1104,23 @@ impl<'a> TheoryManager<'a> {
                         // shapes it does not model (e.g. an `Apply` of an
                         // uninterpreted function returning a bit-vector), where
                         // a free bit-vector is the correct abstraction.
+                        //
+                        // `#P2b-24`: an operand the encoder cannot model is
+                        // no longer replaced by a free bit-vector.  The
+                        // encoder abstracts opaque leaves itself, so a
+                        // failure here is interpreted structure without a
+                        // circuit; the atom is recorded as unmodelled (the
+                        // owning `Solver` answers `unknown`, never `sat`) and
+                        // nothing is asserted about it.
                         let mut bv_encoded: FxHashSet<TermId> = FxHashSet::default();
-                        if !encode_bv_term_recursive(self.bv, lhs, manager, &mut bv_encoded) {
-                            self.bv.new_bv(lhs, width);
-                        }
-                        if !encode_bv_term_recursive(self.bv, rhs, manager, &mut bv_encoded) {
-                            self.bv.new_bv(rhs, width);
+                        let both_encoded =
+                            encode_bv_term_recursive(self.bv, lhs, manager, &mut bv_encoded)
+                                && encode_bv_term_recursive(self.bv, rhs, manager, &mut bv_encoded);
+                        // The opaque leaves just abstracted are live circuits
+                        // congruence closure must know about (`#P2b-29`).
+                        self.intern_opaque_leaves(manager);
+                        if !both_encoded {
+                            self.bv_atom_unmodelled = true;
                         }
 
                         // Derive signedness from the original TermKind stored for
@@ -1115,7 +1146,9 @@ impl<'a> TheoryManager<'a> {
                         // fix both matches ended in a silent `_ => {}`, so
                         // `Constraint::Gt`/`Ge` asserted *nothing* and
                         // `(= a #x0f) ∧ (> a #x0f)` answered `sat`.
-                        let asserted = if is_positive {
+                        let asserted = if !both_encoded {
+                            false
+                        } else if is_positive {
                             // Positive assignment: constraint holds
                             match constraint {
                                 Constraint::Lt(a, b) => {
@@ -1299,8 +1332,23 @@ impl TheoryCallback for TheoryManager<'_> {
         // `(= (ite c #x01 #x02) x) ∧ ¬c ∧ (= x #x01)`.  Only variables that
         // actually carry a term are replayed: `term_for_var`'s `TermId::new(0)`
         // fallback would otherwise pin an unrelated term.
-        if let Some(term) = self.var_to_term.get(var.index()).copied() {
-            self.bv.assert_bool_value(term, is_positive);
+        //
+        // A pin that lands on a *live* node is an assertion the embedded
+        // solver can refute (`#P2b-24`): before this, `(= x (ite p 1 2)) ∧
+        // (= x 2) ∧ p` asserted in that order ended the search with `p`
+        // pinned and no check run — `final_check` never consulted the
+        // bit-blaster — and only the model gate noticed, answering `unknown`
+        // for an `unsat`.  The pin is *not* checked here and now: every
+        // constraint asserted after it runs an embedded `check()` that sees
+        // the unit, so only a pin with no later constraint can go
+        // unexamined, and `final_check` closes exactly that gap with one
+        // deferred check (see `bv_pin_pending`).  Checking eagerly instead
+        // costs a full embedded solve per pinned assignment, which on a
+        // 32-bit divider circuit turned a sub-second script into minutes.
+        if let Some(term) = self.var_to_term.get(var.index()).copied()
+            && self.bv.assert_bool_value(term, is_positive)
+        {
+            self.bv_pin_pending = true;
         }
 
         // Enforce the wall-clock timeout mid-search.  Suppressing conflicts
@@ -1534,6 +1582,24 @@ impl TheoryCallback for TheoryManager<'_> {
             self.pending_assignments.clear();
         }
 
+        // A selector pinned into the bit-blasted circuit after its last
+        // check is an assertion nothing has examined yet; examine it now,
+        // once, so the search cannot end on a model the circuit refutes
+        // (`#P2b-24`, see `bv_pin_pending`).
+        if self.bv_pin_pending
+            && let Some(result) = self.bv_check_after_pin()
+        {
+            if matches!(result, TheoryCheckResult::Conflict(_)) {
+                self.statistics.theory_conflicts += 1;
+                self.statistics.conflicts += 1;
+                if self.max_conflicts > 0 && self.statistics.conflicts >= self.max_conflicts {
+                    self.resource_exhausted = true;
+                    return TheoryCheckResult::Sat;
+                }
+            }
+            return result;
+        }
+
         // Check EUF for conflicts
         if let Some(conflict_terms) = self.euf.check_conflicts() {
             // Convert TermIds to Lits for the conflict clause
@@ -1550,6 +1616,16 @@ impl TheoryCallback for TheoryManager<'_> {
             }
 
             return conflict;
+        }
+
+        // Equalities must cross between congruence closure and the
+        // bit-blasted circuit in both directions before this full assignment
+        // is accepted (`#P2b-29`; see `combine_bv_with_euf`): a congruence
+        // between two opaque leaves (`f(a) = f(b)` from `a = b`) into the
+        // circuit, and a circuit-entailed equality between two application
+        // arguments (`x = y` from `x + 1 = y + 1`) into congruence closure.
+        if let Some(result) = self.combine_bv_with_euf(self.manager) {
+            return result;
         }
 
         // Soundness backstop: replay the shadow trail through a freshly reset
@@ -1619,7 +1695,19 @@ impl TheoryCallback for TheoryManager<'_> {
         // That is the same reasoning the in-place-flip path above already
         // applies (see its `self.bv_terms.is_empty()` guard); the backstop
         // takes the identical, conservative gate rather than contradicting it.
-        if self.bv_terms.is_empty() && self.euf.has_app_nodes() {
+        //
+        // `bv_terms` lists the bit-vector *variables* of the asserted atoms
+        // and is empty for a problem whose only bit-vector terms are opaque
+        // leaves — `(distinct (g x) (g y))` — so the gate also asks the
+        // bit-blaster itself whether it holds any circuit (`#P2b-29`).  Such
+        // a problem carries the argument circuits, the shared leaf
+        // equalities and the lemmas the bit-vector / EUF exchange built,
+        // none of which the replay re-creates; rebuilding it published a
+        // model with `x = y = 0` for the assertion above.
+        if self.bv_terms.is_empty()
+            && self.bv.circuit_terms().next().is_none()
+            && self.euf.has_app_nodes()
+        {
             let rebuilt = self.resync_theory_state();
             if let TheoryCheckResult::Conflict(conflict_terms) = rebuilt {
                 self.statistics.theory_conflicts += 1;

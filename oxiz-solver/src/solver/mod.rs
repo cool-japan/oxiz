@@ -1157,6 +1157,26 @@ impl Solver {
 
     /// Minimize an unsat core using greedy deletion
     /// This creates a minimal (but not necessarily minimum) unsatisfiable subset
+    ///
+    /// # Cost, and the budget it runs under
+    ///
+    /// Each of the `n` candidate removals is a **full re-solve from scratch**
+    /// on a fresh `Solver`, so a `(get-unsat-core)` after an `unsat` costs up
+    /// to `n` more solves on top of the one `(check-sat)` already paid for —
+    /// cargo-formal measured its `explain --blame` form (every assertion
+    /// `:named`, then `(get-unsat-core)`) at ≥ 3.8× the plain script.  That
+    /// is inherent to deletion-based minimisation; assumption-literal cores
+    /// would make it free and are the recorded follow-up (`TODO.md`).
+    ///
+    /// What is *not* acceptable is for those re-solves to ignore the budget
+    /// the caller set: each temporary solver used to start from
+    /// `Solver::new()` and therefore from an unbounded `timeout_ms`, so a
+    /// script that asked for `:timeout 10000` could spend `n × ∞` here.  The
+    /// temporary solvers now inherit `max_conflicts`, `max_decisions` and
+    /// `theory_mode`, and a *shrinking* wall-clock allowance: the caller's
+    /// `timeout_ms` minus what the minimisation has already used.  Once it
+    /// is exhausted the remaining candidates are simply kept — the core stays
+    /// a valid (unsatisfiable, superset) core, only less minimal.
     pub fn minimize_unsat_core(&mut self, manager: &mut TermManager) -> Option<UnsatCore> {
         if !self.produce_unsat_cores {
             return None;
@@ -1167,6 +1187,9 @@ impl Solver {
         if core.is_empty() {
             return Some(core.clone());
         }
+
+        let started = oxiz_time::Instant::now();
+        let total_timeout_ms = self.config.timeout_ms;
 
         // Extract the assertions in the core
         let mut core_assertions: Vec<_> = core
@@ -1186,9 +1209,23 @@ impl Solver {
         // Try to remove each assertion one by one
         let mut i = 0;
         while i < core_assertions.len() {
-            // Create a temporary solver with all assertions except the i-th one
+            // Create a temporary solver with all assertions except the i-th one,
+            // under whatever is left of the caller's budget (see the doc).
             let mut temp_solver = Solver::new();
             temp_solver.set_logic(self.logic.as_deref().unwrap_or("ALL"));
+            temp_solver.config.max_conflicts = self.config.max_conflicts;
+            temp_solver.config.max_decisions = self.config.max_decisions;
+            temp_solver.config.theory_mode = self.config.theory_mode;
+            if total_timeout_ms > 0 {
+                let spent_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+                let Some(remaining_ms) = total_timeout_ms.checked_sub(spent_ms) else {
+                    break;
+                };
+                if remaining_ms == 0 {
+                    break;
+                }
+                temp_solver.config.timeout_ms = remaining_ms;
+            }
 
             // Add all assertions except the i-th one
             for (j, &(_, assertion, _)) in core_assertions.iter().enumerate() {
