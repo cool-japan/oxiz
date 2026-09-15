@@ -657,6 +657,11 @@ impl Solver {
     /// depth 0.  The depth counter guards against native-stack overflow on
     /// adversarially deep formulas (see [`ENCODE_DEPTH_LIMIT`](super::ENCODE_DEPTH_LIMIT)).
     pub(super) fn encode(&mut self, term: TermId, manager: &mut TermManager) -> Lit {
+        // Every term that reaches the SAT core passes through here -- user
+        // assertions, array/arithmetic/datatype lemmas and MBQI instances
+        // alike -- which is what makes this the one place where the array
+        // refinement loop's guard can be computed *exhaustively* (`#P2b-33`).
+        self.mark_array_ops(term, manager);
         self.encode_depth(term, manager, 0)
     }
 

@@ -254,8 +254,18 @@ impl<'a> Printer<'a> {
                 }
                 let _ = write!(w, ")");
             }
+            // `Div` is both SMT-LIB divisions: the parser routes the integer
+            // `div` and the real `/` to one term kind, so the SORT is what
+            // tells them apart.  Printing a `Real`-sorted one as `div` emitted
+            // a term no SMT-LIB reader accepts (`div` is Int × Int → Int) and
+            // made `(get-value ((/ x 2)))` answer `(div 3/2 2)`.
             TermKind::Div(lhs, rhs) => {
-                let _ = write!(w, "(div ");
+                let symbol = if term.sort == self.manager.sorts.real_sort {
+                    "/"
+                } else {
+                    "div"
+                };
+                let _ = write!(w, "({symbol} ");
                 self.write_term(w, *lhs);
                 let _ = write!(w, " ");
                 self.write_term(w, *rhs);

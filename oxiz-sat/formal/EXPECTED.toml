@@ -1,6 +1,7 @@
 # Machine-readable mirror of the "Measured L1 verdict" doc comment on every
-# `#[harness]` entry point in this package, in exactly the format
-# `cargo-formal`'s own `examples/checked-arith/EXPECTED.toml` uses.
+# `#[harness]` and `#[proof_for_contract]` entry point in this package, in
+# exactly the format `cargo-formal`'s own `examples/checked-arith/EXPECTED.toml`
+# uses.
 #
 # **MEASURED, not predicted** (2026-09-08/09, release `cargo-formal` 0.1.0 CLI
 # + release `formal-driver` with dependency-body and monomorphic-instance
@@ -25,15 +26,21 @@
 #     assertion raised at the *same* source site is `assert-2`, a third
 #     `assert-3`, and so on.
 #   * an `#[ensures]` clause checked through `#[proof_for_contract]` is
-#     `ensures`, and is reported under layer `contract`. This package has none.
+#     `ensures`, and is reported under layer `contract`. The nine
+#     `spec_*_contract` harnesses of `src/spec.rs` raise them. All the clauses
+#     of one wrapper expand at that wrapper's own `fn` span, so N of them are
+#     keyed `ensures`, `ensures-2`, ... in declaration order by the
+#     property-table collision rule -- and the number of keys is the number of
+#     obligations the encoder actually raised, which is not always the number
+#     of clauses written (`spec_lit_from_code`'s three clauses raise one).
 #   * everything else is the design section 9 closed vocabulary MIR's own
 #     inserted checks produce: `arith-overflow`, `shift-overflow`,
 #     `bounds-check`, `division-by-zero`, `remainder-by-zero`,
 #     `division-overflow`, `neg-overflow`, `unwrap`, `expect`, `panic`,
 #     `slice-range`, `unwinding-assertion`. A bare `debug_assert!` with no
 #     format arguments lowers to `core::panicking::panic`, so its key is
-#     `panic`, not `assert` -- which is why the two refutations below are
-#     `panic` rows.
+#     `panic`, not `assert` -- which is why every refutation below is a
+#     `panic` row.
 #   * the pseudo-key `harness` is a **whole-harness** verdict and nothing else:
 #     `"proved"` means "no obligation of this harness is anything but proved"
 #     (including a harness that raises none at all), and `"unsupported"` covers
@@ -41,11 +48,15 @@
 #     needs it nowhere: every harness encodes.
 #
 # What is listed. Every obligation the harness is *about* -- its `assert`s,
+# its `ensures` keys,
 # plus every `panic` row (six harnesses have one, eight obligations in all:
 # six `debug_assert!` expansions and two reaches of `to_dimacs`'s unconditional
 # panic, and both refutations are among them) -- and every incidental
-# MIR-inserted check whose verdict is **not** `proved` (there are none: the
-# three `unknown`s are `assert` rows).
+# MIR-inserted check whose verdict is **not** `proved`. In the 2026-09-15
+# measurement there are none of the latter either: every undecided row is an
+# `assert`, an `ensures*` or a `panic` row that a harness is about, and every
+# incidental `arith-overflow`, `shift-overflow` and `neg-overflow` obligation
+# is proved.
 # The `neg-overflow` rows of the three DIMACS harnesses are listed although
 # they are incidental and proved, because the pre-fix twin vendored into
 # cargo-formal as `examples/ecosystem/oxiz-sat-lit` measures the one on
@@ -65,7 +76,8 @@
 # `dimacs_negation_harness`'s `panic` (2 sites, 1 refuted / 1 proved) and
 # `lbool_negate_involution_harness`'s `assert` (8 sites, 5 proved / 3 unknown).
 #
-# Measured tally (2026-09-09): 18 property rows over 9 harnesses --
+# Measured tally (2026-09-09, the original `#[harness]`-only measurement):
+# 18 property rows over 9 harnesses --
 # 15 proved / 2 refuted / 1 unknown. The run's own layer counters, which
 # include the incidental `proved` rows this file does not enumerate, are:
 # bmc 65 proved / 2 refuted / 3 unknown / 0 timeout / 0 unsupported /
@@ -77,21 +89,100 @@
 #
 # Re-measured 2026-09-14 with rebuilt release binaries on the same pins
 # (`cargo-formal` 0.1.0, OxiZ 0.3.3, rustc `nightly-2026-06-20`): every row
-# below reproduces exactly -- the same 18 rows (15 proved / 2 refuted /
+# below reproduced exactly -- the same 18 rows (15 proved / 2 refuted /
 # 1 unknown), the same two counterexamples, and the same layer counters.
 #
-# `solver-model-rejected` count: **3**, all three of them `assert` sites of
-# `lbool_negate_involution_harness`. cargo-formal is pinned to OxiZ 0.3.3,
+# Measured tally (2026-09-15, cargo-formal Phase 3 wave D2, release CLI and
+# release driver built from cargo-formal `0621fc0` with 0 uncommitted files;
+# options `autoharness off, modular on, vacuity check on`; `--jobs 4`,
+# `--evidence lrat`, fresh `--target-dir`; OxiZ 0.3.3, rustc
+# `nightly-2026-06-20`): the nine `spec_*_contract` harnesses below add
+# **37 property rows -- 27 proved / 2 refuted / 8 unknown**, and the 18 rows
+# above re-measured with exactly one change (next paragraph), so this file now
+# lists **55 rows over 18 harnesses -- 42 proved / 3 refuted / 10 unknown**. The run's own
+# layer counters are bmc 100 proved / 3 refuted / 5 unknown and contract
+# 15 proved / 0 refuted / 7 unknown over 130 obligations, all 130 backed by a
+# `vc/NNNN.smt2` reproduction. Hygiene passes over 3 files. Evidence:
+# `reproduction` 130, `lrat` 15 (checker `oxiz-proof 0.3.3` -- **discounted**,
+# see below), and after `cargo formal replay --all --solver z3` an
+# `external-replay` on 83 items, which takes `coverage.claim` from 0 of 115
+# proved satisfied to 81 of 115. `cargo formal replay --all --check-lrat`
+# re-verified all 15 certificates and both recorded SHA-256s of each. `check`
+# exits 1, both `replay --all` invocations exit 0. Two runs from separate
+# fresh target dirs produced byte-identical verdict tables.
+#
+# The self-host discount is why the z3 replay matters. `claim-requires`
+# defaults to `lrat, oxilean-verify, external-replay` for a `self-host`
+# package, and the run prints `self-host discount: 15 proved item(s) carry
+# evidence from this prover's own release train, which corroborates nothing
+# here`: the LRAT certificates are produced by crates.io `oxiz-sat` 0.3.3 and
+# checked by `oxiz-proof` 0.3.3, the published copy of the crate under test.
+# The only independent evidence here is z3 4.15.4, run as a subprocess on the
+# same scripts by `replay --all --solver z3`: 115 agree, 3 agree (weak -- the
+# three refuted rows replayed `sat`), 12 resolved. **No `proved` row was
+# answered `sat`**; `target/formal/conformance/` was not created; there is no
+# soundness incident in this run.
+#
+# ONE ROW MOVED, and it is not a rewrite for convenience.
+# `dimacs_negation_harness`'s `panic` row was `refuted` on 2026-09-08/09 and
+# on 2026-09-14 and is `unknown` (`solver-model-rejected`) in this run, over
+# the same source, the same pins and the same seed. It reproduced in every
+# Phase 3 run (four of them, two before `src/spec.rs` existed), and the lost
+# witness is explained rather than lost: z3 4.15.4 decides the very same
+# script `sat` (`replay --solver z3`), and
+# `harness::plain_tests::from_dimacs_rejects_the_reported_dimacs_counterexample`
+# runs `i32::MIN` concretely and panics. The property is still refutable at
+# exactly the recorded witness; what changed is that OxiZ 0.3.3 now returns a
+# model cargo-formal's mandatory model check refuses, which is the check doing
+# its job. The contract twin `spec_lit_from_dimacs_nonzero_contract` records
+# the refutation with the same counterexample in the same run.
+#
+# `solver-model-rejected` count: **12 in the recorded Phase 3 wave-D2 run** (it
+# was 3 when only the nine `#[harness]` entry points existed). **Do not diff
+# this number: the counter is not stable across runs.** On cargo-formal's own
+# `examples/checked-arith`, **the same binaries on the same source with the
+# same `seed = 1` reported 12 (wave D1's run) and 4 (the close-out verifier's)**
+# — a factor of three apart on two runs whose verdicts are item-for-item
+# identical — and `../oxilean/crates/oxilean-kernel/formal` reported 28 and 27
+# in two runs against the 25 its own header records. Two independent runs of *this*
+# package (wave D2's and the close-out verifier's) did both report 12, so the
+# breakdown below is the breakdown of a real run; it is the pinning of the
+# number, not the number, that is unsafe. Filed as `cargo-formal`'s `TODO.md`
+# P3-40. Four of the twelve are in
+# `#[harness]` form -- the three negation identities of
+# `lbool_negate_involution_harness` and, new in this run,
+# `dimacs_negation_harness`'s `panic` -- and eight are obligations of
+# `src/spec.rs`: four `ensures` of `spec_lbool_from_bool` (the three negation
+# identities and the fused `is_defined() && is_true() == raw` clause), both
+# `ensures` of `spec_lit_try_to_dimacs`, one `ensures` of `spec_lit_pos` (the
+# fused packing/polarity clause), and `spec_lit_from_dimacs`'s `panic`.
+# z3 4.15.4 answers `unsat` on eleven of the twelve and `sat` on the twelfth
+# (`dimacs_negation_harness#panic`, whose witness is real). cargo-formal is pinned to OxiZ 0.3.3,
 # whose Boolean-structure-over-bit-vector queries can return a model that does
 # not satisfy the verification condition (upstream item U-Z10); cargo-formal's
 # mandatory model check refuses such a model, so the answer is `unknown` and
-# never a `refuted` with an invented witness. Those three rows are the only
+# never a `refuted` with an invented witness. Those rows are the only
 # ones in this file that can move when the pin advances to the OxiZ release
 # carrying the Phase 2b fixes -- and the fix that would move them is in the
 # same working tree as the code under test. `README.md` section "Self-host"
 # spells that out; it is measured that the rows are *not* sensitive to how the
 # harness is spelled (two re-spellings were tried; see the harness doc
 # comment).
+#
+# D4 confirmation (2026-09-15, same binaries as the D2 run above, `cargo
+# formal check --jobs 4` WITHOUT `--evidence lrat`, two runs from fresh
+# `--target-dir`s): every row below reproduces D2's report exactly --
+# `compare_expected.py --report <run> --prev <D2's own report.json>` shows 0
+# added/removed ids and 0 FLIPs; layer counters are byte-identical, bmc 100
+# proved / 3 refuted / 5 unknown, contract 15 proved / 0 refuted / 7 unknown
+# over 130 obligations, exit 1, 23 s and 25 s. run1<->run2 is also
+# byte-identical (0 verdict/message changes). No pre-existing row (from
+# before D2 landed `src/spec.rs`) moved beyond the single
+# `dimacs_negation_harness#panic` flip D2 already recorded above; that flip
+# reproduced again here, unchanged. `git -C ../oxiz status --porcelain
+# oxiz-sat/formal` shows only D2's five files (`EXPECTED.toml`, `README.md`,
+# `src/harness.rs`, `src/lib.rs`, `src/spec.rs`); `oxiz-sat/src/` itself is
+# untouched by the concurrent OxiZ solver workflow.
 
 [[harness]]
 name = "lit_pos_roundtrip_bounded_harness"
@@ -154,11 +245,20 @@ name = "dimacs_roundtrip_harness"
 name = "dimacs_negation_harness"
 
 [harness.expected]
-# 2 sites and they disagree. Refuted: `from_dimacs`'s
+# 2 sites and they disagree. Undecided: `from_dimacs`'s
 # `debug_assert!(lit != 0 && lit != i32::MIN)` (`../src/literal.rs:89`),
-# counterexample dimacs = -2147483648 (`i32::MIN`). Proved: `to_dimacs`'s own
-# unconditional panic (`:113`), which no public constructor can reach.
-"panic" = "refuted"
+# `solver-model-rejected`. Proved (vacuously -- no execution reaches it):
+# `to_dimacs`'s own unconditional panic (`:113`), which no public constructor
+# can reach.
+#
+# This row read `refuted` (counterexample dimacs = -2147483648) in the
+# 2026-09-08/09 and 2026-09-14 runs and reads `unknown` since the Phase 3
+# wave-D2 run of 2026-09-15, on unchanged source and pins; see the
+# "ONE ROW MOVED" paragraph in the header. The witness is still real -- z3
+# answers `sat` on the same script and `plain_tests` panics on `i32::MIN` --
+# and the contract twin `spec_lit_from_dimacs_nonzero_contract` records it as
+# `refuted` with that counterexample in the same run.
+"panic" = "unknown"
 # Proved here, `refuted` in the vendored pre-fix twin: this is the overflow the
 # upstream fix removed, and the refutation moved to the `panic` row above.
 "neg-overflow" = "proved"
@@ -179,9 +279,135 @@ name = "lbool_negate_involution_harness"
 
 [harness.expected]
 # 8 sites, 5 proved / 3 unknown, so the row is `unknown` under the keying rule.
-# The three undecided ones are the negation identities (`src/harness.rs:333`,
-# `:334`, `:335`), all `solver-model-rejected`: OxiZ 0.3.3 returned a model
+# The three undecided ones are the negation identities (`src/harness.rs:349`,
+# `:350`, `:351`), all `solver-model-rejected`: OxiZ 0.3.3 returned a model
 # that does not satisfy the verification condition and cargo-formal's model
-# check refused it. Not spelling-sensitive -- two re-spellings were measured,
-# one strictly worse and one identical.
+# check refused it. Not spelling-sensitive -- three re-spellings have been
+# measured: one strictly worse, one identical, and the contract form
+# (`spec_lbool_from_bool_contract`'s `ensures-3`/`-4`/`-5`), which is also
+# identical. z3 4.15.4 decides all three `unsat`.
 "assert" = "unknown"
+
+# --- the nine `spec_*` contract twins of `src/spec.rs` ------------------------
+#
+# Measured in the same 2026-09-15 run as everything above. Keys: `ensures`,
+# `ensures-2`, ... are the wrapper's `#[ensures]` clauses in declaration order,
+# all raised at the wrapper's own `fn` span under layer `contract`; every other
+# key is an incidental bmc-layer check inside the generated
+# `__formal_check_spec_*` body.
+
+[[harness]]
+name = "spec_lit_pos_contract"
+
+[harness.expected]
+"ensures" = "proved"     # `r.var().0 == index`
+# `r.code() == index << 1 && r.is_pos() && !r.is_neg() && r.sign()`:
+# `solver-model-rejected`. The two facts are `proved` separately as `assert`s
+# in `lit_pos_roundtrip_bounded_harness`; they are fused here because the
+# polarity half captures nothing and the driver cannot lower a capture-less
+# `ensures` closure (see `src/spec.rs`'s module docs). z3 answers `unsat`.
+"ensures-2" = "unknown"
+"panic" = "proved"           # `Var::new` `:36` + `Lit::pos` `:61`, 1 obligation
+"shift-overflow" = "proved"  # 3 sites
+
+[[harness]]
+name = "spec_lit_neg_contract"
+
+[harness.expected]
+"ensures" = "proved"         # `r.var().0 == index`
+"ensures-2" = "proved"       # `r.negate().code() == Lit::pos(Var::new(index)).code()`
+"ensures-3" = "proved"       # the packing, fused with the polarity half
+"panic" = "proved"           # `Var::new` + `Lit::neg` + `Lit::pos`, 1 obligation
+"shift-overflow" = "proved"  # 4 sites
+
+[[harness]]
+name = "spec_lit_pos_unbounded_contract"
+
+[harness.expected]
+# `debug_assert!(var.0 <= Var::MAX_INDEX)` at `../src/literal.rs:61`, reached
+# over the full `u32` domain because this wrapper has no `requires`;
+# counterexample index = 4294967295 (`u32::MAX`), the same witness the
+# `#[harness]` twin reports. z3 replays it `sat` (agree, weak).
+"panic" = "refuted"
+# The round trip is proved on the surviving edge, exactly as in the
+# `#[harness]` twin: the `requires` of `spec_lit_pos` is what turns the row
+# above from refuted into proved, which is the point of the pair.
+"ensures" = "proved"
+"shift-overflow" = "proved"  # 2 sites
+
+[[harness]]
+name = "spec_lit_negate_contract"
+
+[harness.expected]
+"ensures" = "proved"         # involution
+"ensures-2" = "proved"       # the variable is unchanged
+"ensures-3" = "proved"       # the sign flips
+"ensures-4" = "proved"       # `is_neg` agrees with the flipped `is_pos`
+"shift-overflow" = "proved"  # 1 site
+
+[[harness]]
+name = "spec_lit_from_code_contract"
+
+[harness.expected]
+# One obligation, not three: for a body of `Lit::from_code(code)` the raw
+# round trip discharges inside the encoder and a single assertion survives.
+"ensures" = "proved"
+"shift-overflow" = "proved"  # 2 sites
+
+[[harness]]
+name = "spec_lit_from_dimacs_contract"
+
+[harness.expected]
+"ensures" = "proved"         # `to_dimacs` inverts `from_dimacs`
+"ensures-2" = "proved"       # the sign survives
+"ensures-3" = "proved"       # the index is `|d| - 1`
+# 2 sites and they disagree, the same way `dimacs_negation_harness`'s row
+# does: `from_dimacs`'s `debug_assert!` (`:89`) is `solver-model-rejected`,
+# and `to_dimacs`'s unconditional panic (`:113`) is proved vacuously. z3
+# answers `unsat` on the undecided one.
+"panic" = "unknown"
+"neg-overflow" = "proved"    # `-magnitude` in `try_to_dimacs` (`:129`)
+
+[[harness]]
+name = "spec_lit_from_dimacs_nonzero_contract"
+
+[harness.expected]
+# 2 sites and they disagree. Refuted: `from_dimacs`'s
+# `debug_assert!(lit != 0 && lit != i32::MIN)` (`../src/literal.rs:89`),
+# counterexample dimacs = -2147483648 (`i32::MIN`); z3 replays it `sat`
+# (agree, weak). Proved (vacuously): `to_dimacs`'s `:113`.
+"panic" = "refuted"
+"ensures" = "proved"         # the round trip on the surviving edge
+"neg-overflow" = "proved"    # proved here, `refuted` in the vendored pre-fix twin
+
+[[harness]]
+name = "spec_lit_try_to_dimacs_contract"
+
+[harness.expected]
+# `r.is_some() == (lit.var().0 <= Var::MAX_INDEX)`. `solver-model-rejected`,
+# and the item carries the note `the bit-level engine proved this
+# (vc/NNNN.lrat); the SMT engine did not`. z3 answers `unsat`.
+"ensures" = "unknown"
+# The `match *r` clause -- Boolean structure over an enum, the shape OxiZ
+# 0.3.3 is least able to decide. Same note (`vc/NNNN.lrat`), same z3 `unsat`.
+"ensures-2" = "unknown"
+"panic" = "proved"           # the `from_dimacs` round trip inside the `Some` arm
+"neg-overflow" = "proved"
+
+[[harness]]
+name = "spec_lbool_from_bool_contract"
+
+[harness.expected]
+# `r.is_defined() && r.is_true() == raw`, fused because `is_defined()`
+# captures nothing (see `src/spec.rs`'s module docs). Both halves are proved
+# separately as `assert`s in `lbool_negate_involution_harness`.
+"ensures" = "unknown"
+"ensures-2" = "proved"       # `r.is_false() != raw`
+# The three negation identities, the contract form of the three undecided
+# `assert`s of `lbool_negate_involution_harness`: the contract form does not
+# move them. All three `solver-model-rejected`; z3 answers `unsat` on each.
+"ensures-3" = "unknown"
+"ensures-4" = "unknown"
+"ensures-5" = "unknown"
+# The two `Undef` fixpoint facts stated in the harness body.
+"assert" = "proved"

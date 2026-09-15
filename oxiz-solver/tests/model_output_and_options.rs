@@ -1193,3 +1193,451 @@ fn control_uninterpreted_and_array_defaults_are_unchanged() {
     assert!(model.contains("((as const (Array Int Int)) 0)"), "{model}");
     assert!(!model.contains('?'), "{model}");
 }
+
+// ---------------------------------------------------------------------
+// `#P2b-34`: the published model of an array problem.
+//
+// An array read is a leaf of every theory that reasons about it and the search
+// CHOOSES its value, but `build_model` published that choice only when the read
+// happened to be a direct operand of a theory atom.  So
+// `(= (bvadd (select arr i) #x01) #x06)` answered `sat` — correctly — and then
+// printed `i = #x00` beside `arr = ((as const …) #x00)`, a model in which the
+// assertion reads `0 + 1 = 6`, while `(get-value ((select arr i)))` echoed the
+// term back.  The array itself was always the constant default, contradicting
+// its own `select` entries, and `(get-model)` never printed a declared
+// function's interpretation at all.
+// ---------------------------------------------------------------------
+
+/// The value of a read under an operator is published, and the array prints as
+/// the `store` chain over it: the printed model satisfies the assertion.
+#[test]
+fn p2b34_read_under_an_operator_is_published_and_the_array_agrees() {
+    let output = run(r#"
+        (set-logic QF_ABV)
+        (declare-const arr (Array (_ BitVec 8) (_ BitVec 8)))
+        (declare-const i (_ BitVec 8))
+        (assert (= (bvadd (select arr i) #x01) #x06))
+        (check-sat)
+        (get-value ((select arr i)))
+        (get-model)
+    "#);
+    assert_eq!(output[0], "sat");
+    assert!(
+        output[1].contains("#x05"),
+        "the read the circuit valued must be published, not echoed: {}",
+        output[1]
+    );
+    let model = &output[2];
+    assert!(
+        model.contains("(store ((as const"),
+        "the array must print as a store chain over its reads:\n{model}"
+    );
+    assert!(
+        model.contains("#x05"),
+        "the store chain must carry the published read:\n{model}"
+    );
+}
+
+/// A read-over-write miss publishes the base read as well, and the base array's
+/// printed value carries it.
+#[test]
+fn p2b34_a_read_over_write_miss_publishes_the_base_read() {
+    let output = run(r#"
+        (set-logic QF_ABV)
+        (declare-const arr (Array (_ BitVec 8) (_ BitVec 8)))
+        (declare-const i (_ BitVec 8))
+        (declare-const j (_ BitVec 8))
+        (assert (= (bvadd (select (store arr i #x05) j) #x01) #x06))
+        (assert (distinct i j))
+        (check-sat)
+        (get-value ((select arr j) (select (store arr i #x05) j)))
+        (get-model)
+    "#);
+    assert_eq!(output[0], "sat");
+    let values = &output[1];
+    assert!(
+        values.matches("#x05").count() >= 2,
+        "both the nested read and the base read must be published: {values}"
+    );
+    let model = &output[2];
+    assert!(
+        model.contains("(store ((as const"),
+        "the base array must print as a store chain:\n{model}"
+    );
+}
+
+/// The `Int` twin: the tableau's column for the read is published and the array
+/// prints the same value.
+#[test]
+fn p2b34_an_integer_array_prints_its_published_reads() {
+    let output = run(r#"
+        (set-logic QF_ALIA)
+        (declare-const arr (Array Int Int))
+        (declare-const i Int)
+        (assert (= (+ (select arr i) 1) 6))
+        (check-sat)
+        (get-value ((select arr i)))
+        (get-model)
+    "#);
+    assert_eq!(output[0], "sat");
+    assert!(output[1].contains(" 5)"), "{}", output[1]);
+    let model = &output[2];
+    assert!(
+        model.contains("(store ((as const (Array Int Int)) 0) 0 5)"),
+        "the array must print the read it published:\n{model}"
+    );
+}
+
+/// `(get-model)` prints a declared function's interpretation, so a model over
+/// `(f x)` can be read back and checked.  A function with one application is
+/// the value of that application; nullary datatype constructors and `define-fun`
+/// macros are NOT functions of the model and must not appear.
+#[test]
+fn p2b34_get_model_prints_declared_function_interpretations() {
+    let output = run(r#"
+        (set-logic QF_UFBV)
+        (declare-fun f ((_ BitVec 8)) (_ BitVec 8))
+        (declare-const a (_ BitVec 8))
+        (assert (= (f a) #x07))
+        (assert (= a #x01))
+        (check-sat)
+        (get-model)
+    "#);
+    assert_eq!(output[0], "sat");
+    let model = &output[1];
+    assert!(
+        model.contains("(define-fun f ((x!0 (_ BitVec 8))) (_ BitVec 8)"),
+        "the declared function must have an interpretation:\n{model}"
+    );
+    assert!(
+        model.contains("#x07"),
+        "the interpretation must carry the value the model chose:\n{model}"
+    );
+}
+
+/// An enum's constructors are the datatype's meaning, not a model's choice: they
+/// were briefly printed as functions taking their own default value
+/// (`(define-fun blue () Color red)`).
+#[test]
+fn p2b34_datatype_constructors_are_not_printed_as_function_interpretations() {
+    let output = run(r#"
+        (set-logic QF_UFDT)
+        (declare-datatype Color ((red) (green) (blue)))
+        (declare-const c Color)
+        (assert (= c blue))
+        (check-sat)
+        (get-model)
+    "#);
+    assert_eq!(output[0], "sat");
+    let model = &output[1];
+    assert!(
+        !model.contains("(define-fun blue"),
+        "a constructor is not a model interpretation:\n{model}"
+    );
+}
+
+// ---------------------------------------------------------------------
+// `#P2b-35`: the remaining `(get-value)` residue of `#P2b-26`.
+//
+// Under `(get-value)`'s reading the PRINTED MODEL IS THE MODEL: it names one
+// value per term, so a numeric collision is the model saying two terms are
+// equal, a strict comparison at its boundary is decided, and `distinct` over
+// assigned numbers is decided.  The gate's reading keeps every softening (an LP
+// collision is not evidence); only the printing reading changed.
+// ---------------------------------------------------------------------
+
+/// A strict comparison at its boundary, and `distinct` over two assigned
+/// integers, are answered instead of echoed.
+#[test]
+fn p2b35_get_value_decides_strict_comparisons_and_distinct() {
+    let output = run(r#"
+        (set-logic QF_LIA)
+        (declare-const x Int)
+        (declare-const y Int)
+        (assert (< x 5))
+        (assert (>= x 4))
+        (assert (= y (- 3)))
+        (check-sat)
+        (get-value ((< x 4) (<= x 4) (distinct x y) (= x y)))
+    "#);
+    assert_eq!(output[0], "sat");
+    let values = &output[1];
+    assert!(values.contains("((< x 4) false)"), "{values}");
+    assert!(values.contains("((<= x 4) true)"), "{values}");
+    assert!(values.contains("((distinct x y) true)"), "{values}");
+    assert!(values.contains("((= x y) false)"), "{values}");
+}
+
+/// A term over an unconstrained constant folds against the same completion
+/// `(get-model)` reports for it, instead of printing a half-substituted body.
+#[test]
+fn p2b35_get_value_folds_over_the_completed_model() {
+    let output = run(r#"
+        (set-logic QF_BV)
+        (declare-const v (_ BitVec 8))
+        (declare-const w (_ BitVec 8))
+        (assert (= v #x81))
+        (check-sat)
+        (get-value (w (bvult w v) (bvadd v w)))
+    "#);
+    assert_eq!(output[0], "sat");
+    let values = &output[1];
+    assert!(values.contains("(w #x00)"), "{values}");
+    assert!(values.contains("((bvult w v) true)"), "{values}");
+    assert!(values.contains("((bvadd v w) #x81)"), "{values}");
+}
+
+/// Real division is `/`, not `div`, and it folds exactly.
+#[test]
+fn p2b35_real_division_prints_as_a_slash_and_folds() {
+    let output = run(r#"
+        (set-logic QF_LRA)
+        (declare-const x Real)
+        (assert (= (* 2 x) 3))
+        (check-sat)
+        (get-value ((/ x 2)))
+    "#);
+    assert_eq!(output[0], "sat");
+    assert!(
+        output[1].contains("((/ x 2) 3/4)"),
+        "real division must print as `/` and fold: {}",
+        output[1]
+    );
+}
+
+/// An integer-indexed read-over-write folds: with the model's own values for
+/// the indices, a numeric collision is a hit.
+#[test]
+fn p2b35_get_value_folds_an_integer_read_over_write() {
+    let output = run(r#"
+        (set-logic QF_AUFLIA)
+        (declare-const arr (Array Int Int))
+        (declare-const i Int)
+        (declare-const j Int)
+        (assert (= (select arr i) 3))
+        (check-sat)
+        (get-value ((select (store arr i 9) i) (select (store arr j 9) i)))
+    "#);
+    assert_eq!(output[0], "sat");
+    let values = &output[1];
+    assert!(
+        values.contains("((select (store arr i 9) i) 9)"),
+        "the same index is a hit: {values}"
+    );
+    assert!(
+        !values.contains("(select (store arr 0 9) i))"),
+        "a half-substituted echo is back: {values}"
+    );
+}
+
+/// An application that occurs in no assertion takes its value from the
+/// function's interpretation — the very one `(get-model)` prints.
+#[test]
+fn p2b35_get_value_consults_the_function_interpretation() {
+    let output = run(r#"
+        (set-logic QF_UFBV)
+        (declare-fun f ((_ BitVec 8)) (_ BitVec 8))
+        (declare-const a (_ BitVec 8))
+        (assert (= (f (bvadd a #x01)) #x07))
+        (assert (= a #x01))
+        (check-sat)
+        (get-value ((f #x02) (bvadd (f #x02) #x01)))
+    "#);
+    assert_eq!(output[0], "sat");
+    let values = &output[1];
+    assert!(values.contains("((f #x02) #x07)"), "{values}");
+    assert!(
+        values.contains("#x08"),
+        "the value must fold onward: {values}"
+    );
+}
+
+/// A congruent application whose value lives on another member of its class is
+/// answered too (the `#P2b-26` half that already worked, kept as a control).
+#[test]
+fn p2b35_get_value_answers_a_congruent_application() {
+    let output = run(r#"
+        (set-logic QF_UFLIA)
+        (declare-fun f (Int) Int)
+        (declare-const a Int)
+        (declare-const b Int)
+        (assert (= a b))
+        (assert (= (f a) 7))
+        (check-sat)
+        (get-value ((f b) (+ (f b) 1)))
+    "#);
+    assert_eq!(output[0], "sat");
+    let values = &output[1];
+    assert!(values.contains("((f b) 7)"), "{values}");
+    assert!(values.contains("((+ (f b) 1) 8)"), "{values}");
+}
+
+/// The printed model of an array goal is a *model*: pinning every constant it
+/// prints — the array's `store` chain included — keeps the goal satisfiable.
+///
+/// This is the end-to-end form of `#P2b-34`.  Before the fix the array printed
+/// `((as const …) #x00)` while its own reads said otherwise, so pinning the
+/// printed value turned `sat` into `unsat` — the printed "model" falsified the
+/// assertion it claimed to satisfy.
+#[test]
+fn p2b34_published_array_reads_agree_with_the_printed_array() {
+    for (name, logic, decls, assertion) in [
+        (
+            "read under an operator",
+            "QF_ABV",
+            "(declare-const arr (Array (_ BitVec 8) (_ BitVec 8)))\n\
+             (declare-const i (_ BitVec 8))",
+            "(assert (= (bvadd (select arr i) #x01) #x06))",
+        ),
+        (
+            "read-over-write miss",
+            "QF_ABV",
+            "(declare-const arr (Array (_ BitVec 8) (_ BitVec 8)))\n\
+             (declare-const i (_ BitVec 8))\n(declare-const j (_ BitVec 8))",
+            "(assert (= (bvadd (select (store arr i #x05) j) #x01) #x06))\n\
+             (assert (distinct i j))",
+        ),
+        (
+            "integer read-over-write miss",
+            "QF_ALIA",
+            "(declare-const arr (Array Int Int))\n(declare-const i Int)\n\
+             (declare-const j Int)",
+            "(assert (= (+ (select (store arr i 5) j) 1) 6))\n\
+             (assert (distinct i j))",
+        ),
+    ] {
+        let script =
+            format!("(set-logic {logic})\n{decls}\n{assertion}\n(check-sat)\n(get-model)\n");
+        let output = run(&script);
+        assert_eq!(output[0], "sat", "{name}");
+        let pins = model_pins(&output[1]);
+        assert!(
+            pins.iter().any(|(n, _)| n == "arr"),
+            "{name}: the model must name the array:\n{}",
+            output[1]
+        );
+        let mut pinned = script.replace("(check-sat)\n(get-model)\n", "");
+        for (constant, value) in &pins {
+            pinned.push_str(&format!("(assert (= {constant} {value}))\n"));
+        }
+        pinned.push_str("(check-sat)\n");
+        let replayed = run(&pinned);
+        assert_eq!(
+            replayed[0], "sat",
+            "{name}: the printed model does not satisfy the goal\nmodel: {}\nreplay: {pinned}",
+            output[1]
+        );
+    }
+}
+
+/// A read of an array constant answers with the constant's default, both as a
+/// bare read and through a `store` chain that misses (`#P2b-36`).
+///
+/// Before the axiom the read was an opaque leaf with no model entry, so
+/// `(get-value)` echoed the term back — and the verdict above it was a wrong
+/// `sat`.
+#[test]
+fn p2b36_get_value_folds_a_read_of_an_array_constant() {
+    let output = run(r#"
+        (set-logic QF_ABV)
+        (declare-const i (_ BitVec 8))
+        (assert (= (select ((as const (Array (_ BitVec 8) (_ BitVec 8))) #x03) i) #x03))
+        (check-sat)
+        (get-value ((select ((as const (Array (_ BitVec 8) (_ BitVec 8))) #x03) i)
+                    (select (store ((as const (Array (_ BitVec 8) (_ BitVec 8))) #x03) #x07 #x09) #x07)
+                    (bvadd (select ((as const (Array (_ BitVec 8) (_ BitVec 8))) #x03) #x02) #x01)))
+    "#);
+    assert_eq!(output[0], "sat");
+    let values = &output[1];
+    for expected in [
+        "((select ((as const) #x03) i) #x03)",
+        "((select (store ((as const) #x03) #x07 #x09) #x07) #x09)",
+        "((bvadd (select ((as const) #x03) #x02) #x01) #x04)",
+    ] {
+        assert!(
+            values.contains(expected),
+            "expected {expected} in:\n{values}"
+        );
+    }
+}
+
+/// The `Int` spelling of the same, where the read is valued by the tableau
+/// rather than by a circuit.
+#[test]
+fn p2b36_get_value_folds_an_integer_read_of_an_array_constant() {
+    let output = run(r#"
+        (set-logic QF_ALIA)
+        (declare-const i Int)
+        (assert (= (select ((as const (Array Int Int)) 7) i) 7))
+        (check-sat)
+        (get-value ((select ((as const (Array Int Int)) 7) i)
+                    (+ (select ((as const (Array Int Int)) 7) 3) 1)))
+    "#);
+    assert_eq!(output[0], "sat");
+    let values = &output[1];
+    assert!(
+        values.contains("((select ((as const) 7) i) 7)"),
+        "the bare read is the default: {values}"
+    );
+    assert!(
+        values.contains("((+ (select ((as const) 7) 3) 1) 8)"),
+        "the read folds under `+`: {values}"
+    );
+}
+
+/// `(name, value)` for every `(define-fun name () sort value)` line of a
+/// `(get-model)` answer, with the value taken as a balanced expression so a
+/// `store` chain survives intact.
+fn model_pins(model: &str) -> Vec<(String, String)> {
+    let mut pins = Vec::new();
+    for line in model.lines() {
+        let line = line.trim();
+        let Some(rest) = line.strip_prefix("(define-fun ") else {
+            continue;
+        };
+        let mut parts = rest.splitn(2, ' ');
+        let Some(name) = parts.next() else { continue };
+        let Some(after_name) = parts.next() else {
+            continue;
+        };
+        // Skip the `()` parameter list and the sort, then take the value.
+        let Some(after_params) = after_name.trim_start().strip_prefix("()") else {
+            continue;
+        };
+        let after_params = after_params.trim_start();
+        let sort_end = if after_params.starts_with('(') {
+            match balanced_end(after_params) {
+                Some(end) => end,
+                None => continue,
+            }
+        } else {
+            after_params.find(' ').unwrap_or(after_params.len())
+        };
+        let value = after_params[sort_end..].trim();
+        // The line ends with the `)` that closes the `define-fun`.
+        let value = value.strip_suffix(')').unwrap_or(value).trim();
+        if value.is_empty() {
+            continue;
+        }
+        pins.push((name.to_string(), value.to_string()));
+    }
+    pins
+}
+
+/// The index just past the balanced parenthesis group `s` starts with.
+fn balanced_end(s: &str) -> Option<usize> {
+    let mut depth = 0usize;
+    for (at, ch) in s.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(at + 1);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}

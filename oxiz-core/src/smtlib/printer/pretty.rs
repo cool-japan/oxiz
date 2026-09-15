@@ -185,8 +185,15 @@ impl<'a> PrettyPrinter<'a> {
             TermKind::Sub(lhs, rhs) => {
                 self.write_binary_term(w, "-", *lhs, *rhs, indent, depth, break_here);
             }
+            // See the basic printer's arm: one term kind, two SMT-LIB
+            // divisions, told apart by the term's sort.
             TermKind::Div(lhs, rhs) => {
-                self.write_binary_term(w, "div", *lhs, *rhs, indent, depth, break_here);
+                let symbol = if term.sort == self.manager.sorts.real_sort {
+                    "/"
+                } else {
+                    "div"
+                };
+                self.write_binary_term(w, symbol, *lhs, *rhs, indent, depth, break_here);
             }
             TermKind::Mod(lhs, rhs) => {
                 self.write_binary_term(w, "mod", *lhs, *rhs, indent, depth, break_here);

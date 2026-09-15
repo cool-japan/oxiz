@@ -18,6 +18,10 @@ use oxiz_theories::nl_witness::{AlgebraicValue, NlWitnessValue};
 
 use super::{Context, RawFuncInterp};
 
+/// Array `store`-chain values and declared-function interpretations
+/// (`#P2b-34`).
+mod array_model;
+
 /// Render a nonlinear-real exact value as SMT-LIB2 text.
 ///
 /// Rational values print exactly as the ordinary `RealConst` arm of
@@ -246,6 +250,15 @@ impl Context {
                 render_nl_witness_value(exact)
             } else if let Some(val) = solver_model.get(decl.term) {
                 self.format_value(val)
+            } else if let Some(chain) = self.array_model_value(decl.term, decl.sort, solver_model) {
+                // An array is never *assigned* a value term — there is no
+                // literal for "the function `{0 ↦ 5}` extended by 0" — so
+                // before `#P2b-34` it fell through to the sort default and
+                // printed `((as const …) #x00)` beside its own `select`
+                // entries saying otherwise.  The published reads are that
+                // function; a `store` chain over the default is how SMT-LIB
+                // spells it.
+                chain
             } else if self.is_uninterpreted_sort(decl.sort) {
                 // No direct model entry for an uninterpreted-sort constant:
                 // synthesize a Z3-style `@uc_S_n` abstract witness.  Group by
@@ -957,7 +970,7 @@ impl Context {
     /// echoing the term instead of producing a value.
     ///
     /// A compound term is folded by the solver's structural evaluator first
-    /// (`Solver::model_value_of`, `#P2b-26`): `Model::eval` knows the Boolean
+    /// (`Solver::model_value_in`, `#P2b-26`): `Model::eval` knows the Boolean
     /// connectives and integer arithmetic only, so `(bvadd v #x01)`,
     /// `(bvult v #x81)`, `(select (store arr i #x05) i)`, a `define-fun`
     /// name standing for any of them — the parser inlines the body — and an
@@ -1009,6 +1022,16 @@ impl Context {
                 completion.insert(term, value);
             }
         }
+        // The structural evaluator reads the SAME completed model (`#P2b-35`).
+        // Completing only the substitution path left the two readings
+        // disagreeing about an unconstrained constant: `(get-value (w))`
+        // answered `#x00` from the completion while `(get-value ((bvult w v)))`
+        // could not fold at all, because the evaluator saw `w` as a leaf with
+        // no entry, and printed `(bvult #x00 v)` — a term, not a value.
+        let mut completed_model = model.clone();
+        for (&term, &value) in &completion {
+            completed_model.set(term, value);
+        }
 
         let mut values = Vec::with_capacity(terms.len());
         for &term in terms {
@@ -1016,7 +1039,10 @@ impl Context {
                 // A bare unconstrained constant: report exactly what
                 // `(get-model)` reports for it, witnesses included.
                 value
-            } else if let Some(value) = self.solver.model_value_of(term, &mut self.terms) {
+            } else if let Some(value) =
+                self.solver
+                    .model_value_in(term, &completed_model, &mut self.terms)
+            {
                 // The structural reading: bit-vector operators, comparisons,
                 // read-over-write and congruent applications fold here.
                 oxiz_core::smtlib::Printer::new(&self.terms).print_term(value)
@@ -1049,14 +1075,22 @@ impl Context {
     /// of a symbol with no interpretation at all.
     pub fn format_model(&self) -> String {
         let recfun_lines = self.recfun_model_lines();
+        // Declared uninterpreted functions are part of the model too
+        // (`#P2b-34`): omitting them left `(get-model)` printing the constants
+        // of a `(f x)` goal and nothing about `f`, so the model could be
+        // neither replayed nor checked.
+        let func_lines = self.func_interp_lines();
         match self.get_model() {
             None => "(error \"No model available\")".to_string(),
-            Some(model) if model.is_empty() && recfun_lines.is_empty() => "(model)".to_string(),
+            Some(model) if model.is_empty() && recfun_lines.is_empty() && func_lines.is_empty() => {
+                "(model)".to_string()
+            }
             Some(model) => {
                 let mut lines = vec!["(model".to_string()];
                 for (name, sort, value) in model {
                     lines.push(format!("  (define-fun {} () {} {})", name, sort, value));
                 }
+                lines.extend(func_lines);
                 lines.extend(recfun_lines);
                 lines.push(")".to_string());
                 lines.join("\n")

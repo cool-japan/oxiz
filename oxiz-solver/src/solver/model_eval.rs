@@ -43,7 +43,7 @@ use super::{ENCODE_DEPTH_LIMIT, EvalVal, Solver};
 use crate::prelude::*;
 use num_bigint::BigInt;
 use num_rational::Rational64;
-use num_traits::{CheckedAdd, CheckedMul, CheckedSub, ToPrimitive};
+use num_traits::{CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, ToPrimitive};
 use oxiz_core::ast::{TermId, TermKind, TermManager};
 use oxiz_core::interner::Spur;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -207,6 +207,10 @@ enum EagerKind {
         /// `true` for `<=`, `false` for `>=`.
         less: bool,
     },
+    /// Real division `/`.  Opened only for a `Real`-sorted `Div` term: the
+    /// integer `div` of the same `TermKind` is Euclidean and is answered from
+    /// the arithmetic solver's own entry, not folded here.
+    RealDiv,
     /// Pass the single operand's value straight through (`let` → its body).
     Identity,
     /// `bvnot`.
@@ -297,6 +301,16 @@ pub(super) enum LeafSource {
     Model,
 }
 
+/// Function interpretations by EUF function-symbol id, as `(argument values,
+/// value)` entries: what [`Op::ApplyInterp`] resolves an application against.
+///
+/// Built once per `(get-value)` query by
+/// [`Solver::collect_func_interps`] — before the evaluation starts, because
+/// valuing an entry's arguments needs a mutable term arena the walk itself
+/// does not have, and because building it inside the walk would make the walk
+/// re-enter itself once per nested application.
+type FuncInterps = FxHashMap<u32, Vec<(SmallVec<[EvalVal; 2]>, EvalVal)>>;
+
 /// The model's `select` entries keyed by `(array, index)`, built lazily by
 /// [`Solver::store_chain`] on the first read-over-write of an evaluation and
 /// shared by every read of that call.
@@ -378,6 +392,26 @@ enum Op {
         consequent: TermId,
         /// How far the implication has got.
         state: ImpliesState,
+    },
+    /// A UF application the model holds no entry for, resolved against the
+    /// function's *interpretation* (`#P2b-35`): the arguments are evaluated,
+    /// then matched against the argument values of the applications congruence
+    /// closure already knows, and a match takes that application's value.
+    ///
+    /// `(assert (= (f (bvadd a #x01)) #x07)) (assert (= a #x01))` gives `f` the
+    /// single entry `#x02 ↦ #x07`, and `(get-value ((f #x02)))` — an
+    /// application that occurs in no assertion, so neither `build_model` nor
+    /// congruence closure has anything to say about it — is `#x07` under every
+    /// model of the assignment.  It used to echo its own body, while
+    /// `(get-model)` printed the very interpretation that answers it.
+    ///
+    /// Opened only under [`LeafSource::Model`]: the gate must keep reading an
+    /// unpinned application as `Undetermined` (see [`LeafSource`]).
+    ApplyInterp {
+        /// Argument term ids in evaluation order.
+        operands: SmallVec<[TermId; 2]>,
+        /// `(argument values, value)` per known application of the function.
+        entries: Vec<(SmallVec<[EvalVal; 2]>, EvalVal)>,
     },
     /// `select` over a store chain, read as read-over-write (`#P2b-32`): the
     /// index first, then every level's store index against it from the
@@ -472,13 +506,18 @@ impl Frame {
 
     /// Fold `incoming` (when there is one) into the frame, then say what the
     /// frame needs next.
-    fn advance(&mut self, values: &mut Vec<EvalVal>, incoming: Option<EvalOutcome>) -> Step {
+    fn advance(
+        &mut self,
+        values: &mut Vec<EvalVal>,
+        incoming: Option<EvalOutcome>,
+        leaf: LeafSource,
+    ) -> Step {
         if let Some(result) = incoming
-            && let Some(finished) = self.accept(values, result)
+            && let Some(finished) = self.accept(values, result, leaf)
         {
             return Step::Done(finished);
         }
-        self.request(values)
+        self.request(values, leaf)
     }
 
     /// Fold one operand outcome into the frame.
@@ -486,11 +525,18 @@ impl Frame {
     /// Returns `Some` when that operand ends the frame there and then — the
     /// short-circuiting cases, where the remaining operands must not be
     /// evaluated.
-    fn accept(&mut self, values: &mut Vec<EvalVal>, result: EvalOutcome) -> Option<EvalOutcome> {
+    fn accept(
+        &mut self,
+        values: &mut Vec<EvalVal>,
+        result: EvalOutcome,
+        leaf: LeafSource,
+    ) -> Option<EvalOutcome> {
         match &mut self.op {
             // A fixed-arity operator gives up at the first operand it cannot
-            // use, exactly as the recursive version's `rec(a)?` did.
-            Op::Eager { .. } => match result {
+            // use, exactly as the recursive version's `rec(a)?` did.  An
+            // interpretation lookup collects its arguments the same way: an
+            // argument with no value leaves the application unresolved.
+            Op::Eager { .. } | Op::ApplyInterp { .. } => match result {
                 EvalOutcome::Value(value) => {
                     values.push(value);
                     self.filled += 1;
@@ -542,8 +588,18 @@ impl Frame {
             // colliding values in its LP model are not evidence of anything.
             // A bit-vector model witness names every bit and carries no such
             // caveat.
-            Op::Distinct { .. } => match result {
-                EvalOutcome::Value(value @ EvalVal::Bv { .. }) => {
+            //
+            // `(get-value)` reads it exactly (`LeafSource::Model`, `#P2b-35`):
+            // there the printed model *is* the model, two integers it prints
+            // as 4 and −3 really are distinct, and answering `Undetermined`
+            // only echoed the query back.
+            Op::Distinct { .. } => match (leaf, result) {
+                (_, EvalOutcome::Value(value @ EvalVal::Bv { .. })) => {
+                    values.push(value);
+                    self.filled += 1;
+                    None
+                }
+                (LeafSource::Model, EvalOutcome::Value(value)) => {
                     values.push(value);
                     self.filled += 1;
                     None
@@ -637,7 +693,7 @@ impl Frame {
                     // numeric pair is trusted only when it *differs* — an LP
                     // collision is not evidence of a hit, so the read stays
                     // `Undetermined` rather than manufacture one.
-                    let next = match definite_equality(index, &store_index) {
+                    let next = match definite_equality(index, &store_index, leaf) {
                         Some(true) => match levels.get(*level) {
                             Some(&(_, value)) => SelectState::Hit(value),
                             None => return Some(EvalOutcome::UNDETERMINED),
@@ -664,7 +720,7 @@ impl Frame {
     }
 
     /// The next operand to evaluate, or the frame's finished outcome.
-    fn request(&mut self, values: &[EvalVal]) -> Step {
+    fn request(&mut self, values: &[EvalVal], leaf: LeafSource) -> Step {
         match &self.op {
             Op::Eager {
                 operands,
@@ -675,7 +731,7 @@ impl Frame {
                 if self.filled < arity {
                     return Step::Need(operands[self.filled]);
                 }
-                Step::Done(combine_eager(*kind, &values[self.base..]))
+                Step::Done(combine_eager(*kind, &values[self.base..], leaf))
             }
             Op::Connective {
                 operands,
@@ -696,8 +752,17 @@ impl Frame {
             Op::Distinct { operands } => {
                 if self.filled < operands.len() {
                     Step::Need(operands[self.filled])
+                } else if leaf == LeafSource::Model {
+                    Step::Done(all_distinct_exact(&values[self.base..]))
                 } else {
                     Step::Done(model_eval_bv::all_distinct(&values[self.base..]))
+                }
+            }
+            Op::ApplyInterp { operands, entries } => {
+                if self.filled < operands.len() {
+                    Step::Need(operands[self.filled])
+                } else {
+                    Step::Done(apply_interp_lookup(entries, &values[self.base..], leaf))
                 }
             }
             Op::Arith { operands, acc, .. } => {
@@ -740,11 +805,25 @@ impl Frame {
 ///
 /// `values` holds exactly the operands the frame collected, in order; the
 /// driver only reaches here once every one of them produced a value.
-fn combine_eager(kind: EagerKind, values: &[EvalVal]) -> EvalOutcome {
+fn combine_eager(kind: EagerKind, values: &[EvalVal], leaf: LeafSource) -> EvalOutcome {
     match (kind, values) {
         (EagerKind::Not, [EvalVal::Bool(b)]) => EvalOutcome::boolean(!b),
         (EagerKind::Identity, [v]) => EvalOutcome::Value(v.clone()),
-        (EagerKind::Eq, [a, b]) => combine_eq(a, b),
+        (EagerKind::Eq, [a, b]) => combine_eq(a, b, leaf),
+        // Real division is exact: the rationals are the value domain, so
+        // `(/ x 2)` with `x = 3/2` is `3/4` and not an echo (`#P2b-35`).
+        // Division by zero is left to the `div`-by-zero convention the
+        // arithmetic solver applies, which this evaluator does not model.
+        (EagerKind::RealDiv, [EvalVal::Num(x), EvalVal::Num(y)]) => {
+            if y.numer() == &0 {
+                EvalOutcome::UNDETERMINED
+            } else {
+                match x.checked_div(y) {
+                    Some(q) => EvalOutcome::number(q),
+                    None => EvalOutcome::Unrepresentable,
+                }
+            }
+        }
         (EagerKind::Sub, [EvalVal::Num(x), EvalVal::Num(y)]) => match x.checked_sub(y) {
             Some(d) => EvalOutcome::number(d),
             None => EvalOutcome::Unrepresentable,
@@ -758,7 +837,7 @@ fn combine_eager(kind: EagerKind, values: &[EvalVal]) -> EvalOutcome {
             None => EvalOutcome::Unrepresentable,
         },
         (EagerKind::CmpStrict { less }, [EvalVal::Num(x), EvalVal::Num(y)]) => {
-            cmp_strict(*x, *y, less)
+            cmp_strict(*x, *y, less, leaf)
         }
         (EagerKind::CmpWeak { less }, [EvalVal::Num(x), EvalVal::Num(y)]) => {
             EvalOutcome::boolean(if less { x <= y } else { x >= y })
@@ -815,14 +894,21 @@ fn combine_eager(kind: EagerKind, values: &[EvalVal]) -> EvalOutcome {
 /// when they were never asserted equal.  Reporting a collision as
 /// `Undetermined` also keeps a negated equality (`distinct` / `not (= ..)`)
 /// inconclusive there instead of a false violation.
-fn combine_eq(a: &EvalVal, b: &EvalVal) -> EvalOutcome {
+fn combine_eq(a: &EvalVal, b: &EvalVal, leaf: LeafSource) -> EvalOutcome {
     match (a, b) {
         (EvalVal::Bool(x), EvalVal::Bool(y)) => EvalOutcome::boolean(x == y),
         (EvalVal::Num(x), EvalVal::Num(y)) => {
-            if x == y {
-                EvalOutcome::UNDETERMINED
-            } else {
+            // Exact under `(get-value)`'s reading (`#P2b-35`): there the leaves
+            // come from the PUBLISHED model, which names one number per term,
+            // so a collision is the model saying they are equal — not an LP
+            // artefact.  The gate's reading keeps the softening for the reason
+            // the doc above gives.
+            if x != y {
                 EvalOutcome::boolean(false)
+            } else if leaf == LeafSource::Model {
+                EvalOutcome::boolean(true)
+            } else {
+                EvalOutcome::UNDETERMINED
             }
         }
         // Bit-vectors are exact in BOTH directions, unlike the numeric arm
@@ -850,11 +936,89 @@ fn combine_eq(a: &EvalVal, b: &EvalVal) -> EvalOutcome {
 /// unequal (`Some(false)`), or nothing this gate will vouch for either way
 /// (`None`): [`combine_eq`]'s rules read as a three-way answer, for the index
 /// comparisons of read-over-write ([`Op::Select`]).
-fn definite_equality(a: &EvalVal, b: &EvalVal) -> Option<bool> {
-    match combine_eq(a, b) {
+fn definite_equality(a: &EvalVal, b: &EvalVal, leaf: LeafSource) -> Option<bool> {
+    match combine_eq(a, b, leaf) {
         EvalOutcome::Value(EvalVal::Bool(equal)) => Some(equal),
         _ => None,
     }
+}
+
+/// Every EUF function-symbol id applied anywhere in `term`, outside binders.
+///
+/// Iterative, like every other walk in this file: the query term is the user's
+/// and its nesting depth is not bounded by anything this crate controls.
+fn applied_func_ids(term: TermId, manager: &TermManager) -> Vec<u32> {
+    let mut ids: Vec<u32> = Vec::new();
+    let mut visited: FxHashSet<TermId> = FxHashSet::default();
+    let mut children: Vec<TermId> = Vec::new();
+    let mut stack: Vec<TermId> = vec![term];
+    while let Some(current) = stack.pop() {
+        if !visited.insert(current) {
+            continue;
+        }
+        let Some(data) = manager.get(current) else {
+            continue;
+        };
+        if let TermKind::Apply { func, .. } = &data.kind {
+            let id = func.into_inner().get();
+            if !ids.contains(&id) {
+                ids.push(id);
+            }
+        }
+        children.clear();
+        crate::solver::array_axioms::ground_children(&data.kind, &mut children);
+        stack.extend(children.iter().copied());
+    }
+    ids
+}
+
+/// `distinct` over values of any kind, decided exactly: the reading
+/// `(get-value)` prints (`#P2b-35`).
+///
+/// Every pair must be *definitely* unequal for `true` and one definitely equal
+/// pair gives `false`; anything the value domain cannot compare (a Boolean
+/// against a number, two bit-vectors of different widths) leaves the answer
+/// `Undetermined`, exactly as `=` does over the same pair.
+fn all_distinct_exact(values: &[EvalVal]) -> EvalOutcome {
+    for (i, a) in values.iter().enumerate() {
+        for b in values.iter().skip(i + 1) {
+            match definite_equality(a, b, LeafSource::Model) {
+                Some(true) => return EvalOutcome::boolean(false),
+                Some(false) => {}
+                None => return EvalOutcome::UNDETERMINED,
+            }
+        }
+    }
+    EvalOutcome::boolean(true)
+}
+
+/// The value a function's interpretation gives the arguments in `values`
+/// (`#P2b-35`): the first entry whose argument values are definitely equal to
+/// them, position by position.
+///
+/// No match is `Undetermined` rather than the interpretation's else-value:
+/// which value that is comes from `Context::get_func_interp_raw`'s heuristic
+/// (the most frequent entry value), and answering with a *different* guess
+/// here would make `(get-value)` and `(get-model)` disagree about the same
+/// application.
+fn apply_interp_lookup(
+    entries: &[(SmallVec<[EvalVal; 2]>, EvalVal)],
+    values: &[EvalVal],
+    leaf: LeafSource,
+) -> EvalOutcome {
+    for (args, value) in entries {
+        if args.len() != values.len() {
+            continue;
+        }
+        if args
+            .iter()
+            .zip(values)
+            .all(|(a, b)| definite_equality(a, b, leaf) == Some(true))
+        {
+            return EvalOutcome::Value(value.clone());
+        }
+    }
+    EvalOutcome::UNDETERMINED
 }
 
 /// Evaluate a STRICT comparison (`less` selects `<` over `>`).
@@ -866,8 +1030,13 @@ fn definite_equality(a: &EvalVal, b: &EvalVal) -> Option<bool> {
 /// `Undetermined` there keeps the gate from falsely refuting a genuine
 /// strict-inequality model; away from the boundary the comparison is concrete
 /// and trustworthy.  Non-strict `<=` / `>=` have no such ambiguity.
-fn cmp_strict(x: Rational64, y: Rational64, less: bool) -> EvalOutcome {
-    if x == y {
+///
+/// Under [`LeafSource::Model`] there is no boundary to soften (`#P2b-35`): the
+/// printed model gives `x` one number, so `(< x 4)` with `x = 4` is `false`,
+/// full stop.  Softening it there only made `(get-value ((< x 4)))` echo while
+/// the very same model answered `(<= x 4)` with `true`.
+fn cmp_strict(x: Rational64, y: Rational64, less: bool, leaf: LeafSource) -> EvalOutcome {
+    if x == y && leaf == LeafSource::Tableau {
         EvalOutcome::UNDETERMINED
     } else if less {
         EvalOutcome::boolean(x < y)
@@ -1256,12 +1425,13 @@ impl Solver {
             depth,
             SelectSemantics::PublishedLeaf,
             LeafSource::Tableau,
+            &FuncInterps::default(),
         )
         .value()
     }
 
-    /// The value the published model determines for `term`, as an interned
-    /// constant term — the reading `(get-value)` prints (`#P2b-26`).
+    /// The value the model determines for `term`, as an interned constant
+    /// term — the reading `(get-value)` prints (`#P2b-26`).
     ///
     /// A term the model records directly is answered with that entry, as
     /// `Model::eval` always did.  Anything else is folded structurally by
@@ -1274,12 +1444,24 @@ impl Solver {
     /// congruence class carries ([`Self::euf_class_value`]), the same value
     /// in every model consistent with the assignment.  `None` when no
     /// reading produces one, and the caller falls back to printing the term.
-    pub(crate) fn model_value_of(&self, term: TermId, manager: &mut TermManager) -> Option<TermId> {
-        let model = self.model.as_ref()?;
+    /// `model` is the published model *completed* with the sort defaults
+    /// `(get-model)` reports for unconstrained declared constants (`#P2b-35`).
+    /// Without the completion an unconstrained leaf read `Undetermined` and the
+    /// whole query fell back to the substitution path, which folds nothing it
+    /// does not have an arm for: `(bvult w v)` over an unconstrained `w`
+    /// printed `(bvult #x00 v)` — half substituted, and contradicting the
+    /// `w = #x00` the same model prints.
+    pub(crate) fn model_value_in(
+        &self,
+        term: TermId,
+        model: &Model,
+        manager: &mut TermManager,
+    ) -> Option<TermId> {
         if let Some(value) = model.get(term) {
             return Some(value);
         }
         let sort = manager.get(term)?.sort;
+        let interps = self.collect_func_interps(term, model, manager);
         match self.eval_with(
             term,
             model,
@@ -1287,6 +1469,7 @@ impl Solver {
             0,
             SelectSemantics::ReadOverWrite,
             LeafSource::Model,
+            &interps,
         ) {
             EvalOutcome::Value(EvalVal::Bool(value)) => Some(if value {
                 manager.mk_true()
@@ -1347,6 +1530,7 @@ impl Solver {
             depth,
             SelectSemantics::ReadOverWrite,
             LeafSource::Tableau,
+            &FuncInterps::default(),
         )
     }
 
@@ -1361,6 +1545,7 @@ impl Solver {
         depth: u32,
         selects: SelectSemantics,
         leaf: LeafSource,
+        interps: &FuncInterps,
     ) -> EvalOutcome {
         // The model's `select` entries keyed by `(array, index)`, built by the
         // first read-over-write that needs one and shared by every read of
@@ -1406,6 +1591,7 @@ impl Solver {
             depth,
             selects,
             leaf,
+            interps,
             &mut select_index,
         ) {
             Opened::Done(outcome) => return outcome,
@@ -1417,7 +1603,7 @@ impl Solver {
 
         loop {
             let step = match frames.last_mut() {
-                Some(top) => top.advance(&mut values, carry.take()),
+                Some(top) => top.advance(&mut values, carry.take(), leaf),
                 // Only the `Step::Done` arm below empties the stack, and it
                 // returns; reaching here would mean the driver lost its root.
                 None => return EvalOutcome::UNDETERMINED,
@@ -1440,6 +1626,7 @@ impl Solver {
                         child_depth,
                         selects,
                         leaf,
+                        interps,
                         &mut select_index,
                     ) {
                         Opened::Done(outcome) => carry = Some(outcome),
@@ -1468,353 +1655,115 @@ impl Solver {
         }
     }
 
-    /// Read one term: either it has an outcome on its own, or it opens a frame.
+    /// The value the theory that owns `term` computed for it: the bit-blasted
+    /// circuit for a bit-vector, the tableau for `Int`/`Real`.
     ///
-    /// This is the former recursive `eval_in_model`'s dispatch, minus the
-    /// recursion: an arm that used to call itself now describes its operands to
-    /// the driver instead of evaluating them.
-    fn open_in_model(
+    /// Unlike a model entry this is available for *compound* terms too — the
+    /// circuit holds a bit-vector for every node it blasted — which is what
+    /// lets an interpretation entry be keyed by the value of an argument the
+    /// model never published (`#P2b-35`).  `None` when neither theory holds the
+    /// term, or when the value does not fit the evaluator's fixed-width
+    /// rationals.
+    pub(super) fn theory_value(&self, term: TermId, manager: &TermManager) -> Option<EvalVal> {
+        let sort = manager.get(term)?.sort;
+        if let Some(width) = manager.sorts.get(sort).and_then(|s| s.bitvec_width())
+            && let Some(value) = self.bv.get_value_big(term)
+            && let EvalOutcome::Value(value) =
+                model_eval_bv::leaf(&num_bigint::BigInt::from(value), width)
+        {
+            return Some(value);
+        }
+        if (sort == manager.sorts.int_sort || sort == manager.sorts.real_sort)
+            && let Some(value) = self.arith.value(term)
+        {
+            return Some(EvalVal::Num(value));
+        }
+        None
+    }
+
+    /// The interpretations of every function `term` applies, as `(argument
+    /// values, value)` entries (`#P2b-35`).
+    ///
+    /// The same source `Context::get_func_interp_raw` prints from, read as
+    /// values rather than strings: congruence closure has already canonicalised
+    /// each application's arguments and result, so an entry says "at these
+    /// argument values the function takes this value" — which is exactly what
+    /// a query naming *different* terms of the same values needs.  An entry
+    /// whose arguments or result carry no value is dropped: it constrains
+    /// nothing, and a wrong guess there would answer a query with a value the
+    /// model does not hold.
+    fn collect_func_interps(
         &self,
         term: TermId,
         model: &Model,
-        manager: &TermManager,
-        depth: u32,
-        selects: SelectSemantics,
-        leaf: LeafSource,
-        select_index: &mut SelectIndex,
-    ) -> Opened {
-        if depth > ENCODE_DEPTH_LIMIT {
-            return Opened::Done(EvalOutcome::UNDETERMINED);
-        }
-        let Some(t) = manager.get(term) else {
-            return Opened::Done(EvalOutcome::UNDETERMINED);
-        };
-        let sort = t.sort;
-        // The two bit-vector shapes that repeat twenty times below.  Both are
-        // ordinary `Op::Eager` frames: bit-vector operators have fixed arity
-        // and no short-circuit, so the driver's existing machinery carries
-        // them unchanged and no new frame kind is needed.
-        let bv_binary = |a: TermId, b: TermId, op: BvBinaryOp| {
-            Opened::Frame(Frame::binary(a, b, EagerKind::BvBinary(op), depth))
-        };
-        let bv_compare = |a: TermId, b: TermId, op: BvCompareOp| {
-            Opened::Frame(Frame::binary(a, b, EagerKind::BvCompare(op), depth))
-        };
-        match &t.kind {
-            TermKind::True => Opened::Done(EvalOutcome::boolean(true)),
-            TermKind::False => Opened::Done(EvalOutcome::boolean(false)),
-            TermKind::IntConst(_) | TermKind::RealConst(_) | TermKind::BitVecConst { .. } => {
-                Opened::Done(parse_value_term(term, manager))
-            }
-            TermKind::Var(_) => Opened::Done({
-                // For a numeric variable, take the value from the ARITHMETIC
-                // solver, not the built model.  `arith.value` returns `None` for
-                // a variable the solver does not actually constrain, which makes
-                // the whole evaluation inconclusive (never a false downgrade) —
-                // exactly the variables `build_model` would have defaulted to 0.
-                // `(get-value)` asks for the model's entry instead
-                // (`LeafSource::Model`): it prints what the model says, and
-                // the tableau may hold nothing, or a stale value, for a
-                // variable another engine decided.
-                if leaf == LeafSource::Tableau
-                    && (sort == manager.sorts.int_sort || sort == manager.sorts.real_sort)
-                {
-                    match self.arith.value(term) {
-                        Some(n) => EvalOutcome::number(n),
-                        None => EvalOutcome::UNDETERMINED,
-                    }
-                } else {
-                    // Boolean / bit-vector / other: the model witness is fine
-                    // (Booleans are exactly determined by the SAT assignment).
-                    match model.get(term) {
-                        Some(value_term) => parse_value_term(value_term, manager),
-                        None => EvalOutcome::UNDETERMINED,
-                    }
-                }
-            }),
-            TermKind::Not(a) => Opened::Frame(Frame::unary(*a, EagerKind::Not, depth)),
-            TermKind::And(args) => Opened::Frame(Frame::new(
-                Op::Connective {
-                    operands: args.clone(),
-                    conjunction: true,
-                },
-                depth,
-            )),
-            TermKind::Or(args) => Opened::Frame(Frame::new(
-                Op::Connective {
-                    operands: args.clone(),
-                    conjunction: false,
-                },
-                depth,
-            )),
-            TermKind::Implies(a, b) => Opened::Frame(Frame::new(
-                Op::Implies {
-                    antecedent: *a,
-                    consequent: *b,
-                    state: ImpliesState::Antecedent,
-                },
-                depth,
-            )),
-            TermKind::Ite(c, t, e) => Opened::Frame(Frame::new(
-                Op::Ite {
-                    cond: *c,
-                    then_branch: *t,
-                    else_branch: *e,
-                    state: IteState::Cond,
-                },
-                depth,
-            )),
-            // ---- the structural pre-pass (`#P2b-22`) ------------------
-            //
-            // `x = x` is true and `(distinct … x … x …)` is false in *every*
-            // interpretation, whatever sort `x` has and whether or not the
-            // model pins a value for it.  Deciding them here, before any model
-            // lookup, is what lets the gate refute a candidate model for an
-            // assertion whose variables the encoder folded away.
-            //
-            // That was a measured hole, not a hypothetical one:
-            // `(assert (distinct b b))` encodes to `¬true` because `mk_eq(b, b)`
-            // folds to `true`, so `b` never reaches the bit-blaster and the
-            // published model has no value for it.  The value-based evaluator
-            // below can only answer `Undetermined` for such a term, and the
-            // gate therefore approved the `sat` that `#P2b-20` produced —
-            // leaving that defect with no second line of defence at all.  A
-            // value-based evaluator cannot refute what has no value; this
-            // needs no value.
-            //
-            // Sound in the only direction that matters: it manufactures a
-            // definite answer *only* for a syntactic identity, which no
-            // interpretation can disagree with.  Terms are hash-consed, so
-            // operand identity is `TermId` equality — no traversal, no
-            // normalisation.
-            TermKind::Eq(a, b) if a == b => Opened::Done(EvalOutcome::boolean(true)),
-            TermKind::Eq(a, b) => Opened::Frame(Frame::binary(*a, *b, EagerKind::Eq, depth)),
-            TermKind::Distinct(args) if has_repeated_operand(args) => {
-                Opened::Done(EvalOutcome::boolean(false))
-            }
-            // `distinct` is INCONCLUSIVE for the gate on everything except a
-            // uniform-width bit-vector tuple.  A model in which two ARITHMETIC
-            // operands share a value does NOT reliably indicate a real
-            // violation: the linear-arithmetic solver enforces disequalities by
-            // case-splitting, not by pinning distinct witnesses in its LP model,
-            // so `arith.value` routinely reports colliding integer values for a
-            // genuinely satisfiable `distinct`.  Downgrading on that would turn
-            // correct `Sat`s into spurious `Unknown`s; the gate targets violated
-            // POSITIVE structure (a falsified equality or an all-false clause)
-            // instead, which the arithmetic model represents faithfully.
-            //
-            // A bit-vector witness carries no such caveat — it is a
-            // `BitVecConst` naming every bit — so `Op::Distinct` decides the
-            // all-bit-vector case and bails out to `Undetermined` on the first
-            // operand that is anything else, which reproduces the old answer
-            // for every arithmetic, Boolean or opaque `distinct` exactly.
-            TermKind::Distinct(args) => Opened::Frame(Frame::new(
-                Op::Distinct {
-                    operands: args.clone(),
-                },
-                depth,
-            )),
-            TermKind::Add(args) => Opened::Frame(Frame::new(
-                Op::Arith {
-                    operands: args.clone(),
-                    product: false,
-                    acc: Rational64::from_integer(0),
-                },
-                depth,
-            )),
-            TermKind::Sub(a, b) => Opened::Frame(Frame::binary(*a, *b, EagerKind::Sub, depth)),
-            TermKind::Mul(args) => Opened::Frame(Frame::new(
-                Op::Arith {
-                    operands: args.clone(),
-                    product: true,
-                    acc: Rational64::from_integer(1),
-                },
-                depth,
-            )),
-            TermKind::Neg(a) => Opened::Frame(Frame::unary(*a, EagerKind::Neg, depth)),
-            TermKind::Lt(a, b) => Opened::Frame(Frame::binary(
-                *a,
-                *b,
-                EagerKind::CmpStrict { less: true },
-                depth,
-            )),
-            TermKind::Gt(a, b) => Opened::Frame(Frame::binary(
-                *a,
-                *b,
-                EagerKind::CmpStrict { less: false },
-                depth,
-            )),
-            TermKind::Le(a, b) => Opened::Frame(Frame::binary(
-                *a,
-                *b,
-                EagerKind::CmpWeak { less: true },
-                depth,
-            )),
-            TermKind::Ge(a, b) => Opened::Frame(Frame::binary(
-                *a,
-                *b,
-                EagerKind::CmpWeak { less: false },
-                depth,
-            )),
-            // ---- bit-vector operators ---------------------------------
-            // Every one of these fell into the closing `_ =>` arm before this
-            // module gained a bit-vector value: `model.get` found nothing (an
-            // operator term is not a model leaf) and the gate answered
-            // `Undetermined`, so it vouched for every candidate model of a
-            // QF_BV formula whatever the model said.  Structural recomputation
-            // from the leaves — never a read-back of a cached gate value — is
-            // what makes the gate sound; see `eval_in_model_outcome`.
-            TermKind::BvNot(a) => Opened::Frame(Frame::unary(*a, EagerKind::BvNot, depth)),
-            TermKind::BvAnd(a, b) => bv_binary(*a, *b, BvBinaryOp::And),
-            TermKind::BvOr(a, b) => bv_binary(*a, *b, BvBinaryOp::Or),
-            TermKind::BvXor(a, b) => bv_binary(*a, *b, BvBinaryOp::Xor),
-            TermKind::BvAdd(a, b) => bv_binary(*a, *b, BvBinaryOp::Add),
-            TermKind::BvSub(a, b) => bv_binary(*a, *b, BvBinaryOp::Sub),
-            TermKind::BvMul(a, b) => bv_binary(*a, *b, BvBinaryOp::Mul),
-            TermKind::BvUdiv(a, b) => bv_binary(*a, *b, BvBinaryOp::Udiv),
-            TermKind::BvSdiv(a, b) => bv_binary(*a, *b, BvBinaryOp::Sdiv),
-            TermKind::BvUrem(a, b) => bv_binary(*a, *b, BvBinaryOp::Urem),
-            TermKind::BvSrem(a, b) => bv_binary(*a, *b, BvBinaryOp::Srem),
-            TermKind::BvShl(a, b) => bv_binary(*a, *b, BvBinaryOp::Shl),
-            TermKind::BvLshr(a, b) => bv_binary(*a, *b, BvBinaryOp::Lshr),
-            TermKind::BvAshr(a, b) => bv_binary(*a, *b, BvBinaryOp::Ashr),
-            TermKind::BvConcat(a, b) => bv_binary(*a, *b, BvBinaryOp::Concat),
-            TermKind::BvExtract { high, low, arg } => Opened::Frame(Frame::unary(
-                *arg,
-                EagerKind::BvExtract {
-                    high: *high,
-                    low: *low,
-                },
-                depth,
-            )),
-            TermKind::BvUlt(a, b) => bv_compare(*a, *b, BvCompareOp::Ult),
-            TermKind::BvUle(a, b) => bv_compare(*a, *b, BvCompareOp::Ule),
-            TermKind::BvSlt(a, b) => bv_compare(*a, *b, BvCompareOp::Slt),
-            TermKind::BvSle(a, b) => bv_compare(*a, *b, BvCompareOp::Sle),
-            // `TermKind` has no variant for `bvnand` / `bvnor` / `bvxnor` /
-            // `bvcomp` / `bvsmod` / `bvneg` / `zero_extend` / `sign_extend` /
-            // `rotate_left` / `rotate_right` / `repeat`: the term builder and
-            // the parser's indexed-identifier path lower every one of them to
-            // the primitives above (`TermManager::mk_bv_nand` and friends,
-            // `smtlib::parser::indexed`), so they are covered here without an
-            // arm of their own.
-            //
-            // A `let` evaluates to its body.
-            //
-            // The SMT-LIB parser substitutes bindings into the body and returns
-            // it directly, so no `Let` reaches here on the parse path; this arm
-            // exists for terms built programmatically through
-            // `TermManager::mk_let`, and because falling into the opaque-leaf
-            // arm below made a `Let`-rooted assertion `Undetermined` *before*
-            // the gate ever looked at the formula underneath — the gate was
-            // blind to exactly the assertions the vacuous wrapper covered.
-            //
-            // Evaluating the body alone is sound for the substituted shape (the
-            // body is already the whole term) and stays *conservative* for a
-            // real binder: the bound name appears as a `Var` the model does not
-            // pin, which reads back `Undetermined` and propagates outward, so a
-            // genuine binder yields no verdict rather than a wrong one. It can
-            // never manufacture a definite `false` from a binding it ignored,
-            // because a value it did not substitute cannot make a comparison
-            // concrete.
-            TermKind::Let { body, .. } => {
-                Opened::Frame(Frame::unary(*body, EagerKind::Identity, depth))
-            }
-            // ---- arrays (`#P2b-32`) ------------------------------------
-            //
-            // A read over a `store` chain is an operator term, and under the
-            // gate's reading it is recomputed from its parts like any other:
-            // read-over-write down the chain, the published read of the
-            // innermost base when every level is missed.  Before this arm a
-            // `select` fell into the opaque-leaf arm below, so a read the
-            // circuit had left as a *free* leaf — the whole `#P2b-32` family,
-            // `(distinct (bvadd (select (store arr i #x05) i) #x01) #x06)`
-            // published `sat` with `s = #xff` — evaluated to whatever the free
-            // bits said and the gate vouched for it.  A read with no store
-            // under it has nothing to recompute and stays the leaf it was, and
-            // the instantiator's reading (`SelectSemantics::PublishedLeaf`)
-            // never opens the frame at all.
-            TermKind::Select(array, index) => {
-                let (levels, base) = match selects {
-                    SelectSemantics::ReadOverWrite => {
-                        self.store_chain(*array, *index, model, manager, select_index)
-                    }
-                    SelectSemantics::PublishedLeaf => (SmallVec::new(), EvalOutcome::UNDETERMINED),
+        manager: &mut TermManager,
+    ) -> FuncInterps {
+        let mut interps = FuncInterps::default();
+        for func_id in applied_func_ids(term, manager) {
+            let mut entries: Vec<(SmallVec<[EvalVal; 2]>, EvalVal)> = Vec::new();
+            for entry in self.euf.function_application_entries(func_id) {
+                let Some(value) = self.class_value(&entry.result_class_terms, model, manager)
+                else {
+                    continue;
                 };
-                if levels.is_empty() {
-                    return Opened::Done(match model.get(term) {
-                        Some(value_term) => parse_value_term(value_term, manager),
-                        None => EvalOutcome::UNDETERMINED,
-                    });
+                let mut args: SmallVec<[EvalVal; 2]> = SmallVec::new();
+                let mut complete = true;
+                for members in &entry.arg_class_terms {
+                    match self.class_value(members, model, manager) {
+                        Some(arg) => args.push(arg),
+                        None => {
+                            complete = false;
+                            break;
+                        }
+                    }
                 }
-                Opened::Frame(Frame::new(
-                    Op::Select {
-                        index: *index,
-                        levels,
-                        base,
-                        state: SelectState::Index,
-                    },
-                    depth,
-                ))
+                if complete {
+                    entries.push((args, value));
+                }
             }
-            // Opaque leaves (uninterpreted applications, …): the model may pin
-            // a concrete value; otherwise inconclusive.
-            _ => Opened::Done(match model.get(term) {
-                Some(value_term) => parse_value_term(value_term, manager),
-                None => EvalOutcome::UNDETERMINED,
-            }),
+            if !entries.is_empty() {
+                interps.insert(func_id, entries);
+            }
         }
+        interps
     }
 
-    /// The store chain under a read's array operand, outermost level first,
-    /// together with the outcome the read falls back to once every level is
-    /// definitely missed: the model's entry for the innermost base's read at
-    /// the same index — the term the read-over-write lemma interns
-    /// (`select(base, index)`), which `build_model` records like any other
-    /// opaque leaf — or `Undetermined` when the model holds none.
+    /// The value some member of a congruence class carries.
     ///
-    /// Terms are hash-consed, so a chain is a path, never a cycle, and its
-    /// length is bounded by the term's size; the levels live on the heap.
-    /// The `(array, index)` index over the model is built once per
-    /// evaluation, on the first chain that needs it: a `Model` is keyed by
-    /// term id, and the base's read is a *different* term from the one being
-    /// evaluated.
-    fn store_chain(
+    /// Three readings, in order of directness: the model's own entry for a
+    /// member, a member that is a literal and so is its own value, and — for a
+    /// member the model does not publish because it is *compound*, such as the
+    /// `(bvadd a #x01)` that is `(f (bvadd a #x01))`'s argument — the value the
+    /// published model gives it when its leaves are substituted and the result
+    /// folded (`TermManager::substitute` plus the term rewriter, the pair
+    /// `(get-value)`'s own fallback path uses).
+    fn class_value(
         &self,
-        array: TermId,
-        index: TermId,
+        members: &[TermId],
         model: &Model,
-        manager: &TermManager,
-        select_index: &mut SelectIndex,
-    ) -> (SmallVec<[(TermId, TermId); 4]>, EvalOutcome) {
-        let mut levels: SmallVec<[(TermId, TermId); 4]> = SmallVec::new();
-        let mut base = array;
-        while let Some(TermKind::Store(inner, store_index, value)) =
-            manager.get(base).map(|t| &t.kind)
-        {
-            levels.push((*store_index, *value));
-            base = *inner;
-        }
-        if levels.is_empty() {
-            return (levels, EvalOutcome::UNDETERMINED);
-        }
-        let reads = select_index.get_or_insert_with(|| {
-            let mut reads: FxHashMap<(TermId, TermId), TermId> = FxHashMap::default();
-            for (&key, &value) in model.assignments() {
-                if let Some(TermKind::Select(read_array, read_index)) =
-                    manager.get(key).map(|t| &t.kind)
-                {
-                    reads.insert((*read_array, *read_index), value);
-                }
+        manager: &mut TermManager,
+    ) -> Option<EvalVal> {
+        for &member in members {
+            if let Some(value_term) = model.get(member)
+                && let EvalOutcome::Value(value) = parse_value_term(value_term, manager)
+            {
+                return Some(value);
             }
-            reads
-        });
-        let fallback = reads
-            .get(&(base, index))
-            .map_or(EvalOutcome::UNDETERMINED, |&value| {
-                parse_value_term(value, manager)
-            });
-        (levels, fallback)
+            if let EvalOutcome::Value(value) = parse_value_term(member, manager) {
+                return Some(value);
+            }
+            if let Some(value) = self.theory_value(member, manager) {
+                return Some(value);
+            }
+            let substituted = manager.substitute(member, model.assignments());
+            let folded = manager.simplify(substituted);
+            if folded != member
+                && let EvalOutcome::Value(value) = parse_value_term(folded, manager)
+            {
+                return Some(value);
+            }
+        }
+        None
     }
 }
 
@@ -1878,6 +1827,10 @@ fn parse_value_term(term: TermId, manager: &TermManager) -> EvalOutcome {
         _ => EvalOutcome::UNDETERMINED,
     }
 }
+
+/// The term reader and the store-chain walk (split out to keep this file
+/// inside the 2000-line limit).
+mod open;
 
 #[cfg(test)]
 mod tests;

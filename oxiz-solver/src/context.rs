@@ -75,6 +75,17 @@ struct DeclaredFun {
     arg_sorts: Vec<SortId>,
     /// Return sort
     ret_sort: SortId,
+    /// Whether the symbol already carries an interpretation of its own, so a
+    /// model must **not** invent one for it (`#P2b-34`).
+    ///
+    /// `declared_funs` is the signature table for every symbol with arguments,
+    /// and three kinds live in it: genuinely uninterpreted functions from
+    /// `(declare-fun f (S) T)`, datatype constructors/selectors (whose meaning
+    /// is the datatype declaration), and `define-fun`/`define-funs-rec` macros
+    /// (whose meaning is their body, printed by `recfun_model_lines`).  Only
+    /// the first kind has a model interpretation to report; printing one for
+    /// an enum constructor produced `(define-fun blue () Color red)`.
+    interpreted: bool,
 }
 
 /// Solver context for managing the solving process
@@ -269,13 +280,49 @@ impl Context {
     /// Registers a function signature in the context. For nullary functions (constants),
     /// use `declare_const` instead.
     pub fn declare_fun(&mut self, name: &str, arg_sorts: Vec<SortId>, ret_sort: SortId) {
+        self.push_fun_decl(name, arg_sorts, ret_sort, false);
+    }
+
+    /// Register the signature of a symbol that is **not** an uninterpreted
+    /// function: a datatype constructor or selector, or a `define-fun` macro.
+    ///
+    /// Introspection (`get_fun_signature`, `declared_function_names`) reports
+    /// it exactly as before; the flag only keeps `(get-model)` from inventing
+    /// an interpretation for a symbol whose meaning is already fixed (see
+    /// [`DeclaredFun::interpreted`]).
+    pub(crate) fn declare_interpreted_fun(
+        &mut self,
+        name: &str,
+        arg_sorts: Vec<SortId>,
+        ret_sort: SortId,
+    ) {
+        self.push_fun_decl(name, arg_sorts, ret_sort, true);
+    }
+
+    /// The one write site of `declared_funs` / `fun_name_to_index`.
+    fn push_fun_decl(
+        &mut self,
+        name: &str,
+        arg_sorts: Vec<SortId>,
+        ret_sort: SortId,
+        interpreted: bool,
+    ) {
         let index = self.declared_funs.len();
         self.declared_funs.push(DeclaredFun {
             name: name.to_string(),
             arg_sorts,
             ret_sort,
+            interpreted,
         });
         self.fun_name_to_index.insert(name.to_string(), index);
+        // An array constant is an `Apply` whose function symbol is the string
+        // `"(as const)"`, and `|(as const)|` is a legal quoted SMT-LIB symbol:
+        // once a script declares that name, an application of it can no longer
+        // be told from an array constant, so the array-constant read axiom is
+        // switched off for the rest of the script (`#P2b-36`).
+        if name == crate::solver::array_axioms::CONST_ARRAY_FUNC {
+            self.solver.shadow_const_array_symbol();
+        }
     }
 
     /// Get function signature if it exists
@@ -1339,7 +1386,7 @@ impl Context {
                             .iter()
                             .map(|(_, sort_name)| self.parse_sort_name(sort_name))
                             .collect::<Result<_>>()?;
-                        self.declare_fun(&name, arg_sorts, sort);
+                        self.declare_interpreted_fun(&name, arg_sorts, sort);
                     }
                 }
                 Command::DeclareDatatype { name, .. } => {

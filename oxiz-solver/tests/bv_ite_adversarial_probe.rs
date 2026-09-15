@@ -1200,8 +1200,9 @@ fn adversarial_campaign() {
 // ---------------------------------------------------------------------------
 // Three holes this probe found on the tree carrying only `#P2b-24`/`#P2b-25`,
 // each pinned here first as "still open" and inverted the day it closed
-// (`#P2b-27`, `#P2b-28`, `#P2b-29`), and a fourth the review of those three
-// found beside them (`#P2b-32`).  They stay as regression guards.
+// (`#P2b-27`, `#P2b-28`, `#P2b-29`), a fourth the review of those three found
+// beside them (`#P2b-32`), and a fifth the review of *that* one found
+// (`#P2b-33`).  They stay as regression guards.
 // ---------------------------------------------------------------------------
 
 /// Congruence reaches an opaque leaf *under* a bit-vector operation
@@ -1356,5 +1357,103 @@ fn p2b32_read_over_write_under_a_bv_operation_is_refuted() {
     assert_eq!(
         direct_verdict, "unsat",
         "the direct read was always refuted"
+    );
+}
+
+/// Read-over-write reaches a `select` that occurs only as the ARGUMENT of an
+/// uninterpreted application (`#P2b-33`):
+/// `(distinct (f (select (store arr i #x05) i)) (f #x05))` is unsatisfiable.
+/// The guard on the whole lazy array-refinement loop
+/// (`Solver::has_array_ops`) was raised by `track_theory_vars`, which
+/// deliberately does not descend into an application's arguments, so a formula
+/// whose only read sits there never ran `instantiate_array_axioms` at all: no
+/// read-over-write instance existed, the read stayed a free bit-vector, and the
+/// model gate — which sees the same free leaf — vouched for it.  This tree,
+/// 0.3.3 and every tree before `#P2b-32` all answered `sat`; `#P2b-32` itself
+/// did not touch it, because the walk it fixed was never reached.  The guard is
+/// now the instantiator's own walk (`Solver::mark_array_ops`).  (The same read
+/// under a bit-vector operator is `#P2b-32`, checked above; as a *direct* atom
+/// operand it was always refuted, which is still checked here.)
+#[test]
+fn p2b33_read_over_write_under_an_application_is_refuted() {
+    let script = "\
+(set-logic QF_AUFBV)
+(declare-fun f ((_ BitVec 8)) (_ BitVec 8))
+(declare-const arr (Array (_ BitVec 8) (_ BitVec 8)))
+(declare-const i (_ BitVec 8))
+(assert (distinct (f (select (store arr i #x05) i)) (f #x05)))
+(check-sat)
+";
+    let verdict = match run_script(script) {
+        Run::Lines(lines) => lines.first().and_then(|l| verdict_of(l)).unwrap_or("none"),
+        Run::Error(_) => "error",
+        Run::Panic(_) => "panic",
+    };
+    assert_eq!(
+        verdict, "unsat",
+        "the wrong `sat` of the pre-#P2b-33 tree is back (now {verdict})"
+    );
+    let direct = "\
+(set-logic QF_AUFBV)
+(declare-fun f ((_ BitVec 8)) (_ BitVec 8))
+(declare-const arr (Array (_ BitVec 8) (_ BitVec 8)))
+(declare-const i (_ BitVec 8))
+(assert (distinct (select (store arr i #x05) i) #x05))
+(check-sat)
+";
+    let direct_verdict = match run_script(direct) {
+        Run::Lines(lines) => lines.first().and_then(|l| verdict_of(l)).unwrap_or("none"),
+        _ => "error",
+    };
+    assert_eq!(
+        direct_verdict, "unsat",
+        "the direct read was always refuted"
+    );
+}
+
+/// A read of the SMT-LIB array constant is its default (`#P2b-36`):
+/// `(= (select ((as const (Array (_ BitVec 8) (_ BitVec 8))) #x00) #x00) #x05)`
+/// is unsatisfiable.  The array constant has no term kind of its own — the
+/// parser turns the qualified identifier `(as const (Array D R))` into an
+/// ordinary uninterpreted `Apply` — so every theory saw an opaque array, the
+/// read was a free bit-vector, and the model gate saw the same free leaf.
+/// 0.3.3 and every tree before this one answered `sat`, as they did for the
+/// `Int` spelling, for the read under `bvadd`, and for the read wrapped in an
+/// uninterpreted function.  `build_const_array_reads` supplies the axiom.
+///
+/// The second script is the control the axiom must not break: `|(as const)|`
+/// is a legal quoted SMT-LIB symbol that interns to exactly the name the
+/// parser gives an array constant, so a script declaring it gets an
+/// uninterpreted function and a genuine `sat`.
+#[test]
+fn p2b36_a_read_of_an_array_constant_is_refuted() {
+    let script = "\
+(set-logic QF_ABV)
+(declare-const i (_ BitVec 8))
+(assert (= (bvadd (select ((as const (Array (_ BitVec 8) (_ BitVec 8))) #x02) i) #x01) #x06))
+(check-sat)
+";
+    let verdict = match run_script(script) {
+        Run::Lines(lines) => lines.first().and_then(|l| verdict_of(l)).unwrap_or("none"),
+        Run::Error(_) => "error",
+        Run::Panic(_) => "panic",
+    };
+    assert_eq!(
+        verdict, "unsat",
+        "the wrong `sat` of the pre-#P2b-36 tree is back (now {verdict})"
+    );
+    let shadowed = "\
+(set-logic QF_AUFBV)
+(declare-fun |(as const)| ((_ BitVec 8)) (Array (_ BitVec 8) (_ BitVec 8)))
+(assert (= (select (|(as const)| #x00) #x00) #x05))
+(check-sat)
+";
+    let shadowed_verdict = match run_script(shadowed) {
+        Run::Lines(lines) => lines.first().and_then(|l| verdict_of(l)).unwrap_or("none"),
+        _ => "error",
+    };
+    assert_eq!(
+        shadowed_verdict, "sat",
+        "a declared `|(as const)|` must stay an uninterpreted function"
     );
 }

@@ -10,7 +10,13 @@
 //! variable, and the DIMACS conversion returned a wrong number rather than
 //! failing. This package states nine such properties as `#[harness]` entry
 //! points over the **public** API of `oxiz-sat`, and records the verdict
-//! `cargo formal check` actually returned for each of them.
+//! `cargo formal check` actually returned for each of them. Since wave D2 of
+//! cargo-formal's Phase 3 it also restates each of the nine as a
+//! `#[requires]`/`#[ensures]` contract on a `spec_*` wrapper in [`spec`], with
+//! a `#[proof_for_contract]` harness beside it, so the same property is
+//! measured once at L1 (an `assert` inside a harness) and once at L2 (an
+//! `ensures` on a contracted function). The contract is on the **wrapper**;
+//! nothing in `oxiz-sat` is annotated.
 //!
 //! Nothing here is a copy of `oxiz-sat`: it is an ordinary path dependency
 //! (`..`), and `cargo-formal` lowers its reachable bodies into this crate's
@@ -23,6 +29,15 @@
 //! `cargo-formal` calls OxiZ as its SMT backend, so `oxiz-sat` is part of the
 //! verifier's own trusted computing base, and the package sets
 //! `self-host = true` in `[package.metadata.formal]`. The report says so.
+//!
+//! That setting also decides what counts as evidence. `claim-requires`
+//! defaults to `lrat, oxilean-verify, external-replay` here, and the LRAT
+//! certificates `cargo formal check --evidence lrat` attaches are produced by
+//! crates.io `oxiz-sat` 0.3.3 and checked by `oxiz-proof` 0.3.3 -- the
+//! published copy of the crate under test and its sibling -- so cargo-formal
+//! discounts them: they corroborate nothing for a `self-host` package.
+//! `cargo formal replay --all --solver z3` is what does, and `README.md`
+//! records what z3 4.15.4 answered.
 //!
 //! Two versions of one file are involved, and keeping them apart is the whole
 //! point: the harnesses verify the `oxiz-sat/src/literal.rs` **of this working
@@ -39,10 +54,10 @@
 //! 1. **`cargo build`** (plain, stable). Harnesses vanish entirely (neither
 //!    `#[cfg(formal)]` nor `#[cfg(all(test, oxiformal_runtime_checks))]`
 //!    applies), so this only checks that the package and `oxiz-sat` type-check
-//!    on stable. `cargo test` additionally runs `harness::plain_tests`,
-//!    which holds a concrete witness for every `refuted` row plus the
-//!    boundary facts no harness reaches -- ordinary Rust tests, no solver
-//!    involved.
+//!    on stable. `cargo test` additionally runs `harness::plain_tests` and
+//!    `spec::plain_tests` (13 ordinary tests, measured), which hold a
+//!    concrete witness for every `refuted` row plus the boundary facts no
+//!    harness reaches -- ordinary Rust tests, no solver involved.
 //! 2. **`RUSTFLAGS="--cfg oxiformal_runtime_checks" cargo test`**. Every
 //!    harness becomes a `#[test]` that loops [`oxiformal::rt::iterations`]
 //!    (256 by default) times through a random draw. A harness whose
@@ -52,8 +67,13 @@
 //!    counterexample is a single narrow point in a huge domain is left
 //!    unmarked: it is genuinely `refuted` at L1, but a fair-coin fuzzer
 //!    essentially never finds the witness in 256 draws, so the test passes --
-//!    which is not evidence of correctness. Exactly one harness here is dense
-//!    and exactly one is narrow; both are documented as such.
+//!    which is not evidence of correctness. Exactly one `#[harness]` here is
+//!    dense and exactly one is narrow; both are documented as such. A
+//!    `#[proof_for_contract]` harness is different: its body runs **once**,
+//!    un-wrapped, so a single draw is never a sample. The one whose witness
+//!    would be a coin flip (`spec::spec_lit_pos_unbounded_contract`) is
+//!    `#[ignore]`d in this build and says why; measured, this build runs
+//!    17 tests and ignores 1.
 //! 3. **`cargo +nightly-2026-06-20 check` with `--cfg formal
 //!    -Zcrate-attr=feature(register_tool) -Zcrate-attr=register_tool(formal_tool)`**
 //!    and a separate `--target-dir`, exactly the flags the `cargo-formal`
@@ -81,11 +101,18 @@
 //!
 //! A `debug_assert!` with no format arguments lowers to
 //! `core::panicking::panic`, so its property key is `panic`, not `assert`.
-//! Six of this package's measured rows carry that key, over eight obligations
-//! -- six `debug_assert!` expansions and two reaches of `to_dimacs`'s
-//! documented unconditional panic -- and they are the interesting ones: they
-//! are the checks the fix added, and the two `refuted` rows are among them.
+//! Most of this package's interesting rows carry that key -- they are the
+//! checks the upstream fix added, and every `refuted` row measured here is
+//! one of them. In the 2026-09-15 measurement there are three: the `panic`
+//! row of `harness::lit_pos_roundtrip_unbounded_harness` and the `panic` rows
+//! of its two contract twins `spec::spec_lit_pos_unbounded_contract` and
+//! `spec::spec_lit_from_dimacs_nonzero_contract`. `harness::dimacs_negation_harness`'s
+//! `panic` row was `refuted` in the 2026-09-08/09 and 2026-09-14 runs and is
+//! `unknown` (`solver-model-rejected`) in this one, on unchanged source and
+//! pins; `README.md` and `EXPECTED.toml` explain why that is the model check
+//! working rather than a fact changing.
 
 #![forbid(unsafe_code)]
 
 pub mod harness;
+pub mod spec;

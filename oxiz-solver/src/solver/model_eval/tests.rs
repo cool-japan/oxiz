@@ -824,7 +824,7 @@ fn a_read_with_no_store_is_the_published_leaf() {
     );
 }
 
-/// `(get-value)`'s reading (`Solver::model_value_of`) folds numeric leaves
+/// `(get-value)`'s reading (`Solver::model_value_in`) folds numeric leaves
 /// from the **published model**, never from the tableau: a variable the
 /// nonlinear engine decided has a model entry the tableau knows nothing
 /// about, and the old routing printed the tableau's stale `0` for `x` where
@@ -844,14 +844,15 @@ fn get_value_reads_numeric_leaves_from_the_model_not_the_tableau() {
     let mut solver = solver_with(Vec::new());
     solver.model = Some(model);
 
+    let published = solver.model.clone().expect("model");
     assert_eq!(
-        solver.model_value_of(x, &mut manager),
+        solver.model_value_in(x, &published, &mut manager),
         Some(minus_two),
         "a direct entry is printed as it is"
     );
     let four = manager.mk_real(Rational64::from_integer(4));
     assert_eq!(
-        solver.model_value_of(square, &mut manager),
+        solver.model_value_in(square, &published, &mut manager),
         Some(four),
         "x * x folds over the model's -2, not the tableau's nothing"
     );

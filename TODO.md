@@ -13,19 +13,11 @@ Last Updated: 2026-08-26
 
 **Superseded by the v0.2.4 honest re-audit.** The comparator that produced the table below counted an `Unknown` answer as a match (`bench/z3_parity/src/comparator.rs` — see the now-fixed `[x]` finding under "Production-Readiness Audit Findings" below), so "100%" was reachable by declining to answer rather than by matching Z3's verdict. The comparator used from 0.2.4 onward never counts `Unknown` as a match. The current, honestly-measured status lives in "Current Statistics" below, with the tracked per-environment snapshot `bench/z3_parity/results.<os>-<arch>.json` as the authoritative source — only `results.macos-aarch64.json` is currently in the tree, with `results.linux-x86_64.json` to join it once a Linux environment's run is committed. The methodology's agreement rule (every tracked snapshot must agree on the verdict of every benchmark — `oxiz_result`, `z3_result`, `match_status` — with only the timings expected to differ between machines) is enforced by `bench/z3_parity/tests/cross_env_verdict_agreement.rs` on every `cargo test`, but with a single snapshot in the tree that check is currently vacuous, not yet exercised across environments; the un-suffixed `results.json` is git-ignored local scratch output and is not evidence. As of this release, **170/170 Correct** on the extended 19-logic suite (the three quantified logics that were still below 100% at v0.3.0 — `UFLIA`/`UFLRA`/`AUFLIA` — are now all at 100%; the suite grew 168→170 in 0.3.3 with two new symbolic-`RoundingMode` QF_FP benchmarks, and no verdict moved on any of the 168 pre-existing benchmarks) and **88/88 Correct** on this original 8-logic/88-benchmark quickstart core, both under the honest comparator that never counts `Unknown` as a match. This is a claim about the differential parity suite, not a blanket claim of 100% Z3 compatibility.
 
-### Z3 Parity Results (as originally reported, v0.2.0 — see supersession note above)
+### Z3 Parity Results (as originally reported, v0.2.0 — see supersession note above; table condensed 2026-09-15)
 
-| Logic | Tests | Result | Status |
-|-------|-------|--------|--------|
-| QF_LIA | 16/16 | 100% | Perfect |
-| QF_LRA | 16/16 | 100% | Perfect |
-| QF_NIA | 1/1 | 100% | Perfect |
-| QF_S | 10/10 | 100% | Perfect |
-| QF_BV | 15/15 | 100% | Perfect |
-| QF_FP | 10/10 | 100% | Perfect |
-| QF_DT | 10/10 | 100% | Perfect |
-| QF_A | 10/10 | 100% | Perfect |
-| **TOTAL** | **88/88** | **100%** | **Production Ready** |
+88/88 across the eight core logics as the v0.2.0 comparator counted them: QF_LIA 16, QF_LRA 16,
+QF_NIA 1, QF_S 10, QF_BV 15, QF_FP 10, QF_DT 10, QF_A 10. The honest re-measured status is
+"Current Statistics" below.
 
 ---
 
@@ -83,109 +75,48 @@ OxiZ is not just a Z3 port - it surpasses Z3 in critical areas:
 
 ---
 
-## Completed: April 4, 2026
+## Completed: April 4, 2026 (condensed 2026-09-15)
 
-### Performance Optimization
-- [x] Custom arena allocator for AST nodes (bumpalo-backed, feature-gated)
-- [x] Clause pool for SAT solver (5 size-based buckets, recycle/reuse)
-- [x] SIMD-friendly polynomial operations (chunk-of-4 autovectorization)
-- [x] Optimized hash functions for term interning (TermKindHasher)
-- [x] FP bit-blasting cache (avoid redundant bit-blasting)
-- [x] Model generation optimization (lazy evaluation cache)
-- [x] Parallel theory checking (rayon-based, feature-gated)
-- [x] Lock-free data structures for parallel solving
-- [x] Lazy evaluation strategies
-
-### User Experience
-- [x] EasySolver convenience API (builder pattern, one-liner solving)
-- [x] Better error messages (hints, did_you_mean, context_snippet)
-- [x] Timeout and resource limit APIs (ResourceLimits, ResourceMonitor)
-
-### Debugging Support
-- [x] Solver state visualization (SolverStateSnapshot, DOT graph)
-- [x] Trace generation (TraceEvent, JSON/text output)
-- [x] Better conflict explanations (ConflictExplainer, UnsatExplanation)
-- [x] Model minimization (linear and binary search strategies)
-
-### Documentation
-- [x] Performance tuning guide (docs/PERFORMANCE_TUNING.md)
-- [x] Theory-specific guides (docs/THEORY_GUIDE.md)
-- [x] Z3 migration guide (docs/MIGRATION_Z3.md)
-- [x] Common pitfalls (docs/PITFALLS.md)
-- [x] Case studies (docs/CASE_STUDIES.md)
-
-### File Maintenance
-- [x] solve_eqs.rs re-split (1942 -> 1553 lines)
-- [x] rational.rs re-split (1940 -> 1388 + 553 tests)
-
-### Stats Delta (March 31)
-- Tests: 6,122 -> 6,155 (+33 new)
-- Rust LoC: 392,274 -> 393,292 (+1,018)
-- Clippy warnings: 0
-- Largest file: 1,892 lines
-- All files under 2,000 lines
+Nine performance optimizations (arena allocator, clause pool, SIMD polynomial operations,
+`TermKindHasher`, FP bit-blasting cache, model-generation cache, parallel theory checking,
+lock-free structures, lazy evaluation), the `EasySolver` API with better error messages and
+resource limits, four debugging facilities (state visualization, trace generation, conflict
+explanations, model minimization), five documentation guides (performance tuning, theory, Z3
+migration, pitfalls, case studies) and two file re-splits (`solve_eqs.rs` 1942 → 1553,
+`rational.rs` 1940 → 1388 + 553 tests). Stats delta: tests 6,122 → 6,155, Rust LoC
+392,274 → 393,292, clippy warnings 0, largest file 1,892 lines. The per-item list is the
+"March 31, 2026 — Performance, UX, Debugging, Docs" entry under Recent Achievements below.
 
 ---
 
 ## Post-Parity Priorities (v0.3.0 and Beyond)
 
-### High Priority: Performance Optimization (27/28 Complete - JIT specialization deferred to v0.4.0)
+### High Priority: Performance Optimization (27/28 Complete - JIT specialization deferred to v0.4.0) (condensed 2026-09-15)
 
 **Goal**: Achieve performance parity with Z3 (currently ~1.5-2x slower)
 
-- [x] Custom allocators (arena for AST nodes, clause pooling)
-- [x] SIMD-friendly polynomial operations (chunk-of-4 autovectorization)
-- [x] Optimized hash functions (TermKindHasher for term interning)
-- [x] FP bit-blasting cache
-- [x] Model generation optimization (lazy evaluation cache)
-- [x] Parallel theory checking (rayon-based, feature-gated)
-- [x] Lock-free data structures for parallel solver
-- [x] Lazy evaluation strategies
-- [x] Clause pool for SAT solver (5 size-based buckets)
+All 27 shipped items are recorded here in one block; the per-item detail was the
+2026-04-19/24 planning and bench notes, and the code they describe is in the tree.
+Allocation and layout: arena AST nodes, clause pooling (5 size buckets), `TermKindHasher`
+interning, SIMD-friendly chunk-of-4 polynomial ops, FP bit-blasting cache, lazy model
+evaluation, rayon-gated parallel theory checking, lock-free parallel structures.
+Profiling: `ProfilingCategory` extended with the ten named hot paths (SAT propagation,
+theory `check()`, e-graph merge, simplex pivot, BV propagation, string automata, array
+extensionality, proof generation, parser, cache miss), instrumented at their call sites,
+with `bench/profile/`, `scripts/flamegraph.sh --category` and `docs/PROFILING_REPORT.md`.
+EUF pass (2026-04-24): production benchmarks plus a regression baseline, the fingerprint
+pre-filter activated, cross-crate `#[inline]`, `get_function_props` hoisted (intern_leaf
+-24%, intern_app -16%, merge_congruence -10%, merge_injective -22%), a reusable
+canonicalize buffer and flat `SigUpdateEntry` (-6.7%/-6.7%/-8.2%), an incremental
+`sig_table`/`fingerprint_table` undo trail replacing the O(|nodes|) rebuild on `pop`, and
+the `ENode` layout reorder with the `NO_FUNC = u32::MAX` sentinel (`<= 56 B`, pinned by
+`test_enode_size_regression`). Performance regression testing: CI tracking, automated
+comparison against Z3, and the dashboard.
 
-- [x] Profile remaining hot paths (10 items) (planned 2026-04-19)
-  - **Goal:** Reproducible profiling harness covering 10 named hot paths; snapshot `docs/PROFILING_REPORT.md` names worst offenders; each path gets a `ScopedTimer` pair for CI-measurable cost.
-  - **Design:** Extend `oxiz-sat/src/profiling.rs::ProfilingCategory` with 10 categories (SatPropagation, TheoryCheck, EGraphMerge, SimplexPivot, BvPropagation, StringAutomata, ArrayExtensionality, ProofGeneration, Parser, CacheMiss); wire at call sites; new `bench/profile/` crate; extend `scripts/flamegraph.sh` with `--category`; emit `docs/PROFILING_REPORT.md`.
-  - **Files:** `oxiz-sat/src/profiling.rs`, 10 instrumented call sites across crates, new `bench/profile/{Cargo.toml,benches/profile_benchmarks.rs,src/lib.rs}`, `scripts/flamegraph.sh`, new `docs/PROFILING_REPORT.md`, root `Cargo.toml` workspace member.
-  - **Tests:** new `oxiz-sat/tests/profiling_pass.rs` — each category records ≥1 sample; JSON summary is parseable.
-  - [x] SAT solver clause propagation
-  - [x] Theory solver check() methods
-  - [x] E-graph merge operations
-  - [x] Simplex pivot operations
-  - [x] BV constraint propagation
-  - [x] String solver automata operations
-  - [x] Array extensionality checks
-  - [x] Proof generation overhead
-  - [x] Parser performance
-  - [x] Cache miss analysis
-
-- [x] Additional performance improvements (5 of 6 sub-items; JIT deferred) (planned 2026-04-19)
-  - **Goal:** Five concrete allocation-reduction fixes: in-place watchlist updates, SmallVec for EClass::nodes, incremental theory cache, cache-friendly Clause layout, allocation-free EUF propagation.
-  - **Design:** (1) `oxiz-sat/src/cdcl/propagation.rs` — swap_remove+clear vs Vec::clone; (2) `SmallVec<[Term;4]>` for `oxiz-core/src/egraph/eclass.rs::EClass::nodes`; (3) memo `(theory_id, level)→propagation set` in coordinator.rs; (4) hot-field-first struct layout in `oxiz-sat/src/clause.rs`; (5) per-solver reuse buffer in `oxiz-theories/src/euf/solver.rs`.
-  - **Files:** `oxiz-sat/src/cdcl/propagation.rs`, `oxiz-core/src/egraph/eclass.rs`, `oxiz-solver/src/combination/coordinator.rs`, `oxiz-sat/src/clause.rs`, `oxiz-theories/src/euf/solver.rs`.
-  - **Tests:** new `oxiz-sat/tests/allocation_reduction.rs` with dhat-heap counts; per-fix unit tests.
-  - [x] Reduce allocations further (in-place updates)
-  - [x] Better data structure choices (profiling-driven)
-  - [x] Incremental computation caching
-  - [~] JIT-style specialization for hot theory operations
-  - **Scope-box (2026-04-24):** Pure-Rust EUF data-layout + allocation-reduction + incremental-backtrack pass. Items 1–5 completed; parent umbrella (JIT/codegen layer) deferred to v0.4.0.
-  - [x] EUF production-path benchmarks + regression baseline (2026-04-24)
-    - Added `oxiz-theories/benches/euf_benchmarks.rs` with 5 criterion workloads driving `EufSolver` directly; 5 baseline entries added to `bench/regression/baseline.json`.
-  - [x] EUF cheap-wins bundle: fingerprint pre-filter + `#[inline]` cross-crate + hoist `get_function_props` (2026-04-24)
-    - Activated dead fingerprint pre-filter in `propagate`; added `#[inline]` to 7 cross-crate wrappers; hoisted `get_function_props` out of inner loop. Bench deltas: intern_leaf −24%, intern_app −16%, merge_congruence −10%, merge_injective −22%.
-  - [x] EUF allocation reduction in `propagate` (2026-04-24)
-    - Reusable canonicalize buffer (out-param), proof_forest changed to `Vec<SmallVec<[MergeEdge; 4]>>`, `SigUpdateEntry` flat struct. Bench 3 −6.7%, bench 4 −6.7%, bench 5 −8.2%.
-  - [x] EUF incremental sig_table + fingerprint_table undo trail (2026-04-24)
-    - Replaced O(|nodes|) rebuild-on-pop with per-insertion `SigTrailEntry` trail + `sig_trail_limits`. Trail guarded by `is_empty()` check so non-incremental workloads see zero overhead. Miri clean; 6366/6366 tests pass.
-  - [x] EUF `ENode` layout reorder + `func: u32` sentinel (2026-04-24)
-    - Reordered fields to put hot fields (`func`, `fingerprint`) first; replaced `Option<u32>` with `u32` + `NO_FUNC = u32::MAX` sentinel. Added `ENode::leaf()` / `ENode::app()` constructors. `test_enode_size_regression` confirms ≤56B.
-  - [x] Memory layout optimization
-  - [x] Allocation-free theory propagation paths
-
-- [x] Performance regression testing (3 items)
-  - [x] CI/CD integration for performance tracking (planned 2026-04-19)
-  - [x] Automated benchmark comparison vs Z3 (planned 2026-04-19)
-  - [x] Performance dashboard (planned 2026-04-19)
+- [~] JIT-style specialization for hot theory operations
+  - **Scope-box (2026-04-24):** Pure-Rust EUF data-layout + allocation-reduction +
+    incremental-backtrack pass. Items 1-5 completed; parent umbrella (JIT/codegen layer)
+    deferred to v0.4.0.
 
 **Target**: Within 1.2x of Z3 performance by v0.3.0
 
@@ -209,67 +140,27 @@ OxiZ is not just a Z3 port - it surpasses Z3 in critical areas:
   - [x] Extend QF_NIA coverage (more benchmarks)
   - [x] QF_NIRA - Non-linear Integer/Real Arithmetic
 
-### Medium Priority: Advanced Features
+### Medium Priority: Advanced Features (Complete; per-item plans condensed 2026-09-15)
 
-- [x] Enhanced preprocessing (5 items) (planned 2026-04-19)
-  - **Goal:** Five tactics: `bmc-unroll` (spacer/bmc wrapper), `aggressive-simplify` (new rewrite rules), `ctx-dep-rewrite` polish (dead-branch elimination in ITEs), `symmetry-break` (lex-leader constraints), `cube-improve` (VSIDS-depth-aware cubes).
-  - **Design:** new `oxiz-spacer/src/tactics/bmc_unroll.rs`; extend `oxiz-core/src/simplification/mod.rs`; polish `ctx_solver_simplify.rs`; new `oxiz-sat/src/tactics/symmetry.rs`; extend `oxiz-sat/src/cube.rs::CubeGenerator`.
-  - **Files:** `oxiz-spacer/src/tactics/bmc_unroll.rs` (new), `oxiz-spacer/src/lib.rs`, `oxiz-core/src/simplification/mod.rs`, `oxiz-core/src/tactic/ctx_solver_simplify.rs`, `oxiz-sat/src/tactics/symmetry.rs` (new), `oxiz-sat/src/cube.rs`, `oxiz-core/src/tactic/registry.rs`.
-  - **Tests:** per-tactic unit test (rewrite shape) + integration test (apply tactic, status preserved).
-  - [x] Bounded model checking tactics (planned 2026-04-19)
-          - **Goal:** `oxiz-spacer::tactics::BmcUnrollTactic` is production-ready: documented re-export, ≥4 unit tests covering nested next-state vars, idempotent re-application, depth-from-option > 5, and integration with `oxiz-spacer::Bmc`.
-          - **Design:** Existing `BmcEngine`/`BmcUnrollTactic` (224 lines) renames `x_next`/`x'` → `x@n+1`. Verify rename correctness under multiple applications; verify `NotApplicable` on goals with < 3 assertions; document distinction from production `Bmc` solver in `oxiz-spacer/src/bmc.rs`.
-          - **Files:** `oxiz-spacer/src/tactics/bmc_unroll.rs` (tests + doc), `oxiz-spacer/src/tactics/mod.rs` (doc comment), `oxiz-spacer/src/lib.rs` (re-export at crate root), `oxiz-spacer/tests/bmc_unroll_integration.rs` (new).
-          - **Tests:** (a) `test_bmc_unroll_handles_nested_next_state`; (b) `test_bmc_unroll_idempotent_under_reapply`; (c) `test_bmc_unroll_from_option_depth`; (d) integration test handing result to `Bmc::check`.
-          - **Risk:** suffix-rename collision on `@n+1` substrings already in names. Mitigation: assert original name is a substring; switch to `@@n+1` separator if collision found.
-          - **Scope cap:** ≤200 LoC net-new.
-  - [x] More aggressive simplification (planned 2026-04-19)
-          - **Goal:** `oxiz-core::simplification::AggressiveSimplifier` gains substantive new rewrite rules (Boolean, arithmetic, bit-vector, ITE) so `aggressive: true` measurably shrinks goals.
-          - **Design:** Extend `simplify_*` family in `oxiz-core/src/simplification/mod.rs`. Rules: (1) De Morgan `Not(Not(a))→a`; (2) Implication identities `Implies(true,b)→b` etc.; (3) XOR identities; (4) Arithmetic constant folding `Add(c1,c2)→c`; (5) BV trivial `BvAnd(x,0)→0` etc.; (6) Equality `Eq(x,x)→true`; (7) ITE `If(true,a,_)→a`, `If(_,a,a)→a`. Use existing memo cache for idempotence.
-          - **Files:** `oxiz-core/src/simplification/mod.rs` (extend); new `oxiz-core/tests/aggressive_simplify_rules.rs`; preserve in-flight 3-line test tolerance in `aggressive_simplify.rs`.
-          - **Tests:** 7 per-rule-family unit tests + 2 integration tests (Boolean-heavy goal, BV-heavy goal). Run `rslines 50` on `tactic/mod.rs` after edit; invoke `splitrs` if > 2000 lines.
-          - **Risk:** recursion memo collision under rule interaction. Mitigation: existing memo cache; assert O(N) lookup count in one test.
-          - **Scope cap:** ≤500 LoC net-new. No new term kinds, no TermManager API changes.
-  - [x] Context-dependent rewriting (planned 2026-04-19)
-          - **Goal:** Live `CtxSolverSimplifyTactic` in `oxiz-core/src/tactic/ctx_simplify.rs` gains dead-branch ITE elimination: when goal context implies `cond` or `Not(cond)`, the corresponding branch of `If(cond, t, e)` is substituted.
-          - **Design:** (1) Build `HashSet<TermId>` from goal assertions as context. (2) For each `If(c,t,e)`: if `c` in ctx → `t`; if `Not(c)` in ctx → `e`; else descend with augmented ctx (t-branch: ctx∪{c}, e-branch: ctx∪{Not(c)}). (3) Use `manager.simplify` for bottom-up rebuild. (4) Cap recursion depth at 32; on overflow return original term (sound). **Path resolution:** Plan's cited path `ctx_solver_simplify.rs` does NOT exist; `core/ctx_solver_simplify.rs` is dead placeholder — do NOT touch it. Target only `ctx_simplify.rs`.
-          - **Files:** `oxiz-core/src/tactic/ctx_simplify.rs` only. No changes to `mod.rs` re-exports or dead placeholder.
-          - **Tests:** (a) `test_ite_eliminates_when_cond_in_context`; (b) `test_ite_eliminates_when_neg_cond_in_context`; (c) `test_ite_descends_with_augmented_ctx` (nested ITE); (d) `test_ite_recursion_depth_cap` (50-deep ITE, no hang); (e) `test_apply_mut_status_preserved`.
-          - **Risk:** augmented context shared-mutation bug. Mitigation: per-call scoping, no global ctx mutation; test (c) validates.
-          - **Scope cap:** ≤300 LoC net-new in `ctx_simplify.rs`.
-  - [x] Symmetry breaking (planned 2026-04-19)
-          - **Goal:** `oxiz-sat::tactics::SymmetryBreakTactic` gains coverage proving tactic shrinks model space. Re-export already at `oxiz-sat/src/lib.rs:228`.
-          - **Design:** Existing 155-line tactic runs `AutomorphismDetector` → `SymmetryBreaker::new(group, Lex)` → `generate_predicates()`. Validate via 4 tests; tighten `NotApplicable` paths.
-          - **Files:** `oxiz-sat/src/tactics/symmetry.rs` (test additions only). `oxiz-sat/src/symmetry.rs` unchanged unless coverage gap found.
-          - **Tests:** (a) `test_symmetry_break_full_3var_symmetry` — fully symmetric 4-clause CNF over 3 vars yields ≥1 lex-leader predicate; (b) `test_symmetry_break_asymmetric_clauses` → `NotApplicable`; (c) `test_symmetry_break_mixed_boolean_integer` → `NotApplicable`; (d) `test_symmetry_break_reduces_model_count` — solver on (clauses ∪ predicates) has fewer satisfying assignments than on clauses alone.
-          - **Risk:** `AutomorphismDetector` may return spurious symmetries. Mitigation: tests assert tactic behaviour (predicates emitted/not), not detector internals.
-          - **Scope cap:** ≤200 LoC net-new (tests only).
-  - [x] Cube generation improvements (planned 2026-04-19)
-          - **Goal:** Validate and prove that `oxiz-sat::cube::CubeGenerator::depth_limit_for_cube` is genuinely VSIDS-depth-aware (confirmed: `extra_depth = log2(activity_sum/avg)` at lines 220–247), and validate `CubeImproveTactic` end-to-end.
-          - **Design:** No production-code changes unless a test forces one (e.g. `extra_depth.ceil()` rounding kills the increment for activity ratio < 2 — fix only if observed). All work is tests.
-          - **Files:** `oxiz-sat/src/cube.rs` (test additions to `mod tests`); `oxiz-sat/src/tactics/cube_improve.rs` (test additions).
-          - **Tests:** (a) `test_depth_limit_uniform_activity_equals_max_depth`; (b) `test_depth_limit_high_activity_increases_depth` (4× average → depth > max_depth); (c) `test_generate_vsids_guided_orders_by_activity`; (d) `test_cube_improve_tactic_emits_subgoals_per_cube` (4-var Boolean goal → ≥2 subgoals); (e) `test_cube_improve_status_preserved`.
-          - **Risk:** NaN from empty `variable_scores`. Mitigation: existing `if variable_scores.is_empty() { 1.0 }` guard; test (a) covers it.
-          - **Scope cap:** ≤200 LoC net-new.
+All three groups are delivered; the goal/design/files/tests/risk plan blocks written for them in
+April 2026 are dropped here — the code and its tests are the record.
 
-- [x] Better quantifier handling (4 items) (planned 2026-04-19)
-  - **Goal:** (a) PatternCoverScorer (greedy set cover), (b) conflict_score VSIDS for quantifiers in conflict_driven.rs, (c) virtual-substitution QE (Loos–Weispfenning), (d) per-quantifier instantiation budget in MBQI.
-  - **Design:** extend `patterns.rs` with `PatternCoverScorer`; extend `conflict_driven.rs` with `conflict_score: HashMap<QuantifierId,u32>`; new `oxiz-core/src/qe/virtual_substitution.rs`; add `MBQIBudget::per_quantifier` to `heuristics.rs`.
-  - **Files:** `oxiz-solver/src/mbqi/patterns.rs`, `oxiz-solver/src/mbqi/conflict_driven.rs`, `oxiz-core/src/qe/arith.rs`, `oxiz-core/src/qe/virtual_substitution.rs` (new), `oxiz-core/src/qe/mod.rs`, `oxiz-solver/src/mbqi/heuristics.rs`, `oxiz-solver/src/mbqi/mod.rs`.
-  - **Tests:** pattern-cover, conflict-priority, VS, budget enforcement unit tests.
-  - [x] Pattern-based instantiation improvements
-  - [x] Conflict-driven instantiation
-  - [x] Quantifier elimination enhancements
-  - [x] MBQI performance tuning
-
-- [x] Proof system enhancements (3 items) (planned 2026-04-19)
-  - [x] Optimized proof generation (reduce overhead) (planned 2026-04-19)
-  - [x] Proof minimization
-  - [x] Better theory combination proofs (planned 2026-04-19)
-  - **Goal:** (a) bumpalo arena for ProofStep allocation in recorder.rs; (b) structured Nelson–Oppen combination certificate in new theory_combination.rs.
-  - **Design:** `oxiz-proof/src/recorder.rs` — steps arena (ArenaIdx<ProofStep>); new `oxiz-proof/src/theory_combination.rs` — NelsonOppenCertificate with interface-equality chain.
-  - **Files:** `oxiz-proof/src/recorder.rs`, `oxiz-proof/src/lib.rs`, `oxiz-proof/src/theory_combination.rs` (new), `oxiz-solver/src/combination/coordinator.rs`.
-  - **Tests:** arena proof passes checker; new `oxiz-proof/tests/theory_combination_proof.rs` — 3-step EUF+LIA certificate passes ProofChecker.
+- [x] Enhanced preprocessing (5 items): bounded-model-checking tactics
+  (`oxiz-spacer::tactics::BmcUnrollTactic` with its integration test), more aggressive
+  simplification (new Boolean / arithmetic / bit-vector / ITE rewrite rules in
+  `oxiz-core::simplification::AggressiveSimplifier`), context-dependent rewriting (dead-branch ITE
+  elimination in `oxiz-core/src/tactic/ctx_simplify.rs`), symmetry breaking
+  (`oxiz-sat::tactics::SymmetryBreakTactic`), and cube-generation improvements (the VSIDS-depth
+  awareness of `CubeGenerator::depth_limit_for_cube`, validated end to end).
+- [x] Better quantifier handling (4 items): pattern-based instantiation improvements
+  (`PatternCoverScorer`), conflict-driven instantiation (`conflict_score` in
+  `conflict_driven.rs`), quantifier-elimination enhancements (virtual substitution,
+  Loos–Weispfenning, `oxiz-core/src/qe/virtual_substitution.rs`) and MBQI performance tuning
+  (`MBQIBudget::per_quantifier`).
+- [x] Proof system enhancements (3 items): optimized proof generation (arena-allocated
+  `ProofStep`s in `recorder.rs`), proof minimization, and structured Nelson–Oppen theory-combination
+  certificates (`oxiz-proof/src/theory_combination.rs`, with `oxiz-proof/tests/
+  theory_combination_proof.rs`).
 
 ### Medium Priority: User Experience (Complete)
 
@@ -505,18 +396,13 @@ oxiz-core (foundation)
 
 ## Roadmap
 
-### v0.1.3 - COMPLETE (Feb 5, 2026)
-- **100% Z3 Parity** across 8 core SMT-LIB logics
-- Production-ready solver
-- All theory solvers validated
+### v0.1.3 - COMPLETE (Feb 5, 2026) and v0.2.0 - COMPLETE (Feb 6 - Mar 31, 2026) (condensed 2026-09-15)
 
-### v0.2.0 - COMPLETE (Feb 6 - Mar 31, 2026)
-- **168/168 Z3 parity tests**
-- Performance optimization phase 1 (allocators, SIMD, caches)
-- EasySolver API, error messages, resource limits
-- Debugging: visualization, traces, conflict explanations, model minimization
-- Documentation: 5 new guides (performance, theory, migration, pitfalls, case studies)
-- 6,155 tests (16 skipped, 0 failures), 393,292 total Rust lines (312,495 code), 931 files, 0 clippy warnings
+v0.1.3 reached the 8-logic parity core with every theory solver validated; v0.2.0 reached 168/168
+parity tests and shipped performance phase 1, the `EasySolver` API, the four debugging facilities
+and five documentation guides — 6,155 tests (16 skipped, 0 failures), 393,292 Rust lines (312,495
+code), 931 files, 0 clippy warnings. The per-item record is "Completed: April 4, 2026" and the
+Recent Achievements entries above.
 
 ### v0.3.0 (Target: June 2026)
 **Focus: Performance Parity and SMT-COMP**
@@ -679,41 +565,23 @@ A full `cargo nextest run --all-features` on a 14.6 GB developer machine was ter
 - [x] **Changelog note: a test was fixed that had never exercised its stated subject** — record for the v0.3.2 changelog. `deep_sequence_simplify_and_drop_return` (`oxiz-theories`) claimed to exercise both `SeqRewriter::simplify` and the deep `Drop` of a nested `SeqExpr`, but `SeqRewriter::simplify` (`oxiz-theories/src/string/sequence/mod.rs:974`) dismantles the tower on the way down: the helper it drives, `open_simplify` (`oxiz-theories/src/string/sequence/mod.rs:1015`), does `core::mem::replace(..., placeholder())` in four arms (`:1043`, `:1052`, `:1069`, and the `SeqExpr::Reverse` arm at `:1086` that the test hits), so the drop glue only ever received a one-level shell. The tower is now built twice and dropped explicitly, so both halves run. The test was strengthened, not weakened. — **(closed: this is a test-only strengthening, not a shipped behavior change — intentionally left out of the public CHANGELOG.md 0.3.2 entry for that reason)**
   - **Priority:** P3  **Scope:** small
 
-## Stubs to implement (added 2026-06-12 by /cooljapan-stub-check)
+## Stubs to implement (2026-06-12 and 2026-06-22 /cooljapan-stub-check sweeps — all closed; condensed 2026-09-15)
 
-- [x] `oxiz-theories`: `oxiz-theories/tests/fp_integration.rs:296` — fix `assert_is_normal` constraint encoding to reliably produce SAT for normal-float queries — **(fixed: assert_is_normal's constraint encoding is logically sound; the real bug was an unsound double-solve retry in FpSolver::check() (restore_to_trail_size left residue) — removed (wave2b theories-hard, TODO-STUB-FPNORMAL))**
-  - Priority: P2 | Scope: small | Hint: none
-- [x] `oxiz-solver`: `oxiz-solver/src/optimization.rs:749` — complete arithmetic theory solving (currently incomplete, returns unknown for many formulae) — **(fixed: optimize() rewritten to route every feasibility subquery through a fresh theory-complete oxiz-solver Solver; x=y AND x!=y now correctly Unsat)**
-  - Priority: P2 | Scope: large | Hint: none
-- [x] `oxiz-core`: `oxiz-core/src/qe/datatype/case_analysis.rs:237` — uncomment and wire Term construction in case-analysis QE path once Term API is available — **(fixed: real constructor case-split QE implemented in both qe/datatype/plugin.rs and qe/datatype/case_analysis.rs (DT-QE-CASE-ANALYSIS-STUB, wave2))**
-  - Priority: P2 | Scope: small | Hint: none
-
-## Stubs to implement (added 2026-06-22 by /cooljapan-stub-check)
-
-- [x] **oxiz** `oxiz-solver`: `oxiz-solver/src/optimization.rs:749` — `TODO`: `Currently arithmetic theory solving is incomplete` — **(fixed: optimize() rewritten to route every feasibility subquery through a fresh theory-complete oxiz-solver Solver; x=y AND x!=y now correctly Unsat)**
-  - **Priority:** P2  **Scope:** medium  **Cross-project:** none
-  - **Approach:** Complete the integer arithmetic theory in `optimize()` so a model with `x = y ∧ x ≠ y` is correctly returned as Unsat.
-  - **Risk:** Incomplete theory propagation can yield Unknown or unsound Sat results; add targeted regression cases for contradictory integer constraints.
-- [x] **oxiz** `oxiz-theories`: `oxiz-theories/tests/fp_integration.rs:296` — `TODO`: `Fix constraint encoding in assert_is_normal to reliably produce SAT` — **(fixed: assert_is_normal's constraint encoding is logically sound; the real bug was an unsound double-solve retry in FpSolver::check(), now removed (wave2b theories-hard, TODO-STUB-FPNORMAL))**
-  - **Priority:** P2  **Scope:** medium  **Cross-project:** none
-  - **Approach:** Repair the floating-point constraint encoding in `assert_is_normal` so exponent/mantissa range constraints are correct and the normal-number assertion reliably solves.
-  - **Risk:** Off-by-one exponent bias or mantissa width errors silently produce Unsat/Unknown; validate against known-normal IEEE-754 values.
+Both sweeps found the same two items plus one more, and all three are fixed: `optimize()` routes
+every feasibility subquery through a fresh theory-complete `Solver` (`x = y ∧ x ≠ y` is now
+`Unsat`); `assert_is_normal`'s encoding was sound all along and the real defect was an unsound
+double-solve retry in `FpSolver::check()` (`restore_to_trail_size` left residue), removed; and the
+datatype case-analysis QE path has a real constructor case split in both `qe/datatype/plugin.rs`
+and `qe/datatype/case_analysis.rs`.
 
 ---
 
 ## Production-Readiness Audit Findings (added 2026-07-16, ultracode audit)
 
-**Method**: 19 scoped deep-audit agents (per-crate + cross-cutting: SMT-LIB 2.6 compliance, panic audit, Z3 gap vs upstream Z3, test-quality gap, release/packaging) followed by adversarial verification agents (90 verdicts collected before the run was stopped early by request; items below marked *unverified* did not get a verification pass — verify before fixing).
-
-**Build baseline (2026-07-16)**: `cargo check --workspace --all-features` clean; `cargo clippy --all-targets --all-features` 0 warnings; `cargo nextest run --workspace --all-features` 6826/6826 passed (16 skipped). Note: all tests pass *despite* the findings below — i.e. the suite does not exercise these paths (see P2 test-gap items).
-
+**Method**: 19 scoped deep-audit agents (per-crate + cross-cutting: SMT-LIB 2.6 compliance, panic audit, Z3 gap vs upstream Z3, test-quality gap, release/packaging) followed by adversarial verification agents (90 verdicts collected before the run was stopped early by request; items below marked *unverified* did not get a verification pass — verify before fixing). **Build baseline (2026-07-16)**: `cargo check --workspace --all-features` clean; `cargo clippy --all-targets --all-features` 0 warnings; `cargo nextest run --workspace --all-features` 6826/6826 passed (16 skipped) — all tests passed *despite* the findings below, i.e. the suite did not exercise these paths (see the P2 test-gap items).
 **Counts (after location-dedupe)**: P0 confirmed-critical 20 | P1 confirmed-major 30 | P2 unverified-critical 42 | P3 unverified-major 131 | P4 minor/downgraded 105
 
-**Re-verification (2026-07-18, release-polish pass)**: every P0 and P1 item below was individually re-read against the current tree (not just diffed against the original finding) and marked `[x]` only when the described bug pattern was confirmed gone by inspection. Result at that time: **17/20 P0** and **28/30 P1** fixed, 5 still-open items (all in `oxiz-nlsat`).
-
-**Full re-verification (2026-07-21, v0.3.0 hardening pass)**: a second wave of ~19 scoped investigator agents plus three implementation waves re-read every P0–P4 item below against the current tree — including the 5 items still open at the 07-18 pass, all of which are now fixed — and marked `[x]` only when the described bug pattern was confirmed fixed, made honest (documented no-op/honest-Unknown instead of a silent wrong answer), or shown not-a-bug by direct inspection. Result: **20/20 P0**, **30/30 P1**, **42/42 P2**, **126/131 P3**, **94/105 P4**, and **7/7 Policy/Release Chores** resolved. The 16 items still `[ ]` (5 P3, 11 P4) are genuine remaining gaps, none on the default solve path — see each item's note below and the "Remaining (post-0.3.0 hardening)" section for the grouped, deduplicated summary (externally-blocked / deliberately-deferred / confirmed-open-with-file:line).
-
-**0.3.1 re-check (2026-07-31)**: the 0.3.1 soundness sweep and hardening pass closed 11 more of the items left open above — `get-model` value rendering, `:named` assertions / `get-unsat-core`, `:print-success` mode, lexer-error surfacing, `free_vars` binder scoping, the two dead `tactic/core` placeholder files, `TimeoutTactic` thread cancellation, `combine_inference_chains`, and the facade README drift. Running total: **20/20 P0**, **30/30 P1**, **42/42 P2**, **129/131 P3**, **102/105 P4**, **7/7 Policy/Release Chores**. The 5 items still `[ ]` (2 P3, 3 P4) are: Z3 `recfun` end-to-end support, the default-off `property-tests` feature, `oxiz-core`'s decorative secondary BV/FP/datatype theory submodule (two entries, no internal callers), and `mk_bv_concat`'s release-build width default. None is on the default solve path.
+**Re-verification, three passes (2026-07-18 release-polish, 2026-07-21 v0.3.0 hardening, 2026-07-31 0.3.1 sweep; condensed 2026-09-15)**: every P0-P4 item below was re-read against the tree of the day and marked `[x]` only when the bug pattern was confirmed fixed, made honest (a documented no-op or an honest `Unknown` instead of a silent wrong answer), or shown not-a-bug by inspection. Running total after the third pass: **20/20 P0**, **30/30 P1**, **42/42 P2**, **129/131 P3**, **102/105 P4**, **7/7 Policy/Release Chores**. The 5 items still `[ ]` (2 P3, 3 P4) are Z3 `recfun` end-to-end support, the default-off `property-tests` feature, `oxiz-core`'s decorative secondary BV/FP/datatype theory submodule (two entries, no internal callers), and `mk_bv_concat`'s release-build width default. None is on the default solve path; the grouped record is the "Remaining (post-0.3.0 hardening)" section below.
 
 ### P0 — Confirmed Critical (soundness: wrong sat/unsat/model; fix first)
 
@@ -1831,7 +1699,7 @@ Line numbers below were re-verified on 2026-09-09, after the two file splits thi
   `oxiz-theories/tests/bv_selector_fragment_and_pins.rs`; fixture
   `c15_congruence_under_bv_operation` written for cargo-formal. **Scope**: the exchange closes
   congruence and circuit-entailed argument equalities and nothing wider — an equality that comes
-  from an array axiom is `#P2b-32`'s. **Open remainder, measured by the close-out recheck** (dev
+  from an array axiom is `#P2b-32`'s (one the axiom pass never instantiated at all, `#P2b-33`'s). **Open remainder, measured by the close-out recheck** (dev
   profile, load average 40–76): fresh seeds 16–23 of `bv_euf_campaign` (1,600 scripts, 1,086 `sat`
   / 510 `unsat` / 4 `unknown`, all width-3 QF_ABV nesting `select` four to six deep with a sampled
   witness, 0 wrong either way, 818 s) reproduce the six campaign `unknown`s' shape, and each gave
@@ -1871,6 +1739,9 @@ Line numbers below were re-verified on 2026-09-09, after the two file splits thi
   (bvadd (select (store arr i #x05) i) #x01))`, a model that violates the assertion. Outside
   cargo-formal's QF_BV fragment; found by the close-out review of `#P2b-29`, whose equality
   exchange cannot see an equality that comes from an array axiom rather than from congruence.
+  **Scope**: this is the *walk* the instantiator makes over the assertions, so it covers a read in
+  any atom-operand or operator context. A read that occurs only as an application's ARGUMENT never
+  reached that walk at all — the guard on the whole refinement loop was false — and is `#P2b-33`.
   — **(fixed in 0.3.4: the walk delegates to `term_walk::collect_structural_children` for every
   non-binder kind (`ground_children`), so any present or future `TermKind` reaches it; the model
   gate reads a `select` over a `store` as read-over-write (`model_eval::Op::Select` — the index,
@@ -1886,6 +1757,139 @@ Line numbers below were re-verified on 2026-09-09, after the two file splits thi
   `bv_ite_adversarial_probe.rs`, four `model_eval` unit tests, four `array_axioms` unit tests
   (the binder exclusion included); fixture `c17_nested_select_read_over_write` written for
   cargo-formal beside `c13`–`c16`.)**
+- [x] **#P2b-33 (2026-09-15) — the array-axiom refinement loop never ran at all for a formula whose
+  only `select` is an application's ARGUMENT: a wrong `sat`, pre-existing on 0.3.3.** `(distinct (f
+  (select (store arr i v) i)) (f v))` answered `sat` on 0.3.3, on the `#P2b-32` tree and on every
+  tree before it, in QF_AUF (pure EUF over an uninterpreted sort, no circuit and no tableau
+  anywhere), QF_AUFBV and QF_AUFLIA alike — likewise the RoW-2 sibling `(distinct i j) ∧ (distinct
+  (f (select (store arr i v) j)) (f (select arr j)))`, a binary `g`, a nested `(f (f sel))`, `not
+  (= …)` instead of `distinct`, the value reached through a third constant, and the read under
+  `bvadd` *inside* the application — while the same read as a direct atom operand, or with the
+  instance asserted by hand, was decided. `Solver::has_array_ops` is the guard on
+  `instantiate_array_axioms`, and it was raised only by `track_theory_vars` and the encoder's
+  `Select`/`Store` arm; `track_theory_vars` deliberately does not descend into an application's
+  arguments (nor into `Distinct`/`Implies`/`Xor`/`Let` operands), so the flag stayed `false`, no
+  read-over-write instance was ever built, the read stayed a free bit-vector in the circuit (a free
+  column in the tableau, an unconstrained EUF leaf), and the model gate — seeing the same free leaf
+  — vouched for it. `#P2b-32` repaired the instantiator's *walk*, which this shape never reached.
+  Outside cargo-formal's QF_BV fragment; found by the close-out review of `#P2b-32`.
+  — **(fixed in 0.3.4 by two mechanisms. (1) The guard is computed by the instantiator's own
+  exhaustive walk (`array_axioms::Solver::mark_array_ops`, called from `Solver::encode` — the one
+  choke point every user assertion, array/arith/datatype lemma and MBQI instance passes through),
+  with the same `ground_children` binder exclusion, so guard and consumer agree on what "mentions an
+  array" means: over-approximating costs one refinement round that reports nothing to add, and
+  under-approximating is a wrong answer. It stops at the first array term and only runs while the
+  flag is false, so an array-free formula pays one boolean test. (2) EUF interns `store` as a
+  ternary application of `TheoryManager::STORE_FUNC_ID` (`u32::MAX - 1`; `u32::MAX` is the E-graph's
+  own `NO_FUNC` and `0` is `SELECT_FUNC_ID`), which the `Int` rows need: `purify_numeric_uf_args`
+  rewrites a numeric literal under an application into a fresh proxy variable *throughout that
+  assertion*, so `(distinct (g (select (store arr i 5) i)) (g 5))` is encoded over `store(arr,i,w)`
+  while the instantiator — which walks `Solver::assertions`, the pre-purification terms — reasons
+  about `store(arr,i,5)`; congruence over `store` is what joins the two once `5 = w` merges.
+  Measured: the 45 array benchmark scripts keep every verdict at 1,250 ms against 1,251 ms before
+  the store interning, the 300-level store chain stays at 30–40 ms, and all 106 scripts of the
+  review's array battery answer as the theory says. Tests: seven `p2b33_*` in
+  `array_axiom_instantiation.rs` (QF_AUF, QF_AUFBV and QF_AUFLIA rows, the application wrappers,
+  congruent stores, satisfiable controls, the atom-operand controls), the inverted probe in
+  `bv_ite_adversarial_probe.rs`, and a new exhaustive differential campaign
+  `array_uf_combination.rs` whose oracle enumerates every variable assignment × array table ×
+  function table at widths 1–2 — half its problems are shapes whose reads occur only in argument
+  position, because a problem with any other read is decided correctly even by the broken tree;
+  reverting `mark_array_ops` makes the bounded run report 32 wrong `sat`, and the long form (seeds
+  0–15 × 100 trials, 318 s) is 3,200 scripts, 1,456 `sat` / 1,698 `unsat` / 46 `unknown` (14 on
+  formulas the oracle decided), 0 wrong `sat`, 0 wrong `unsat`, 0 bad cores, 0 models failing to
+  extend. Fixture `c18_read_over_write_under_application` written for cargo-formal (`upstream:
+  U-Z23`), verified `sat` on crates.io 0.3.3 and `unsat` here.)**
+- [x] **#P2b-34 (2026-09-15) — published models for array reads were wrong while the verdict was
+  right, and `(get-model)` printed no function interpretations: pre-existing on 0.3.3.** `(= (bvadd
+  (select arr i) #x01) #x06)` is satisfiable and was answered `sat`, then printed `i = #x00` beside
+  `arr = ((as const …) #x00)` — a model in which the assertion reads `0 + 1 = 6` — while `(get-value
+  ((select arr i)))` echoed the term. An array *always* printed the constant array of its sort
+  default, contradicting its own `select` entries where the model had them (`(select arr i) = #x05`
+  beside `arr = ((as const …) #x00)`), and `(get-model)` omitted every declared function, so a model
+  over `(f x)` could be neither printed nor checked. `build_model`'s circuit-publication loop
+  (`#P2b-29`) filtered `BvSolver::circuit_terms()` to `TermKind::Var`, so an opaque `Select`/`Apply`
+  leaf the circuit had valued never reached the model, and the gate read such a leaf `Undetermined`
+  and could not refuse. Every verdict in the family was correct. — **(fixed in 0.3.4: the circuit
+  filter admits every opaque *leaf* (`Var`/`Select`/`Apply`, never a derived node); a new pass
+  `model_builder::opaque_leaves` publishes each `select` the ground assertions and the asserted
+  array lemmas mention, from whichever theory decided it (circuit, tableau, congruence class) and
+  the read's *index* with it — a read whose index the model leaves blank names no position and
+  cannot appear in a printed array; `context::model_fmt::array_model` renders an array constant as
+  the `store` chain of its published reads over the constant default, deduplicated by evaluated
+  index so the chain cannot shadow a read it published, and prints `(define-fun f ((x!0 S)) T (ite
+  (= x!0 …) … else))` for every declared *uninterpreted* function — `DeclaredFun::interpreted` now
+  separates those from datatype constructors/selectors and `define-fun` macros, which briefly
+  printed as `(define-fun blue () Color red)`. Tests: six `p2b34_*` in
+  `model_output_and_options.rs`, including
+  `p2b34_published_array_reads_agree_with_the_printed_array`, which replays every constant the
+  model prints as an assertion and requires the goal to stay `sat`.)**
+- [x] **#P2b-35 (2026-09-15) — the `(get-value)` residue left by `#P2b-26`'s half-fix.** Six shapes
+  still echoed their body on 0.3.3 and on the `#P2b-26` tree: an `Int`-indexed read-over-write never
+  folded (a numeric index collision, even the syntactically same index, was read as inconclusive)
+  while the bit-vector twin folded; a strict comparison at its boundary (`(< x 4)` with `x = 4`) and
+  `distinct` over two assigned integers echoed although `(<= x 4)` answered `true`; a term mixing a
+  defaulted constant with an assigned one printed half-substituted (`(bvult w v)` → `(bvult #x00
+  v)`); real division printed as `div` and did not fold; and an application absent from the
+  assertions echoed although `(get-model)` prints the very interpretation that answers it.
+  — **(fixed in 0.3.4: under `LeafSource::Model` the printed model *is* the model, so `combine_eq`,
+  `cmp_strict`, `Op::Distinct` and the read-over-write index comparison all fold exactly there,
+  while the gate (`LeafSource::Tableau`) keeps every softening — an LP collision is still not
+  evidence; `(get-value)` evaluates against the model *completed* with the same sort defaults
+  `(get-model)` reports, so the two readings cannot disagree about an unconstrained constant; a
+  `Real`-sorted `Div` folds (`EagerKind::RealDiv`) and prints as `/` in both printers, since one
+  `TermKind` carries both SMT-LIB divisions and `div` on a `Real` is not a term any reader accepts;
+  and an application with no entry of its own is resolved against the function's interpretation by
+  ARGUMENT VALUE (`Op::ApplyInterp`, built once per query by `Solver::collect_func_interps` so the
+  walk never re-enters itself), with no match answering `Undetermined` rather than guessing an
+  else-value `(get-model)` might spell differently. Tests: six `p2b35_*` in
+  `model_output_and_options.rs`.)**
+- [x] **#P2b-36 (2026-09-15) — a read of the SMT-LIB array constant `((as const (Array D R)) d)`
+  was an opaque free leaf: a wrong `sat`, pre-existing on 0.3.3.** `(= (select ((as const (Array (_
+  BitVec 8) (_ BitVec 8))) #x00) #x00) #x05)` answered `sat` on 0.3.3 and on every tree before this
+  one, as did the `Int` spelling, the read at a variable index, the read under `bvadd`, the read
+  wrapped in an uninterpreted function, a `store` chain that misses down to a constant base, and
+  `arr = ((as const …) #x00)` with a read on `arr`. The review's battery tried ten shapes: eight
+  were wrong `sat`, seven of those are fixed here (the eighth is the open remainder below), and
+  the two controls (`… = #x00`, and `distinct` between one array constant and itself) were
+  correct throughout. The array constant has no term
+  kind of its own: the parser turns the qualified identifier into an ordinary uninterpreted `Apply`
+  whose function symbol is the string `"(as const)"`, so no array axiom related the read to the
+  default, the read stayed a free bit-vector in the circuit (a free column in the tableau), and the
+  model gate — reading the same free leaf — vouched for it. Found by the `#P2b-34` close-out check,
+  where the "replay the printed model" test turned out to be vacuous for exactly this reason:
+  pinning `arr = ((as const …) #x00)` carried no information into a `select`, so the replay stayed
+  `sat` even with the `store`-chain rendering removed.
+  — **(fixed in 0.3.4: `array_axioms::build_const_array_reads` instantiates the missing axiom — an
+  array constant reads back its default at every index — as one unconditional ground equality per
+  collected read, and it composes with the two families around it rather than duplicating them: a
+  miss down a `store` chain is reduced by RoW-2 to a read *of* the constant, and `arr = ((as const
+  …) d)` is carried across by select congruence, each decided on the next refinement round.
+  `Solver::store_chain` gives the model evaluator the same reading, so the gate can refute a bad
+  candidate and `(get-value)` answers `#x03` where it used to echo. The recognition is structural,
+  not by name: `|(as const)|` is a legal quoted SMT-LIB symbol that interns to exactly that string,
+  so arity, an array sort and an argument sort equal to the array's range are all checked, and a
+  script that *declares* the name switches the axiom off for the rest of the script
+  (`Solver::const_array_symbol_shadowed`, set from `Context::push_fun_decl` and deliberately never
+  cleared by `pop`) rather than read a user's function as an array constant — `(= (select (|(as
+  const)| #x00) #x00) #x05)` stays `sat`. Measured: the array corpus (40 z3-parity array/AUFLIRA
+  benchmarks plus the review's 106-script battery, three repetitions) runs 926–956 ms with the axiom
+  against 978–1,028 ms with it off, and all 106 battery scripts keep their verdicts (13 `sat` / 1
+  `unknown` / 92 `unsat`). Tests: five `p2b36_*` in `array_axiom_instantiation.rs` (bare reads at
+  literal and variable indices and in `Int`, the wrapper positions, the composition with RoW-2 and
+  congruence, the satisfiable controls, the declared-symbol control), two in
+  `model_output_and_options.rs` for `(get-value)`, the sixth inverted probe in
+  `bv_ite_adversarial_probe.rs`, and `array_uf_combination.rs` extended with an `ArrTerm::Const`
+  whose literal default costs the exhaustive oracle no enumeration bits — reverting the axiom makes
+  its bounded exhaustive run report 12 wrong `sat` of 72 scripts. Fixture
+  `c19_array_constant_read_default` written for cargo-formal (`upstream: U-Z24`), verified `sat` on
+  crates.io 0.3.3 and `unsat` here. **Open remainder:** `(= ((as const …) #x00) ((as const …)
+  #x01))` — two array constants with different defaults are disequal by extensionality — is still
+  `sat`, the one row of the ten that this axiom does not reach; it needs the extensionality witness
+  threaded into select congruence (or a const-vs-const equality rule) and `mark_array_ops` raised by
+  an array constant that no `select` reads. The name ambiguity above is the other residual: closing
+  it outright needs a term kind of its own, or a reserved function name no SMT-LIB symbol can
+  spell — the AST and both printers, not the array theory.)**
 - [ ] **#P2b-26 — `(get-unsat-core)` re-solves every candidate subset from scratch; `(get-value …)`
   of any non-variable term printed its body.** cargo-formal's named form is ≥ 3.8× the plain script
   because `Solver::minimize_unsat_core` builds a fresh `Solver` per core member (c13: 1.8× here, 4
@@ -1903,7 +1907,8 @@ Line numbers below were re-verified on 2026-09-09, after the two file splits thi
   (`Solver::euf_class_value`), printing the term only when neither answers. Test:
   `p2b26_get_value_folds_bit_vector_terms_comparisons_and_congruent_applications` in
   `bv_ite_selfcheck_regressions.rs`. Found with `#P2b-24`; the non-variable cases by the close-out
-  recheck.
+  recheck, and the six shapes that still echoed after this half-fix are closed as `#P2b-35`. **What
+  is still open under this number is the unsat-core half only.**
 - [ ] **#P2b-30 — a Bool-sorted uninterpreted application or array `select` used as an `ite`
   selector answers `unknown`.** `(assert (P a)) (assert (= x (ite (P a) #x01 #x02))) (assert (= x
   #x01))`: `encode_bool_node` has no arm for `Apply`/`Select`, so `bit_blast_cond_operands` fails

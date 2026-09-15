@@ -9,6 +9,10 @@ use smallvec::SmallVec;
 
 use super::Solver;
 use super::dt_axioms::{DeclInfo, resolve_decl, scan_datatype_terms};
+
+/// Publishing the opaque leaves an array model rests on (`#P2b-34`).
+mod opaque_leaves;
+
 use super::types::Constraint;
 use super::types::{Model, UnsatCore};
 
@@ -220,26 +224,37 @@ impl Solver {
             model.set(term, value_term);
         }
 
-        // A bit-vector variable that occurs only as the argument of an
+        // A bit-vector term that occurs only as the argument of an
         // uninterpreted function is not a theory variable of any atom, so
         // `bv_terms` never lists it — but the bit-vector / EUF equality
         // exchange (`#P2b-29`) gives it a circuit and *chooses* its value
         // (`(distinct (g x) (g y))` needs `x ≠ y`).  Publish that choice:
         // printing the sort default `#x00` for both sides handed the user a
         // model that violates the assertion, while the verdict was right.
-        let mut circuit_vars: Vec<TermId> = self
+        //
+        // Every *opaque leaf* of the circuit qualifies, not just a bare `Var`
+        // (`#P2b-34`): an array read and an uninterpreted application are
+        // leaves of the bit-blasting in exactly the same sense — free bits the
+        // search picks — and restricting the publication to `Var` is what left
+        // `(= (bvadd (select arr i) #x01) #x06)` printing `arr[i] = #x00`
+        // beside `i = #x00`, a model that falsifies its own assertion.  A
+        // compound node (`bvadd`, an `ite`) is *derived* from its operands and
+        // stays out: it is evaluated wherever it is read.
+        let mut circuit_leaves: Vec<TermId> = self
             .bv
             .circuit_terms()
             .filter(|&term| model.get(term).is_none())
             .filter(|&term| {
                 manager.get(term).is_some_and(|t| {
-                    matches!(t.kind, TermKind::Var(_))
-                        && manager.sorts.get(t.sort).is_some_and(|s| s.is_bitvec())
+                    matches!(
+                        t.kind,
+                        TermKind::Var(_) | TermKind::Select(..) | TermKind::Apply { .. }
+                    ) && manager.sorts.get(t.sort).is_some_and(|s| s.is_bitvec())
                 })
             })
             .collect();
-        circuit_vars.sort_unstable_by_key(|t| t.raw());
-        for term in circuit_vars {
+        circuit_leaves.sort_unstable_by_key(|t| t.raw());
+        for term in circuit_leaves {
             let Some(width) = manager
                 .get(term)
                 .and_then(|t| manager.sorts.get(t.sort))
@@ -283,6 +298,14 @@ impl Solver {
                 model.set(original, value);
             }
         }
+
+        // Array reads the passes above could not reach (`#P2b-34`): a read
+        // whose value lives in the tableau or in a congruence class rather
+        // than in the circuit, and one the circuit holds under a term id the
+        // `circuit_terms` filter above never saw.  Runs after the purification
+        // aliases so a read published under its purified twin is already in
+        // scope, and before the array model is rendered from these entries.
+        self.publish_array_reads(&mut model, manager);
 
         // Rounding-mode values.  Must run after the Boolean pass above, which
         // is what put the mode-equality atoms' truth values into scope.

@@ -183,27 +183,31 @@ impl super::Solver {
             theory_aware_branching: _, // INVARIANT: user option
             proof: _,                  // RESULT: emptied in place by `invalidate_results` (the
             // `Option` carries the `:produce-proofs` setting, so it is not taken)
-            simplifier: _,               // INVARIANT: term -> simplified term
-            statistics: _,               // INVARIANT: cumulative counters
-            bv_terms: _,                 // TRAIL: BvTermAdded
-            has_bv_arith_ops: _,         // SNAPSHOT
-            arith_terms: _,              // TRAIL: ArithTermAdded
-            dt_var_constructors: _,      // TRAIL: DtVarConstructorAdded
-            arith_parse_cache: _,        // INVARIANT: keyed by term structure
-            tracked_compound_terms: _,   // TRAIL: TrackedCompoundAdded
-            bool_uf_arg_terms: _,        // TRAIL: BoolUfArgAdded
-            numeric_uf_arg_terms: _,     // TRAIL: NumericUfArgAdded
-            numeric_purify_aliases: _,   // TRAIL: NumericPurifyAliasAdded
+            simplifier: _,                  // INVARIANT: term -> simplified term
+            statistics: _,                  // INVARIANT: cumulative counters
+            bv_terms: _,                    // TRAIL: BvTermAdded
+            has_bv_arith_ops: _,            // SNAPSHOT
+            arith_terms: _,                 // TRAIL: ArithTermAdded
+            dt_var_constructors: _,         // TRAIL: DtVarConstructorAdded
+            arith_parse_cache: _,           // INVARIANT: keyed by term structure
+            tracked_compound_terms: _,      // TRAIL: TrackedCompoundAdded
+            bool_uf_arg_terms: _,           // TRAIL: BoolUfArgAdded
+            numeric_uf_arg_terms: _,        // TRAIL: NumericUfArgAdded
+            numeric_purify_aliases: _,      // TRAIL: NumericPurifyAliasAdded
             encoded_terms: _, // TRAIL: EncodedTermAdded (carries the displaced entry, so a polarity widened inside the scope is restored rather than dropped)
             fp_constraint_cache: _, // INVARIANT: keyed by assertion term
             encode_depth_exceeded: _, // SNAPSHOT
             has_array_ops: _, // SNAPSHOT
-            array_axiom_instances: _, // TRAIL: ArrayAxiomInstanceAdded
-            arith_defined_terms: _, // TRAIL: ArithDefinedTermAdded
+            const_array_symbol_shadowed: _, // INVARIANT: one-way, and
+            // deliberately not restored — a scope that declared `|(as const)|`
+            // may have left terms behind, and leaving the array-constant axiom
+            // off is the conservative direction (see the field doc).
+            array_axiom_instances: _,    // TRAIL: ArrayAxiomInstanceAdded
+            arith_defined_terms: _,      // TRAIL: ArithDefinedTermAdded
             numeric_trichotomy_atoms: _, // TRAIL: NumericTrichotomyAdded
-            dt_axiom_instances: _, // TRAIL: DtAxiomInstanceAdded
-            dt_axioms_incomplete: _, // SNAPSHOT
-            array_axioms_incomplete: _, // SNAPSHOT
+            dt_axiom_instances: _,       // TRAIL: DtAxiomInstanceAdded
+            dt_axioms_incomplete: _,     // SNAPSHOT
+            array_axioms_incomplete: _,  // SNAPSHOT
             entailed_int_consts: _, // cleared wholesale by `pop` (see the field doc); empty = re-fold, never stale
             entailed_int_consts_upto: _, // reset to 0 with the map above
             #[cfg(test)]

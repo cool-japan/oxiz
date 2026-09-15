@@ -19,7 +19,10 @@
 //!
 //! Every entry point states the property it raises and the **measured** L1
 //! verdict for it; `EXPECTED.toml` at the package root mirrors the same table
-//! machine-readably, and `README.md` names the run that produced it.
+//! machine-readably, and `README.md` names the run that produced it. The
+//! contract twins of these nine harnesses -- the same nine properties written
+//! as `#[requires]`/`#[ensures]` on wrapper functions, each with its own
+//! `#[proof_for_contract]` harness -- live in [`crate::spec`].
 //!
 //! | Specimen | What it exercises | Measured outcomes |
 //! |---|---|---|
@@ -210,13 +213,26 @@ fn dimacs_roundtrip_harness() {
     assert(lit.var().0 == (dimacs.unsigned_abs() - 1));
 }
 
-/// Property: `panic`, 2 sites. **Measured L1 verdict: refuted**,
-/// counterexample `dimacs = -2147483648` (`i32::MIN`) -- the
-/// `debug_assert!(lit != 0 && lit != i32::MIN)` at `../src/literal.rs:89`.
-/// The **other** `panic` site, `to_dimacs`'s own unconditional panic at
-/// `:113`, is **proved**, and so are the `neg-overflow`, the `arith-overflow`
-/// and the three `shift-overflow` obligations: 6 of this harness's 7
-/// obligations are proved.
+/// Property: `panic`, 2 sites. **Measured L1 verdict: unknown**
+/// (`solver-model-rejected`) since the 2026-09-15 run; it was **refuted**,
+/// counterexample `dimacs = -2147483648` (`i32::MIN`), in the 2026-09-08/09
+/// and 2026-09-14 runs over the same source and the same pins. The undecided
+/// site is the `debug_assert!(lit != 0 && lit != i32::MIN)` at
+/// `../src/literal.rs:89`. The **other** `panic` site, `to_dimacs`'s own
+/// unconditional panic at `:113`, is **proved** (vacuously -- no execution
+/// reaches it), and so are the `neg-overflow`, the `arith-overflow` and the
+/// three `shift-overflow` obligations: 6 of this harness's 7 obligations are
+/// proved.
+///
+/// The witness did not stop being a witness. z3 4.15.4 decides the very same
+/// `vc/NNNN.smt2` `sat` (`cargo formal replay --solver z3`),
+/// `plain_tests::from_dimacs_rejects_the_reported_dimacs_counterexample` runs
+/// `i32::MIN` concretely and panics, and the contract twin
+/// [`crate::spec::spec_lit_from_dimacs_nonzero`] records the refutation with
+/// that counterexample in the same run. What changed is that OxiZ 0.3.3
+/// returned a model cargo-formal's mandatory model check refused, so the
+/// answer became `unknown` rather than a `refuted` with an unvalidated
+/// witness -- the same weakness that keeps the `LBool` identities undecided.
 ///
 /// This is `dimacs_roundtrip_harness` with the `i32::MIN` precondition
 /// removed, so that the one input DIMACS cannot represent is inside the

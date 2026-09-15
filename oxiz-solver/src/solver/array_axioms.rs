@@ -111,6 +111,9 @@ impl Solver {
         // ---- Phase 2: build candidate ground axiom instances ------------
         let mut candidates: Vec<TermId> = Vec::new();
         build_read_over_write(manager, &collected, &mut candidates);
+        if !self.const_array_symbol_shadowed {
+            build_const_array_reads(manager, &collected, &mut candidates);
+        }
         build_extensionality_and_congruence(manager, &collected, &mut candidates);
 
         // ---- Phase 3: filter (dedup + model) and assert -----------------
@@ -165,6 +168,63 @@ impl Solver {
         }
 
         added
+    }
+
+    /// Record that `term` mentions an array operation, so [`super::check_core`]
+    /// runs the lazy refinement loop above for it.
+    ///
+    /// # Why the guard needs its own walk (`#P2b-33`)
+    ///
+    /// [`Solver::has_array_ops`](super::Solver::has_array_ops) is the *guard*
+    /// on `instantiate_array_axioms`; this function and
+    /// [`collect_array_structure`] are therefore two halves of one decision and
+    /// must agree on what "mentions an array" means.  They did not.  The flag
+    /// was raised only from
+    /// [`Solver::track_theory_vars`](super::Solver::track_theory_vars) and the
+    /// encoder's `Select`/`Store` arm, and `track_theory_vars` deliberately does
+    /// **not** descend into an uninterpreted application's arguments (nor into
+    /// `Distinct`, `Implies` or `Xor` operands) — see its own doc comment.  A
+    /// read that occurs *only* as a function argument,
+    /// `(distinct (f (select (store arr i v) i)) (f v))`, therefore left the
+    /// flag `false`: the refinement loop never ran, no read-over-write instance
+    /// was ever built, the read stayed an unconstrained leaf and the formula —
+    /// unsatisfiable in QF_AUF, QF_AUFBV and QF_AUFLIA alike — answered `sat`.
+    /// The instantiator's own walk (`ground_children`) would have collected that
+    /// read; it was never given the chance.
+    ///
+    /// So the guard is computed here with exactly the walk the instantiator
+    /// uses, binder exclusion included: an over-approximation is free (one
+    /// wasted round of `instantiate_array_axioms`, which then reports "nothing
+    /// to add"), an under-approximation is a wrong answer.
+    ///
+    /// Iterative, and stops at the first array term: for the array-free
+    /// formulas that make up most of the corpus this is one linear scan per
+    /// encoded term, and once the flag is set it costs nothing at all.
+    pub(super) fn mark_array_ops(&mut self, term: TermId, manager: &TermManager) {
+        if self.has_array_ops {
+            return;
+        }
+        let mut visited: FxHashSet<TermId> = FxHashSet::default();
+        let mut stack: Vec<TermId> = vec![term];
+        let mut children: Vec<TermId> = Vec::new();
+        while let Some(current) = stack.pop() {
+            if !visited.insert(current) {
+                continue;
+            }
+            let Some(data) = manager.get(current) else {
+                continue;
+            };
+            if matches!(data.kind, TermKind::Select(..) | TermKind::Store(..)) {
+                // `has_array_ops` is restored wholesale from the `push`
+                // snapshot (see `trail.rs`), so — like the two pre-existing
+                // write sites — this needs no journal entry of its own.
+                self.has_array_ops = true;
+                return;
+            }
+            children.clear();
+            ground_children(&data.kind, &mut children);
+            stack.extend(children.iter().copied());
+        }
     }
 }
 
@@ -450,6 +510,91 @@ fn extensionality_witness(
     manager.mk_var(&name, domain)
 }
 
+/// The function symbol the parser gives the SMT-LIB array constant
+/// `((as const (Array D R)) d)`.
+///
+/// There is no dedicated term kind for it: `smtlib/parser/terms.rs`
+/// (`Head::Qualified`) turns a qualified identifier into an ordinary
+/// uninterpreted application whose function symbol is the *string*
+/// `"(as const)"`.
+pub(crate) const CONST_ARRAY_FUNC: &str = "(as const)";
+
+/// The default value of an array constant `((as const (Array D R)) d)`, or
+/// `None` when `term` is not one.
+///
+/// # Why the recognition is structural, not by name (`#P2b-36`)
+///
+/// `|(as const)|` is a legal quoted SMT-LIB symbol and the lexer strips the
+/// bars, so a user-declared function can intern to exactly the string
+/// [`CONST_ARRAY_FUNC`] — `(declare-fun |(as const)| ((_ BitVec 8)) (Array (_
+/// BitVec 8) (_ BitVec 8)))` parses today and prints as `((as const) #x00)`.
+/// Reading such an application as an array constant would answer `unsat` for a
+/// satisfiable formula, which is the same class of defect this axiom exists to
+/// remove.  Every structural property of the array constant is therefore
+/// checked as well: exactly one argument, an array sort, and an argument whose
+/// sort is that array's *range*.
+///
+/// A user-declared `|(as const)|` of exactly signature `(R) -> (Array D R)`
+/// would still pass all four, so the *caller* is gated as well:
+/// [`Solver::const_array_symbol_shadowed`](super::Solver::const_array_symbol_shadowed)
+/// is raised when a script declares that name, and neither this axiom family
+/// nor the evaluator's chain base consults this function while it is set.
+/// Closing the ambiguity outright would need a term kind of its own, or a
+/// reserved function name no SMT-LIB symbol can spell — changes to the AST and
+/// to both printers rather than to the array theory, and no part of a
+/// soundness fix.
+pub(super) fn const_array_default(term: TermId, manager: &TermManager) -> Option<TermId> {
+    let data = manager.get(term)?;
+    let TermKind::Apply { func, args } = &data.kind else {
+        return None;
+    };
+    if args.len() != 1 || manager.resolve_str(*func) != CONST_ARRAY_FUNC {
+        return None;
+    }
+    let SortKind::Array { range, .. } = manager.sorts.get(data.sort)?.kind else {
+        return None;
+    };
+    let default = *args.first()?;
+    if manager.get(default)?.sort != range {
+        return None;
+    }
+    Some(default)
+}
+
+/// Build the array-constant read instances:
+/// `select(((as const (Array D R)) d), i) = d` for every collected read whose
+/// array operand is an array constant.
+///
+/// # Why this family was missing (`#P2b-36`)
+///
+/// An array constant is an opaque `Apply` to every part of the solver, so a
+/// read of one was a free leaf: `(= (select ((as const (Array (_ BitVec 8) (_
+/// BitVec 8))) #x00) #x00) #x05)` answered `sat` on 0.3.3 and on every tree
+/// before this, as did the `Int` spelling, the same read under `bvadd`, and
+/// the read wrapped in an uninterpreted function.  The axiom is unconditional
+/// — an array constant's value at *every* index is its default — so the
+/// instance needs no guard, unlike the alias-guarded read-over-write pairs.
+///
+/// It composes with the two families around it rather than duplicating them:
+/// a read over a `store` chain that bottoms out at an array constant is
+/// reduced by RoW-2 to a read *of* the constant, which the next refinement
+/// round collects and this family then decides; and `arr = ((as const …) d)`
+/// with a read on `arr` is carried across by select congruence to a read of
+/// the constant, likewise decided here on the following round.
+fn build_const_array_reads(
+    manager: &mut TermManager,
+    collected: &ArrayStructure,
+    candidates: &mut Vec<TermId>,
+) {
+    for &(select_term, array, _) in &collected.selects {
+        let Some(default) = const_array_default(array, manager) else {
+            continue;
+        };
+        let read_is_default = manager.mk_eq(select_term, default);
+        candidates.push(read_is_default);
+    }
+}
+
 /// If `term` is a `store`, return `(base, index, value)`.
 fn as_store(term: TermId, manager: &TermManager) -> Option<(TermId, TermId, TermId)> {
     match manager.get(term)?.kind {
@@ -494,7 +639,7 @@ fn array_domain(term: TermId, manager: &TermManager) -> Option<SortId> {
 /// mention a bound variable, and a ground lemma over a bound variable is an
 /// instance of nothing.  Quantified array reasoning is MBQI's job; this walk
 /// stays on the ground fragment.
-fn ground_children(kind: &TermKind, out: &mut Vec<TermId>) {
+pub(super) fn ground_children(kind: &TermKind, out: &mut Vec<TermId>) {
     match kind {
         TermKind::Forall { .. }
         | TermKind::Exists { .. }
