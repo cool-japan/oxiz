@@ -1224,3 +1224,302 @@ fn p2b29_an_entailed_disjunction_of_equalities_is_refuted() {
 ";
     assert_eq!(run(script), SolverResult::Unsat);
 }
+
+// ---------------------------------------------------------------------------
+// `#P2b-32` — a `select` nested under a bit-vector or arithmetic operator was
+// never collected by the array-axiom walk (`array_axioms::collect_array_structure`
+// descended through a hand-written child list naming only the Boolean
+// connectives, `ite` and `Apply`), so no read-over-write instance was ever
+// asserted for it and the read stayed a free leaf: a free bit-vector in the
+// circuit, a free column in the tableau.  Every unsatisfiable row below
+// answered `sat` on 0.3.3, on HEAD and on the tree carrying
+// `#P2b-24`–`#P2b-29`, while the same read as a *direct* atom operand
+// (`(distinct (select (store arr i #x05) i) #x05)`) was always refuted.  The
+// model gate could not refuse the published models either — it had no arm
+// for `select` and evaluated every one of them `Undetermined`.  Fixed by an
+// exhaustive walk and by a read-over-write arm in the gate.
+// ---------------------------------------------------------------------------
+
+/// The bit-vector rows (QF_ABV): the review's a3, a5, a6, c7, c8, e2, e3.
+const P2B32_BV_ROWS: &[(&str, &str)] = &[
+    (
+        "a3: a read-over-write hit under bvadd — the cargo-formal fixture c17",
+        "(set-logic QF_ABV)(declare-const arr (Array (_ BitVec 8) (_ BitVec 8)))\
+         (declare-const i (_ BitVec 8))\
+         (assert (distinct (bvadd (select (store arr i #x05) i) #x01) #x06))(check-sat)",
+    ),
+    (
+        "a5: a variable stored value, both sides under bvadd",
+        "(set-logic QF_ABV)(declare-const arr (Array (_ BitVec 8) (_ BitVec 8)))\
+         (declare-const i (_ BitVec 8))(declare-const v (_ BitVec 8))\
+         (assert (distinct (bvadd (select (store arr i v) i) #x01) (bvadd v #x01)))(check-sat)",
+    ),
+    (
+        "a6: the hit through an asserted index equality",
+        "(set-logic QF_ABV)(declare-const arr (Array (_ BitVec 8) (_ BitVec 8)))\
+         (declare-const i (_ BitVec 8))(declare-const j (_ BitVec 8))(declare-const v (_ BitVec 8))\
+         (assert (= i j))\
+         (assert (distinct (bvadd (select (store arr i v) j) #x01) (bvadd v #x01)))(check-sat)",
+    ),
+    (
+        "c7: the read under bvult",
+        "(set-logic QF_ABV)(declare-const arr (Array (_ BitVec 8) (_ BitVec 8)))\
+         (declare-const i (_ BitVec 8))\
+         (assert (bvult #x06 (select (store arr i #x05) i)))(check-sat)",
+    ),
+    (
+        "c8: a read-over-write miss under bvadd, the base read pinned",
+        "(set-logic QF_ABV)(declare-const arr (Array (_ BitVec 8) (_ BitVec 8)))\
+         (declare-const i (_ BitVec 8))(declare-const j (_ BitVec 8))(declare-const v (_ BitVec 8))\
+         (assert (distinct i j))(assert (= (bvadd (select (store arr i v) j) #x01) #x06))\
+         (assert (= (select arr j) #x07))(check-sat)",
+    ),
+    (
+        "e2: the read under concat",
+        "(set-logic QF_ABV)(declare-const arr (Array (_ BitVec 8) (_ BitVec 8)))\
+         (declare-const i (_ BitVec 8))\
+         (assert (distinct (concat #x00 (select (store arr i #x05) i)) #x0005))(check-sat)",
+    ),
+    (
+        "e3: the read under bvnot",
+        "(set-logic QF_ABV)(declare-const arr (Array (_ BitVec 8) (_ BitVec 8)))\
+         (declare-const i (_ BitVec 8))\
+         (assert (distinct (bvnot (select (store arr i #x05) i)) #xfa))(check-sat)",
+    ),
+    (
+        "b4: the read feeding a variable that is then constrained",
+        "(set-logic QF_ABV)(declare-const arr (Array (_ BitVec 8) (_ BitVec 8)))\
+         (declare-const i (_ BitVec 8))(declare-const s (_ BitVec 8))\
+         (assert (= s (bvadd (select (store arr i #x05) i) #x01)))(assert (distinct s #x06))\
+         (check-sat)",
+    ),
+];
+
+/// The integer twins (QF_AUFLIA): the review's a12, c3, d4 — the same walk,
+/// the tableau's free column instead of the circuit's free leaf.
+const P2B32_INT_ROWS: &[(&str, &str)] = &[
+    (
+        "a12: a read-over-write hit under +",
+        "(set-logic QF_AUFLIA)(declare-const arr (Array Int Int))\
+         (declare-const i Int)(declare-const j Int)(assert (= i j))\
+         (assert (distinct (+ (select (store arr i 5) j) 1) 6))(check-sat)",
+    ),
+    (
+        "c3: a read-over-write miss under +, the base read pinned",
+        "(set-logic QF_AUFLIA)(declare-const arr (Array Int Int))\
+         (declare-const i Int)(declare-const j Int)(declare-const v Int)\
+         (assert (not (= i j)))(assert (= (+ (select (store arr i v) j) 1) 6))\
+         (assert (= (select arr j) 7))(check-sat)",
+    ),
+    (
+        "d4: the miss reached through a defined variable",
+        "(set-logic QF_AUFLIA)(declare-const arr (Array Int Int))\
+         (declare-const i Int)(declare-const j Int)(declare-const v Int)(declare-const y Int)\
+         (assert (not (= i j)))(assert (= y (+ (select (store arr i v) j) 1)))(assert (= y 6))\
+         (assert (= (select arr j) 7))(check-sat)",
+    ),
+];
+
+#[test]
+fn p2b32_read_over_write_under_a_bv_operation_is_refuted() {
+    for (name, script) in P2B32_BV_ROWS {
+        assert_eq!(run(script), SolverResult::Unsat, "{name}");
+    }
+}
+
+#[test]
+fn p2b32_read_over_write_under_an_arithmetic_operator_is_refuted() {
+    for (name, script) in P2B32_INT_ROWS {
+        assert_eq!(run(script), SolverResult::Unsat, "{name}");
+    }
+}
+
+/// The satisfiable controls: a miss needs `i ≠ j`, and the published model
+/// must show it; a hit that is consistent stays `sat`, and `(get-value)`
+/// prints the read's value rather than its body.
+#[test]
+fn p2b32_satisfiable_controls_stay_sat_with_valid_models() {
+    let miss_direct = "\
+(set-logic QF_ABV)
+(declare-const arr (Array (_ BitVec 8) (_ BitVec 8)))
+(declare-const i (_ BitVec 8))
+(declare-const j (_ BitVec 8))
+(assert (distinct i j))
+(assert (distinct (select (store arr i #x05) j) #x05))
+(check-sat)
+(get-value (i j))
+";
+    let outputs = run_output(miss_direct);
+    assert_eq!(verdict_of(&outputs), SolverResult::Sat, "{outputs:?}");
+    assert_ne!(
+        printed_bv(&outputs, "i"),
+        printed_bv(&outputs, "j"),
+        "{outputs:?}"
+    );
+
+    let miss_under_bvadd = "\
+(set-logic QF_ABV)
+(declare-const arr (Array (_ BitVec 8) (_ BitVec 8)))
+(declare-const i (_ BitVec 8))
+(declare-const j (_ BitVec 8))
+(assert (distinct (bvadd (select (store arr i #x05) j) #x01) #x06))
+(check-sat)
+(get-value (i j))
+";
+    let outputs = run_output(miss_under_bvadd);
+    assert_eq!(verdict_of(&outputs), SolverResult::Sat, "{outputs:?}");
+    assert_ne!(
+        printed_bv(&outputs, "i"),
+        printed_bv(&outputs, "j"),
+        "the sum can differ from 6 only on a miss, which needs i ≠ j: {outputs:?}"
+    );
+
+    let hit = "\
+(set-logic QF_ABV)
+(declare-const arr (Array (_ BitVec 8) (_ BitVec 8)))
+(declare-const i (_ BitVec 8))
+(declare-const s (_ BitVec 8))
+(assert (= s (bvadd (select (store arr i #x05) i) #x01)))
+(check-sat)
+(get-value (s (select (store arr i #x05) i)))
+";
+    let outputs = run_output(hit);
+    assert_eq!(verdict_of(&outputs), SolverResult::Sat, "{outputs:?}");
+    assert_eq!(printed_bv(&outputs, "s"), Some(6), "{outputs:?}");
+    assert_eq!(
+        printed_bv(&outputs, "(select (store arr i #x05) i)"),
+        Some(5),
+        "the read prints its value, not its body: {outputs:?}"
+    );
+}
+
+/// cargo-formal's `explain --blame` form agrees and blames only the one
+/// assertion.
+#[test]
+fn p2b32_named_form_agrees_with_a_core_drawn_from_the_names() {
+    let script = "\
+(set-logic QF_ABV)
+(declare-const arr (Array (_ BitVec 8) (_ BitVec 8)))
+(declare-const i (_ BitVec 8))
+(declare-const c (_ BitVec 8))
+(assert (distinct (bvadd (select (store arr i #x05) i) #x01) #x06))
+(assert (= c #x07))
+(check-sat)
+";
+    let outputs = run_output(&named_form(script));
+    assert_eq!(verdict_of(&outputs), SolverResult::Unsat, "{outputs:?}");
+    assert_eq!(
+        printed_core(&outputs),
+        Some(vec!["a0".to_string()]),
+        "{outputs:?}"
+    );
+}
+
+/// The read-over-write lemma is a consequence of the assertions in scope:
+/// the refutation appears and disappears with the `push`/`pop` that carries
+/// the index equality, and a later satisfiable scope prints a valid model.
+#[test]
+fn p2b32_the_lemma_follows_its_scope() {
+    let script = "\
+(set-logic QF_ABV)
+(declare-const arr (Array (_ BitVec 8) (_ BitVec 8)))
+(declare-const i (_ BitVec 8))
+(declare-const j (_ BitVec 8))
+(assert (distinct (bvadd (select (store arr i #x05) j) #x01) #x06))
+(check-sat)
+(push 1)
+(assert (= i j))
+(check-sat)
+(pop 1)
+(check-sat)
+(get-value (i j))
+(assert (= i j))
+(check-sat)
+";
+    let outputs = run_output(script);
+    let verdicts: Vec<&str> = outputs
+        .iter()
+        .map(String::as_str)
+        .filter(|l| matches!(*l, "sat" | "unsat" | "unknown"))
+        .collect();
+    assert_eq!(verdicts, ["sat", "unsat", "sat", "unsat"], "{outputs:?}");
+    assert_ne!(
+        printed_bv(&outputs, "i"),
+        printed_bv(&outputs, "j"),
+        "{outputs:?}"
+    );
+}
+
+/// `#P2b-26`, the `(get-value)` half: a bit-vector operator, a comparison,
+/// an application whose value lives on a congruent application and a
+/// `define-fun` name all print their **value**.  Before this every one of
+/// them printed its body — `((bvadd v #x01) (bvadd v #x01))` — on 0.3.3 and
+/// on every tree before the fix, because `Model::eval` folds only the
+/// Boolean connectives and integer arithmetic.
+#[test]
+fn p2b26_get_value_folds_bit_vector_terms_comparisons_and_congruent_applications() {
+    let bit_vectors = "\
+(set-logic QF_BV)
+(declare-const v (_ BitVec 8))
+(assert (bvult #x7f v))
+(assert (bvult v #x82))
+(check-sat)
+(get-value (v (bvadd v #x01) (bvult v #x81) (= v #x80)))
+";
+    let outputs = run_output(bit_vectors);
+    assert_eq!(verdict_of(&outputs), SolverResult::Sat, "{outputs:?}");
+    let v = printed_bv(&outputs, "v").unwrap_or(u128::MAX);
+    assert!(v == 0x80 || v == 0x81, "{outputs:?}");
+    assert_eq!(
+        printed_bv(&outputs, "(bvadd v #x01)"),
+        Some((v + 1) & 0xff),
+        "{outputs:?}"
+    );
+    assert_eq!(
+        printed_bool(&outputs, "(bvult v #x81)"),
+        Some(v < 0x81),
+        "{outputs:?}"
+    );
+    assert_eq!(
+        printed_bool(&outputs, "(= v #x80)"),
+        Some(v == 0x80),
+        "{outputs:?}"
+    );
+
+    let congruent = "\
+(set-logic QF_UFBV)
+(declare-fun f ((_ BitVec 8)) (_ BitVec 8))
+(declare-const a (_ BitVec 8))
+(declare-const b (_ BitVec 8))
+(assert (= a b))
+(assert (= (bvadd (f a) #x01) (bvadd (f b) #x01)))
+(assert (= (f a) #x07))
+(check-sat)
+(get-value (a b (f a) (f b)))
+";
+    let outputs = run_output(congruent);
+    assert_eq!(verdict_of(&outputs), SolverResult::Sat, "{outputs:?}");
+    assert_eq!(printed_bv(&outputs, "(f a)"), Some(7), "{outputs:?}");
+    assert_eq!(
+        printed_bv(&outputs, "(f b)"),
+        Some(7),
+        "f(b) = f(a) by congruence: {outputs:?}"
+    );
+
+    let defined = "\
+(set-logic QF_BV)
+(declare-const x (_ BitVec 8))
+(define-fun t () (_ BitVec 8) (bvadd x #x01))
+(assert (= x #x01))
+(check-sat)
+(get-value (t x))
+";
+    let outputs = run_output(defined);
+    assert_eq!(verdict_of(&outputs), SolverResult::Sat, "{outputs:?}");
+    assert_eq!(printed_bv(&outputs, "x"), Some(1), "{outputs:?}");
+    assert_eq!(
+        printed_bv(&outputs, "(bvadd x #x01)"),
+        Some(2),
+        "the define-fun body prints its value: {outputs:?}"
+    );
+}

@@ -373,11 +373,20 @@ impl TheoryManager<'_> {
     ///
     /// Each lemma is violated by the model it was derived from, so every
     /// round moves the model; the number of rounds is bounded (`MAX_LEMMAS`)
-    /// and running out sets [`Self::bv_euf_undecided`] (`unknown`) — the
-    /// bounded tests never reach it, and the 1,600-script campaign in
-    /// `oxiz-solver/tests/bv_euf_combination.rs` answered `unknown` on six
-    /// deeply nested width-3 scripts that were not root-caused.  An argument
-    /// with no circuit yet (one
+    /// and running out sets [`Self::bv_euf_undecided`] (`unknown`).  The
+    /// bounded tests never reach it (their longest loop is 208 rounds); the
+    /// 1,600-script campaigns in `oxiz-solver/tests/bv_euf_combination.rs`
+    /// reach it on a handful of width-3 QF_ABV scripts nesting `select` four
+    /// to six deep, which enumerate the partitions of ~15 argument terms
+    /// one lemma at a time — under a temporary 8,192-round cap two of them
+    /// decide `sat` at rounds 2,030 and 1,645.  What a give-up costs is
+    /// bounded by `BvSolver`'s `eq_cache`: before it every lemma re-encoded
+    /// its pair disequalities and the embedded instance grew with the round
+    /// count (52–82 s to reach the cap), with it a round costs a few
+    /// milliseconds and the cap is reached in 1.4–1.8 s.  Making the
+    /// argument equalities atoms of the outer search, so CDCL splits and
+    /// learns over them instead of this loop, is the real remedy and is
+    /// recorded open under `#P2b-29`.  An argument with no circuit yet (one
     /// that occurs in no bit-vector atom) is bit-blasted first, at the
     /// current theory scope; one the encoder cannot model marks the atom
     /// set unmodelled.  This is what keeps `(distinct (g x) (g y))` over two

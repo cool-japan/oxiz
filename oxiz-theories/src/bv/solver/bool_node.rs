@@ -304,7 +304,21 @@ impl BvSolver {
     /// The truth variable of the bit equality `lhs = rhs` over two
     /// pre-bit-blasted, equal-width operands: `out <=> AND_i (lhs[i] <=>
     /// rhs[i])`.  `None` when either is missing or the widths differ.
+    ///
+    /// Memoised per unordered pair in `eq_cache` (journalled like
+    /// `ult_cache`, so the entry lives exactly as long as its clauses): the
+    /// bit-vector / EUF exchange asks for the same pairs round after round,
+    /// and re-encoding them made every round's instance — and search —
+    /// bigger than the last (see the field's documentation).
     fn bool_bv_eq(&mut self, lhs: TermId, rhs: TermId) -> Option<Var> {
+        let key = if lhs.raw() <= rhs.raw() {
+            super::ComparisonKey { a: lhs, b: rhs }
+        } else {
+            super::ComparisonKey { a: rhs, b: lhs }
+        };
+        if let Some(&cached) = self.eq_cache.get(&key) {
+            return Some(cached);
+        }
         let (va, vb) = match (
             self.term_to_bv.get(&lhs).cloned(),
             self.term_to_bv.get(&rhs).cloned(),
@@ -328,15 +342,18 @@ impl BvSolver {
                 }
             });
         }
-        match acc {
-            Some(v) => Some(v),
+        let out = match acc {
+            Some(v) => v,
             None => {
                 // Two zero-width vectors are trivially equal.
                 let v = self.sat.new_var();
                 self.sat.add_clause([Lit::pos(v)]);
-                Some(v)
+                v
             }
-        }
+        };
+        self.eq_cache.insert(key.clone(), out);
+        self.eq_cache_journal.push(key);
+        Some(out)
     }
 
     /// Encode a strict less-than (signed or unsigned) comparison result var.

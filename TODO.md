@@ -574,93 +574,20 @@ oxiz-core (foundation)
 - **Tests**: 6,735 passing (16 skipped, 0 failures); 0 clippy warnings
 - **SLoC**: ~419,576 code lines across ~1,012 Rust files
 
-### May 18, 2026 - TacticRegistry Wired, Real LBD, EUF FuncInterp, Z3 Sort/Subst/Patterns (v0.2.2 Pass 6)
+### May 5–18, 2026 - v0.2.2 passes 2–6 (condensed 2026-09-15; the v0.2.2 release entry above carries the outcome)
 
-- **TacticRegistry wired into Z3 compat**: `z3_compat_ext2.rs::apply_named_tactic` now delegates to `oxiz_core::tactic::default_registry()` via a `OnceLock`-cached static; reachable tactic surface grew from 5 to 19 named tactics (adds aggressive-simplify, bvarray2uf, elim-uncnstr, solve-eqs, nnf, tseitin-cnf, fm, arith-bounds, factor, pb2bv, lia2card, nla2bv, split, ctx-solver-simplify canonical name + ctx-simplify backward-compat alias)
-- **Real LBD from learned clause**: `compute_lbd_from_literals` replaces the `vars_to_bump`-based proxy; hook now fires AFTER `self.learnt` is finalized and minimized in both `analyze()` and `analyze_theory_conflict()`, passing the distinct-nonzero-level count of the actual 1-UIP learned clause to `MLBranchingHeuristic::on_conflict_var_with_lbd`. Old `compute_lbd_from_vars` deleted (no dead code).
-- **FuncInterp EUF congruence traversal**: `EufSolver::function_application_entries(func_id)` returns canonicalized (arg_reps, result_rep) per Apply node using `find()` without path compression; `Context::get_func_interp_raw` consumes these, dedups by arg-rep tuple, resolves values via class-membership lookup, picks most-common entry as `else_value`. `Solver` gains `pub(crate) euf_function_entries()` bridge. Replaces the Pass 5 partial Apply-walk implementation with full congruence-aware extraction.
-- **Z3 Sort introspection + term substitution + quantifier patterns**: new `oxiz-solver/src/z3_compat_ext3.rs` (673 LOC) — `Z3SortKind`/`Z3Sort` (`kind`/`bv_size`/`array_domain`/`array_range`/`name`), `Z3Context::substitute` (hand-rolled bottom-up rebuild covering Bool/Arith/BV/Array/Apply/ITE, memoized via `FxHashMap` — wider coverage than core `TermManager::substitute` which silently skips BV+Apply), `Z3Pattern` + `forall_with_patterns`/`exists_with_patterns` (delegating to `TermManager::mk_*_with_patterns`)
-- **Tests**: +32 new tests (6,802 → 6,834); 0 failures; 0 clippy warnings
-- **New files**: `oxiz-solver/src/z3_compat_ext3.rs`, `oxiz-solver/tests/z3_compat_extensions3.rs`, `oxiz-solver/tests/func_interp_euf.rs`
+- **Pass 2 (May 5)**: `MLBranchingHeuristic` adapter (`oxiz-ml/src/branching/sat_adapter.rs`) making ML branching reachable through `SolverConfig::external_branching`; `oxiz-proof` `transform.rs`/`compression.rs` deleted (−1,167 lines, both referenced a non-existent `ProofRule`); bench baselines calibrated (`bv_simple` 3,916 µs, `lra_simple` 380 µs, `arrays_simple` 440 µs, ±25 % gate); 6,629 tests.
+- **v0.3.0 infrastructure push (May 5)**: SMT-COMP 2026 entry (`Track` enum, per-track `starexec_run_*`, `smtcomp2026 --track`, `scripts/package_smtcomp.sh`); BV/LRA/Arrays criterion benchmarks with `include_str!` fixtures; the `oxiz-sat::BranchingHeuristic` trait hook and `SolverConfig::external_branching`.
+- **Pass 3 (May 18)**: `oxiz-solver/src/z3_compat_ext.rs` (`Array`, `FuncDecl`, quantifiers, `ite`/`distinct`, `Real` symmetry, `Z3Optimize`); LIA `feasibility_pump`/`probe_variables`/`manage_cuts` wired into `LiaSolver::check()`; module-level `#![allow(dead_code)]` removed from 40 modules and the crate-level allow from `oxiz-solver/src/lib.rs`; `oxiz-math` `algebraic_number.rs` (446 lines) deleted; `SyzygyComputer` wired into `buchberger.rs`; `cicd.rs` activated (`--cicd-report`/`--cicd-strict`); 6,703–6,707 tests.
+- **Pass 4 (May 18)**: `z3_compat_ext2.rs` (`Z3Statistics`, `Z3Params`, `Z3Probe`, `Z3Goal`/`Z3Tactic`/`Z3ApplyResult`, `Z3DatatypeSort`, `check_assumptions`/`unsat_core`, `Z3AstVector`); CLI peak memory from Linux `VmHWM` (`oxiz-cli/src/memory.rs`); `BranchingHeuristic::on_conflict_var` hook feeding `MLEnhancedVSIDS::update_conflict`; `LruCache<TheoryLemma>` finally enforcing `max_lemma_cache_size`; 6,763 tests.
+- **Pass 5 (May 18)**: `FuncInterp`/`FuncEntry` model function interpretations (`oxiz-core/src/model/mod.rs`, `Z3Model::get_func_interp`); `TacticRegistry` (`oxiz-core/src/tactic/registry.rs`, 19 named tactics); real LBD from conflict decision levels; LRU caches in `AggressiveSimplifier` (4,096) and `EufSolver` explanations (1,024); 6,802 tests.
+- **Pass 6 (May 18)**: `TacticRegistry` wired into `apply_named_tactic` (5 → 19 reachable tactics); LBD computed from the finalized 1-UIP learned clause (`compute_lbd_from_literals`, the `vars_to_bump` proxy deleted); congruence-aware `EufSolver::function_application_entries` behind `Context::get_func_interp_raw`; `z3_compat_ext3.rs` (`Z3SortKind`/`Z3Sort`, `Z3Context::substitute` over Bool/Arith/BV/Array/Apply/ITE, `Z3Pattern` + `forall_with_patterns`/`exists_with_patterns`); 6,834 tests.
 
-### May 18, 2026 - FuncInterp, TacticRegistry, Real LBD, LRU Caches (v0.2.2 Pass 5)
+### April 4 → April 25, 2026 - Statistics snapshots (v0.2.1; condensed 2026-09-15)
 
-- **FuncInterp (model function interpretations)**: `FuncEntry`/`FuncInterp` types in `oxiz-core/src/model/mod.rs` (entries table + else_value + arity, with `evaluate`); `Model::add_func_interp`/`get_func_interp`; `Z3FuncInterp`/`Z3FuncEntry`/`Z3Value` wrappers in `z3_compat_ext2.rs`; `Z3Model::get_func_interp(&FuncDecl)` delegates to `Context::get_func_interp_raw()` which walks `Apply` terms in the model; 15 new tests
-- **TacticRegistry**: `oxiz-core/src/tactic/registry.rs` (333 LOC) with `default_registry()` registering 19 named tactics (simplify, propagate-values, ctx-solver-simplify, aggressive-simplify, bit-blast, bvarray2uf, ackermannize, elim-uncnstr, solve-eqs, nnf, tseitin-cnf, fm, arith-bounds, factor, pb2bv, lia2card, nla2bv, split, skip); `create(name)`/`names()`/`contains()`; 11 new tests
-- **Real LBD (Literals per Block Distance)**: `compute_lbd_from_vars()` in `conflict.rs` computes glue score from conflict-involved variables' distinct decision levels; new `BranchingHeuristic::on_conflict_var_with_lbd` defaulted trait method (delegates to `on_conflict_var` for backward compat); `MLBranchingHeuristic` forwards real LBD to `MLEnhancedVSIDS::update_conflict`; 7 new tests
-- **LRU caches in EUF + simplification**: `oxiz-core/src/lru_cache.rs` (copy for oxiz-core, no circular dep); `AggressiveSimplifier` gains persistent `memo_cache: LruCache<TermId,TermId>` (4096 cap) replacing per-call HashMap; `EufSolver` gains `expl_cache: LruCache<(u32,u32),Vec<TermId>>` (1024 cap, canonical min/max key, cleared on merge/pop/reset); 6 new tests
-- **Tests**: +39 new tests (6,763 → 6,802); 0 failures; 0 clippy warnings
-- **New files**: `oxiz-core/src/lru_cache.rs`, `oxiz-core/src/tactic/registry.rs`
-
-### May 18, 2026 - Z3 Compat #2, CLI Peak Memory, ML Conflict Hook, LRU Lemma Cache (v0.2.2 Pass 4)
-
-- **Z3 API compatibility expanded #2**: `oxiz-solver/src/z3_compat_ext2.rs` (963 LOC) adds `Z3Statistics` (7 counters: decisions/propagations/conflicts/restarts/learned-clauses/theory-propagations/theory-conflicts), `Z3Params` (key→value dispatcher into `SolverConfig`), `Z3Probe` (registry over 7 probe types with `.lt()`/`.gt()` combinators), `Z3Goal`/`Z3Tactic`/`Z3ApplyResult` (named-tactic dispatch + `.then()`/`.or_else()`/`.repeat()`/`.try_for()` combinators), `Z3DatatypeSort`/`Z3Constructor` (full `DatatypeDecl` wiring), `Z3Solver::check_assumptions(&[Bool])`/`unsat_core()`, `Z3AstVector`; 41 integration tests in `z3_compat_extensions2.rs`
-- **CLI peak memory fixed**: `peak_memory_bytes` was always `current_rss` — now reads Linux `VmHWM:` from `/proc/self/status` (kernel high-water-mark); new `oxiz-cli/src/memory.rs` (92 LOC) with `rss_and_peak()` function; non-Linux falls back gracefully
-- **CLI test coverage**: 9 new integration tests — peak memory nonzero, peak ≥ current, Linux VmHWM, parallel-mode, multi-file memory, exit codes for SAT/UNSAT/parse-error/missing-file
-- **`BranchingHeuristic::on_conflict_var` hook**: new defaulted method (no-op default, full backward compat); called from `conflict.rs` both `bump_batch` sites; `MLBranchingHeuristic::on_conflict_var` forwards to `MLEnhancedVSIDS::update_conflict(var, level as f64)`, enabling real ML training signal; 3 tests
-- **`LruCache<TheoryLemma>` in theory combination**: `FxHashSet<TheoryLemma>` (unbounded) replaced by `LruCache<TheoryLemma, ()>`; `config.max_lemma_cache_size` (default 10,000) finally enforced; push/pop backtracking uses `truncate_to(n)`; `CombinerStats` gains `lemma_cache_hits/misses/evictions`; 5 tests
-- **Tests**: +60 new tests (6,703 → 6,763); 0 failures; 0 clippy warnings
-- **New files**: `oxiz-solver/src/z3_compat_ext2.rs`, `oxiz-solver/tests/z3_compat_extensions2.rs`, `oxiz-cli/src/memory.rs`
-
-### May 18, 2026 - Dead Code Policy Enforcement Across 40 Modules (v0.2.2 Pass 3 cont)
-
-- **Crate-level allow removed**: `oxiz-solver/src/lib.rs` `#![allow(dead_code)]` deleted — the highest-priority policy violation, was silencing all dead code warnings for the entire solver crate
-- **39 module-level allows removed** across `oxiz-solver` (15 modules), `oxiz-core` (5 tactic modules), `oxiz-math` (4 modules), `oxiz-theories` (3 modules), `oxiz-proof` (1), `oxiz-cli` (2): all converted to per-item `#[allow(dead_code)]` or eliminated by wiring/deleting dead code
-- **`algebraic_number.rs` deleted** (446 lines): zero external callers confirmed; duplicates `realclosure.rs` functionality; removed from `oxiz-math/src/lib.rs`
-- **`SyzygyComputer` wired into `buchberger.rs`**: `apply_buchberger_criteria` now called before each S-polynomial computation to skip S-pairs failing GCD or chain criterion — improves Gröbner basis computation efficiency
-- **`cicd.rs` activated**: `CicdReport` wired into `processor.rs` `run_files` with `--cicd-report`/`--cicd-strict` CLI flags
-- **Tests**: 6,703 passing (−4 vs prior count due to test consolidation); 0 failures; 0 clippy warnings
-- **Net LoC**: −357 net (492 deleted, 135 added) from dead code removal
-
-### May 18, 2026 - Z3 Compat Expansion + LIA Heuristics + Dead Code Fixes (v0.2.2 Pass 3)
-
-- **Z3 API compatibility expanded**: `oxiz-solver/src/z3_compat_ext.rs` (746 lines) adds `Array` type (select/store/eq), `FuncDecl` (declaration + application), quantifiers (`forall_bool`/`exists_bool`), `ite` (Bool/Int/Real/BV), `distinct` (Int/Real/BV), `Real` symmetry (`gt`/`ge`/`neg`/`div`/`from_i64`), `Z3Optimize` wrapper around `OmtSolver`; 23 new integration tests in `z3_compat_extensions.rs`
-- **LIA heuristics wired into B&B loop**: `feasibility_pump`, `probe_variables`, `manage_cuts` — all previously dead code with `#[allow(dead_code)]` — are now called from `LiaSolver::check()` (probe + pump before B&B) and `branch_and_bound()` (manage_cuts every 8 levels); 4 new integration tests in `tests/lia_heuristics_integration.rs`
-- **`simplex_solver.rs` policy fix**: removed module-level `#![allow(dead_code)]` + deleted unused `solve_with_rhs_perturbation`; added `test_all_accessors` test activating all 10 public accessors; simplex_parametric.rs also cleaned of module-level allows
-- **LRA #6 regression guard verified**: `lra_regression_issue6.rs` (3 tests) all pass — bound-conflict detection for `x ≤ -1` + `x = -0.25` → UNSAT is correct in the current pipeline
-- **Tests**: +78 new tests (6,629 → 6,707); 0 failures; 0 clippy warnings
-- **New files**: `oxiz-solver/src/z3_compat_ext.rs`, `oxiz-solver/tests/z3_compat_extensions.rs`, `oxiz-theories/tests/lia_heuristics_integration.rs`
-
-### May 5, 2026 - ML Wiring + Dead Code Cleanup + Bench Calibration (v0.2.2 Pass 2)
-
-- **`MLBranchingHeuristic` adapter**: `oxiz-ml/src/branching/sat_adapter.rs` — `MLEnhancedVSIDS` now implements `BranchingHeuristic` via a thin adapter; ML branching is end-to-end reachable through `SolverConfig::external_branching` → `pick_branch_var`; type bridge `Var(u32) ↔ VarId(usize)` is lossless; confidence gate allows ML deference to VSIDS
-- **Dead code removed**: `oxiz-proof/src/transform.rs` (587 lines) and `oxiz-proof/src/compression.rs` (580 lines) deleted — both referenced non-existent `ProofRule` type; live equivalents in `compress.rs`/`simplify.rs`/`normalize.rs`/`merge.rs` cover the same surface; TODO comment in `lib.rs:84-86` removed
-- **Bench baselines calibrated**: `bv_simple` = 3,916 µs, `lra_simple` = 380 µs, `arrays_simple` = 440 µs (measured on host); BV/LRA/Arrays regression gate is now functional with ±25% envelope
-- **Pre-existing websocket doctest fixed**: `tokio_test::block_on` → `tokio::runtime::Runtime::new().unwrap().block_on` (tokio is already a dev-dep); unblocks `--all-features` doctest runs
-- **Tests**: +6 new `oxiz-ml/tests/sat_integration.rs` tests; 6,629 total passing; 0 failures; 0 clippy warnings
-- **New files**: `oxiz-ml/src/branching/sat_adapter.rs`, `oxiz-ml/tests/sat_integration.rs`
-- **Deleted files**: `oxiz-proof/src/transform.rs`, `oxiz-proof/src/compression.rs` (−1,167 lines)
-
-### May 5, 2026 - v0.3.0 Infrastructure Push (v0.2.2)
-
-- **SMT-COMP 2026 entry complete**: `Track` enum (5 variants), per-track `starexec_run_*` scripts, `smtcomp2026 --track` flag, `scripts/package_smtcomp.sh` packaging script; `submission` module wired into public API
-- **Bench regression expanded**: BV, LRA, Arrays fixture benchmarks wired into criterion (`bench_bv`, `bench_lra`, `bench_arrays`); `src/fixtures.rs` for stable `include_str!` embedding; `tests/bench_coverage.rs` smoke tests
-- **`BranchingHeuristic` trait hook**: new `oxiz-sat::BranchingHeuristic` trait + `BoxedBranchingHeuristic` type alias; optional `external_branching` field on `SolverConfig`; hook in `pick_branch_var` — forward-compat for oxiz-ml integration (v0.4.0)
-- **Tests**: +21 new tests across three tracks (9 external_branching, 9 submission e2e, 3 bench coverage); 0 regressions; 0 clippy warnings
-- **New files**: `oxiz-sat/src/solver/heuristic.rs`, `oxiz-sat/tests/external_branching.rs`, `oxiz-smtcomp/tests/submission_e2e.rs`, `bench/regression/src/fixtures.rs`, `bench/regression/tests/bench_coverage.rs`, `scripts/package_smtcomp.sh`
-
-### April 25, 2026 - Statistics Update (v0.2.1)
-
-- **Code Lines (tokei)**: 408,320 code lines out of 442,034 total lines across 1,182 files
-- **Tests**: 6,415 passing (0 failures)
-- **Stubs**: 0 unimplemented!()/todo!() remaining
-- **Key additions**: Set theory CDCL(T) interface wired; Sylvester matrix discriminant (degree≥4 fix); Hong's projection leading-coefficient fix; NIA cutting planes re-enabled; normalize_bounds tactic enabled; PyO3 quantifier/string(13)/FP(21) wrappers; dynamic subsumption periodic_check; multi-trigger E-matching; clause learning literal minimization; branch-and-bound loop; BV signed comparison
-
-### April 24, 2026 - Statistics Update (v0.2.1)
-
-- **Rust Files**: 931 -> 978
-- **Code Lines (tokei)**: 323,732 code lines out of 406,502 total Rust lines
-- **Tests**: 6,368 passing (16 skipped, 0 failures)
-- **Workspace Crates**: 17 (16 Rust crates + 1 TypeScript)
-- **EUF Performance**: 5 allocation-reduction and data-layout improvements landed (fingerprint pre-filter, inline hints, incremental sig_table undo trail, ENode layout reorder, reusable canonicalize buffer)
-
-### April 4, 2026 - Statistics Update
-
-- **Rust Files**: 911+ -> 931
-- **Code Lines (tokei)**: 312,495 code lines out of 393,292 total Rust lines
-- **Tests**: 6,155 passing (16 skipped, 0 failures)
-- **todo!/unimplemented! macros**: 0 across all 15 Rust crates
-- **Workspace Crates**: 16 (15 Rust + 1 TypeScript)
+- **April 4**: 931 Rust files, 312,495 code lines (tokei) of 393,292, 6,155 tests (16 skipped), 0 `todo!`/`unimplemented!`, 16 workspace crates (15 Rust + 1 TypeScript).
+- **April 24**: 978 files, 323,732 code lines of 406,502, 6,368 tests, 17 crates; five EUF allocation/data-layout improvements (fingerprint pre-filter, inline hints, incremental `sig_table` undo trail, `ENode` layout reorder, reusable canonicalize buffer).
+- **April 25**: 1,182 files, 408,320 code lines of 442,034, 6,415 tests, 0 stubs; Set theory CDCL(T) interface, Sylvester-matrix discriminant (degree ≥ 4), Hong's projection leading-coefficient fix, NIA cutting planes re-enabled, `normalize_bounds` tactic, PyO3 quantifier/string/FP wrappers, dynamic subsumption, multi-trigger E-matching, learned-clause literal minimization, branch-and-bound loop, BV signed comparison.
 
 ### March 31, 2026 - Performance, UX, Debugging, Docs
 - **Performance**: 9 optimizations (arena allocator, clause pool, SIMD poly ops,
@@ -1855,7 +1782,7 @@ Line numbers below were re-verified on 2026-09-09, after the two file splits thi
   (`Solver::model_leaves_a_boolean_undetermined`, `model_eval.rs`). Tests: `p2b27_*` in
   `bv_ite_selfcheck_regressions.rs` (both polarities; `xor`, nested, `define-fun` and width-64
   shapes; `(get-model)`; the campaign script verbatim and its satisfiable twin),
-  `bv_ite_adversarial_probe.rs`, two `model_eval` unit tests.)**
+  `bv_ite_adversarial_probe.rs`, three `model_eval` unit tests.)**
 - [x] **#P2b-28 (2026-09-15) — a wide comparison against the top of the `i64` range panicked in a
   debug build and lost its verdict in release.** `(assert (bvult #x7fffffffffffffff v))` alone:
   `bvult`/`bvule` were *also* parsed into the linear arithmetic solver as a bounded-integer
@@ -1902,13 +1829,81 @@ Line numbers below were re-verified on 2026-09-09, after the two file splits thi
   Tests: `p2b29_*` in `bv_ite_selfcheck_regressions.rs` (both directions, named cores,
   `push`/`pop`, satisfiable controls, the entailed-disjunction case), `bv_ite_adversarial_probe.rs`,
   `oxiz-theories/tests/bv_selector_fragment_and_pins.rs`; fixture
-  `c15_congruence_under_bv_operation` written for cargo-formal.)**
+  `c15_congruence_under_bv_operation` written for cargo-formal. **Scope**: the exchange closes
+  congruence and circuit-entailed argument equalities and nothing wider — an equality that comes
+  from an array axiom is `#P2b-32`'s. **Open remainder, measured by the close-out recheck** (dev
+  profile, load average 40–76): fresh seeds 16–23 of `bv_euf_campaign` (1,600 scripts, 1,086 `sat`
+  / 510 `unsat` / 4 `unknown`, all width-3 QF_ABV nesting `select` four to six deep with a sampled
+  witness, 0 wrong either way, 818 s) reproduce the six campaign `unknown`s' shape, and each gave
+  up only after 63–82 s with no `:timeout` — the `MAX_LEMMAS = 512` exit, root-caused here: every
+  `assert_any` lemma re-encoded its pair disequalities (`bool_bv_eq` had no memo), so the embedded
+  instance grew with the round count (76 variables / 171 clauses at round 1, 16,689 / 50,354 at
+  round 500), the full-assignment search each round runs grew with it (4 ms → 429 ms per round),
+  and the loop was quadratic; the EUF partition probe and `assert_any` themselves cost ~15–25 µs
+  per round. Fixed in 0.3.4 by `BvSolver::eq_cache`, a per-pair memo journalled like `ult_cache`:
+  the four scripts now reach the same 511-round exit in 1.4–1.8 s, the bounded campaigns keep every
+  verdict and run in 2.3 s instead of 10.4 s (longest loop 208 rounds: 1.64 s → 113 ms). Still
+  open: (1) the loop enumerates partitions of ~15 argument terms one lemma at a time — under a
+  temporary 8,192-round cap two of the four decide `sat` at rounds 2,030 (13.6 s) and 1,645
+  (34 s); `MAX_LEMMAS` stays 512 so a give-up costs seconds, and the remedy is to make the
+  argument equalities atoms of the *outer* search (delayed theory combination / Ackermann-style
+  splitting with CDCL learning) rather than a lemma loop — a `Var`-preferring witness order for the tentative merges, the review's cheaper suggestion, is untried; (2) the pigeonhole shape `(distinct (g
+  x0) … (g x8))` at width 3 is `unsat` in 62–71 s (width-2 five- and six-argument variants in
+  < 6 ms) and never enters the lemma loop — its cost is the outer CDCL(T) search over the pairwise
+  disequalities with the `resync_theory_state` backstop replaying the theory state on every
+  `final_check`; (3) 16 width-32 variables chained by `bvadd`/`bvsub`/`bvxor` constants take 147 s
+  pure QF_BV for `(distinct x0 x15)`, 86 s as `(distinct (f x0) (f x15))`, 243 s with the pair
+  under `bvadd`, and the 32-variable chain > 300 s — the bit-blaster's miter hardness (`#P2b-14`),
+  not the exchange.)**
+- [x] **#P2b-32 (2026-09-15) — array read-over-write was never instantiated for a `select` nested
+  under a bit-vector or arithmetic operator: a wrong `sat`, pre-existing on 0.3.3.** `(distinct
+  (bvadd (select (store arr i #x05) i) #x01) #x06)` answered `sat` on 0.3.3, HEAD and the
+  `#P2b-24`–`#P2b-29` tree — likewise under `bvnot`, `concat` and `bvult`, the RoW-2 miss with the
+  base read pinned (`(distinct i j) ∧ (= (bvadd (select (store arr i v) j) #x01) #x06) ∧ (= (select
+  arr j) #x07)`), and the `QF_AUFLIA` twins `(distinct (+ (select (store arr i 5) i) 1) 6)` — while
+  the same read as a *direct* atom operand was decided, and adding the RoW-1 lemma by hand turned
+  the verdict to `unsat`. `array_axioms::collect_array_structure` descended through a hand-written
+  child list (`Not`/`Neg`/`And`/`Or`/`Distinct`/`Implies`/`Xor`/`Ite`/`Apply`, then `_ =>
+  Vec::new()`), so the read under `BvAdd` was never collected, no read-over-write instance was
+  built, the leaf stayed a free bit-vector in the circuit (a free column in the tableau), and the
+  model gate had no `Select` arm — `open_in_model` fell to `model.get`, evaluated the assertion
+  `Undetermined`, and `arr = ((as const …) #x00), i = #x00, s = #xff` was published for `(= s
+  (bvadd (select (store arr i #x05) i) #x01))`, a model that violates the assertion. Outside
+  cargo-formal's QF_BV fragment; found by the close-out review of `#P2b-29`, whose equality
+  exchange cannot see an equality that comes from an array axiom rather than from congruence.
+  — **(fixed in 0.3.4: the walk delegates to `term_walk::collect_structural_children` for every
+  non-binder kind (`ground_children`), so any present or future `TermKind` reaches it; the model
+  gate reads a `select` over a `store` as read-over-write (`model_eval::Op::Select` — the index,
+  then each level's store index against it from the outermost store inwards, the stored value on a
+  definite hit, the published read of the innermost base on a miss of every level, `Undetermined`
+  for an unpinned index or a numeric collision) under `SelectSemantics::ReadOverWrite`, while the
+  array-axiom instantiator keeps the published-leaf reading (`SelectSemantics::PublishedLeaf`): an
+  instantiator that evaluated a read by the axiom itself would find every instance satisfied and
+  assert nothing, and the gate would then refuse candidate after candidate for want of the lemma.
+  All 44 scripts of the review's `f3arr` battery answer as the theory says (the a8/a9 misses stay
+  `sat` with `i ≠ j`). Tests: `p2b32_*` in `bv_ite_selfcheck_regressions.rs` (eight bit-vector
+  rows, three integer rows, satisfiable controls with models, the named form's core, `push`/`pop`),
+  `bv_ite_adversarial_probe.rs`, four `model_eval` unit tests, four `array_axioms` unit tests
+  (the binder exclusion included); fixture `c17_nested_select_read_over_write` written for
+  cargo-formal beside `c13`–`c16`.)**
 - [ ] **#P2b-26 — `(get-unsat-core)` re-solves every candidate subset from scratch; `(get-value …)`
-  of a `define-fun` name prints its body.** cargo-formal's named form is ≥ 3.8× the plain script
+  of any non-variable term printed its body.** cargo-formal's named form is ≥ 3.8× the plain script
   because `Solver::minimize_unsat_core` builds a fresh `Solver` per core member (c13: 1.8× here, 4
   names); 0.3.4 makes those solvers inherit the budgets and a *shrinking* `timeout_ms` (they started
-  unbounded) — assumption-literal cores are the real fix. Separately, `(get-value (t))` after
-  `(define-fun t () (_ BitVec 8) (bvadd x #x01))` prints the term, not a value. Found with `#P2b-24`.
+  unbounded) — assumption-literal cores are the real fix and stay open. The `(get-value)` half is
+  **fixed in 0.3.4**: `Model::eval` folds only the Boolean connectives and integer arithmetic, so a
+  bit-vector operator, a comparison, an application and a `select` all echoed their body on 0.3.3
+  and here — `((bvadd v #x01) (bvadd v #x01))`, `((f b) (f b))` with `f b = f a = #x07` in the
+  model, `(select (store arr #x00 #x05) #x00)` unevaluated, and a `define-fun` name (its body, since
+  the parser inlines it). `Context::format_get_value` now folds through `Solver::model_value_of`
+  (the model gate's structural evaluator, read-over-write included, with every leaf read from the
+  published model — `LeafSource::Model`; the gate keeps the tableau reading, and the first routing
+  printed the tableau's stale `0` for a nonlinear goal whose model says `-2`) and, for an
+  application the evaluator cannot fold, the value carried by a member of its congruence class
+  (`Solver::euf_class_value`), printing the term only when neither answers. Test:
+  `p2b26_get_value_folds_bit_vector_terms_comparisons_and_congruent_applications` in
+  `bv_ite_selfcheck_regressions.rs`. Found with `#P2b-24`; the non-variable cases by the close-out
+  recheck.
 - [ ] **#P2b-30 — a Bool-sorted uninterpreted application or array `select` used as an `ite`
   selector answers `unknown`.** `(assert (P a)) (assert (= x (ite (P a) #x01 #x02))) (assert (= x
   #x01))`: `encode_bool_node` has no arm for `Apply`/`Select`, so `bit_blast_cond_operands` fails

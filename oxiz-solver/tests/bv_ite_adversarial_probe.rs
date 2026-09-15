@@ -1200,7 +1200,8 @@ fn adversarial_campaign() {
 // ---------------------------------------------------------------------------
 // Three holes this probe found on the tree carrying only `#P2b-24`/`#P2b-25`,
 // each pinned here first as "still open" and inverted the day it closed
-// (`#P2b-27`, `#P2b-28`, `#P2b-29`).  They stay as regression guards.
+// (`#P2b-27`, `#P2b-28`, `#P2b-29`), and a fourth the review of those three
+// found beside them (`#P2b-32`).  They stay as regression guards.
 // ---------------------------------------------------------------------------
 
 /// Congruence reaches an opaque leaf *under* a bit-vector operation
@@ -1309,4 +1310,51 @@ fn p2b28_i64_max_bound_in_a_wide_comparison_is_decided() {
         Run::Panic(msg) => panic!("the #P2b-28 panic is back: {msg}"),
     };
     assert_eq!(verdict, "sat", "a satisfiable one-liner lost its verdict");
+}
+
+/// Read-over-write reaches a `select` *under* a bit-vector operation
+/// (`#P2b-32`): `(distinct (bvadd (select (store arr i #x05) i) #x01) #x06)`
+/// is unsatisfiable.  The array-axiom instantiator's structural walk
+/// descended through a hand-written child list naming only the Boolean
+/// connectives, `ite` and `Apply`, so a read nested under `bvadd` was never
+/// collected, no read-over-write instance was asserted for it, the read
+/// stayed a free bit-vector in the circuit, and the model gate — with no arm
+/// for `select` — evaluated the assertion `Undetermined` and vouched for the
+/// free bits: this tree, 0.3.3 and the tree before `#P2b-24` all answered
+/// `sat`.  The exchange of `#P2b-29` cannot see it, because the equality
+/// comes from an array axiom, not from congruence.  (The same read as a
+/// *direct* atom operand was always refuted, which is still checked.)
+#[test]
+fn p2b32_read_over_write_under_a_bv_operation_is_refuted() {
+    let script = "\
+(set-logic QF_ABV)
+(declare-const arr (Array (_ BitVec 8) (_ BitVec 8)))
+(declare-const i (_ BitVec 8))
+(assert (distinct (bvadd (select (store arr i #x05) i) #x01) #x06))
+(check-sat)
+";
+    let verdict = match run_script(script) {
+        Run::Lines(lines) => lines.first().and_then(|l| verdict_of(l)).unwrap_or("none"),
+        Run::Error(_) => "error",
+        Run::Panic(_) => "panic",
+    };
+    assert_eq!(
+        verdict, "unsat",
+        "the wrong `sat` of the pre-#P2b-32 tree is back (now {verdict})"
+    );
+    let direct = "\
+(set-logic QF_ABV)
+(declare-const arr (Array (_ BitVec 8) (_ BitVec 8)))
+(declare-const i (_ BitVec 8))
+(assert (distinct (select (store arr i #x05) i) #x05))
+(check-sat)
+";
+    let direct_verdict = match run_script(direct) {
+        Run::Lines(lines) => lines.first().and_then(|l| verdict_of(l)).unwrap_or("none"),
+        _ => "error",
+    };
+    assert_eq!(
+        direct_verdict, "unsat",
+        "the direct read was always refuted"
+    );
 }

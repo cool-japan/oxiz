@@ -955,6 +955,17 @@ impl Context {
     /// unconstrained declared constants — otherwise `Model::eval` returns an
     /// unassigned constant unchanged and `(get-value (x))` answered `((x x))`,
     /// echoing the term instead of producing a value.
+    ///
+    /// A compound term is folded by the solver's structural evaluator first
+    /// (`Solver::model_value_of`, `#P2b-26`): `Model::eval` knows the Boolean
+    /// connectives and integer arithmetic only, so `(bvadd v #x01)`,
+    /// `(bvult v #x81)`, `(select (store arr i #x05) i)`, a `define-fun`
+    /// name standing for any of them — the parser inlines the body — and an
+    /// application `(f b)` whose value lives on a congruent `(f a)` all
+    /// echoed their body back.  The substitution path below is kept for what
+    /// the evaluator declines to fold (a term over a defaulted constant, a
+    /// strict comparison at its boundary), where echoing is the honest
+    /// non-answer.
     pub(super) fn format_get_value(&mut self, terms: &[TermId]) -> String {
         const NO_MODEL: &str = "(error \"No model available\")";
         if self.last_result != Some(SolverResult::Sat) {
@@ -1005,6 +1016,10 @@ impl Context {
                 // A bare unconstrained constant: report exactly what
                 // `(get-model)` reports for it, witnesses included.
                 value
+            } else if let Some(value) = self.solver.model_value_of(term, &mut self.terms) {
+                // The structural reading: bit-vector operators, comparisons,
+                // read-over-write and congruent applications fold here.
+                oxiz_core::smtlib::Printer::new(&self.terms).print_term(value)
             } else {
                 let completed = if completion.is_empty() {
                     term

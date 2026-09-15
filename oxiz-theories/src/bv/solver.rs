@@ -75,6 +75,8 @@ struct ContextMark {
     term_to_bv_len: usize,
     /// Length of `ult_cache_journal`.
     ult_cache_len: usize,
+    /// Length of `eq_cache_journal`.
+    eq_cache_len: usize,
     /// Length of `bool_node_journal`.
     bool_node_len: usize,
     /// Length of `pinned_terms`.
@@ -99,6 +101,22 @@ pub struct BvSolver {
     /// Track unsigned less-than comparisons for conflict detection
     /// Maps (a, b) -> SAT variable representing a < b
     ult_cache: FxHashMap<ComparisonKey, Var>,
+    /// The truth variable of the bit equality `a = b` per unordered operand
+    /// pair (`a.raw() <= b.raw()`), built once by `bool_bv_eq` and reused by
+    /// every later Bool `=` node and every lemma of the bit-vector / EUF
+    /// exchange that mentions the pair.
+    ///
+    /// Without it each lemma of `assert_any` re-encoded its pair
+    /// disequalities from scratch — three fresh variables and nine clauses
+    /// per bit per pair, every round — so the embedded instance
+    /// grew with the round count (76 variables / 171 clauses at round 1 of
+    /// a width-3 QF_ABV script, 16,689 / 50,354 at round 500) and the
+    /// full-assignment search each round runs grew with it: 4 ms per round
+    /// at the start, 429 ms at the end, 52–60 s to reach `MAX_LEMMAS`.  The
+    /// pairs a loop can mention are bounded by the candidates, so with the
+    /// memo the instance stops growing after the first few rounds and a
+    /// give-up costs seconds (`#P2b-29`'s open remainder).
+    eq_cache: FxHashMap<ComparisonKey, Var>,
     /// Shared equalities derived by BV theory for Nelson-Oppen combination.
     /// BV is a finite domain theory, so equalities are extracted from the
     /// current model/assignment using model-based combination.
@@ -128,10 +146,10 @@ pub struct BvSolver {
     /// Undo journal for `term_to_bv`: every term whose circuit was *created*
     /// (not merely looked up) since the enclosing push.
     ///
-    /// The invariant these three journals restore is the one the solver
-    /// silently assumed and did not maintain: *a term has a `term_to_bv` /
-    /// `ult_cache` / `bool_node` entry **iff** the clauses defining that entry
-    /// are live in the embedded SAT solver*. `sat.pop()` deletes exactly the
+    /// The invariant these journals restore is the one the solver silently
+    /// assumed and did not maintain: *a term has a `term_to_bv` /
+    /// `ult_cache` / `eq_cache` / `bool_node` entry **iff** the clauses
+    /// defining that entry are live in the embedded SAT solver*. `sat.pop()` deletes exactly the
     /// clauses added since the matching `push`, so a cache entry that survived
     /// the pop handed the next `check()` a completely unconstrained bit-vector,
     /// and the idempotence guard in `oxiz-solver`'s
@@ -141,6 +159,11 @@ pub struct BvSolver {
     term_to_bv_journal: Vec<TermId>,
     /// Undo journal for `ult_cache`; see [`Self::term_to_bv_journal`].
     ult_cache_journal: Vec<ComparisonKey>,
+    /// Undo journal for `eq_cache`; see [`Self::term_to_bv_journal`].  An
+    /// equality variable is built after both operand circuits exist, so it
+    /// is journalled at the same or a deeper scope than either operand and
+    /// is retracted with whichever of them goes first.
+    eq_cache_journal: Vec<ComparisonKey>,
     /// Undo journal for `bool_node`; see [`Self::term_to_bv_journal`].
     bool_node_journal: Vec<TermId>,
     /// Every outer Boolean atom whose truth value is *currently pinned* into
@@ -218,6 +241,7 @@ impl BvSolver {
             context_stack: Vec::new(),
             config,
             ult_cache: FxHashMap::default(),
+            eq_cache: FxHashMap::default(),
             shared_equalities: Vec::new(),
             equality_notifications: Vec::new(),
             assertion_guard_terms: Vec::new(),
@@ -227,6 +251,7 @@ impl BvSolver {
             outer_bool_journal: Vec::new(),
             term_to_bv_journal: Vec::new(),
             ult_cache_journal: Vec::new(),
+            eq_cache_journal: Vec::new(),
             bool_node_journal: Vec::new(),
             pinned_terms: Vec::new(),
             pinned_set: FxHashSet::default(),
@@ -1622,6 +1647,7 @@ impl Theory for BvSolver {
             outer_bool_len: self.outer_bool_journal.len(),
             term_to_bv_len: self.term_to_bv_journal.len(),
             ult_cache_len: self.ult_cache_journal.len(),
+            eq_cache_len: self.eq_cache_journal.len(),
             bool_node_len: self.bool_node_journal.len(),
             pinned_len: self.pinned_terms.len(),
             opaque_len: self.opaque_leaves.len(),
@@ -1659,6 +1685,11 @@ impl Theory for BvSolver {
             while self.ult_cache_journal.len() > mark.ult_cache_len {
                 if let Some(key) = self.ult_cache_journal.pop() {
                     self.ult_cache.remove(&key);
+                }
+            }
+            while self.eq_cache_journal.len() > mark.eq_cache_len {
+                if let Some(key) = self.eq_cache_journal.pop() {
+                    self.eq_cache.remove(&key);
                 }
             }
             while self.bool_node_journal.len() > mark.bool_node_len {
@@ -1704,6 +1735,7 @@ impl Theory for BvSolver {
         self.assertions.clear();
         self.context_stack.clear();
         self.ult_cache.clear();
+        self.eq_cache.clear();
         self.shared_equalities.clear();
         self.equality_notifications.clear();
         self.assertion_guard_terms.clear();
@@ -1713,6 +1745,7 @@ impl Theory for BvSolver {
         self.outer_bool_journal.clear();
         self.term_to_bv_journal.clear();
         self.ult_cache_journal.clear();
+        self.eq_cache_journal.clear();
         self.bool_node_journal.clear();
         self.pinned_terms.clear();
         self.pinned_set.clear();

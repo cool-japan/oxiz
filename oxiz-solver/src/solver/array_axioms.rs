@@ -33,6 +33,20 @@
 //! in `check` terminates: each round either asserts a strictly new instance or
 //! reports that the candidate model is a genuine array model.
 //!
+//! The structural walk that finds those `select`s is exhaustive over the
+//! ground term language (`ground_children`, delegating to
+//! `term_walk::collect_structural_children`).  It was not until `#P2b-32`:
+//! a hand-written child list covered only the Boolean connectives, `ite` and
+//! `Apply`, so a read nested under a bit-vector or arithmetic operator —
+//! `(bvadd (select (store arr i #x05) i) #x01)`, `(+ (select (store arr i 5)
+//! i) 1)` — was never collected, no read-over-write instance was ever built
+//! for it, and the leaf stayed a free bit-vector in the circuit or a free
+//! column in the tableau: `(distinct (bvadd (select (store arr i #x05) i)
+//! #x01) #x06)` answered `sat` on 0.3.3 and on every tree before the fix,
+//! while the same read as a *direct* atom operand was decided.  The model
+//! gate is the second line of defence for that family: it reads a `select`
+//! over a `store` as read-over-write (`model_eval.rs`, `Op::Select`).
+//!
 //! Reference: Z3's `smt/theory_array.cpp` semantics (read-over-write and
 //! extensionality axiom instantiation).
 
@@ -219,7 +233,9 @@ fn collect_array_structure(
                 stack.push(*lhs);
             }
             _ => {
-                stack.extend(term_children(&data.kind).into_iter().rev());
+                let mut children: Vec<TermId> = Vec::new();
+                ground_children(&data.kind, &mut children);
+                stack.extend(children.into_iter().rev());
             }
         }
     }
@@ -459,19 +475,32 @@ fn array_domain(term: TermId, manager: &TermManager) -> Option<SortId> {
     }
 }
 
-/// Immediate sub-terms of a term kind that the structural walk should descend
-/// into for the operators not handled explicitly by `collect_array_structure`.
-/// Only the connectives / shapes that can legitimately contain array sub-terms
-/// need to be exhaustive; anything else contributes no children.
-fn term_children(kind: &TermKind) -> Vec<TermId> {
+/// Immediate sub-terms of a term kind that the structural walk descends into
+/// for the operators `collect_array_structure` does not handle itself.
+///
+/// Exhaustive over the ground term language, by delegation to
+/// [`super::term_walk::collect_structural_children`] — the single
+/// every-sub-term walk the crate keeps.  The hand-written list this replaced
+/// named only `not`/`and`/`or`/`distinct`/`=>`/`xor`/`ite`/`Apply`, with
+/// `_ => Vec::new()` for the rest: a `select` under `bvadd`, `bvnot`,
+/// `concat`, `bvult`, `+` or `<` was invisible to the instantiator, so no
+/// read-over-write lemma was ever asserted for it and the read stayed a free
+/// leaf — the wrong `sat` of `#P2b-32`.  Any future `TermKind` reaches this
+/// walk through `collect_structural_children`, which is what makes the
+/// omission unrepeatable.
+///
+/// Binders are the one deliberate exception, and it is the behaviour the old
+/// list had: a `select` under a `forall`, `exists`, `let` or `match` may
+/// mention a bound variable, and a ground lemma over a bound variable is an
+/// instance of nothing.  Quantified array reasoning is MBQI's job; this walk
+/// stays on the ground fragment.
+fn ground_children(kind: &TermKind, out: &mut Vec<TermId>) {
     match kind {
-        TermKind::Not(a) | TermKind::Neg(a) => vec![*a],
-        TermKind::And(args) | TermKind::Or(args) => args.to_vec(),
-        TermKind::Distinct(args) => args.to_vec(),
-        TermKind::Implies(a, b) | TermKind::Xor(a, b) => vec![*a, *b],
-        TermKind::Ite(c, t, e) => vec![*c, *t, *e],
-        TermKind::Apply { args, .. } => args.to_vec(),
-        _ => Vec::new(),
+        TermKind::Forall { .. }
+        | TermKind::Exists { .. }
+        | TermKind::Let { .. }
+        | TermKind::Match { .. } => {}
+        _ => super::term_walk::collect_structural_children(kind, out),
     }
 }
 
@@ -671,5 +700,139 @@ mod s8_iterative_tests {
             "select order must match the recursive pre-order"
         );
         assert_eq!(out.read_indices.get(&a), Some(&vec![i, j]));
+    }
+}
+
+#[cfg(test)]
+mod p2b32_walk_tests {
+    use super::*;
+    use crate::solver::types::SolverResult;
+    use oxiz_core::ast::TermManager;
+
+    /// A `select` nested under a bit-vector operator is collected (`#P2b-32`).
+    /// The hand-written child list this walk used to have named only the
+    /// Boolean connectives, `ite` and `Apply`, so the read under `bvadd`
+    /// below was invisible and no read-over-write instance was ever built.
+    #[test]
+    fn a_select_under_a_bit_vector_operator_is_collected() {
+        let mut tm = TermManager::new();
+        let bv8 = tm.sorts.bitvec(8);
+        let array_sort = tm.sorts.array(bv8, bv8);
+        let arr = tm.mk_var("arr", array_sort);
+        let i = tm.mk_var("i", bv8);
+        let five = tm.mk_bitvec(5, 8);
+        let one = tm.mk_bitvec(1, 8);
+        let six = tm.mk_bitvec(6, 8);
+        let store = tm.mk_store(arr, i, five);
+        let read = tm.mk_select(store, i);
+
+        for (name, wrapped) in [
+            ("bvadd", tm.mk_bv_add(read, one)),
+            ("bvnot", tm.mk_bv_not(read)),
+        ] {
+            let goal = tm.mk_distinct([wrapped, six]);
+            let mut visited = FxHashSet::default();
+            let mut out = ArrayStructure::default();
+            collect_array_structure(goal, &tm, &mut visited, &mut out);
+            assert_eq!(out.selects, vec![(read, store, i)], "under {name}");
+        }
+        let comparison = tm.mk_bv_ult(six, read);
+        let mut visited = FxHashSet::default();
+        let mut out = ArrayStructure::default();
+        collect_array_structure(comparison, &tm, &mut visited, &mut out);
+        assert_eq!(out.selects, vec![(read, store, i)], "under bvult");
+    }
+
+    /// The integer twin: a read under `+`, and the `<` comparison over it.
+    #[test]
+    fn a_select_under_an_arithmetic_operator_is_collected() {
+        let mut tm = TermManager::new();
+        let int_sort = tm.sorts.int_sort;
+        let array_sort = tm.sorts.array(int_sort, int_sort);
+        let arr = tm.mk_var("arr", array_sort);
+        let i = tm.mk_var("i", int_sort);
+        let five = tm.mk_int(5);
+        let one = tm.mk_int(1);
+        let six = tm.mk_int(6);
+        let store = tm.mk_store(arr, i, five);
+        let read = tm.mk_select(store, i);
+        let sum = tm.mk_add([read, one]);
+        let goal = tm.mk_distinct([sum, six]);
+        let mut visited = FxHashSet::default();
+        let mut out = ArrayStructure::default();
+        collect_array_structure(goal, &tm, &mut visited, &mut out);
+        assert_eq!(out.selects, vec![(read, store, i)], "under +");
+
+        let comparison = tm.mk_lt(six, read);
+        let mut visited = FxHashSet::default();
+        let mut out = ArrayStructure::default();
+        collect_array_structure(comparison, &tm, &mut visited, &mut out);
+        assert_eq!(out.selects, vec![(read, store, i)], "under <");
+    }
+
+    /// A read under a binder is deliberately *not* collected: a ground lemma
+    /// over a bound variable is an instance of nothing, and the old list
+    /// stopped at binders too.
+    #[test]
+    fn a_select_under_a_binder_is_not_collected() {
+        let mut tm = TermManager::new();
+        let bv8 = tm.sorts.bitvec(8);
+        let array_sort = tm.sorts.array(bv8, bv8);
+        let arr = tm.mk_var("arr", array_sort);
+        let k = tm.mk_var("k", bv8);
+        let five = tm.mk_bitvec(5, 8);
+        let store = tm.mk_store(arr, k, five);
+        let read = tm.mk_select(store, k);
+        let body = tm.mk_eq(read, five);
+        let quantified = tm.mk_forall([("k", bv8)], body);
+        let mut visited = FxHashSet::default();
+        let mut out = ArrayStructure::default();
+        collect_array_structure(quantified, &tm, &mut visited, &mut out);
+        assert!(out.selects.is_empty(), "no ground instance under a binder");
+    }
+
+    /// End to end through the builder API: the a3 shape and its integer
+    /// twin are refuted, and the miss with a free second index stays `sat`.
+    #[test]
+    fn nested_read_over_write_is_decided() {
+        let mut tm = TermManager::new();
+        let bv8 = tm.sorts.bitvec(8);
+        let array_sort = tm.sorts.array(bv8, bv8);
+        let arr = tm.mk_var("arr", array_sort);
+        let i = tm.mk_var("i", bv8);
+        let j = tm.mk_var("j", bv8);
+        let five = tm.mk_bitvec(5, 8);
+        let one = tm.mk_bitvec(1, 8);
+        let six = tm.mk_bitvec(6, 8);
+        let store = tm.mk_store(arr, i, five);
+
+        let hit = tm.mk_select(store, i);
+        let hit_sum = tm.mk_bv_add(hit, one);
+        let refuted = tm.mk_distinct([hit_sum, six]);
+        let mut solver = Solver::new();
+        solver.assert(refuted, &mut tm);
+        assert_eq!(solver.check(&mut tm), SolverResult::Unsat, "a3");
+
+        let miss = tm.mk_select(store, j);
+        let miss_sum = tm.mk_bv_add(miss, one);
+        let satisfiable = tm.mk_distinct([miss_sum, six]);
+        let mut solver = Solver::new();
+        solver.assert(satisfiable, &mut tm);
+        assert_eq!(solver.check(&mut tm), SolverResult::Sat, "a9");
+
+        let int_sort = tm.sorts.int_sort;
+        let int_array = tm.sorts.array(int_sort, int_sort);
+        let iarr = tm.mk_var("iarr", int_array);
+        let n = tm.mk_var("n", int_sort);
+        let ifive = tm.mk_int(5);
+        let ione = tm.mk_int(1);
+        let isix = tm.mk_int(6);
+        let istore = tm.mk_store(iarr, n, ifive);
+        let iread = tm.mk_select(istore, n);
+        let isum = tm.mk_add([iread, ione]);
+        let irefuted = tm.mk_distinct([isum, isix]);
+        let mut solver = Solver::new();
+        solver.assert(irefuted, &mut tm);
+        assert_eq!(solver.check(&mut tm), SolverResult::Unsat, "a12");
     }
 }

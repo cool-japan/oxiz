@@ -639,3 +639,225 @@ fn an_undetermined_assertion_over_numeric_variables_is_not_refused() {
     assert!(!solver.model_refutes_assertions(&manager));
     assert!(!solver.model_leaves_a_boolean_undetermined(&manager));
 }
+
+// ---------------------------------------------------------------------------
+// `#P2b-32` — a `select` over a `store` is read as read-over-write by the
+// gate, and as its published leaf by the array-axiom instantiator.
+// ---------------------------------------------------------------------------
+
+/// The gate's half of `#P2b-32`: a model whose published leaf for a read
+/// contradicts the store it reads over is refused.  Before the `select` arm
+/// the read fell into the opaque-leaf arm and evaluated to whatever the
+/// free bits said — `(distinct (bvadd (select (store arr i #x05) i) #x01)
+/// #x06)` was published `sat` with the read at `#xfe`.
+#[test]
+fn a_read_over_write_leaf_contradicting_the_store_is_refuted() {
+    let mut manager = TermManager::new();
+    let bv8 = manager.sorts.bitvec(8);
+    let array_sort = manager.sorts.array(bv8, bv8);
+    let arr = manager.mk_var("arr", array_sort);
+    let i = manager.mk_var("i", bv8);
+    let five = manager.mk_bitvec(5, 8);
+    let one = manager.mk_bitvec(1, 8);
+    let six = manager.mk_bitvec(6, 8);
+    let store = manager.mk_store(arr, i, five);
+    let read = manager.mk_select(store, i);
+    let sum = manager.mk_bv_add(read, one);
+    let assertion = manager.mk_distinct([sum, six]);
+
+    let zero = manager.mk_bitvec(0, 8);
+    let free_leaf = manager.mk_bitvec(0xfe, 8);
+    let mut model = Model::new();
+    model.set(i, zero);
+    model.set(read, free_leaf);
+    let mut solver = solver_with(vec![assertion]);
+    solver.model = Some(model.clone());
+    assert!(
+        solver.model_refutes_assertions(&manager),
+        "read-over-write makes the read 5, the sum 6, and the distinct false"
+    );
+
+    // The instantiator's reading is the published leaf: the read-over-write
+    // instance `(= i i) ⇒ (= read 5)` is *not* satisfied by this model, so it
+    // is asserted — which is what closes the free leaf for good.
+    let index_equal = manager.mk_eq(i, i);
+    let hit = manager.mk_eq(read, five);
+    let instance = manager.mk_implies(index_equal, hit);
+    assert_ne!(
+        solver.eval_in_model(instance, &model, &manager, 0),
+        Some(EvalVal::Bool(true)),
+        "read by its published leaf the instance is violated, so the instantiator asserts it"
+    );
+    assert_eq!(
+        solver.eval_in_model_outcome(instance, &model, &manager, 0),
+        EvalOutcome::boolean(true),
+        "read as read-over-write the instance is a tautology, which is why the gate must not be the instantiator's reader"
+    );
+
+    // The satisfiable twin `(= (bvadd read 1) 6)` is judged on the model the
+    // user sees — the array as printed, read by read-over-write — and holds
+    // under it whatever the circuit's leaf said: the leaf is not part of the
+    // printed model, so neither a consistent nor a stale entry for it can
+    // make the gate refuse.
+    let satisfiable = manager.mk_eq(sum, six);
+    let mut solver = solver_with(vec![satisfiable]);
+    for leaf in [five, free_leaf] {
+        let mut model = Model::new();
+        model.set(i, zero);
+        model.set(read, leaf);
+        solver.model = Some(model);
+        assert!(
+            !solver.model_refutes_assertions(&manager),
+            "the printed model satisfies the twin whatever the leaf entry says"
+        );
+    }
+}
+
+/// A miss on every level reads the published entry of the innermost base
+/// at the same index — the term the read-over-write lemma interns — and
+/// refutes a model that contradicts it; without such an entry the read is
+/// inconclusive.
+#[test]
+fn a_read_over_write_miss_reads_the_base_entry() {
+    let mut manager = TermManager::new();
+    let bv8 = manager.sorts.bitvec(8);
+    let array_sort = manager.sorts.array(bv8, bv8);
+    let arr = manager.mk_var("arr", array_sort);
+    let i = manager.mk_var("i", bv8);
+    let j = manager.mk_var("j", bv8);
+    let v = manager.mk_var("v", bv8);
+    let one = manager.mk_bitvec(1, 8);
+    let six = manager.mk_bitvec(6, 8);
+    let store = manager.mk_store(arr, i, v);
+    let read = manager.mk_select(store, j);
+    let sum = manager.mk_bv_add(read, one);
+    let assertion = manager.mk_eq(sum, six);
+    let base_read = manager.mk_select(arr, j);
+
+    let zero = manager.mk_bitvec(0, 8);
+    let seven = manager.mk_bitvec(7, 8);
+    let five = manager.mk_bitvec(5, 8);
+    let mut model = Model::new();
+    model.set(i, zero);
+    model.set(j, one);
+    model.set(base_read, seven);
+    let mut solver = solver_with(vec![assertion]);
+    solver.model = Some(model);
+    assert!(
+        solver.model_refutes_assertions(&manager),
+        "i ≠ j misses the store, the base reads 7, the sum is 8, not 6"
+    );
+
+    let mut model = Model::new();
+    model.set(i, zero);
+    model.set(j, one);
+    model.set(base_read, five);
+    solver.model = Some(model);
+    assert!(!solver.model_refutes_assertions(&manager));
+
+    let mut model = Model::new();
+    model.set(i, zero);
+    model.set(j, one);
+    solver.model = Some(model);
+    assert!(
+        !solver.model_refutes_assertions(&manager),
+        "no entry for the base read: inconclusive, never a refutation"
+    );
+}
+
+/// An index the model does not pin keeps the read inconclusive, and a
+/// numeric index collision is not a hit: the gate never manufactures a
+/// read-over-write refutation out of a defaulted or colliding value.
+#[test]
+fn a_read_over_write_with_an_unpinned_or_colliding_index_stays_inconclusive() {
+    let mut manager = TermManager::new();
+    let int_sort = manager.sorts.int_sort;
+    let array_sort = manager.sorts.array(int_sort, int_sort);
+    let arr = manager.mk_var("arr", array_sort);
+    let i = manager.mk_var("i", int_sort);
+    let j = manager.mk_var("j", int_sort);
+    let five = manager.mk_int(5);
+    let one = manager.mk_int(1);
+    let six = manager.mk_int(6);
+    let store = manager.mk_store(arr, i, five);
+    let read = manager.mk_select(store, j);
+    let sum = manager.mk_add([read, one]);
+    let assertion = manager.mk_distinct([sum, six]);
+
+    // No tableau value for `i` or `j`: the index is `Undetermined`.
+    let solver = solver_with(vec![assertion]);
+    assert_eq!(
+        solver.eval_in_model_outcome(read, &Model::new(), &manager, 0),
+        EvalOutcome::UNDETERMINED
+    );
+    assert!(!solver.model_refutes_assertions(&manager));
+}
+
+/// A read with no store under it is the leaf it always was: the model's
+/// entry for the `select` term, under both readings.
+#[test]
+fn a_read_with_no_store_is_the_published_leaf() {
+    let mut manager = TermManager::new();
+    let bv8 = manager.sorts.bitvec(8);
+    let array_sort = manager.sorts.array(bv8, bv8);
+    let arr = manager.mk_var("arr", array_sort);
+    let i = manager.mk_var("i", bv8);
+    let read = manager.mk_select(arr, i);
+    let five = manager.mk_bitvec(5, 8);
+    let mut model = Model::new();
+    model.set(read, five);
+    let solver = solver_with(Vec::new());
+    assert_eq!(
+        solver.eval_in_model_outcome(read, &model, &manager, 0),
+        EvalOutcome::bits(5.into(), 8)
+    );
+    assert_eq!(
+        solver.eval_in_model(read, &model, &manager, 0),
+        Some(EvalVal::Bv {
+            value: 5.into(),
+            width: 8
+        })
+    );
+    assert_eq!(
+        solver.eval_in_model_outcome(read, &Model::new(), &manager, 0),
+        EvalOutcome::UNDETERMINED
+    );
+}
+
+/// `(get-value)`'s reading (`Solver::model_value_of`) folds numeric leaves
+/// from the **published model**, never from the tableau: a variable the
+/// nonlinear engine decided has a model entry the tableau knows nothing
+/// about, and the old routing printed the tableau's stale `0` for `x` where
+/// the model said `-2` (`nlsat_feature_gate::a_decided_goal_still_carries_its_model`).
+/// A term with a direct entry is answered with that entry verbatim; a
+/// compound term folds over the model's leaves; the gate's own reading of
+/// the same variable stays `Undetermined`.
+#[test]
+fn get_value_reads_numeric_leaves_from_the_model_not_the_tableau() {
+    let mut manager = TermManager::new();
+    let real_sort = manager.sorts.real_sort;
+    let x = manager.mk_var("x", real_sort);
+    let minus_two = manager.mk_real(Rational64::from_integer(-2));
+    let square = manager.mk_mul([x, x]);
+    let mut model = Model::new();
+    model.set(x, minus_two);
+    let mut solver = solver_with(Vec::new());
+    solver.model = Some(model);
+
+    assert_eq!(
+        solver.model_value_of(x, &mut manager),
+        Some(minus_two),
+        "a direct entry is printed as it is"
+    );
+    let four = manager.mk_real(Rational64::from_integer(4));
+    assert_eq!(
+        solver.model_value_of(square, &mut manager),
+        Some(four),
+        "x * x folds over the model's -2, not the tableau's nothing"
+    );
+    assert_eq!(
+        solver.eval_in_model_outcome(square, solver.model.as_ref().expect("model"), &manager, 0),
+        EvalOutcome::UNDETERMINED,
+        "the gate keeps reading the tableau, which never constrained x"
+    );
+}

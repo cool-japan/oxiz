@@ -1067,6 +1067,41 @@ impl Solver {
         self.equality_skeleton_classes.get(&term).copied()
     }
 
+    /// The value `model` gives some member of `term`'s congruence class, for
+    /// a term whose own entry `build_model` never wrote.
+    ///
+    /// `(get-value ((f b)))` after `(= a b)` and `(= (f a) #x07)`: the model
+    /// holds an entry for `(f a)` — the application an equality atom pinned
+    /// — and none for `(f b)`, yet congruence closure holds the two in one
+    /// class, so `(f b)` is `#x07` in every model consistent with the
+    /// assignment.  The first member carrying a model entry, or that is a
+    /// value term itself (the `#x07` in `(= (f a) #x07)`), is that value;
+    /// the walk is the one `get_func_interp_raw`'s `class_value_string`
+    /// makes per class, and it is exact for the same reason.  `None` when
+    /// the term was never interned into congruence closure or no member of
+    /// its class carries a value.
+    pub(crate) fn euf_class_value(
+        &self,
+        term: TermId,
+        model: &Model,
+        manager: &TermManager,
+    ) -> Option<TermId> {
+        let node = self.euf.term_to_node(term)?;
+        let representative = self.euf.find_immutable(node);
+        for member in self.euf.class_members(representative) {
+            let Some(member_term) = self.euf.node_term(member) else {
+                continue;
+            };
+            if let Some(value) = model.get(member_term) {
+                return Some(value);
+            }
+            if is_value_term(member_term, manager) {
+                return Some(member_term);
+            }
+        }
+        None
+    }
+
     /// Build unsat core for trivial conflicts (assertion of false)
     pub(super) fn build_unsat_core_trivial_false(&mut self) {
         if !self.produce_unsat_cores {

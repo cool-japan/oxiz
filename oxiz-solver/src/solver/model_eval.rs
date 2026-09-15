@@ -250,6 +250,76 @@ enum ImpliesState {
     ConsequentMayRescue(EvalOutcome),
 }
 
+/// How the evaluator reads a `select` whose array operand is a `store`.
+///
+/// Two readers of one model need two different answers, and the difference
+/// is load-bearing (`#P2b-32`):
+///
+/// * the array-axiom instantiator asks "does this candidate model already
+///   satisfy this read-over-write instance?", and the only honest reading
+///   there is the value `build_model` **published** for the `select` term —
+///   the circuit's opaque leaf, or the tableau's column.  Read by the axiom
+///   itself, every instance would look satisfied, nothing would ever be
+///   asserted, and a leaf the circuit left free would reach the gate below,
+///   which would then refuse candidate after candidate for want of the very
+///   lemma the instantiator declined to add;
+/// * the model gate asks "is the published model a model?", and there the
+///   read must be computed the way array semantics computes it — down the
+///   store chain, hitting on a definite index equality — because a leaf the
+///   circuit never constrained is exactly what the gate exists to catch.
+///   `(get-value)` wants that reading too.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum SelectSemantics {
+    /// The entry `build_model` recorded for the `select` term itself.
+    PublishedLeaf,
+    /// Read-over-write down the store chain, then the published entry of the
+    /// innermost base's read at the same index.
+    ReadOverWrite,
+}
+
+/// Where the evaluator reads a numeric variable's value.
+///
+/// The gate reads it from the arithmetic solver, which answers `None` for a
+/// variable it never constrained — that `Undetermined` is what keeps a
+/// `distinct` over two defaulted integers from being mistaken for a
+/// violation (see [`Solver::model_refutes_assertions`]).  `(get-value)`
+/// must read the **published** model instead: a goal the nonlinear engine
+/// decided leaves the tableau holding a stale `0` for a variable the model
+/// prints as `-2`, and an evaluation folded over the tableau's leaves would
+/// print a value the model contradicts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum LeafSource {
+    /// `arith.value`, `Undetermined` when the tableau never constrained the
+    /// variable: the gate's reading.
+    Tableau,
+    /// The model's own entry, whatever engine produced it: the reading
+    /// `(get-value)` prints.
+    Model,
+}
+
+/// The model's `select` entries keyed by `(array, index)`, built lazily by
+/// [`Solver::store_chain`] on the first read-over-write of an evaluation and
+/// shared by every read of that call.
+type SelectIndex = Option<FxHashMap<(TermId, TermId), TermId>>;
+
+/// How far a `select` has got (see [`Op::Select`]).
+#[derive(Debug, Clone)]
+enum SelectState {
+    /// The index has not produced a value yet.
+    Index,
+    /// The index is `index`; the store index of level `level` is being
+    /// compared against it.
+    Level {
+        /// Position in [`Op::Select`]'s `levels`, outermost first.
+        level: usize,
+        /// The read index's value.
+        index: EvalVal,
+    },
+    /// A level's store index definitely equals the read index: this stored
+    /// value is the read's value.
+    Hit(TermId),
+}
+
 /// A pending operator, plus whatever state distinguishes "part-way through"
 /// from "ready to combine".
 #[derive(Debug)]
@@ -308,6 +378,25 @@ enum Op {
         consequent: TermId,
         /// How far the implication has got.
         state: ImpliesState,
+    },
+    /// `select` over a store chain, read as read-over-write (`#P2b-32`): the
+    /// index first, then every level's store index against it from the
+    /// outermost store inwards — a definite hit makes that level's stored
+    /// value the read, a definite miss moves inwards, anything less definite
+    /// ends the read `Undetermined` — and the published read of the innermost
+    /// base once every level is missed.  Opened only under
+    /// [`SelectSemantics::ReadOverWrite`] and only when there is a store to
+    /// read over; every other `select` is the opaque leaf it always was.
+    Select {
+        /// The index being read.
+        index: TermId,
+        /// `(store_index, stored_value)` per level, outermost first.
+        levels: SmallVec<[(TermId, TermId); 4]>,
+        /// The published read of the innermost base at `index`, or
+        /// `Undetermined` when the model records none.
+        base: EvalOutcome,
+        /// How far the read has got.
+        state: SelectState,
     },
 }
 
@@ -526,6 +615,51 @@ impl Frame {
                     other => carried.clone().worse(other.demote()),
                 }),
             },
+            Op::Select {
+                levels,
+                base,
+                state,
+                ..
+            } => match state {
+                SelectState::Index => match result {
+                    EvalOutcome::Value(index) => {
+                        *state = SelectState::Level { level: 0, index };
+                        None
+                    }
+                    other => Some(other.demote()),
+                },
+                SelectState::Level { level, index } => {
+                    let EvalOutcome::Value(store_index) = result else {
+                        return Some(result.demote());
+                    };
+                    // The index comparison follows `combine_eq`'s rules: a
+                    // Boolean or bit-vector pair is exact both ways, a
+                    // numeric pair is trusted only when it *differs* — an LP
+                    // collision is not evidence of a hit, so the read stays
+                    // `Undetermined` rather than manufacture one.
+                    let next = match definite_equality(index, &store_index) {
+                        Some(true) => match levels.get(*level) {
+                            Some(&(_, value)) => SelectState::Hit(value),
+                            None => return Some(EvalOutcome::UNDETERMINED),
+                        },
+                        Some(false) => {
+                            let next = *level + 1;
+                            if next >= levels.len() {
+                                return Some(base.clone());
+                            }
+                            SelectState::Level {
+                                level: next,
+                                index: index.clone(),
+                            }
+                        }
+                        None => return Some(EvalOutcome::UNDETERMINED),
+                    };
+                    *state = next;
+                    None
+                }
+                // The stored value's outcome *is* the read's outcome.
+                SelectState::Hit(_) => Some(result),
+            },
         }
     }
 
@@ -584,6 +718,19 @@ impl Frame {
             } => match state {
                 ImpliesState::Antecedent => Step::Need(*antecedent),
                 _ => Step::Need(*consequent),
+            },
+            Op::Select {
+                index,
+                levels,
+                state,
+                ..
+            } => match state {
+                SelectState::Index => Step::Need(*index),
+                SelectState::Level { level, .. } => match levels.get(*level) {
+                    Some(&(store_index, _)) => Step::Need(store_index),
+                    None => Step::Done(EvalOutcome::UNDETERMINED),
+                },
+                SelectState::Hit(value) => Step::Need(*value),
             },
         }
     }
@@ -696,6 +843,17 @@ fn combine_eq(a: &EvalVal, b: &EvalVal) -> EvalOutcome {
             },
         ) => model_eval_bv::equal(x, *x_width, y, *y_width),
         _ => EvalOutcome::UNDETERMINED,
+    }
+}
+
+/// Whether two operand values are definitely equal (`Some(true)`), definitely
+/// unequal (`Some(false)`), or nothing this gate will vouch for either way
+/// (`None`): [`combine_eq`]'s rules read as a three-way answer, for the index
+/// comparisons of read-over-write ([`Op::Select`]).
+fn definite_equality(a: &EvalVal, b: &EvalVal) -> Option<bool> {
+    match combine_eq(a, b) {
+        EvalOutcome::Value(EvalVal::Bool(equal)) => Some(equal),
+        _ => None,
     }
 }
 
@@ -1079,6 +1237,11 @@ impl Solver {
     /// verified, so instantiating it again is the safe move.  The
     /// model-verification gate must *not* collapse the two and uses the outcome
     /// form directly.
+    ///
+    /// A `select` is read as the value the model **published** for it
+    /// ([`SelectSemantics::PublishedLeaf`]), never as read-over-write: the
+    /// instantiator is deciding whether the read-over-write lemma is needed,
+    /// and a reading that assumes the lemma would answer "never".
     pub(super) fn eval_in_model(
         &self,
         term: TermId,
@@ -1086,8 +1249,64 @@ impl Solver {
         manager: &TermManager,
         depth: u32,
     ) -> Option<EvalVal> {
-        self.eval_in_model_outcome(term, model, manager, depth)
-            .value()
+        self.eval_with(
+            term,
+            model,
+            manager,
+            depth,
+            SelectSemantics::PublishedLeaf,
+            LeafSource::Tableau,
+        )
+        .value()
+    }
+
+    /// The value the published model determines for `term`, as an interned
+    /// constant term — the reading `(get-value)` prints (`#P2b-26`).
+    ///
+    /// A term the model records directly is answered with that entry, as
+    /// `Model::eval` always did.  Anything else is folded structurally by
+    /// the gate's evaluator with every leaf read from the **model**
+    /// ([`LeafSource::Model`]) and a `select` over a `store` read as
+    /// read-over-write, so a bit-vector operator, a comparison or a nested
+    /// read folds to its value instead of echoing its body; and a term the
+    /// evaluator cannot fold — an uninterpreted application whose own entry
+    /// `build_model` never wrote — takes the value some member of its
+    /// congruence class carries ([`Self::euf_class_value`]), the same value
+    /// in every model consistent with the assignment.  `None` when no
+    /// reading produces one, and the caller falls back to printing the term.
+    pub(crate) fn model_value_of(&self, term: TermId, manager: &mut TermManager) -> Option<TermId> {
+        let model = self.model.as_ref()?;
+        if let Some(value) = model.get(term) {
+            return Some(value);
+        }
+        let sort = manager.get(term)?.sort;
+        match self.eval_with(
+            term,
+            model,
+            manager,
+            0,
+            SelectSemantics::ReadOverWrite,
+            LeafSource::Model,
+        ) {
+            EvalOutcome::Value(EvalVal::Bool(value)) => Some(if value {
+                manager.mk_true()
+            } else {
+                manager.mk_false()
+            }),
+            EvalOutcome::Value(EvalVal::Num(value)) => {
+                Some(if sort == manager.sorts.int_sort && *value.denom() == 1 {
+                    manager.mk_int(*value.numer())
+                } else {
+                    manager.mk_real(value)
+                })
+            }
+            EvalOutcome::Value(EvalVal::Bv { value, width }) => {
+                Some(manager.mk_bitvec(value, width))
+            }
+            EvalOutcome::Undetermined | EvalOutcome::Unrepresentable => {
+                self.euf_class_value(term, model, manager)
+            }
+        }
     }
 
     /// Evaluate `term` under `model`.
@@ -1105,14 +1324,15 @@ impl Solver {
     /// verdict on deep terms unchanged.
     ///
     /// IMPORTANT: `model.get` is consulted only for *leaf* / opaque terms (the
-    /// `Var` and fallback arms of [`Self::open_in_model`]).  Operator terms
-    /// (`and` / `or` / `=` / `+` / …) are ALWAYS recomputed structurally from
-    /// their children — never read back from the model cache.  `build_model`
-    /// records the SAT core's Boolean value for every atom and gate, and when
-    /// that core commits an inconsistent trail those cached values are exactly
-    /// what must not be trusted (e.g. an `or` gate cached `true` while both
-    /// disjuncts are `false`).  Recomputing from leaves is what makes this gate
-    /// sound.
+    /// `Var` and fallback arms of [`Self::open_in_model`], and the innermost
+    /// base of a read-over-write chain).  Operator terms (`and` / `or` / `=`
+    /// / `+` / a `select` over a `store` / …) are ALWAYS recomputed
+    /// structurally from their children — never read back from the model
+    /// cache.  `build_model` records the SAT core's Boolean value for every
+    /// atom and gate, and when that core commits an inconsistent trail those
+    /// cached values are exactly what must not be trusted (e.g. an `or` gate
+    /// cached `true` while both disjuncts are `false`).  Recomputing from
+    /// leaves is what makes this gate sound.
     pub(super) fn eval_in_model_outcome(
         &self,
         term: TermId,
@@ -1120,6 +1340,32 @@ impl Solver {
         manager: &TermManager,
         depth: u32,
     ) -> EvalOutcome {
+        self.eval_with(
+            term,
+            model,
+            manager,
+            depth,
+            SelectSemantics::ReadOverWrite,
+            LeafSource::Tableau,
+        )
+    }
+
+    /// [`Self::eval_in_model_outcome`] with the `select` and numeric-leaf
+    /// readings spelled out; see [`SelectSemantics`] and [`LeafSource`] for
+    /// why the callers differ.
+    fn eval_with(
+        &self,
+        term: TermId,
+        model: &Model,
+        manager: &TermManager,
+        depth: u32,
+        selects: SelectSemantics,
+        leaf: LeafSource,
+    ) -> EvalOutcome {
+        // The model's `select` entries keyed by `(array, index)`, built by the
+        // first read-over-write that needs one and shared by every read of
+        // this call (see `store_chain`).
+        let mut select_index: SelectIndex = None;
         let mut frames: Vec<Frame> = Vec::new();
         // The term each frame on `frames` is evaluating, so a finished frame
         // can be memoised.  It lives beside the stack rather than inside
@@ -1153,7 +1399,15 @@ impl Solver {
         // only make a deep occurrence more precise, never wrong.
         let mut memo: FxHashMap<TermId, EvalOutcome> = FxHashMap::default();
 
-        match self.open_in_model(term, model, manager, depth) {
+        match self.open_in_model(
+            term,
+            model,
+            manager,
+            depth,
+            selects,
+            leaf,
+            &mut select_index,
+        ) {
             Opened::Done(outcome) => return outcome,
             Opened::Frame(frame) => {
                 frames.push(frame);
@@ -1179,7 +1433,15 @@ impl Solver {
                         Some(top) => top.depth.saturating_add(1),
                         None => depth,
                     };
-                    match self.open_in_model(child, model, manager, child_depth) {
+                    match self.open_in_model(
+                        child,
+                        model,
+                        manager,
+                        child_depth,
+                        selects,
+                        leaf,
+                        &mut select_index,
+                    ) {
                         Opened::Done(outcome) => carry = Some(outcome),
                         Opened::Frame(mut frame) => {
                             frame.base = values.len();
@@ -1217,6 +1479,9 @@ impl Solver {
         model: &Model,
         manager: &TermManager,
         depth: u32,
+        selects: SelectSemantics,
+        leaf: LeafSource,
+        select_index: &mut SelectIndex,
     ) -> Opened {
         if depth > ENCODE_DEPTH_LIMIT {
             return Opened::Done(EvalOutcome::UNDETERMINED);
@@ -1247,7 +1512,13 @@ impl Solver {
                 // a variable the solver does not actually constrain, which makes
                 // the whole evaluation inconclusive (never a false downgrade) —
                 // exactly the variables `build_model` would have defaulted to 0.
-                if sort == manager.sorts.int_sort || sort == manager.sorts.real_sort {
+                // `(get-value)` asks for the model's entry instead
+                // (`LeafSource::Model`): it prints what the model says, and
+                // the tableau may hold nothing, or a stale value, for a
+                // variable another engine decided.
+                if leaf == LeafSource::Tableau
+                    && (sort == manager.sorts.int_sort || sort == manager.sorts.real_sort)
+                {
                     match self.arith.value(term) {
                         Some(n) => EvalOutcome::number(n),
                         None => EvalOutcome::UNDETERMINED,
@@ -1449,13 +1720,101 @@ impl Solver {
             TermKind::Let { body, .. } => {
                 Opened::Frame(Frame::unary(*body, EagerKind::Identity, depth))
             }
-            // Opaque leaves (uninterpreted applications, selects, …): the model
-            // may pin a concrete value; otherwise inconclusive.
+            // ---- arrays (`#P2b-32`) ------------------------------------
+            //
+            // A read over a `store` chain is an operator term, and under the
+            // gate's reading it is recomputed from its parts like any other:
+            // read-over-write down the chain, the published read of the
+            // innermost base when every level is missed.  Before this arm a
+            // `select` fell into the opaque-leaf arm below, so a read the
+            // circuit had left as a *free* leaf — the whole `#P2b-32` family,
+            // `(distinct (bvadd (select (store arr i #x05) i) #x01) #x06)`
+            // published `sat` with `s = #xff` — evaluated to whatever the free
+            // bits said and the gate vouched for it.  A read with no store
+            // under it has nothing to recompute and stays the leaf it was, and
+            // the instantiator's reading (`SelectSemantics::PublishedLeaf`)
+            // never opens the frame at all.
+            TermKind::Select(array, index) => {
+                let (levels, base) = match selects {
+                    SelectSemantics::ReadOverWrite => {
+                        self.store_chain(*array, *index, model, manager, select_index)
+                    }
+                    SelectSemantics::PublishedLeaf => (SmallVec::new(), EvalOutcome::UNDETERMINED),
+                };
+                if levels.is_empty() {
+                    return Opened::Done(match model.get(term) {
+                        Some(value_term) => parse_value_term(value_term, manager),
+                        None => EvalOutcome::UNDETERMINED,
+                    });
+                }
+                Opened::Frame(Frame::new(
+                    Op::Select {
+                        index: *index,
+                        levels,
+                        base,
+                        state: SelectState::Index,
+                    },
+                    depth,
+                ))
+            }
+            // Opaque leaves (uninterpreted applications, …): the model may pin
+            // a concrete value; otherwise inconclusive.
             _ => Opened::Done(match model.get(term) {
                 Some(value_term) => parse_value_term(value_term, manager),
                 None => EvalOutcome::UNDETERMINED,
             }),
         }
+    }
+
+    /// The store chain under a read's array operand, outermost level first,
+    /// together with the outcome the read falls back to once every level is
+    /// definitely missed: the model's entry for the innermost base's read at
+    /// the same index — the term the read-over-write lemma interns
+    /// (`select(base, index)`), which `build_model` records like any other
+    /// opaque leaf — or `Undetermined` when the model holds none.
+    ///
+    /// Terms are hash-consed, so a chain is a path, never a cycle, and its
+    /// length is bounded by the term's size; the levels live on the heap.
+    /// The `(array, index)` index over the model is built once per
+    /// evaluation, on the first chain that needs it: a `Model` is keyed by
+    /// term id, and the base's read is a *different* term from the one being
+    /// evaluated.
+    fn store_chain(
+        &self,
+        array: TermId,
+        index: TermId,
+        model: &Model,
+        manager: &TermManager,
+        select_index: &mut SelectIndex,
+    ) -> (SmallVec<[(TermId, TermId); 4]>, EvalOutcome) {
+        let mut levels: SmallVec<[(TermId, TermId); 4]> = SmallVec::new();
+        let mut base = array;
+        while let Some(TermKind::Store(inner, store_index, value)) =
+            manager.get(base).map(|t| &t.kind)
+        {
+            levels.push((*store_index, *value));
+            base = *inner;
+        }
+        if levels.is_empty() {
+            return (levels, EvalOutcome::UNDETERMINED);
+        }
+        let reads = select_index.get_or_insert_with(|| {
+            let mut reads: FxHashMap<(TermId, TermId), TermId> = FxHashMap::default();
+            for (&key, &value) in model.assignments() {
+                if let Some(TermKind::Select(read_array, read_index)) =
+                    manager.get(key).map(|t| &t.kind)
+                {
+                    reads.insert((*read_array, *read_index), value);
+                }
+            }
+            reads
+        });
+        let fallback = reads
+            .get(&(base, index))
+            .map_or(EvalOutcome::UNDETERMINED, |&value| {
+                parse_value_term(value, manager)
+            });
+        (levels, fallback)
     }
 }
 

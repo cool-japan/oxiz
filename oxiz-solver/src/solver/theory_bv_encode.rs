@@ -173,18 +173,26 @@ fn bitvec_const_pow2_shift(mgr: &TermManager, tid: TermId) -> Option<u32> {
 /// A BV-sorted term whose head is not a bit-vector operation — an `Apply` of
 /// an uninterpreted function, an array `select`, a floating-point conversion
 /// — has no circuit and becomes a fresh, unconstrained bit-vector.  That is
-/// a sound abstraction for a value the theory knows nothing about *only
-/// together with* the equality exchange in
-/// `TheoryManager::combine_bv_with_euf`: the leaf is journalled by
+/// a sound abstraction for a value the theory knows nothing about only
+/// together with everything that *does* know something about the leaf and
+/// can reach the circuit: for **congruence and circuit-entailed argument
+/// equalities**, the equality exchange in
+/// `TheoryManager::combine_bv_with_euf` — the leaf is journalled by
 /// [`BvSolver::new_opaque_leaf`], the manager interns it into congruence
 /// closure, two leaves EUF proves equal (`f(a) = f(b)` from `a = b`) get
 /// their bit-equality asserted into this circuit with EUF's explanation, and
 /// in the other direction the partition of the application arguments the
 /// circuit's model induces is checked against congruence closure, whose
-/// refusals come back as lemmas.  Before `#P2b-29` nothing crossed that
-/// boundary in either direction: `(= a b) ∧ (distinct (bvadd (f a) #x01)
-/// (bvadd (f b) #x01))` and `(= (bvadd x #x01) (bvadd y #x01)) ∧ (distinct
-/// (g x) (g y))` both answered `sat`.  Until
+/// refusals come back as lemmas (`#P2b-29`) — and for **array
+/// read-over-write**, the lazy axiom instantiation in `array_axioms.rs`,
+/// whose structural walk has to *find* a `select` nested under a bit-vector
+/// operator before any lemma about it exists (`#P2b-32`; until then
+/// `(distinct (bvadd (select (store arr i #x05) i) #x01) #x06)` answered
+/// `sat`, because the exchange cannot see an equality that comes from an
+/// array axiom rather than from congruence).  Before `#P2b-29` nothing
+/// crossed the EUF boundary in either direction: `(= a b) ∧ (distinct
+/// (bvadd (f a) #x01) (bvadd (f b) #x01))` and `(= (bvadd x #x01) (bvadd y
+/// #x01)) ∧ (distinct (g x) (g y))` both answered `sat`.  Until
 /// `#P2b-24` the encoder returned `false` for such a leaf and every caller
 /// then abstracted the whole *root* instead: `(bvadd (f x) y)` became one
 /// free bit-vector, and — the actual defect — so did any root whose `ite`
