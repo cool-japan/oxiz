@@ -918,6 +918,13 @@ fn env_u64(name: &str, default: u64) -> u64 {
         .unwrap_or(default)
 }
 
+/// The array-*extensionality* shapes (`#P2b-37`): array (dis)equality atoms,
+/// `n`-ary `distinct` over arrays, `store = ((as const S) d)`, foreign array
+/// arguments and arrays of arrays, each scored against an exhaustive oracle
+/// and each `sat` model replayed through the reference semantics.
+#[path = "array_uf_combination/ext_shapes.rs"]
+mod ext_shapes;
+
 /// Widths 1 and 2, every verdict the oracle decides checked against it.
 #[test]
 fn array_uf_exhaustive_small_widths() {
@@ -943,6 +950,86 @@ fn array_uf_sampled_wider_widths() {
         campaign(seed, 10, &[3, 4], &mut tally, &mut failures);
     }
     report("sampled", &tally, &failures);
+}
+
+/// The bounded extensionality campaign: width-1 index **and** element sorts —
+/// where the four inhabitants of `(Array (_ BitVec 1) (_ BitVec 1))` make the
+/// cardinality argument bite — plus width-2 elements and arrays of arrays at
+/// width 1.
+///
+/// Every verdict is checked against an exhaustive oracle over every
+/// interpretation of every declared symbol, and every `sat` model is parsed
+/// back and re-evaluated, so a model that falsifies its own script fails the
+/// run even when the verdict is right.
+///
+/// Reverting any one of the four families `#P2b-37` added makes this run
+/// report `wrong_sat`; the counts are in the `#P2b-37` entry of `TODO.md`.
+#[test]
+fn array_ext_shapes_bounded() {
+    let mut tally = ext_shapes::ExtTally::default();
+    let mut first_failure = Vec::new();
+    ext_shapes::campaign(
+        0..12,
+        40,
+        &[(1, 1, false), (1, 1, true), (1, 2, false), (2, 1, false)],
+        &mut tally,
+        &mut first_failure,
+    );
+    eprintln!("[ext-shapes] {tally:?}");
+    assert_eq!(
+        tally.failures(),
+        0,
+        "{} failures; first of each kind:\n{}",
+        tally.failures(),
+        ext_shapes::summarise(&first_failure)
+    );
+    assert!(
+        tally.sat + tally.unsat > 0,
+        "nothing was decided: {tally:?}"
+    );
+    // The published-model residue, pinned rather than demanded to be zero.
+    // One script in 480 still prints an array whose entries contradict the
+    // equality that constrains it — `(= (store a0 #b01 #b1) ((as const A)
+    // #b1))` with a published read of `a0` the refinement loop never
+    // corrected.  The 0.3.4 base falsifies this shape too (and many more), so
+    // the pin catches a regression without claiming the class is closed.
+    assert!(
+        tally.bad_model <= 1,
+        "published-model residue grew: {tally:?}"
+    );
+}
+
+/// The long extensionality campaign: `OXIZ_EXT_SEED_LO/HI` (default 0..120),
+/// `OXIZ_EXT_TRIALS` (default 50 per seed) — 6,000 scripts by default.
+#[test]
+#[ignore = "long-running differential campaign; run explicitly"]
+fn array_ext_shapes_campaign() {
+    let lo = env_u64("OXIZ_EXT_SEED_LO", 0);
+    let hi = env_u64("OXIZ_EXT_SEED_HI", 120);
+    let trials = env_u64("OXIZ_EXT_TRIALS", 50) as usize;
+    let mut tally = ext_shapes::ExtTally::default();
+    let mut first_failure = Vec::new();
+    ext_shapes::campaign(
+        lo..hi,
+        trials,
+        &[
+            (1, 1, false),
+            (1, 1, true),
+            (1, 2, false),
+            (2, 1, false),
+            (2, 2, false),
+        ],
+        &mut tally,
+        &mut first_failure,
+    );
+    eprintln!("[ext-campaign] {tally:?}");
+    assert_eq!(
+        tally.failures(),
+        0,
+        "{} failures; first of each kind:\n{}",
+        tally.failures(),
+        ext_shapes::summarise(&first_failure)
+    );
 }
 
 /// Long form: `OXIZ_AUF_SEED_LO/HI` (default 0..16), `OXIZ_AUF_TRIALS`

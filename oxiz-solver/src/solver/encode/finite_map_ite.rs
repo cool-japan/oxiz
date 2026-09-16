@@ -234,7 +234,12 @@ impl Solver {
                 side_conditions.push(manager.mk_implies(key_eq, val_eq));
                 not_any_key.push(manager.mk_not(key_eq));
                 if spine.arms.len() <= MAX_AMO_ARMS {
-                    key_lits.push(self.encode_depth(key_eq, manager, 0));
+                    // `Solver::encode`: see the same change in
+                    // `int_case_split::assert_value_disjunction` — the depth-0
+                    // entry point is the one choke point the array-refinement
+                    // guard is computed at, and every caller of it has to go
+                    // through `encode` for that to hold.
+                    key_lits.push(self.encode(key_eq, manager));
                 }
             }
             let none_matched = manager.mk_and(not_any_key);

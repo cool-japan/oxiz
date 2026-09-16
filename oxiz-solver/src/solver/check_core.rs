@@ -185,6 +185,11 @@ impl Solver {
         // (`wasm32-unknown-unknown` / `no_std`) `now()` is a constant t = 0, so
         // no deadline built from it can ever be reached and `:timeout` is the
         // documented no-op `oxiz_time`'s crate docs describe.
+        // When this check started, for the array refinement's own budget
+        // ([`array_refinement_resolve_deadline`]).  Not `cfg`-gated for the
+        // same reason `deadline` is not: on a frozen clock every instant is
+        // t = 0 and the budget simply never fires.
+        let check_entry = oxiz_time::Instant::now();
         let deadline: Option<oxiz_time::Instant> = if self.config.timeout_ms > 0 {
             oxiz_time::Instant::now()
                 .checked_add(core::time::Duration::from_millis(self.config.timeout_ms))
@@ -303,6 +308,10 @@ impl Solver {
         // saturation well within this generous cap for realistic inputs.
         let max_array_refinement_rounds = 256;
         let mut array_refinement_rounds = 0;
+        // Wall-clock budget for the *re-solves* the array refinement triggers
+        // (`#P2b-38`), armed when the first array lemma is asserted; see
+        // [`array_refinement_resolve_deadline`].
+        let mut array_resolve_deadline: Option<oxiz_time::Instant> = None;
 
         // Stamp the start of the search so the non-convex-LIA case-split
         // refinement can gate itself on how long the *first* solve took (see
@@ -494,6 +503,34 @@ impl Solver {
                                 self.unsat_core = None;
                                 return SolverResult::Unknown;
                             }
+                            // Arm the refinement's own wall-clock budget on the
+                            // first round, and hand it to every engine the
+                            // re-solve below drives.  Without it a single
+                            // re-solve can run unboundedly: the lemmas this
+                            // loop asserts enlarge the bit-blasted circuit, the
+                            // per-assignment `BvSolver::check` grows with it,
+                            // and a fifteen-line script that the same tree
+                            // answered in 0.46 s before the lemmas existed ran
+                            // for more than five minutes with no answer at all.
+                            // `Unknown` is the honest outcome there, and it is
+                            // what the round budget above already returns for
+                            // the same reason.
+                            //
+                            // Only when the caller set no `:timeout`, and never
+                            // the *earlier* of the two.  A caller who asked for
+                            // `:timeout 200000` asked for two hundred seconds
+                            // and has already bounded this loop; handing them
+                            // `unknown` at the floor below would override an
+                            // explicit instruction with a default.  The budget
+                            // exists to bound the *unbounded* case, which is
+                            // exactly `deadline == None`.
+                            if deadline.is_none() && array_resolve_deadline.is_none() {
+                                array_resolve_deadline =
+                                    array_refinement_resolve_deadline(check_entry);
+                            }
+                            let round_deadline = deadline.or(array_resolve_deadline);
+                            self.sat.set_deadline(round_deadline);
+                            self.bv.set_budget(conflict_budget, round_deadline);
                             // A read-over-write lemma is an `ite` over the two
                             // array values; at Int/Real sort that `ite` is a new
                             // opaque arithmetic atom, so define it before the
@@ -532,7 +569,7 @@ impl Solver {
                                 self.has_bv_arith_ops,
                                 self.has_quantifiers,
                                 &self.quantifier_uf_funcs,
-                                deadline,
+                                round_deadline,
                             );
                             continue;
                         }
@@ -978,4 +1015,46 @@ impl Solver {
             }
         }
     }
+}
+
+/// Minimum wall clock the array-axiom refinement's re-solves may have, and the
+/// floor under the adaptive budget [`array_refinement_resolve_deadline`]
+/// computes (`#P2b-38`).
+///
+/// Generous on purpose, and for the same reason
+/// `int_case_split::REFINEMENT_TIME_CEILING_MS` is (two minutes there).  The
+/// budget exists to turn *unbounded* into `unknown` — the script that
+/// motivated it ran for more than five minutes with no answer, where the
+/// 0.3.4 base answered `unknown` in 0.46 s — not to police slow-but-finite
+/// searches, and a debug build is an order of magnitude slower than the
+/// release build these numbers were measured on.  The whole 217-script
+/// benchmark corpus answers in about 3.2 s *in total*, so nothing that
+/// decides today comes near this.
+const ARRAY_REFINEMENT_RESOLVE_FLOOR_MS: u64 = 120_000;
+
+/// How many times the work already done before the first array lemma the
+/// refinement's re-solves may cost, when that is more than the floor.
+///
+/// Adaptive for the reason `int_case_split::REFINEMENT_TIME_CEILING_MS` is:
+/// a refinement that re-solves the whole problem from scratch is affordable in
+/// proportion to what the first solve cost, so a goal that was already slow
+/// gets a proportionally larger allowance rather than being cut off at a
+/// constant no one can calibrate for every input.
+const ARRAY_REFINEMENT_RESOLVE_FACTOR: u32 = 20;
+
+/// The deadline the array-axiom refinement's re-solves run under, given when
+/// the check started.
+///
+/// `None` only when the instant arithmetic overflows, which means "no
+/// deadline" — the behaviour before this budget existed.
+fn array_refinement_resolve_deadline(
+    check_entry: oxiz_time::Instant,
+) -> Option<oxiz_time::Instant> {
+    let now = oxiz_time::Instant::now();
+    let spent = now.saturating_duration_since(check_entry);
+    let budget = core::cmp::max(
+        core::time::Duration::from_millis(ARRAY_REFINEMENT_RESOLVE_FLOOR_MS),
+        spent.saturating_mul(ARRAY_REFINEMENT_RESOLVE_FACTOR),
+    );
+    now.checked_add(budget)
 }

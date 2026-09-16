@@ -1411,7 +1411,7 @@ impl Solver {
     /// ([`SelectSemantics::PublishedLeaf`]), never as read-over-write: the
     /// instantiator is deciding whether the read-over-write lemma is needed,
     /// and a reading that assumes the lemma would answer "never".
-    pub(super) fn eval_in_model(
+    pub(crate) fn eval_in_model(
         &self,
         term: TermId,
         model: &Model,

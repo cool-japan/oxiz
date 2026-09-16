@@ -72,6 +72,34 @@ impl Solver {
             if model.get(index).is_some() {
                 continue;
             }
+            // A *compound* index is not a leaf and must not be published as
+            // one (`#P2b-34`).  `(select arr (bvadd k #b10))` gives the
+            // bit-blaster a node for `(bvadd k #b10)` but no defining clauses
+            // — nothing in the formula constrains it — so its bits read as
+            // zero and `chosen_leaf_value` answered `#b00` for an index term
+            // whose operand `k` the same model prints as `#b00`: the write
+            // landed at the value of the index *variable* instead of the
+            // value of the index *term*, `(get-value ((bvadd k #b10)))`
+            // answered `#b00`, and the printed array falsified the assertion
+            // it satisfied.  The circuit pass above already states the rule —
+            // "a compound node is *derived* from its operands and stays out:
+            // it is evaluated wherever it is read" — and this is the same
+            // rule, applied where the array model reads its indices.
+            let is_leaf = manager
+                .get(index)
+                .is_some_and(|data| is_opaque_leaf_kind(&data.kind));
+            if !is_leaf {
+                // Fold it instead: publish the leaves it is built from, so the
+                // evaluation has something to read, and then publish the value
+                // they determine.  No value means no entry — an index the
+                // model cannot place names no position in the array, which is
+                // the honest answer and the one the renderer already handles.
+                self.publish_index_leaves(index, model, manager);
+                if let Some(value) = self.model_value_in(index, model, manager) {
+                    model.set(index, value);
+                }
+                continue;
+            }
             if let Some(value) = self.chosen_leaf_value(index, model, manager) {
                 model.set(index, value);
                 continue;
@@ -83,6 +111,51 @@ impl Solver {
             };
             if let Some(default) = super::ground_default_term(manager, sort) {
                 model.set(index, default);
+            }
+        }
+    }
+
+    /// Publish a value for every *leaf* a compound array index is built from,
+    /// so [`Solver::model_value_in`] can fold the index itself.
+    ///
+    /// Same two sources as the index path above, in the same order: the value
+    /// the search chose for the leaf, and — for a plain variable the search
+    /// never constrained — the sort default `Context::get_model` reports for
+    /// it.  An *application* leaf gets no default: its value belongs to the
+    /// printed interpretation of its function, and inventing one here would be
+    /// a second, contradicting reading of the same model.
+    fn publish_index_leaves(&self, index: TermId, model: &mut Model, manager: &mut TermManager) {
+        let mut visited: FxHashSet<TermId> = FxHashSet::default();
+        let mut stack: Vec<TermId> = vec![index];
+        while let Some(current) = stack.pop() {
+            if !visited.insert(current) {
+                continue;
+            }
+            let Some((leaf, is_var, sort, children)) = manager.get(current).map(|data| {
+                let mut children: Vec<TermId> = Vec::new();
+                ground_children(&data.kind, &mut children);
+                (
+                    is_opaque_leaf_kind(&data.kind),
+                    matches!(data.kind, TermKind::Var(_)),
+                    data.sort,
+                    children,
+                )
+            }) else {
+                continue;
+            };
+            if !leaf {
+                stack.extend(children);
+                continue;
+            }
+            if model.get(current).is_some() {
+                continue;
+            }
+            if let Some(value) = self.chosen_leaf_value(current, model, manager) {
+                model.set(current, value);
+                continue;
+            }
+            if is_var && let Some(default) = super::ground_default_term(manager, sort) {
+                model.set(current, default);
             }
         }
     }
@@ -156,4 +229,18 @@ impl Solver {
         }
         self.euf_class_value(term, model, manager)
     }
+}
+
+/// Whether a term of this kind is an *opaque leaf* — a term whose value the
+/// search chooses outright, rather than deriving it from operands.
+///
+/// The same three shapes the circuit publication pass in `model_builder`
+/// admits: a variable, an array read and an uninterpreted application.  Every
+/// other kind is either a literal (its own value) or a derived node, and a
+/// derived node's value is whatever its operands make it.
+fn is_opaque_leaf_kind(kind: &TermKind) -> bool {
+    matches!(
+        kind,
+        TermKind::Var(_) | TermKind::Select(..) | TermKind::Apply { .. }
+    )
 }

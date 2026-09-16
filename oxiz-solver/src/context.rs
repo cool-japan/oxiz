@@ -1138,7 +1138,7 @@ impl Context {
                     | Command::GetOption(_)
                     | Command::GetUnsatCore
                     | Command::GetUnsatAssumptions
-                    | Command::GetValue(_)
+                    | Command::GetValue { .. }
                     | Command::GetInfo(_)
                     | Command::Echo(_)
                     | Command::Simplify(_)
@@ -1312,8 +1312,8 @@ impl Context {
                         );
                     }
                 }
-                Command::GetValue(terms) => {
-                    output.push(self.format_get_value(&terms));
+                Command::GetValue { terms, keys } => {
+                    output.push(self.format_get_value(&terms, &keys));
                 }
                 Command::GetInfo(keyword) => {
                     output.push(self.get_info(&keyword));

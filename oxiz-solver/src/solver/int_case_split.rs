@@ -420,7 +420,15 @@ impl Solver {
             .map(|value| {
                 let literal_term = manager.mk_int(value);
                 let equality = manager.mk_eq(term, literal_term);
-                self.encode_depth(equality, manager, 0)
+                // `Solver::encode`, not `encode_depth(.., 0)`: the depth-0
+                // entry point is where the array-refinement guard is computed,
+                // and "every term that reaches the SAT core passes through
+                // here" has to be literally true for that guard to be
+                // exhaustive (`#P2b-37`).  The two lemmas built here are
+                // array-free today, so this is a hygiene fix rather than a
+                // behaviour change — and it is the kind that stops being true
+                // silently.
+                self.encode(equality, manager)
             })
             .collect();
         self.sat.add_clause(disjuncts);

@@ -117,22 +117,36 @@ impl<'a> Parser<'a> {
     /// Refuse a symbol that collides with a name the solver reserves for
     /// itself.
     ///
-    /// Today that is exactly [`crate::smtlib::CONST_ARRAY_FUNC`], the interned
-    /// function symbol of the array constant `((as const (Array D R)) d)`.  A
-    /// script that could declare or apply the same symbol would make a user
-    /// function indistinguishable from an array constant, and the
-    /// array-constant axiom would then answer `unsat` for a satisfiable
-    /// formula.  The reserved name contains a backslash, so neither SMT-LIB
-    /// symbol form can produce it — a simple symbol's character set excludes
-    /// `\`, and the lexer rejects one inside `|...|` — which makes this check
-    /// unreachable from well-formed input and a belt-and-braces guard against
-    /// a future lexer or API change that made it reachable.
+    /// Three names are reserved today —
+    /// [`crate::smtlib::CONST_ARRAY_FUNC`] (the interned function symbol of
+    /// the array constant `((as const (Array D R)) d)`) and the two families
+    /// of array-theory witness index,
+    /// [`crate::smtlib::ARRAY_EXT_WITNESS_PREFIX`] and
+    /// [`crate::smtlib::ARRAY_OFF_CHAIN_PREFIX`] — and every one of them is
+    /// reserved by the same device: it contains a backslash, which neither
+    /// SMT-LIB 2.6 symbol form can produce (a simple symbol's character set
+    /// excludes `\`, and the lexer rejects one inside `|...|`).
+    ///
+    /// The witness indices are *parameterised* — `\oxiz.ext!{lo}!{hi}`, one
+    /// per array pair — so they are matched by prefix rather than by equality.
+    /// The check stops there rather than rejecting every symbol carrying a
+    /// backslash: a backslash anywhere else is a *lexical* error, which says
+    /// something more useful about the input than "reserved" would, and
+    /// answering "reserved" first would mask it.
+    ///
+    /// Unreachable from well-formed input, and belt and braces against a
+    /// future lexer or builder-API change that made it reachable.
     pub(super) fn reject_reserved_symbol(name: &str, position: usize) -> Result<()> {
-        if name == crate::smtlib::CONST_ARRAY_FUNC {
+        let reserved = name == crate::smtlib::CONST_ARRAY_FUNC
+            || name.starts_with(crate::smtlib::ARRAY_EXT_WITNESS_PREFIX)
+            || name.starts_with(crate::smtlib::ARRAY_OFF_CHAIN_PREFIX);
+        if reserved {
             return Err(OxizError::ParseError {
                 position,
-                message: "this symbol is reserved for the SMT-LIB array constant \
-                          ((as const (Array D R)) d) and cannot be declared or used"
+                message: "this symbol contains a backslash, which SMT-LIB 2.6 section 3.1 \
+                          admits in neither symbol form and which the solver reserves for \
+                          its own names (the array constant ((as const (Array D R)) d) and \
+                          the array-theory witness indices): it cannot be declared or used"
                     .to_string(),
             });
         }
@@ -589,6 +603,7 @@ impl<'a> Parser<'a> {
             "get-value" => {
                 self.expect_lparen()?;
                 let mut terms = Vec::new();
+                let mut keys: Vec<String> = Vec::new();
                 loop {
                     if let Some(t) = self.lexer.peek()
                         && matches!(t.kind, TokenKind::RParen)
@@ -596,10 +611,19 @@ impl<'a> Parser<'a> {
                         self.lexer.next_token();
                         break;
                     }
+                    // The term's own source span, captured around the parse so
+                    // the response can echo the term as queried even though
+                    // `parse_term` inlines any `define-fun` body it meets.
+                    let start = self
+                        .lexer
+                        .peek()
+                        .map_or_else(|| self.lexer.position(), |t| t.start);
                     terms.push(self.parse_term()?);
+                    let key = self.lexer.slice(start, self.lexer.position());
+                    keys.push(key.trim().to_string());
                 }
                 self.expect_rparen()?;
-                Command::GetValue(terms)
+                Command::GetValue { terms, keys }
             }
             "push" => {
                 let n = self.parse_optional_numeral(1)?;

@@ -530,7 +530,7 @@ pub(super) const ENCODE_DEPTH_LIMIT: u32 = 512;
 /// it can manufacture one.  Full width, allocation and all, is the only
 /// honest representation.
 #[derive(Debug, Clone, PartialEq)]
-pub(super) enum EvalVal {
+pub(crate) enum EvalVal {
     Bool(bool),
     Num(num_rational::Rational64),
     /// A bit-vector value.

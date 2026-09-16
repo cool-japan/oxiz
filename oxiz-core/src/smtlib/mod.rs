@@ -54,3 +54,33 @@ pub use printer::format_bitvec_literal;
 /// name back to `((as const (Array D R)) d)` using the application's own
 /// sort, so the reserved spelling never reaches a user-visible response.
 pub const CONST_ARRAY_FUNC: &str = "\\oxiz.as-const";
+
+/// Name prefix of the *extensionality witness index* the array theory mints
+/// for an unordered pair of array terms (`oxiz-solver`'s
+/// `solver::array_axioms`).
+///
+/// Reserved for the same reason as [`CONST_ARRAY_FUNC`] and by the same
+/// mechanism — the backslash — but against a different failure: the witness is
+/// a fresh index *variable*, and `TermManager::mk_var` interns on
+/// `(name, sort)`, so a user declaration of the same name at the index sort
+/// **is** the same term.  The lemmas this index appears in
+/// (`a = b ∨ select(a,k) != select(b,k)`) are valid for every index, so a
+/// collision here costs precision rather than soundness; it is reserved
+/// anyway, because "harmless today" is not a property to leave resting on the
+/// shape of the current lemma set.
+pub const ARRAY_EXT_WITNESS_PREFIX: &str = "\\oxiz.ext!";
+
+/// Name prefix of the *off-chain Skolem index* the array theory mints for an
+/// unordered pair of array terms whose store chains bottom out at different
+/// arrays (`oxiz-solver`'s `solver::array_axioms`).
+///
+/// This one is reserved for soundness, not tidiness.  The rule asserts
+/// `d != i_k` for every store index `i_k` of the pair's chains — a constraint
+/// on the *symbol itself*, satisfiable only because the symbol is fresh.  A
+/// script that declares the same name at the index sort interns the same term
+/// and inherits those constraints, which is a wrong `unsat` on a formula in
+/// which the declared constant is free: six lines of plain SMT-LIB were enough
+/// while the prefix was `!oxiz!off!` (`!` is a legal simple-symbol character,
+/// so the name was spellable).  The backslash is what makes it unspellable in
+/// both SMT-LIB 2.6 symbol forms at once.
+pub const ARRAY_OFF_CHAIN_PREFIX: &str = "\\oxiz.off!";

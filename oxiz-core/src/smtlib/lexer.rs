@@ -152,6 +152,25 @@ impl<'a> Lexer<'a> {
         self.pos
     }
 
+    /// The source text between two byte offsets of this lexer's input, or `""`
+    /// when the range is not a valid slice of it.
+    ///
+    /// Used to echo a queried term back *as written* (`get-value`): the
+    /// parser inlines `define-fun` bodies, so the term it hands on no longer
+    /// spells what the script asked about, and SMT-LIB 2.6 §4.1.1 requires the
+    /// response to pair each value with the term as queried.
+    #[must_use]
+    pub fn slice(&self, start: usize, end: usize) -> &'a str {
+        if start > end
+            || end > self.input.len()
+            || !self.input.is_char_boundary(start)
+            || !self.input.is_char_boundary(end)
+        {
+            return "";
+        }
+        &self.input[start..end]
+    }
+
     /// Lexical errors accumulated so far (unterminated string/quoted-symbol
     /// literals, bare `#` tokens, ...). Empty for well-formed input.
     #[must_use]

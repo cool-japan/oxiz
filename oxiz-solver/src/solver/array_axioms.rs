@@ -72,6 +72,22 @@ use super::{EvalVal, Solver};
 /// return value, so the flag carries the difference.
 const MAX_ARRAY_AXIOM_INSTANCES: usize = 20_000;
 
+/// Safety valve on the number of distinct *witness index* variables the
+/// extensionality families mint across a single `check`.
+///
+/// Every witness is a fresh index, and a witness read of an array whose range
+/// is itself an array is a new array term — which can enter a new pair, which
+/// mints another witness.  The nesting depth bounds how *deep* that goes, but
+/// not how *wide*: a formula over concrete arrays of arrays kept finding new
+/// pairs at the same depth and the lemma set grew without settling.  The cap
+/// stops the generation; like [`MAX_ARRAY_AXIOM_INSTANCES`] it is recorded in
+/// [`Solver::array_axioms_incomplete`], so the `Sat` it would otherwise
+/// license is downgraded to `Unknown` rather than trusted.
+///
+/// Realistic array benchmarks mint a handful: the whole 217-script corpus
+/// stays three orders of magnitude below this.
+const MAX_ARRAY_EXT_WITNESSES: usize = 512;
+
 impl Solver {
     /// One round of lazy array-axiom instantiation against the current candidate
     /// model.  Returns `true` when at least one new ground array lemma was
@@ -91,22 +107,46 @@ impl Solver {
         // Walk both the user assertions and every axiom instance asserted so
         // far, so selects introduced by earlier read-over-write / extensionality
         // lemmas seed further instantiation (saturation).
-        let roots: Vec<TermId> = self
-            .assertions
-            .iter()
-            .copied()
-            .chain(self.array_axiom_instances.iter().copied())
-            .collect();
+        let assertions: Vec<TermId> = self.assertions.clone();
+        let instances: Vec<TermId> = self.array_axiom_instances.iter().copied().collect();
 
         let mut collected = ArrayStructure::default();
         let mut visited: FxHashSet<TermId> = FxHashSet::default();
-        for &root in &roots {
-            collect_array_structure(root, manager, &mut visited, &mut collected);
+        // The user assertions first, with foreign positions recorded.  The ext
+        // rule for shared array terms is about the terms the *input* shares
+        // between theories; recording the ones an axiom instance introduced
+        // instead feeds the rule its own output — every witness read of an
+        // array of arrays is an array term in a foreign position, so the pair
+        // set grew with the lemma set and a two-row matrix never converged.
+        for &root in &assertions {
+            collect_array_structure(root, manager, &mut visited, &mut collected, true);
+        }
+        // Then the instances asserted so far, so selects introduced by earlier
+        // read-over-write / extensionality lemmas seed further instantiation
+        // (saturation) — but without widening the foreign set.
+        for &root in &instances {
+            collect_array_structure(root, manager, &mut visited, &mut collected, false);
         }
 
+        // Nothing for the three syntactic families *and* nothing for the ext
+        // rule for shared array terms (phase 4) — only then is there nothing
+        // to do.  Leaving `foreign` out of this test is what made
+        // `(distinct (fa brr) (fa arr))` — five lines, no `select`, no
+        // `store`, no array equality — return here before phase 4 ever ran:
+        // the two arrays are forced into different EUF classes by the
+        // disequality between the two applications, no witness read was ever
+        // minted to tell them apart, and the model printed both as the sort
+        // default with `fa` a constant function, falsifying the assertion it
+        // claimed to satisfy (`#P2b-34`/`#P2b-37`).
+        let foreign_candidates = collected
+            .foreign
+            .iter()
+            .filter(|term| collected.shared_foreign.contains(term))
+            .count();
         if collected.selects.is_empty()
             && collected.eq_pairs.is_empty()
             && collected.stores.is_empty()
+            && (foreign_candidates == 0 || collected.foreign.len() < 2)
         {
             return false;
         }
@@ -125,10 +165,37 @@ impl Solver {
         let mut candidates: Vec<TermId> = Vec::new();
         build_read_over_write(manager, &collected, &mut candidates);
         build_const_array_reads(manager, &collected, &mut candidates);
-        build_extensionality_and_congruence(manager, &collected, &mut candidates);
+        build_cardinality_refutations(manager, &collected, &mut candidates);
+        let mut witnesses: FxHashSet<TermId> = FxHashSet::default();
+        build_extensionality_and_congruence(manager, &collected, &mut candidates, &mut witnesses);
+        if witnesses.len() >= MAX_ARRAY_EXT_WITNESSES {
+            self.array_axioms_incomplete = true;
+        }
+
+        // Two reads of one array at indices the *candidate model* happens to
+        // give the same value must agree (`#P2b-34`).  Nothing asserted says
+        // the indices are equal — congruence closure only knows the
+        // equalities the formula states — so EUF never compares the two
+        // reads, and a candidate model is free to publish
+        // `select(a, k1) = 30` and `select(a, k2) = 11` with `k1` and `k2`
+        // both assigned `3`.  That is not a model of the array theory, and it
+        // is visible in the printed model as one array with two answers at
+        // index `3`.  Guided by the candidate model, so only the pairs that
+        // actually collide in it cost anything.
+        self.build_index_congruence(manager, &collected, &mut candidates);
 
         // ---- Phase 3: filter (dedup + model) and assert -----------------
         if self.assert_new_instances(&candidates, manager) {
+            return true;
+        }
+
+        // ---- Phase 3b: off-chain Skolem indices -------------------------
+        // The rule of last resort, deferred here for the reason
+        // [`build_off_chain_family`] documents: its index is a fresh
+        // bit-vector argument term, and minting one per pair eagerly made the
+        // BV↔EUF partition exchange the dominant cost of the whole search.
+        // One pair per round, in the order the pairs were collected.
+        if self.assert_off_chain_family(&collected, manager) {
             return true;
         }
 
@@ -150,15 +217,120 @@ impl Solver {
         // every unordered pair of foreign array terms whose classes differ in
         // the candidate model.  Deferring it to the round where nothing else
         // fires keeps the quadratic family off the common path.
-        let foreign_pairs = self.foreign_pairs_in_different_classes(&collected);
+        let foreign_pairs = self.foreign_pairs_in_different_classes(&collected, manager);
         if foreign_pairs.is_empty() {
             return false;
         }
+        // One pair per round, not all of them.  Every witness is a fresh index
+        // that becomes a read index of both arrays, and congruence then
+        // instantiates every *other* pair at it as well — so `n` foreign pairs
+        // asserted together cost `O(n^2)` lemmas in the very next round.  The
+        // loop is lazy by design: one new lemma is enough to make the caller
+        // re-solve, and if the next candidate model still needs another pair
+        // this phase runs again.  `(distinct (f arr) (f brr))` has exactly one
+        // pair and is unaffected; a formula with nine of them adds nine
+        // lemmas over nine rounds instead of eighty-one in one.
         let mut extra: Vec<TermId> = Vec::new();
         for (a, b) in foreign_pairs {
+            if witnesses.len() >= MAX_ARRAY_EXT_WITNESSES {
+                self.array_axioms_incomplete = true;
+                break;
+            }
+            let before = extra.len();
             push_witness_lemma(manager, a, b, &mut extra);
+            if let Some(domain) = array_domain(a, manager) {
+                let witness = extensionality_witness(manager, a, b, domain);
+                witnesses.insert(witness);
+            }
+            // Only a lemma the dedup set does not already hold counts as
+            // progress; a pair whose witness lemma is already asserted costs
+            // nothing and the next pair is tried instead.
+            if extra.len() > before
+                && extra
+                    .last()
+                    .is_some_and(|inst| !self.array_axiom_instances.contains(inst))
+            {
+                break;
+            }
         }
         self.assert_new_instances(&extra, manager)
+    }
+
+    /// Add `i = j ⇒ select(a,i) = select(a,j)` for every array `a` and every
+    /// pair of indices read on it that the candidate model maps to the same
+    /// value.
+    ///
+    /// The lemma is a theorem of the array theory in every model, so the
+    /// model-guided restriction costs no soundness: it only decides *when* to
+    /// spend an instance.  Restricting it matters because the unrestricted
+    /// family is quadratic in the number of indices read on one array, which
+    /// on a fifty-write store chain is thousands of lemmas that the search
+    /// never needs.
+    fn build_index_congruence(
+        &self,
+        manager: &mut TermManager,
+        collected: &ArrayStructure,
+        candidates: &mut Vec<TermId>,
+    ) {
+        let Some(model) = self.model.as_ref() else {
+            return;
+        };
+        // Only reads that already exist as terms are compared, and only when
+        // the candidate model *violates* the lemma — equal indices, different
+        // values.  Building the family for every colliding pair instead cost
+        // ten times the whole check on the read-after-write benchmarks, all of
+        // it on lemmas the search never needed: the instance is a theorem
+        // either way, so restricting it to the violated pairs decides only
+        // when to spend an instance, never whether the answer is right.
+        let mut reads: FxHashMap<(TermId, TermId), TermId> = FxHashMap::default();
+        for &(select_term, array, index) in &collected.selects {
+            reads.entry((array, index)).or_insert(select_term);
+        }
+
+        // Deterministic order: `read_indices` is a hash map, and the instances
+        // it produces are asserted to the SAT core.
+        let mut arrays: Vec<TermId> = collected.read_indices.keys().copied().collect();
+        arrays.sort_unstable_by_key(|array: &TermId| array.raw());
+        for array in arrays {
+            let Some(indices) = collected.read_indices.get(&array) else {
+                continue;
+            };
+            let folded: Vec<(TermId, Option<EvalVal>, Option<EvalVal>)> = indices
+                .iter()
+                .map(|&index| {
+                    let index_value = self.eval_in_model(index, model, manager, 0);
+                    let read_value = reads
+                        .get(&(array, index))
+                        .and_then(|&read| self.eval_in_model(read, model, manager, 0));
+                    (index, index_value, read_value)
+                })
+                .collect();
+            for (position, (first, first_index, first_read)) in folded.iter().enumerate() {
+                for (second, second_index, second_read) in folded.iter().skip(position + 1) {
+                    let (Some(first_index), Some(second_index)) =
+                        (first_index.as_ref(), second_index.as_ref())
+                    else {
+                        continue;
+                    };
+                    if first_index != second_index {
+                        continue;
+                    }
+                    let (Some(first_read), Some(second_read)) =
+                        (first_read.as_ref(), second_read.as_ref())
+                    else {
+                        continue;
+                    };
+                    if first_read == second_read {
+                        continue;
+                    }
+                    let index_eq = manager.mk_eq(*first, *second);
+                    let read_first = manager.mk_select(array, *first);
+                    let read_second = manager.mk_select(array, *second);
+                    let reads_eq = manager.mk_eq(read_first, read_second);
+                    candidates.push(manager.mk_implies(index_eq, reads_eq));
+                }
+            }
+        }
     }
 
     /// Assert every candidate instance the dedup set does not already hold and
@@ -215,15 +387,34 @@ impl Solver {
             added = true;
         }
 
-        if std::env::var("OXIZ_DBG_ARRAY").is_ok() {
-            eprintln!(
-                "round: candidates={} instances={} added={}",
-                candidates.len(),
-                self.array_axiom_instances.len(),
-                added
-            );
-        }
         added
+    }
+
+    /// Phase 3b: the off-chain Skolem index family of the *first* equality
+    /// pair that still needs one, or `false` when every pair's family is
+    /// already asserted or the cardinality guard refuses it.
+    ///
+    /// One pair per round, like the foreign-pair rule and for the same reason
+    /// — see [`build_off_chain_family`] for why this family is not built with
+    /// the other three.  The pairs are tried in collection order, which is the
+    /// term-graph walk's pre-order, so the choice is deterministic.
+    fn assert_off_chain_family(
+        &mut self,
+        collected: &ArrayStructure,
+        manager: &mut TermManager,
+    ) -> bool {
+        let pairs = collected.eq_pairs.clone();
+        for (a, b) in pairs {
+            let mut family: Vec<TermId> = Vec::new();
+            build_off_chain_family(manager, collected, a, b, &mut family);
+            if family.is_empty() {
+                continue;
+            }
+            if self.assert_new_instances(&family, manager) {
+                return true;
+            }
+        }
+        false
     }
 
     /// Unordered pairs of foreign array terms the candidate model places in
@@ -237,7 +428,26 @@ impl Solver {
     fn foreign_pairs_in_different_classes(
         &self,
         collected: &ArrayStructure,
+        manager: &TermManager,
     ) -> Vec<(TermId, TermId)> {
+        // Published reads of the candidate model, keyed by (array, index):
+        // a pair the model already separates at some index needs no witness,
+        // because the model is not claiming the two arrays are the same
+        // function.
+        let mut reads: FxHashMap<(TermId, TermId), TermId> = FxHashMap::default();
+        if let Some(model) = self.model.as_ref() {
+            for (&term, &value) in model.assignments() {
+                if let Some(TermKind::Select(array, index)) = manager.get(term).map(|t| &t.kind) {
+                    reads.insert((*array, *index), value);
+                }
+            }
+        }
+        let separated = |a: TermId, b: TermId| -> bool {
+            reads.iter().any(|(&(array, index), &value)| {
+                array == a && reads.get(&(b, index)).is_some_and(|&other| other != value)
+            })
+        };
+
         let mut pairs: Vec<(TermId, TermId)> = Vec::new();
         for (position, &a) in collected.foreign.iter().enumerate() {
             for &b in collected.foreign.iter().skip(position + 1) {
@@ -253,6 +463,14 @@ impl Solver {
                 if let (Some(rep_a), Some(rep_b)) = (class_a, class_b)
                     && rep_a == rep_b
                 {
+                    continue;
+                }
+                // Model-guided: only a pair the candidate model reads as the
+                // *same* function needs the ext rule.  Two arrays it already
+                // separates are not the source of a congruence violation, and
+                // instantiating them costs a witness index the search then has
+                // to carry.
+                if separated(a, b) {
                     continue;
                 }
                 pairs.push((a, b));
@@ -336,8 +554,19 @@ struct ArrayStructure {
     selects: Vec<(TermId, TermId, TermId)>,
     /// Unordered array-sorted (dis)equality atom operands `(a, b)`
     /// (`a != b` syntactically), from `=` and from every pair of an `n`-ary
-    /// `distinct` over array-sorted operands.
+    /// `distinct` over array-sorted operands.  Deduplicated as an *unordered*
+    /// pair: the extensionality witness and the congruence family of `{a, b}`
+    /// do not depend on which side is which, and the same pair is reached
+    /// twice as a matter of course — the witness lemma this module asserts for
+    /// it contains `(= a b)`, which the next round's walk collects again from
+    /// the instance list.  Building the family twice per round costs exactly
+    /// the work it saves here.
     eq_pairs: Vec<(TermId, TermId)>,
+    /// The unordered keys of [`ArrayStructure::eq_pairs`], for that dedup.
+    eq_pair_keys: FxHashSet<(TermId, TermId)>,
+    /// Every `n`-ary `distinct` atom with array-sorted operands, for the
+    /// cardinality refutation ([`build_cardinality_refutations`]).
+    distinct_atoms: Vec<TermId>,
     /// `array_variable -> store_term` for every asserted `var = store(...)`.
     aliases: FxHashMap<TermId, TermId>,
     /// Distinct indices read on each array operand (for select congruence).
@@ -368,19 +597,37 @@ struct ArrayStructure {
 }
 
 impl ArrayStructure {
+    /// Record the unordered array pair `{a, b}` once.
+    fn push_eq_pair(&mut self, a: TermId, b: TermId) {
+        let key = if a.raw() <= b.raw() { (a, b) } else { (b, a) };
+        if self.eq_pair_keys.insert(key) {
+            self.eq_pairs.push((a, b));
+        }
+    }
+
     /// Record `term` as occupying a foreign position, if it is array-sorted
     /// and not already recorded.  `shared` distinguishes a genuinely shared
     /// position from an array (dis)equality operand — see
     /// [`ArrayStructure::shared_foreign`].
-    fn note_foreign(&mut self, term: TermId, manager: &TermManager, shared: bool) {
-        if !is_array_sorted(term, manager) {
+    fn note_foreign(&mut self, term: TermId, manager: &TermManager, record: bool) {
+        if !record || !is_array_sorted(term, manager) {
             return;
         }
         if !self.foreign.contains(&term) {
             self.foreign.push(term);
         }
-        if shared {
-            self.shared_foreign.insert(term);
+        self.shared_foreign.insert(term);
+    }
+
+    /// Record `term` as an operand of an array (dis)equality: a foreign
+    /// position, but not a *shared* one — see
+    /// [`ArrayStructure::shared_foreign`].
+    fn note_foreign_operand(&mut self, term: TermId, manager: &TermManager, record: bool) {
+        if !record || !is_array_sorted(term, manager) {
+            return;
+        }
+        if !self.foreign.contains(&term) {
+            self.foreign.push(term);
         }
     }
 }
@@ -399,6 +646,7 @@ fn collect_array_structure(
     manager: &TermManager,
     visited: &mut FxHashSet<TermId>,
     out: &mut ArrayStructure,
+    record_foreign: bool,
 ) {
     let mut stack: Vec<TermId> = vec![term];
     while let Some(term) = stack.pop() {
@@ -422,7 +670,7 @@ fn collect_array_structure(
                 out.stores.push((term, *index, *value));
                 // An array written *into* another array is shared with the
                 // array-of-arrays fragment rather than consumed here.
-                out.note_foreign(*value, manager, true);
+                out.note_foreign(*value, manager, record_foreign);
                 stack.push(*value);
                 stack.push(*index);
                 stack.push(*base);
@@ -431,9 +679,9 @@ fn collect_array_structure(
                 // Record an array-sorted equality atom (either polarity: the
                 // extensionality / congruence lemmas are valid regardless).
                 if lhs != rhs && is_array_sorted(*lhs, manager) && is_array_sorted(*rhs, manager) {
-                    out.eq_pairs.push((*lhs, *rhs));
-                    out.note_foreign(*lhs, manager, false);
-                    out.note_foreign(*rhs, manager, false);
+                    out.push_eq_pair(*lhs, *rhs);
+                    out.note_foreign_operand(*lhs, manager, record_foreign);
+                    out.note_foreign_operand(*rhs, manager, record_foreign);
                 }
                 // Record a `var = store(...)` alias for alias-aware
                 // read-over-write.
@@ -451,14 +699,17 @@ fn collect_array_structure(
             // constant and no store (`#P2b-37`).  Every unordered pair of an
             // `n`-ary `distinct` is recorded, because `distinct` is pairwise.
             TermKind::Distinct(args) => {
+                if args.iter().any(|&arg| is_array_sorted(arg, manager)) {
+                    out.distinct_atoms.push(term);
+                }
                 for (position, &lhs) in args.iter().enumerate() {
                     if !is_array_sorted(lhs, manager) {
                         continue;
                     }
-                    out.note_foreign(lhs, manager, false);
+                    out.note_foreign_operand(lhs, manager, record_foreign);
                     for &rhs in args.iter().skip(position + 1) {
                         if lhs != rhs && is_array_sorted(rhs, manager) {
-                            out.eq_pairs.push((lhs, rhs));
+                            out.push_eq_pair(lhs, rhs);
                         }
                     }
                 }
@@ -470,13 +721,13 @@ fn collect_array_structure(
             // any array atom ever naming the arrays.
             TermKind::Apply { args, .. } => {
                 for &arg in args {
-                    out.note_foreign(arg, manager, true);
+                    out.note_foreign(arg, manager, record_foreign);
                 }
                 stack.extend(args.iter().rev().copied());
             }
             TermKind::Ite(cond, then_branch, else_branch) => {
-                out.note_foreign(*then_branch, manager, true);
-                out.note_foreign(*else_branch, manager, true);
+                out.note_foreign(*then_branch, manager, record_foreign);
+                out.note_foreign(*else_branch, manager, record_foreign);
                 stack.push(*else_branch);
                 stack.push(*then_branch);
                 stack.push(*cond);
@@ -544,6 +795,23 @@ const MAX_STORE_CHAIN_DEPTH: usize = 128;
 /// The read is interned, not asserted: it becomes a candidate instance only
 /// through the ordinary builders, and the model filter still decides whether
 /// the round needs it.
+///
+/// # Defence in depth, not an independently observable rule
+///
+/// Reverting this registration changes nothing measurable at the widths the
+/// campaigns run: neither the 480-script bounded extensionality campaign
+/// (`tests/array_uf_combination.rs`) nor any of the 65 array unit tests moves.
+/// The reason is structural, and worth writing down so a later reader does not
+/// mistake "no test fails" for "no rule here".  [`collect_pair_indices`]
+/// already pushes each chain link's own `store_index` into the pair's index
+/// set, and the congruence family at the end of
+/// [`build_extensionality_and_congruence`] then builds `select(a, store_index)`
+/// for it — so the store's own-index read is *materialised anyway*, one
+/// refinement round later, and read-over-write fires on it there.  This
+/// registration only makes it happen eagerly, in the round that collects the
+/// store.  The two rules coincide wherever the pair's index set already
+/// reaches the store; they come apart only on a store the equality family
+/// never looks at, which no generated shape produced.
 fn register_store_own_index_reads(manager: &mut TermManager, collected: &mut ArrayStructure) {
     let mut known: FxHashSet<TermId> = collected
         .selects
@@ -694,17 +962,111 @@ fn row_implications(
     (row1, row2)
 }
 
+/// Refute an `n`-ary `distinct` over array-sorted operands whose sort has
+/// fewer than `n` elements (`#P2b-38`).
+///
+/// `(distinct c0 … c9)` over `(Array (_ BitVec 1) (_ BitVec 1))` is
+/// unsatisfiable because that sort has exactly four elements — but proving it
+/// through the extensionality family means separating all forty-five pairs,
+/// which is forty-five fresh witness indices, forty-five reads on each side,
+/// and a BV↔EUF partition space large enough that the exchange gives up and
+/// the answer is `unknown`.  The pigeonhole argument decides it outright and
+/// costs one lemma: `¬(distinct …)` is a *theorem* whenever the operand count
+/// exceeds the sort's cardinality, whatever the operands are, so asserting it
+/// removes exactly the models the theory has none of.
+///
+/// Only sorts whose size is *exactly* known take part
+/// ([`array_sort_cardinality`]); an unknown or merely bounded-below size
+/// yields nothing, which is the direction that can only fail to decide.
+fn build_cardinality_refutations(
+    manager: &mut TermManager,
+    collected: &ArrayStructure,
+    candidates: &mut Vec<TermId>,
+) {
+    for &atom in &collected.distinct_atoms {
+        let Some(TermKind::Distinct(args)) = manager.get(atom).map(|data| data.kind.clone()) else {
+            continue;
+        };
+        let mut per_sort: FxHashMap<SortId, usize> = FxHashMap::default();
+        for &arg in &args {
+            if !is_array_sorted(arg, manager) {
+                continue;
+            }
+            let Some(sort) = manager.get(arg).map(|data| data.sort) else {
+                continue;
+            };
+            *per_sort.entry(sort).or_insert(0) += 1;
+        }
+        let refuted = per_sort.into_iter().any(|(sort, count)| {
+            array_sort_cardinality(manager, sort)
+                .is_some_and(|size| u128::from(count as u64) > size)
+        });
+        if refuted {
+            let refutation = manager.mk_not(atom);
+            candidates.push(refutation);
+        }
+    }
+}
+
+/// The *exact* number of elements of `sort`, or `None` when it is not known
+/// exactly (an uninterpreted sort, a datatype, a floating-point sort, an
+/// infinite sort) or is too large to represent.
+///
+/// The distinction from [`index_sort_lower_bound`] is the direction of the
+/// error: that one may under-state a size (it guards a rule that needs *at
+/// least* so many elements), this one must never over-state it, because the
+/// rule it guards refutes a formula outright.  `u128::MAX` therefore stands
+/// for "larger than any operand count", not for "unbounded".
+fn array_sort_cardinality(manager: &TermManager, sort: SortId) -> Option<u128> {
+    let kind = &manager.sorts.get(sort)?.kind;
+    match kind {
+        SortKind::Bool => Some(2),
+        SortKind::BitVec(width) => Some(if *width >= 127 {
+            u128::MAX
+        } else {
+            1u128 << *width
+        }),
+        SortKind::RoundingMode => Some(5),
+        SortKind::Array { domain, range } => {
+            let domain_size = array_sort_cardinality(manager, *domain)?;
+            let range_size = array_sort_cardinality(manager, *range)?;
+            if range_size <= 1 {
+                return Some(range_size);
+            }
+            let exponent = u32::try_from(domain_size).ok()?;
+            Some(range_size.checked_pow(exponent).unwrap_or(u128::MAX))
+        }
+        // Infinite, or of a size this function cannot state exactly.
+        SortKind::Int
+        | SortKind::Real
+        | SortKind::String
+        | SortKind::FloatingPoint { .. }
+        | SortKind::Uninterpreted(_)
+        | SortKind::Parameter(_)
+        | SortKind::Parametric { .. }
+        | SortKind::Datatype(_) => None,
+    }
+}
+
 /// Build extensionality and select-congruence instances for every collected
 /// array-sorted equality atom.
 fn build_extensionality_and_congruence(
     manager: &mut TermManager,
     collected: &ArrayStructure,
     candidates: &mut Vec<TermId>,
+    witnesses: &mut FxHashSet<TermId>,
 ) {
     for &(a, b) in &collected.eq_pairs {
+        if witnesses.len() >= MAX_ARRAY_EXT_WITNESSES {
+            return;
+        }
         // Extensionality: a = b ∨ select(a,k) != select(b,k), with a fresh but
         // deterministic witness index per unordered pair.
         push_witness_lemma(manager, a, b, candidates);
+        if let Some(domain) = array_domain(a, manager) {
+            let witness = extensionality_witness(manager, a, b, domain);
+            witnesses.insert(witness);
+        }
 
         // Select congruence: a = b ⇒ select(a,j) = select(b,j) for every index
         // relevant to comparing the two sides.
@@ -720,45 +1082,24 @@ fn build_extensionality_and_congruence(
         // round and the equality is refuted; in the other polarity the
         // witness lemma itself refutes an asserted `distinct` between two
         // constants with the *same* default.
+        //
+        // Like the store's own-index read, this is defence in depth rather
+        // than an independently observable rule at the campaign's widths:
+        // reverting it moves neither the 480-script bounded campaign nor any
+        // array unit test, because the pair's witness index enters `indices`
+        // here and the *witness lemma* alone already closes the pair whenever
+        // the index domain is small enough for one index to decide it.  The
+        // two come apart only where the lemma needs congruence at the witness
+        // to meet the const-read axiom, which is the
+        // `(= ((as const A) d1) ((as const A) d2))` shape the comment above
+        // describes — decided by `array_extensionality_reserved`'s const-vs-
+        // const cases through the same instance the witness lemma supplies.
         if let Some(domain) = array_domain(a, manager) {
             let witness = extensionality_witness(manager, a, b, domain);
             indices.push(witness);
         }
         collect_pair_indices(manager, collected, a, &mut indices);
         collect_pair_indices(manager, collected, b, &mut indices);
-
-        // An index provably *outside* both store chains (`#P2b-37`).
-        //
-        // `(= (store ((as const A) #b0) i #b1) ((as const A) #b1))` is unsat
-        // because the two sides differ at every index other than `i`, and over
-        // a two-element index sort such an index exists.  No index in the
-        // formula names it, though: every congruence instance above is at an
-        // index the script or a store already mentions, and at `i` the two
-        // sides agree.  So the pair gets its own Skolem index `d`, asserted
-        // different from every store index on either chain — a constraint on a
-        // *fresh* symbol that any model can satisfy as long as the index sort
-        // has more elements than the chains have writes, which is exactly the
-        // cardinality condition checked here.  Without the condition the
-        // constraint would be unsatisfiable on a sort too small to hold an
-        // off-chain index, and asserting it would report `unsat` for a
-        // satisfiable formula.
-        let mut chain_indices: Vec<TermId> = Vec::new();
-        collect_chain_store_indices(manager, collected, a, &mut chain_indices);
-        collect_chain_store_indices(manager, collected, b, &mut chain_indices);
-        if !chain_indices.is_empty()
-            && let Some(domain) = array_domain(a, manager)
-            && index_sort_has_more_than(manager, domain, chain_indices.len())
-        {
-            let off_chain = off_chain_witness(manager, a, b, domain);
-            for &store_index in &chain_indices {
-                let same = manager.mk_eq(off_chain, store_index);
-                let differs = manager.mk_not(same);
-                candidates.push(differs);
-            }
-            if !indices.contains(&off_chain) {
-                indices.push(off_chain);
-            }
-        }
 
         for idx in indices {
             let read_a = manager.mk_select(a, idx);
@@ -769,6 +1110,98 @@ fn build_extensionality_and_congruence(
             candidates.push(cong);
         }
     }
+}
+
+/// The *off-chain Skolem index* family for one array pair — the rule of last
+/// resort, and the one the refinement loop reaches for only when nothing else
+/// fires (see `instantiate_array_axioms`, phase 3b).
+///
+/// `(= (store ((as const A) #b0) i #b1) ((as const A) #b1))` is unsat because
+/// the two sides differ at every index other than `i`, and over a two-element
+/// index sort such an index exists.  No index in the formula names it, though:
+/// every congruence instance is at an index the script or a store already
+/// mentions, and at `i` the two sides agree.  So the pair gets its own Skolem
+/// index `d`, asserted different from every store index on either chain — a
+/// constraint on a *fresh* symbol that any model can satisfy as long as the
+/// index sort has more elements than the chains have writes, which is exactly
+/// the cardinality condition checked here.  Without the condition the
+/// constraint would be unsatisfiable on a sort too small to hold an off-chain
+/// index, and asserting it would report `unsat` for a satisfiable formula.
+///
+/// Only when the two chains bottom out at *different* arrays, which is what
+/// makes an off-chain index informative: two chains over one base agree
+/// everywhere their writes do not reach, whatever that index is, so the lemma
+/// is vacuous — and minting it anyway put a fresh index and a `select` at it
+/// on every level of every alias chain, which on the read-after-write
+/// benchmarks cost twenty times the whole check.
+///
+/// # Why this runs in a phase of its own (`#P2b-38`)
+///
+/// Every off-chain index is a fresh *bit-vector argument term* of the two
+/// reads taken at it, so it joins the candidate set of the BV↔EUF
+/// partition-lemma exchange (`theory_manager::bv_bridge`), whose cost grows
+/// with the number of partitions of that set.  Minting one per equality pair
+/// eagerly is what turned an `n`-ary `distinct` over store chains into a
+/// non-terminating search: four generated scripts that the tree answered in
+/// milliseconds before the `distinct` pairs existed ran for minutes with no
+/// answer.  Deferring the family to a round in which the three syntactic
+/// families add nothing, and emitting it for one pair at a time, keeps it
+/// available exactly where it is the only rule that can decide the pair —
+/// `(= (store c i v) c2)` has no other family to fire — while keeping it off
+/// formulas that never needed it.
+fn build_off_chain_family(
+    manager: &mut TermManager,
+    collected: &ArrayStructure,
+    a: TermId,
+    b: TermId,
+    candidates: &mut Vec<TermId>,
+) {
+    let mut chain_indices: Vec<TermId> = Vec::new();
+    collect_chain_store_indices(manager, a, &mut chain_indices);
+    collect_chain_store_indices(manager, b, &mut chain_indices);
+    if chain_indices.is_empty()
+        || chain_base(manager, collected, a) == chain_base(manager, collected, b)
+    {
+        return;
+    }
+    let Some(domain) = array_domain(a, manager) else {
+        return;
+    };
+    let writes = chain_indices.len();
+    // Unconditionally when the index sort has more elements than the chains
+    // have writes; and *guarded by a coincidence* when it has exactly as many,
+    // because two writes at one index leave a free element behind.
+    // `(= (store (store ((as const A) #b1) i1 #b1) i0 #b0) ((as const A) #b0))`
+    // over a two-element index sort is unsat exactly that way: congruence at
+    // the chain's own indices forces `i0 = i1`, and the guarded lemma then
+    // supplies the off-chain index that refutes the pair.  The guard is what
+    // keeps it sound — with the indices pairwise distinct the writes may cover
+    // the whole domain and no off-chain index need exist.
+    let unconditional = index_sort_has_more_than(manager, domain, writes);
+    let guarded =
+        !unconditional && writes >= 2 && index_sort_has_more_than(manager, domain, writes - 1);
+    if !unconditional && !guarded {
+        return;
+    }
+    let off_chain = off_chain_witness(manager, a, b, domain);
+    let all_distinct = guarded.then(|| manager.mk_distinct(chain_indices.clone()));
+    for &store_index in &chain_indices {
+        let same = manager.mk_eq(off_chain, store_index);
+        let differs = manager.mk_not(same);
+        let instance = match all_distinct {
+            Some(distinct) => manager.mk_or([distinct, differs]),
+            None => differs,
+        };
+        candidates.push(instance);
+    }
+    // Select congruence at the new index, so the two sides are compared there:
+    // the disequalities above only say *where* the index is not.
+    let read_a = manager.mk_select(a, off_chain);
+    let read_b = manager.mk_select(b, off_chain);
+    let reads_eq = manager.mk_eq(read_a, read_b);
+    let eq_ab = manager.mk_eq(a, b);
+    let cong = manager.mk_implies(eq_ab, reads_eq);
+    candidates.push(cong);
 }
 
 /// Every index relevant to comparing `side` with the other side of an array
@@ -789,12 +1222,32 @@ fn collect_pair_indices(
 ) {
     let mut current = side;
     let mut seen: FxHashSet<TermId> = FxHashSet::default();
-    for _ in 0..MAX_STORE_CHAIN_DEPTH {
+    for depth in 0..MAX_STORE_CHAIN_DEPTH {
         if !seen.insert(current) {
             return;
         }
         if let Some(idxs) = collected.read_indices.get(&current) {
             for &idx in idxs {
+                // A *synthetic* index belongs to the pair that minted it.
+                // Sharing every pair's extensionality witness with every other
+                // pair cost `O(n^2)` congruence instances — a formula with
+                // nine foreign array terms did not finish — and each pair
+                // already has its own witness, so nothing is lost.
+                //
+                // The one exception is an *off-chain* index read directly on
+                // this pair's own side: that index carries the "outside both
+                // chains" fact its own pair established, and a second
+                // description of the same array needs it.  `(= (store a i #b1)
+                // ((as const A) #b1))` together with `(= a <chain over
+                // ((as const A) #b0)>)` is refuted only where the first pair's
+                // off-chain index reaches the second pair's congruence.  Those
+                // indices are rare — one per pair whose chains have different
+                // bases — so admitting them costs nothing measurable.
+                if is_synthetic_index(idx, manager)
+                    && !(depth == 0 && is_off_chain_index(idx, manager))
+                {
+                    continue;
+                }
                 if !out.contains(&idx) {
                     out.push(idx);
                 }
@@ -817,30 +1270,30 @@ fn collect_pair_indices(
     }
 }
 
-/// The store indices written along `side`'s store chain, innermost last.
+/// The store indices written along `side`'s *syntactic* store chain,
+/// innermost last.
 ///
 /// These are the indices an off-chain Skolem index has to differ from; see the
 /// `off_chain_witness` block in [`build_extensionality_and_congruence`].
-fn collect_chain_store_indices(
-    manager: &TermManager,
-    collected: &ArrayStructure,
-    side: TermId,
-    out: &mut Vec<TermId>,
-) {
+///
+/// Deliberately does **not** follow a `var = store(..)` alias, unlike the
+/// read-index walk next door.  The lemma this feeds constrains a fresh index
+/// away from the writes of *this* equality, and it is satisfiable as long as
+/// the index sort has more elements than this equality has writes.  Counting
+/// an aliased chain's writes too makes the cardinality guard refuse a rule
+/// that was available: `(= (store a i1 #b1) ((as const A) #b1))` alongside
+/// `(= a (store (store ((as const A) #b0) i0 #b1) i0 #b0))` has one write of
+/// its own over a two-element index sort, so an off-chain index exists — and
+/// it is the only thing that refutes the pair — while the alias made the chain
+/// look two writes long and the guard blocked it.
+fn collect_chain_store_indices(manager: &TermManager, side: TermId, out: &mut Vec<TermId>) {
     let mut current = side;
     let mut seen: FxHashSet<TermId> = FxHashSet::default();
     for _ in 0..MAX_STORE_CHAIN_DEPTH {
         if !seen.insert(current) {
             return;
         }
-        let store_term = if as_store(current, manager).is_some() {
-            current
-        } else if let Some(&aliased) = collected.aliases.get(&current) {
-            aliased
-        } else {
-            return;
-        };
-        let Some((base, store_index, _)) = as_store(store_term, manager) else {
+        let Some((base, store_index, _)) = as_store(current, manager) else {
             return;
         };
         if !out.contains(&store_index) {
@@ -848,6 +1301,31 @@ fn collect_chain_store_indices(
         }
         current = base;
     }
+}
+
+/// The array a store chain is laid over: follow `side` through its `store`
+/// terms (and through an asserted `var = store(..)` alias) until a term that
+/// is neither.
+fn chain_base(manager: &TermManager, collected: &ArrayStructure, side: TermId) -> TermId {
+    let mut current = side;
+    let mut seen: FxHashSet<TermId> = FxHashSet::default();
+    for _ in 0..MAX_STORE_CHAIN_DEPTH {
+        if !seen.insert(current) {
+            return current;
+        }
+        let store_term = if as_store(current, manager).is_some() {
+            current
+        } else if let Some(&aliased) = collected.aliases.get(&current) {
+            aliased
+        } else {
+            return current;
+        };
+        let Some((base, _, _)) = as_store(store_term, manager) else {
+            return current;
+        };
+        current = base;
+    }
+    current
 }
 
 /// Whether the index sort `sort` provably has more than `count` elements.
@@ -909,9 +1387,51 @@ fn off_chain_witness(manager: &mut TermManager, a: TermId, b: TermId, domain: So
     } else {
         (b.raw(), a.raw())
     };
-    // The `!oxiz!off!` prefix cannot collide with an SMT-LIB source symbol.
-    let name = format!("!oxiz!off!{lo}!{hi}");
+    // `OFF_CHAIN_PREFIX` contains a backslash, so the name is unspellable in
+    // both SMT-LIB symbol forms (see `oxiz_core::smtlib::ARRAY_OFF_CHAIN_PREFIX`).
+    let name = format!("{OFF_CHAIN_PREFIX}{lo}!{hi}");
     manager.mk_var(&name, domain)
+}
+
+/// Name prefix of an extensionality witness index.
+///
+/// Reserved by the backslash it carries, so no SMT-LIB script can declare a
+/// constant that interns to the same term — see
+/// [`oxiz_core::smtlib::ARRAY_EXT_WITNESS_PREFIX`].
+const EXT_WITNESS_PREFIX: &str = oxiz_core::smtlib::ARRAY_EXT_WITNESS_PREFIX;
+
+/// Name prefix of an off-chain Skolem index.
+///
+/// Reserved by the backslash it carries — and here it is reserved for
+/// *soundness*: the off-chain rule constrains the symbol itself, so a script
+/// able to spell the name inherits those constraints and a satisfiable formula
+/// answers `unsat`.  See [`oxiz_core::smtlib::ARRAY_OFF_CHAIN_PREFIX`].
+const OFF_CHAIN_PREFIX: &str = oxiz_core::smtlib::ARRAY_OFF_CHAIN_PREFIX;
+
+/// Whether `term` is a synthetic index variable this module minted for some
+/// array pair.
+///
+/// Such an index belongs to *its* pair: instantiating select congruence for
+/// every other pair at it as well is what turned `n` array pairs into `O(n^2)`
+/// lemmas, because every witness read registers its index on both its arrays
+/// and the congruence family then reads the accumulated set.  Each pair
+/// already gets its own witness, so the theory content is unchanged.
+fn is_off_chain_index(term: TermId, manager: &TermManager) -> bool {
+    manager.get(term).is_some_and(|data| match data.kind {
+        TermKind::Var(name) => manager.resolve_str(name).starts_with(OFF_CHAIN_PREFIX),
+        _ => false,
+    })
+}
+
+fn is_synthetic_index(term: TermId, manager: &TermManager) -> bool {
+    let Some(data) = manager.get(term) else {
+        return false;
+    };
+    let TermKind::Var(name) = data.kind else {
+        return false;
+    };
+    let name = manager.resolve_str(name);
+    name.starts_with(EXT_WITNESS_PREFIX) || name.starts_with(OFF_CHAIN_PREFIX)
 }
 
 /// Materialise (interning is idempotent) a deterministic extensionality witness
@@ -930,8 +1450,9 @@ fn extensionality_witness(
     } else {
         (b.raw(), a.raw())
     };
-    // The `!oxiz!ext!` prefix cannot collide with an SMT-LIB source symbol.
-    let name = format!("!oxiz!ext!{lo}!{hi}");
+    // `EXT_WITNESS_PREFIX` contains a backslash, so the name is unspellable in
+    // both SMT-LIB symbol forms (see `oxiz_core::smtlib::ARRAY_EXT_WITNESS_PREFIX`).
+    let name = format!("{EXT_WITNESS_PREFIX}{lo}!{hi}");
     manager.mk_var(&name, domain)
 }
 
@@ -973,7 +1494,7 @@ pub(crate) use oxiz_core::smtlib::CONST_ARRAY_FUNC;
 /// braces: they cost one sort lookup and they are what keeps a *builder-API*
 /// caller that interns the reserved name by hand from being read as an array
 /// constant of the wrong shape.
-pub(super) fn const_array_default(term: TermId, manager: &TermManager) -> Option<TermId> {
+pub(crate) fn const_array_default(term: TermId, manager: &TermManager) -> Option<TermId> {
     let data = manager.get(term)?;
     let TermKind::Apply { func, args } = &data.kind else {
         return None;
@@ -1069,7 +1590,7 @@ fn array_domain(term: TermId, manager: &TermManager) -> Option<SortId> {
 /// mention a bound variable, and a ground lemma over a bound variable is an
 /// instance of nothing.  Quantified array reasoning is MBQI's job; this walk
 /// stays on the ground fragment.
-pub(super) fn ground_children(kind: &TermKind, out: &mut Vec<TermId>) {
+pub(crate) fn ground_children(kind: &TermKind, out: &mut Vec<TermId>) {
     match kind {
         TermKind::Forall { .. }
         | TermKind::Exists { .. }
@@ -1219,7 +1740,7 @@ mod s8_iterative_tests {
                 let select = tm.mk_select(deep, idx);
                 let mut visited = FxHashSet::default();
                 let mut out = ArrayStructure::default();
-                collect_array_structure(select, &tm, &mut visited, &mut out);
+                collect_array_structure(select, &tm, &mut visited, &mut out, true);
                 out.selects.len()
             })
             .expect("spawn deep-nesting worker");
@@ -1238,7 +1759,7 @@ mod s8_iterative_tests {
         }
         let mut visited = FxHashSet::default();
         let mut out = ArrayStructure::default();
-        collect_array_structure(current, &tm, &mut visited, &mut out);
+        collect_array_structure(current, &tm, &mut visited, &mut out, true);
         assert!(out.selects.is_empty());
     }
 
@@ -1263,7 +1784,7 @@ mod s8_iterative_tests {
 
         let mut visited = FxHashSet::default();
         let mut out = ArrayStructure::default();
-        collect_array_structure(both, &tm, &mut visited, &mut out);
+        collect_array_structure(both, &tm, &mut visited, &mut out, true);
 
         // `b = store(a, i, v)` is recorded as an alias and as an array-sorted
         // equality pair; the two selects are recorded left to right.
@@ -1308,13 +1829,13 @@ mod p2b32_walk_tests {
             let goal = tm.mk_distinct([wrapped, six]);
             let mut visited = FxHashSet::default();
             let mut out = ArrayStructure::default();
-            collect_array_structure(goal, &tm, &mut visited, &mut out);
+            collect_array_structure(goal, &tm, &mut visited, &mut out, true);
             assert_eq!(out.selects, vec![(read, store, i)], "under {name}");
         }
         let comparison = tm.mk_bv_ult(six, read);
         let mut visited = FxHashSet::default();
         let mut out = ArrayStructure::default();
-        collect_array_structure(comparison, &tm, &mut visited, &mut out);
+        collect_array_structure(comparison, &tm, &mut visited, &mut out, true);
         assert_eq!(out.selects, vec![(read, store, i)], "under bvult");
     }
 
@@ -1335,13 +1856,13 @@ mod p2b32_walk_tests {
         let goal = tm.mk_distinct([sum, six]);
         let mut visited = FxHashSet::default();
         let mut out = ArrayStructure::default();
-        collect_array_structure(goal, &tm, &mut visited, &mut out);
+        collect_array_structure(goal, &tm, &mut visited, &mut out, true);
         assert_eq!(out.selects, vec![(read, store, i)], "under +");
 
         let comparison = tm.mk_lt(six, read);
         let mut visited = FxHashSet::default();
         let mut out = ArrayStructure::default();
-        collect_array_structure(comparison, &tm, &mut visited, &mut out);
+        collect_array_structure(comparison, &tm, &mut visited, &mut out, true);
         assert_eq!(out.selects, vec![(read, store, i)], "under <");
     }
 
@@ -1362,7 +1883,7 @@ mod p2b32_walk_tests {
         let quantified = tm.mk_forall([("k", bv8)], body);
         let mut visited = FxHashSet::default();
         let mut out = ArrayStructure::default();
-        collect_array_structure(quantified, &tm, &mut visited, &mut out);
+        collect_array_structure(quantified, &tm, &mut visited, &mut out, true);
         assert!(out.selects.is_empty(), "no ground instance under a binder");
     }
 

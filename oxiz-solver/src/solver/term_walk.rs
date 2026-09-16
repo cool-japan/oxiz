@@ -23,7 +23,7 @@ use oxiz_core::ast::{TermId, TermKind};
 /// compound kinds (Boolean, arithmetic, bit-vector, array, datatype,
 /// quantifier, FP, and string) so that a theory atom nested arbitrarily
 /// deep is still discovered.
-pub(super) fn collect_structural_children(kind: &TermKind, out: &mut Vec<TermId>) {
+pub(crate) fn collect_structural_children(kind: &TermKind, out: &mut Vec<TermId>) {
     match kind {
         // Single sub-term
         TermKind::Not(a)

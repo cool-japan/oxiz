@@ -21,6 +21,8 @@ use super::{Context, RawFuncInterp};
 /// Array `store`-chain values and declared-function interpretations
 /// (`#P2b-34`).
 mod array_model;
+mod class_values;
+mod get_value;
 
 /// Render a nonlinear-real exact value as SMT-LIB2 text.
 ///
@@ -192,6 +194,44 @@ enum SortNameFrame {
     },
 }
 
+/// The SMT-LIB spelling of a value the model evaluator folded, or `None` when
+/// the value's shape does not match `term`'s sort (an `Int`-valued rational
+/// with a denominator for an `Int` term, say).
+///
+/// Used to resolve a function-interpretation argument the model assigned no
+/// entry of its own but whose value it nonetheless determines, such as
+/// `(bvsub (f #b10) v)`.
+fn render_eval_value(
+    value: &crate::solver::EvalVal,
+    term: TermId,
+    manager: &oxiz_core::ast::TermManager,
+) -> Option<String> {
+    let sort_kind = manager
+        .get(term)
+        .and_then(|t| manager.sorts.get(t.sort))
+        .map(|s| &s.kind);
+    match value {
+        crate::solver::EvalVal::Bool(flag) => {
+            matches!(sort_kind, Some(SortKind::Bool)).then(|| flag.to_string())
+        }
+        crate::solver::EvalVal::Bv { value, width } => match sort_kind {
+            Some(SortKind::BitVec(sort_width)) if sort_width == width => {
+                Some(oxiz_core::smtlib::format_bitvec_literal(value, *width))
+            }
+            _ => None,
+        },
+        crate::solver::EvalVal::Num(rational) => match sort_kind {
+            Some(SortKind::Int) if *rational.denom() == 1 => Some(rational.numer().to_string()),
+            Some(SortKind::Real) => Some(if *rational.denom() == 1 {
+                format!("{}.0", rational.numer())
+            } else {
+                format!("(/ {} {})", rational.numer(), rational.denom())
+            }),
+            _ => None,
+        },
+    }
+}
+
 impl Context {
     /// Get the model (if SAT)
     /// Returns a list of (name, sort, value) tuples
@@ -227,15 +267,16 @@ impl Context {
             None => return None,
         };
 
-        // Witness bookkeeping for unconstrained uninterpreted-sort constants:
-        // `per_sort_next` is the next fresh witness index for a sort, and
-        // `class_witness` maps an EUF congruence class (or a lone, never-equated
-        // term) to its already-assigned index — so constants proven equal share
-        // one witness while distinct constants get distinct ones.
-        let mut per_sort_next: crate::prelude::HashMap<SortId, usize> =
-            crate::prelude::HashMap::new();
-        let mut class_witness: crate::prelude::HashMap<(SortId, u64), usize> =
-            crate::prelude::HashMap::new();
+        // The one canonical class → value map of this query (`#P2b-34`): the
+        // constants below, every `define-fun` interpretation, every array
+        // chain and `(get-value …)` all read their answers out of it, so two
+        // renderers cannot describe the same class differently.  It carries
+        // the synthesised `@uc_S_n` witnesses for unconstrained
+        // uninterpreted-sort constants — grouped by congruence class, so
+        // constants proven equal share a witness and distinct ones stay
+        // distinct — as well as every value the circuit or the tableau
+        // published.
+        let class_values = self.build_class_values(solver_model);
 
         for decl in &self.declared_consts {
             // The exact-value side-channel is consulted first. It is only ever
@@ -259,27 +300,19 @@ impl Context {
                 // function; a `store` chain over the default is how SMT-LIB
                 // spells it.
                 chain
-            } else if self.is_uninterpreted_sort(decl.sort) {
+            } else if let Some(witness) = self
+                .is_uninterpreted_sort(decl.sort)
+                .then(|| class_values.get(self.class_key(decl.term)))
+                .flatten()
+            {
                 // No direct model entry for an uninterpreted-sort constant:
-                // synthesize a Z3-style `@uc_S_n` abstract witness.  Group by
-                // EUF congruence class so equal constants share a witness;
-                // never-equated constants key by their own term id (a disjoint
-                // namespace via the high bit) so they stay distinct.  Always a
-                // valid value, unlike the previous invalid `?`.
-                let class_key: u64 = match self.solver.euf_class_representative(decl.term) {
-                    Some(rep) => (1u64 << 32) | u64::from(rep),
-                    None => u64::from(decl.term.0),
-                };
-                let idx = if let Some(&i) = class_witness.get(&(decl.sort, class_key)) {
-                    i
-                } else {
-                    let next = per_sort_next.entry(decl.sort).or_insert(0);
-                    let i = *next;
-                    *next += 1;
-                    class_witness.insert((decl.sort, class_key), i);
-                    i
-                };
-                format!("@uc_{}_{}", self.format_sort_name(decl.sort), idx)
+                // the canonical map's synthesized Z3-style `@uc_S_n` abstract
+                // witness, which is grouped by congruence class so equal
+                // constants share one and distinct constants get distinct
+                // ones.  Always a valid value, unlike the previous invalid
+                // `?` — and, being the same map every other renderer reads,
+                // the same witness `f`'s interpretation prints.
+                witness.to_string()
             } else {
                 // Default value based on sort
                 self.default_value(decl.sort)
@@ -322,7 +355,19 @@ impl Context {
             return None;
         }
         let solver_model = self.solver.model()?;
+        let class_values = self.build_class_values(solver_model);
+        self.func_interp_from(func_name, solver_model, &class_values)
+    }
 
+    /// [`Context::get_func_interp_raw`] against an already-built canonical
+    /// class → value map, so a whole `(get-model)` builds one map rather than
+    /// one per declared function.
+    pub(super) fn func_interp_from(
+        &self,
+        func_name: &str,
+        solver_model: &crate::solver::Model,
+        class_values: &class_values::ClassValues,
+    ) -> Option<RawFuncInterp> {
         // Find the declared function so we know its arity and default sort.
         let decl = self.declared_funs.iter().find(|d| d.name == func_name)?;
         let arity = decl.arg_sorts.len();
@@ -363,31 +408,97 @@ impl Context {
         // congruent applications produce exactly one entry.  Because congruence
         // forces congruent applications into the same result class, the values
         // agree in a consistent model.
-        let mut seen_arg_keys: crate::prelude::HashSet<smallvec::SmallVec<[u32; 4]>> =
-            crate::prelude::HashSet::new();
+        // Keyed by the *evaluated* argument tuple, not by the class
+        // representatives: two argument classes with no concrete value of
+        // their own render as the same fallback, and keying on the
+        // representatives let both through — `(p a)` and `(not (p b))` over an
+        // uninterpreted sort printed `(ite (= x!0 @uc_U_0) true (ite (= x!0
+        // @uc_U_0) false true))`, one guard twice with contradicting answers
+        // (`#P2b-34`).  With every argument resolved through the canonical map
+        // the collision is gone, and keying on what is printed is what makes
+        // that structural rather than incidental.
+        // Keyed by the rendered tuple, carrying the tuple's *class* keys so a
+        // violation names them.  Two entries with the same rendered arguments
+        // and different values cannot both be right, whether they come from
+        // one class (a contradiction in the canonical map) or from two (a
+        // model in which two arguments the solver kept apart are published
+        // indistinguishably — the array-model defect `#P2b-37` closed by
+        // giving every pair of foreign arrays in different classes a witness
+        // read that separates them).  The assertion is unscoped for that
+        // reason: it is the property the printed interpretation needs, and
+        // narrowing it to same-class collisions is what let the second kind
+        // pass unnoticed.
+        let mut seen_arg_keys: crate::prelude::HashMap<Vec<String>, (Vec<u64>, String)> =
+            crate::prelude::HashMap::new();
         let mut entries: Vec<(Vec<String>, String)> = Vec::new();
+        let mut deferred: Vec<(&oxiz_theories::euf::FuncAppEntry, String)> = Vec::new();
         for entry in &euf_entries {
             // Resolve the result value first: skip applications whose class has
             // no concrete model value (an unconstrained application contributes
             // nothing observable beyond the else-branch).
-            let Some(val_str) = self.class_value_string(&entry.result_class_terms, solver_model)
+            let Some(val_str) =
+                self.class_value_string(&entry.result_class_terms, solver_model, class_values)
             else {
                 continue;
             };
 
-            if !seen_arg_keys.insert(entry.arg_reps.clone()) {
-                continue; // already emitted this congruence class of arguments
-            }
+            // Resolve each argument to its canonical model value.  An
+            // argument class the model gives no value at all makes the whole
+            // entry unusable: substituting the argument *sort's* default
+            // invented a fact, and the invented tuple then collided with a
+            // real one — `(bvslt (f w) #b00)` with `w` modelled `#b00` printed
+            // `f(#b00) = #b00`, because an unrelated application whose
+            // argument the model left open was rendered at `#b00` first and
+            // won the deduplication (`#P2b-34`).  The else-value covers the
+            // point honestly instead.
+            let exact: Option<Vec<String>> = entry
+                .arg_class_terms
+                .iter()
+                .map(|members| self.class_value_string(members, solver_model, class_values))
+                .collect();
+            let arg_strs = match exact {
+                Some(args) => args,
+                None => {
+                    // Keep it for a second pass: the sort default is a guess,
+                    // and a guess must never take the tuple a real entry
+                    // needs.
+                    deferred.push((entry, val_str));
+                    continue;
+                }
+            };
 
-            // Resolve each argument to its canonical model value.  Falls back to
-            // the default value for the corresponding argument sort when the
-            // class carries no concrete value (rare: an unconstrained argument).
+            let class_keys: Vec<u64> = entry
+                .arg_class_terms
+                .iter()
+                .map(|members| {
+                    members
+                        .first()
+                        .map_or(u64::MAX, |&member| self.class_key(member))
+                })
+                .collect();
+            if let Some((seen_keys, seen_value)) = seen_arg_keys.get(&arg_strs) {
+                debug_assert!(
+                    *seen_value == val_str,
+                    "two interpretation entries for {func_name}{arg_strs:?} disagree: the \
+                     canonical class -> value map gave {val_str} and {seen_value} (argument \
+                     classes {class_keys:?} and {seen_keys:?})"
+                );
+                continue;
+            }
+            seen_arg_keys.insert(arg_strs.clone(), (class_keys, val_str.clone()));
+            entries.push((arg_strs, val_str));
+        }
+
+        // Second pass: entries whose argument the model left open.  The
+        // corresponding sort default stands in, but only for a tuple no exact
+        // entry claimed.
+        for (entry, val_str) in deferred {
             let arg_strs: Vec<String> = entry
                 .arg_class_terms
                 .iter()
                 .enumerate()
                 .map(|(i, members)| {
-                    self.class_value_string(members, solver_model)
+                    self.class_value_string(members, solver_model, class_values)
                         .unwrap_or_else(|| {
                             decl.arg_sorts
                                 .get(i)
@@ -395,6 +506,10 @@ impl Context {
                         })
                 })
                 .collect();
+            if seen_arg_keys.contains_key(&arg_strs) {
+                continue;
+            }
+            seen_arg_keys.insert(arg_strs.clone(), (Vec::new(), val_str.clone()));
             entries.push((arg_strs, val_str));
         }
 
@@ -414,7 +529,51 @@ impl Context {
         &self,
         members: &[TermId],
         solver_model: &crate::solver::Model,
+        class_values: &class_values::ClassValues,
     ) -> Option<String> {
+        // The canonical map first: it carries the `@uc_S_n` witness a class
+        // over an uninterpreted sort has no term for, which is exactly the
+        // class this walk used to report as valueless (`#P2b-34`).
+        if let Some(&member) = members.first()
+            && let Some(value) = class_values.get(self.class_key(member))
+        {
+            return Some(value.to_string());
+        }
+        // An array-sorted class is rendered the way `(get-model)` renders an
+        // array constant of that class — the `store` chain over its base — so
+        // `f : Array -> BV` gets one interpretation entry per array rather
+        // than one per *sort*: `(distinct (f arr) (f brr))` printed `f` as a
+        // constant, because both argument classes fell back to the array
+        // sort's default and the second entry was deduplicated away.
+        for &member in members {
+            let Some(sort) = self.terms.get(member).map(|data| data.sort) else {
+                continue;
+            };
+            if !self
+                .terms
+                .sorts
+                .get(sort)
+                .is_some_and(|s| matches!(s.kind, SortKind::Array { .. }))
+            {
+                continue;
+            }
+            if let Some(chain) = self.array_model_value(member, sort, solver_model) {
+                return Some(chain);
+            }
+            return Some(self.default_value(sort));
+        }
+        // Folding a member in the model is still an *exact* answer — it is the
+        // model's own arithmetic — and it is what resolves an argument like
+        // `(bvsub (f #b10) v)` that has a value without having a model entry.
+        for &member in members {
+            if let Some(value) = self
+                .solver
+                .eval_in_model(member, solver_model, &self.terms, 0)
+                && let Some(text) = render_eval_value(&value, member, &self.terms)
+            {
+                return Some(text);
+            }
+        }
         for &member in members {
             // Direct model assignment (covers variables and applications whose
             // value was extracted from an equality constraint).
@@ -922,148 +1081,6 @@ impl Context {
                 }
             }
         }
-    }
-
-    /// A ground *term* carrying the same default value that
-    /// [`Context::default_value`] renders as a string, or `None` for sorts with
-    /// no constructible ground witness (uninterpreted and array sorts, sort
-    /// parameters, and ill-founded datatypes).
-    ///
-    /// Used to complete the model before a `(get-value ...)` evaluation, so a
-    /// query over an unconstrained constant — including inside a compound term
-    /// such as `(+ x 1)` — reduces to a real value instead of echoing itself.
-    ///
-    /// Delegates to the solver's
-    /// [`ground_default_term`](crate::solver::model_builder::ground_default_term),
-    /// which is also what fills in an unconstrained *field* of a reconstructed
-    /// datatype value — one definition of "the default of this sort" rather
-    /// than one per caller.
-    fn default_value_term(&mut self, sort: SortId) -> Option<TermId> {
-        crate::solver::model_builder::ground_default_term(&mut self.terms, sort)
-    }
-
-    /// The value string [`Context::get_model`] reports for `term`, when `term`
-    /// is a declared constant that the model left unassigned.
-    ///
-    /// `(get-value ...)` and `(get-model)` must never disagree about the same
-    /// constant, and `get_model`'s uninterpreted-sort witnesses (`@uc_S_n`) are
-    /// numbered across the whole declaration list — so the answer is read back
-    /// out of `get_model` itself rather than recomputed.
-    fn unassigned_const_value(&self, term: TermId, model: &crate::solver::Model) -> Option<String> {
-        let index = self.declared_consts.iter().position(|d| d.term == term)?;
-        // A constant the model *did* assign keeps the ordinary evaluation path.
-        if model.get(term).is_some() {
-            return None;
-        }
-        let (_, _, value) = self.get_model()?.into_iter().nth(index)?;
-        Some(value)
-    }
-
-    /// Answer a `(get-value (t1 .. tn))` request.
-    ///
-    /// SMT-LIB 2.6 §4.1.1: the command is available only in `sat` mode, so a
-    /// missing/superseded check result is reported as an error rather than
-    /// answered from stale state.  Each term is evaluated in the current model,
-    /// which is first *completed* with the sort defaults `get_model` reports for
-    /// unconstrained declared constants — otherwise `Model::eval` returns an
-    /// unassigned constant unchanged and `(get-value (x))` answered `((x x))`,
-    /// echoing the term instead of producing a value.
-    ///
-    /// A compound term is folded by the solver's structural evaluator first
-    /// (`Solver::model_value_in`, `#P2b-26`): `Model::eval` knows the Boolean
-    /// connectives and integer arithmetic only, so `(bvadd v #x01)`,
-    /// `(bvult v #x81)`, `(select (store arr i #x05) i)`, a `define-fun`
-    /// name standing for any of them — the parser inlines the body — and an
-    /// application `(f b)` whose value lives on a congruent `(f a)` all
-    /// echoed their body back.  The substitution path below is kept for what
-    /// the evaluator declines to fold (a term over a defaulted constant, a
-    /// strict comparison at its boundary), where echoing is the honest
-    /// non-answer.
-    pub(super) fn format_get_value(&mut self, terms: &[TermId]) -> String {
-        const NO_MODEL: &str = "(error \"No model available\")";
-        if self.last_result != Some(SolverResult::Sat) {
-            return NO_MODEL.to_string();
-        }
-        // Owned so the evaluation below can borrow `self.terms` mutably; see
-        // `get_model` for why an empty assertion stack — or a populated
-        // algebraic side-channel — yields an empty model rather than an error.
-        let model = match self.solver.model() {
-            Some(model) => model.clone(),
-            None if self.assertions.is_empty() || !self.solver.nl_algebraic_values().is_empty() => {
-                crate::solver::Model::new()
-            }
-            None => return NO_MODEL.to_string(),
-        };
-
-        // Completion substitution: every declared constant with no model entry
-        // maps to its sort default.
-        //
-        // A constant the algebraic side-channel *does* pin is excluded. Its
-        // sort default is `0.0`, and substituting that would answer a compound
-        // query like `(get-value ((* x x)))` with `0.0` for a goal whose
-        // witness is `√2` — a fabricated value, and one contradicting the `2.0`
-        // that the very same model implies. Left out of the map the term
-        // survives evaluation unreduced and echoes back, which is the same
-        // honest non-answer this path already gives for anything else it
-        // cannot fold. (A bare `(get-value (x))` never reaches the completion
-        // at all: `unassigned_const_value` answers it from `get_model` below,
-        // which is where the `root-obj` rendering lives.)
-        let unassigned: Vec<(TermId, SortId)> = self
-            .declared_consts
-            .iter()
-            .filter(|d| model.get(d.term).is_none())
-            .filter(|d| self.solver.nl_algebraic_value(d.term).is_none())
-            .map(|d| (d.term, d.sort))
-            .collect();
-        let mut completion: crate::prelude::FxHashMap<TermId, TermId> =
-            crate::prelude::FxHashMap::default();
-        for (term, sort) in unassigned {
-            if let Some(value) = self.default_value_term(sort) {
-                completion.insert(term, value);
-            }
-        }
-        // The structural evaluator reads the SAME completed model (`#P2b-35`).
-        // Completing only the substitution path left the two readings
-        // disagreeing about an unconstrained constant: `(get-value (w))`
-        // answered `#x00` from the completion while `(get-value ((bvult w v)))`
-        // could not fold at all, because the evaluator saw `w` as a leaf with
-        // no entry, and printed `(bvult #x00 v)` — a term, not a value.
-        let mut completed_model = model.clone();
-        for (&term, &value) in &completion {
-            completed_model.set(term, value);
-        }
-
-        let mut values = Vec::with_capacity(terms.len());
-        for &term in terms {
-            let value_str = if let Some(value) = self.unassigned_const_value(term, &model) {
-                // A bare unconstrained constant: report exactly what
-                // `(get-model)` reports for it, witnesses included.
-                value
-            } else if let Some(value) =
-                self.solver
-                    .model_value_in(term, &completed_model, &mut self.terms)
-            {
-                // The structural reading: bit-vector operators, comparisons,
-                // read-over-write and congruent applications fold here.
-                oxiz_core::smtlib::Printer::new(&self.terms).print_term(value)
-            } else {
-                let completed = if completion.is_empty() {
-                    term
-                } else {
-                    self.terms.substitute(term, &completion)
-                };
-                // `Model::eval` substitutes and folds the Boolean structure but
-                // leaves arithmetic/bit-vector applications of the substituted
-                // constants unreduced (`(+ x 1)` → `(+ 0 1)`), so run the
-                // rewriter over the result to reach an actual value.
-                let value = model.eval(completed, &mut self.terms);
-                let value = self.terms.simplify(value);
-                oxiz_core::smtlib::Printer::new(&self.terms).print_term(value)
-            };
-            let term_str = oxiz_core::smtlib::Printer::new(&self.terms).print_term(term);
-            values.push(format!("({} {})", term_str, value_str));
-        }
-        format!("({})", values.join("\n "))
     }
 
     /// Format the model as SMT-LIB2

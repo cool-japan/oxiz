@@ -1517,9 +1517,17 @@ fn p2b26_get_value_folds_bit_vector_terms_comparisons_and_congruent_applications
     let outputs = run_output(defined);
     assert_eq!(verdict_of(&outputs), SolverResult::Sat, "{outputs:?}");
     assert_eq!(printed_bv(&outputs, "x"), Some(1), "{outputs:?}");
+    // The key is the term *as queried* — `t`, not the `define-fun` body the
+    // parser inlined (SMT-LIB 2.6 §4.1.1, `#P2b-35`).  The value is the body's
+    // value either way; it is the key that used to name a term the script
+    // never asked about.
     assert_eq!(
-        printed_bv(&outputs, "(bvadd x #x01)"),
+        printed_bv(&outputs, "t"),
         Some(2),
-        "the define-fun body prints its value: {outputs:?}"
+        "the define-fun name keys its own value: {outputs:?}"
+    );
+    assert!(
+        !outputs.iter().any(|line| line.contains("(bvadd x #x01)")),
+        "the inlined body must not appear as a response key: {outputs:?}"
     );
 }

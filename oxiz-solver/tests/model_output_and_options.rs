@@ -1550,9 +1550,9 @@ fn p2b36_get_value_folds_a_read_of_an_array_constant() {
     assert_eq!(output[0], "sat");
     let values = &output[1];
     for expected in [
-        "((select ((as const) #x03) i) #x03)",
-        "((select (store ((as const) #x03) #x07 #x09) #x07) #x09)",
-        "((bvadd (select ((as const) #x03) #x02) #x01) #x04)",
+        "((select ((as const (Array (_ BitVec 8) (_ BitVec 8))) #x03) i) #x03)",
+        "((select (store ((as const (Array (_ BitVec 8) (_ BitVec 8))) #x03) #x07 #x09) #x07) #x09)",
+        "((bvadd (select ((as const (Array (_ BitVec 8) (_ BitVec 8))) #x03) #x02) #x01) #x04)",
     ] {
         assert!(
             values.contains(expected),
@@ -1576,11 +1576,11 @@ fn p2b36_get_value_folds_an_integer_read_of_an_array_constant() {
     assert_eq!(output[0], "sat");
     let values = &output[1];
     assert!(
-        values.contains("((select ((as const) 7) i) 7)"),
+        values.contains("((select ((as const (Array Int Int)) 7) i) 7)"),
         "the bare read is the default: {values}"
     );
     assert!(
-        values.contains("((+ (select ((as const) 7) 3) 1) 8)"),
+        values.contains("((+ (select ((as const (Array Int Int)) 7) 3) 1) 8)"),
         "the read folds under `+`: {values}"
     );
 }

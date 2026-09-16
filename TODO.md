@@ -438,65 +438,39 @@ Recent Achievements entries above.
 
 ## Recent Achievements
 
-### 2026-06-09 - v0.2.3 Release
+### 2026-06-01 → 2026-06-09 - v0.2.2 and v0.2.3 Releases (condensed 2026-09-16)
 
-- **oxiz-sat**: `DratWriter<W>` / `LratWriter<W>` generic over any `W: Write + Send`; breaking rename from `DratProof` / `LratProof`
-- **oxiz-nlsat**: Real resultant (Sylvester/Bareiss), leading-coefficient extraction, degree≥3 root isolation (Descartes/Sturm), monotonicity estimation
-- **oxiz-theories**: Sound Nelson-Oppen equality propagation; simplex `optimize_linexpr`; correct push/pop tableau snapshots
-- **oxiz-opt**: Full solver-backed `check_sat`, MaxSMT selector encoding, `optimize_single_objective`/`optimize_pareto` delegation
-- **oxiz-spacer**: Real BMC formula construction; sound k-induction; dual-arena soundness fix; `extract_model` via `eval_in_model`
-- **oxiz-solver**: New `Context::eval_in_model` for model-based term evaluation
+- **v0.2.3 (June 9)**: `DratWriter<W>`/`LratWriter<W>` generic over `W: Write + Send` (breaking rename from
+  `DratProof`/`LratProof`); real resultants (Sylvester/Bareiss), leading-coefficient extraction and degree≥3 root
+  isolation (`oxiz-nlsat`); sound Nelson-Oppen equality propagation, simplex `optimize_linexpr`, correct push/pop
+  tableau snapshots (`oxiz-theories`); solver-backed `check_sat` and MaxSMT selector encoding (`oxiz-opt`); real BMC
+  and sound k-induction (`oxiz-spacer`); `Context::eval_in_model`.
+- **v0.2.2 (June 1)**: recursive BV term encoding in `BvSolver`; the Z3 API compatibility layer (`TacticRegistry`
+  with 19 named tactics, `FuncInterp`/`FuncEntry`, `Z3SortKind`/`Z3Sort`, `substitute`, `Z3Pattern`); real LBD from
+  the finalized 1-UIP clause; `BranchingHeuristic::on_conflict_var` feeding `MLEnhancedVSIDS`; LRU caches in the
+  simplifier, EUF explanations and the theory-lemma combiner; Linux `VmHWM` peak memory; Big-M phase-1 simplex;
+  `#![allow(dead_code)]` removed from 40+ modules. 6,735 tests, ~419,576 code lines across ~1,012 files.
 
-### 2026-06-01 - v0.2.2 Release
+### May 5–18, 2026 - v0.2.2 passes 2–6 (condensed 2026-09-16; the v0.2.2 release entry above carries the outcome)
 
-- **Recursive BV term encoding**: Full nested bit-vector expression encoding in `BvSolver` with structured conflict diagnostics
-- **Z3 API compatibility layer**: `TacticRegistry` (19 named tactics), `FuncInterp` / `FuncEntry` in EUF, `Z3SortKind` / `Z3Sort`, `substitute` (BV+Array+Apply coverage), `Z3Pattern` + quantifier pattern APIs
-- **Real LBD scoring**: `compute_lbd_from_literals` replaces stub — CDCL now uses genuine Literal Block Distance from finalized 1-UIP learned clauses
-- **ML conflict hook**: `BranchingHeuristic::on_conflict_var` defaulted hook wired to `MLBranchingHeuristic` via `MLEnhancedVSIDS::update_conflict`
-- **LRU caches**: `AggressiveSimplifier` memo cache (4 096 cap), `EufSolver` explanation cache (1 024 cap), theory combiner lemma cache (bounded to `max_lemma_cache_size`)
-- **CLI peak memory**: Linux `VmHWM` high-water-mark now reported correctly
-- **Big-M primal simplex**: `SimplexSolver` gains Big-M phase-1 for LP feasibility
-- **Dead code policy**: Module-level `#![allow(dead_code)]` removed from 40+ modules; `algebraic_number.rs` (446 lines) deleted
-- **Tests**: 6,735 passing (16 skipped, 0 failures); 0 clippy warnings
-- **SLoC**: ~419,576 code lines across ~1,012 Rust files
-
-### May 5–18, 2026 - v0.2.2 passes 2–6 (condensed 2026-09-15; the v0.2.2 release entry above carries the outcome)
-
-- **Pass 2 (May 5)**: `MLBranchingHeuristic` adapter (`oxiz-ml/src/branching/sat_adapter.rs`) making ML branching reachable through `SolverConfig::external_branching`; `oxiz-proof` `transform.rs`/`compression.rs` deleted (−1,167 lines, both referenced a non-existent `ProofRule`); bench baselines calibrated (`bv_simple` 3,916 µs, `lra_simple` 380 µs, `arrays_simple` 440 µs, ±25 % gate); 6,629 tests.
-- **v0.3.0 infrastructure push (May 5)**: SMT-COMP 2026 entry (`Track` enum, per-track `starexec_run_*`, `smtcomp2026 --track`, `scripts/package_smtcomp.sh`); BV/LRA/Arrays criterion benchmarks with `include_str!` fixtures; the `oxiz-sat::BranchingHeuristic` trait hook and `SolverConfig::external_branching`.
-- **Pass 3 (May 18)**: `oxiz-solver/src/z3_compat_ext.rs` (`Array`, `FuncDecl`, quantifiers, `ite`/`distinct`, `Real` symmetry, `Z3Optimize`); LIA `feasibility_pump`/`probe_variables`/`manage_cuts` wired into `LiaSolver::check()`; module-level `#![allow(dead_code)]` removed from 40 modules and the crate-level allow from `oxiz-solver/src/lib.rs`; `oxiz-math` `algebraic_number.rs` (446 lines) deleted; `SyzygyComputer` wired into `buchberger.rs`; `cicd.rs` activated (`--cicd-report`/`--cicd-strict`); 6,703–6,707 tests.
-- **Pass 4 (May 18)**: `z3_compat_ext2.rs` (`Z3Statistics`, `Z3Params`, `Z3Probe`, `Z3Goal`/`Z3Tactic`/`Z3ApplyResult`, `Z3DatatypeSort`, `check_assumptions`/`unsat_core`, `Z3AstVector`); CLI peak memory from Linux `VmHWM` (`oxiz-cli/src/memory.rs`); `BranchingHeuristic::on_conflict_var` hook feeding `MLEnhancedVSIDS::update_conflict`; `LruCache<TheoryLemma>` finally enforcing `max_lemma_cache_size`; 6,763 tests.
-- **Pass 5 (May 18)**: `FuncInterp`/`FuncEntry` model function interpretations (`oxiz-core/src/model/mod.rs`, `Z3Model::get_func_interp`); `TacticRegistry` (`oxiz-core/src/tactic/registry.rs`, 19 named tactics); real LBD from conflict decision levels; LRU caches in `AggressiveSimplifier` (4,096) and `EufSolver` explanations (1,024); 6,802 tests.
-- **Pass 6 (May 18)**: `TacticRegistry` wired into `apply_named_tactic` (5 → 19 reachable tactics); LBD computed from the finalized 1-UIP learned clause (`compute_lbd_from_literals`, the `vars_to_bump` proxy deleted); congruence-aware `EufSolver::function_application_entries` behind `Context::get_func_interp_raw`; `z3_compat_ext3.rs` (`Z3SortKind`/`Z3Sort`, `Z3Context::substitute` over Bool/Arith/BV/Array/Apply/ITE, `Z3Pattern` + `forall_with_patterns`/`exists_with_patterns`); 6,834 tests.
+- Five passes over two weeks, delivering what the v0.2.2 entry above lists, plus: the `MLBranchingHeuristic` adapter
+  behind `SolverConfig::external_branching`; `oxiz-proof`'s `transform.rs`/`compression.rs` deleted (−1,167 lines
+  over a non-existent `ProofRule`); the SMT-COMP 2026 entry package and the BV/LRA/Arrays criterion benchmarks;
+  `z3_compat_ext{,2,3}.rs` (arrays, quantifiers, `Z3Optimize`, `Z3Statistics`/`Z3Params`/`Z3Probe`/`Z3Goal`/
+  `Z3Tactic`); LIA `feasibility_pump`/`probe_variables`/`manage_cuts` in `LiaSolver::check()`. 6,629 → 6,834 tests.
 
 ### April 4 → April 25, 2026 - Statistics snapshots (v0.2.1; condensed 2026-09-15)
 
-- **April 4**: 931 Rust files, 312,495 code lines (tokei) of 393,292, 6,155 tests (16 skipped), 0 `todo!`/`unimplemented!`, 16 workspace crates (15 Rust + 1 TypeScript).
-- **April 24**: 978 files, 323,732 code lines of 406,502, 6,368 tests, 17 crates; five EUF allocation/data-layout improvements (fingerprint pre-filter, inline hints, incremental `sig_table` undo trail, `ENode` layout reorder, reusable canonicalize buffer).
-- **April 25**: 1,182 files, 408,320 code lines of 442,034, 6,415 tests, 0 stubs; Set theory CDCL(T) interface, Sylvester-matrix discriminant (degree ≥ 4), Hong's projection leading-coefficient fix, NIA cutting planes re-enabled, `normalize_bounds` tactic, PyO3 quantifier/string/FP wrappers, dynamic subsumption, multi-trigger E-matching, learned-clause literal minimization, branch-and-bound loop, BV signed comparison.
+- **April 4 → 25**: 931 → 1,182 Rust files and 312,495 → 408,320 code lines (tokei), 6,155 → 6,415 tests, 16 → 17
+  workspace crates, 0 stubs; five EUF allocation/data-layout improvements, the Set-theory CDCL(T) interface, the Sylvester-matrix discriminant (degree ≥ 4) and Hong projection.
 
-### March 31, 2026 - Performance, UX, Debugging, Docs
-- **Performance**: 9 optimizations (arena allocator, clause pool, SIMD poly ops,
-  TermKindHasher, FP cache, model gen cache, parallel theory checking,
-  lock-free structures, lazy evaluation)
-- **User Experience**: EasySolver API, better error messages, resource limits
-- **Debugging**: State visualization, trace generation, conflict explanations,
-  model minimization
-- **Documentation**: 5 new guides (performance tuning, theory, Z3 migration,
-  pitfalls, case studies)
-- **File Maintenance**: solve_eqs.rs and rational.rs re-split under 2000 lines
-- **Tests**: 6,122 -> 6,155 (+33 new)
-- **LoC**: 392,274 -> 393,292 (+1,018)
+### Feb 5 → March 31, 2026 - parity, milestone and polish (condensed 2026-09-16)
 
-### v0.3.0 Milestone (March 23, 2026)
-- 168/168 Z3 parity tests passing
-- 5,993 tests at milestone point
-- All files under 2,000 lines
-
-### 100% Z3 Parity (Feb 5, 2026)
-- 88/88 benchmark tests across 8 core SMT-LIB logics
-- Fixed 31 test failures across 5 theory solvers
-- 18 infrastructure issues resolved, 13 algorithmic improvements
+- **March 31**: nine performance optimizations (arena allocator, clause pool, SIMD polynomial ops, `TermKindHasher`,
+  caches, parallel theory checking, lock-free structures, lazy evaluation); the `EasySolver` API, better errors and
+  resource limits; state visualization, traces, conflict explanations, model minimization; 6,155 tests.
+- **March 23 (v0.3.0 milestone)**: 168/168 Z3 parity tests, 5,993 tests, every file under 2,000 lines.
+- **February 5 (100% Z3 parity)**: 88/88 benchmarks across 8 core logics; 31 test failures fixed; 13 algorithmic improvements.
 
 ---
 
@@ -1043,27 +1017,13 @@ and `qe/datatype/case_analysis.rs`.
 - [x] Revise README/TODO 'production ready / 100% Z3 parity' claims — contradicted by P0/P1 findings and `bench/z3_parity/results.json` (4 Sat answers on UNSAT quantified benchmarks per test-gap audit) — README now reports the honest 168-benchmark breakdown (122 Correct/35 Inconclusive/10 Error/1 Wrong) and calls out QF_S/QF_FP by name; the `results.json` itself no longer shows the 4-wrong-quantified-Sat pattern (regenerated with the honest comparator; only 1 `Wrong` result remains, in `QF_NIRA`)
 - [x] Complete adversarial verification of the P2/P3 lists (verification pass was stopped early: 90 of ~250 verdicts collected) — this release's re-verification pass covers all of P0/P1/P2 and a ~15-item sample of P3/P4 (see the note at the top of this section); the remaining P3/P4 items still need a dedicated verification pass — **(fixed: this session's investigation (10+ scoped audit/verify agents) plus three implementation waves completed a full re-pass across the entire P0-P4 backlog; all remaining known gaps are enumerated in the 'Remaining (post-0.3.0 hardening)' section below)**
 
-### Audit Coverage Notes (scope summaries)
+### Audit Coverage Notes (scope summaries) (condensed 2026-09-16)
 
-- **bindings**: Audited oxiz-wasm (all src + package.json), oxiz-py (all src, pyproject, oxiz.pyi), and oxiz-vscode (extension.ts, package.json), cross-checking against oxiz-solver/oxiz-core internals. Solid: core WasmSolver assert/checkSat/model paths, py Solver/Optimizer wrappers (no unwrap/panic), version sync (workspace 0.2.4 = package.json), and the VSCode extension targets a real `oxiz --lsp` server with valid CLI flags. Critical problems concentrate in the WASM extras: the optimization API silently drops objectives and reports "optimal", computeInterpolant returns a non-interpolant, getUnsatCore returns all assertions, and the worker/streaming/memory/lazy-loader modules are facades. oxiz-py truncates >64-bit BV model values; npm CommonJS entry is unshippable as configured.
-- **core-ast**: Audited oxiz-core term manager/interning (manager/mod.rs, builder.rs, query.rs), all 13 rewriters, simplification/, egraph + congruence closure, arena and lazy_eval. Found 9 critical soundness defects: stubbed substitution silently skipping UF/BV/String terms, absorption/factoring rules that drop conjuncts/disjuncts, BvXor rewritten to BvOr and shifts rewritten to their lhs (reachable via CombinedRewriter), truncated-vs-Euclidean mod, rational folding of integer div, e-graph BigInt-to-0 truncation with dropped children, and non-backtracked disequalities. Plus missed congruence propagation, sort-blind interning, unsound FP infinity rules, unicode string panics, and unbounded recursion. Solid: arena allocator, lazy_eval, poly normalization, array rewriter, core bool/arith comparison rules, mk_* creation-time simplifications.
-- **core-rest**: Audited oxiz-core: smtlib parser/printer, qe/* (arith, array, bv, string, datatype, cad), theories/*, model/*, resource.rs, error.rs, unsat_core.rs, datalog, ematching. Worst finding: the production SMT-LIB parser (used by CLI via Context::execute_script) parses div/mod as subtraction, drops "/" and indexed BV ops to Bool-sorted UF, defaults undeclared symbols to Bool vars, silently skips unknown commands, and loses numeric set-option values — direct wrong-answer paths. The qe/ and theories/ layers contain systematic placeholder stubs, several unsound (string QE returns true unconditionally; Cooper QE claims elimination without substituting; datatype axioms become mk_true/mk_false). Model evaluator/completion silently truncate big constants and assign wrong-sorted defaults. Solid: resource.rs limits, lexer, sorts parsing, no-unwrap discipline in production paths (unwraps confined to tests).
-- **core-tactic**: Inspected all 43 files under oxiz-core/src/tactic/ plus the registry consumer (oxiz-solver z3_compat_ext2). Headline: the entire default_registry is fake — all 19 registered tactics either clone the goal or return NotApplicable, while the public Z3Tactic API dispatches to them. The stateful (apply_mut) implementations that do real work carry critical soundness bugs: DER's forall rule is inverted, Skolemization shares sk_N names across assertions and ignores polarity, quantifier instantiation ignores polarity, Ackermannization descends under quantifiers, Fourier–Motzkin mishandles integers/rational truncation/op-limit aborts, pb2bv drops constant offsets, lia2card aliases aux variables. Solid parts: PropagateValuesTactic, SolveEqsTactic core substitution, ctx_simplify ITE elimination, and EliminateUnconstrained look sound (modulo the missing model-converter).
-- **frontends**: Audited oxiz-cli (all modules), oxiz facade (lib/easy/README/Cargo.toml), oxiz-smtcomp websocket.rs+svcomp.rs, and oxiz-ml. Root systemic defect: Context::set_option ignores everything except produce-proofs/produce-unsat-cores, so most advertised CLI flags (timeout, resource limits, strategy/preset/auto-tune, enumerate/optimize) are silently dead; portfolio and distributed modes are consequently fake. Hidden stubs: --count-models fabricates answers, --interpolate is a placeholder, --validate-model and --minimize-core do nothing. Soundness edges: EasySolver drops constraints on unknown names; TPTP free-variable handling can flip SZS verdicts; DIMACS rejects valid multi-line/empty-clause files. Solid areas: websocket.rs and svcomp.rs are clean; oxiz-ml is a real, correctly implemented ML library (genuine backprop, wired via oxiz-sat external_branching) with small but real benches; facade re-exports compile-consistent.
-- **math**: Audited oxiz-math end-to-end: interval arithmetic, fast_rational, rational utils, mpfr emulation, polynomial extended_ops/helpers/root isolation, grobner/buchberger (incl. NraSolver), simplex, delta_rational, realclosure, algebraic/isolate; spot-checked matrix.rs/blas.rs (assert-guarded, standard f64 kernels — no defects found) and cross-checked consumers (oxiz-nlsat uses interval + grobner reduce; oxiz-theories uses DeltaRational). Five critical soundness bugs: sign-broken Sturm sequences (wrong root counts, concrete counterexample), Interval::mul openness excluding attainable 0, NraSolver returning Sat for unsat linear inequalities and for complex-only-solvable equalities, and isolate_roots missing roots at x=0. Major issues include truncated Groebner reduction dropping remainders, simplex ignoring non-basic bound violations, i64::MIN corruption in FastRational, mpfr one()/rounding defects, and multiple silent approximation stubs. algebraic/isolate.rs and polynomial/root_isolation.rs Sturm chains use exact remainders and look sound.
-- **nlsat**: Audited oxiz-nlsat end-to-end: solver core (mod/decide/propagate/conflict), cad.rs Sturm root isolation, interval_set, explain, simplify, grobner_preprocess, portfolio, nia, maxsat, plus the oxiz-theories bridge that consumes results. Core defects: rational-only root finding makes feasible regions wrong (x^2>2 answers UNSAT, trusted by the bridge for univariate atoms); empty-region backtracking livelocks; incremental solve reuses stale state; NIA branch-and-bound leaks contradictory branch constraints; Sturm chains are sign-broken for negative leading coefficients; Portfolio/MaxSAT are hollow stubs; ~25 of 40 exported modules (incl. CAD explanations and proofs) are never wired into solving. Solid parts: BCP two-watched-literal scheme, clause management/LBD/restarts, interval intersection/union, Groebner basis math, rational-root theorem implementation.
-- **opt-proof**: Audited all of oxiz-opt (maxsat core/algorithms/types, maxsmt, OptContext, preprocess, pareto/pareto_enumerate, omt, hybrid, maxhs, smtlib, totalizer) and the priority oxiz-proof files (checker, rules, drat, craig, conversion, simplify, recorder, resolution, validation). Solid: DRAT text/binary emission, resolution.rs pivot-checked resolution, Recorder, Pareto frontier insertion, tautology/duplicate/subsumption preprocessing. Broken: weighted MaxSAT correctness (stratified path, Weight Ord, bound resets, PMRES/OLL bookkeeping), preprocessing soundness (soft unit propagation, BVE), optimality over-claiming across OptContext/OMT/hybrid/MaxHS/SMT-LIB, and oxiz-proof's marquee features — Craig interpolation returns trivial 'true', rule validators accept everything, verify_conclusions is ignored, and DRAT-to-Alethe conversion fabricates proofs. Not production-ready in these areas.
-- **panic-audit**: Workspace-wide panic/robustness audit of production paths (all 16 crates; tests/benches/examples excluded). unwrap/expect/panic/unreachable/asserts are almost entirely confined to #[cfg(test)] modules — the no-unwrap pass largely held; remaining expects are mostly justified invariants. Real defects concentrate in the SMT-LIB frontend and BV width arithmetic: standard indexed BV operators silently become uninterpreted Bool functions (wrong answers), unbounded parser recursion (stack-overflow abort), extract-width u32 underflow, unguarded 1u64<<width at width 64, and i64 Rational64 constant folding that wraps in release. Resource governance is the other gap: timeout_ms is accepted via three public APIs and never read, and DIMACS headers drive unbounded allocation. SAT core loops, DIMACS literal handling, lexer UTF-8 slicing, wasm/py bindings, and ResourceMonitor conflict/decision budgets look solid. Both rustc-ice files are disk-full build artifacts, not code bugs.
-- **release-audit**: Audited all 19 workspace manifests, CHANGELOG, README, docs/, examples/, scripts/, fuzz exclusion, .cargo/config, .gitignore, oxiz-py pyproject, oxiz-wasm/oxiz-vscode package.json, and lib.rs doc versions. Solid: version.workspace=true everywhere at 0.2.4; per-crate keywords/categories/descriptions present; fuzz crate correctly isolated (own [workspace], publish=false); LICENSE present; per-crate READMEs exist for auto-detection; pyproject uses dynamic version via maturin; wasm package.json at 0.2.4; README/lib.rs quick-start examples reference real APIs (Context::execute_script, Python bindings verified); only allowed workflows (npm/pypi-publish) active; rustc-ice files untracked and gitignored. Main gaps: empty 0.2.4 changelog, README What's-New mislabeled and logic-status overclaims, bench-profile publishable, committed target-cpu=native, no MSRV.
-- **sat**: Audited oxiz-sat end-to-end: CDCL core (propagate/analyze/learn/decide/incremental), clause DB/pool/watches, proof writers, xor, gpu, cube, symmetry+tactic, portfolio, allsat, assumptions, preprocessing/inprocessing. Found 8 critical soundness paths: binary-graph reason-position violation in conflict analysis, clause-slot reuse with stale watchers, dirty-trail assumptions giving false UNSAT, false-literal watches on incremental add_clause, logically inverted inprocessing strengthening, model-breaking pure-literal elimination, never-purged binary graph after pop, and an unsound symmetry tactic. Plus inverted XOR RHS extraction, non-functional cube/proof-check/GPU/core-minimization stubs, unintegrated DRAT logging, and no timeout/interrupt anywhere. Solid: DIMACS parser, trail, Luby restarts, main watch loop for 3+ clauses, GPU feature gating honesty.
-- **smtlib-compliance**: Audited SMT-LIB 2.6 compliance end-to-end: lexer (oxiz-core/src/smtlib/lexer.rs), parser (parser/{commands,sorts,terms}.rs), executor (oxiz-solver/src/context.rs), and CLI (oxiz-cli/src/main.rs, processor.rs, interactive.rs), cross-checked against the parity benchmark suite. Critical soundness: div/mod parsed as subtraction; '/', abs, to_real, zero_extend/sign_extend/rotate become uninterpreted Bool applies; unknown commands (define-fun-rec, declare-sort, get-unsat-assumptions) silently dropped. Options are largely write-only (:timeout, :random-seed, :print-success ignored); :named/unsat-core/get-assignment/get-info broken end-to-end; chainable operators and standard set-info headers cause parse aborts. The 88-benchmark parity suite avoids all these constructs, so the claims don't generalize. Solid areas: basic core/BV/FP/string operator parsing, push/pop scoping, let/quantifier binding hygiene, decimal-to-rational conversion with overflow checks.
-- **solver-core**: Audited oxiz-solver: solver/mod.rs, encode.rs, theory_manager.rs, check_fp/check_array/check_nlsat/check_string, context.rs, simplify.rs, plus parser cross-checks. Core CDCL(T) plumbing for EUF/LRA and boolean encoding is genuine, and simplify.rs is sound. But production readiness is undermined by: resource-limit exhaustion and arith Unknown/Err converted into definitive Sat; MBQI returning Sat after unverified iterations; signed BV comparisons double-asserted into arithmetic with unsigned semantics; polarity bugs in FP/array pre-checks producing wrong UNSAT; BV state leaking across push/pop; and FP/String/Array 'support' that is benchmark-tuned pattern matching (comments cite fp_06, string_02, array_03) over free boolean atoms — consistent with overfitting to the 88-benchmark parity suite. Timeout options are accepted but never enforced.
-- **solver-rest**: Audited oxiz-solver MBQI (integration, counterexample, model_completion, patterns, conflict_driven), combination (coordinator, convexity), model/advanced_builder, optimization.rs, the CLI portfolio, and EasySolver. Worst defects: the solver answers SAT for quantified formulas on two unverified paths (10-round MBQI fallback; "Satisfied" from enumerating <=10 candidates over infinite domains), and MBQI substitution silently skips many TermKinds, emitting lemmas with leftover bound variables. Optimizer mislabels unbounded/cap-out results as Optimal and corrupts large values. Timeouts are accepted but never enforced. Coordinator, convexity, advanced_builder, and CLI portfolio contain placeholder logic behind public APIs. Solid areas: model_completion deliberately avoids unsound else_value defaults; counterexample lemma generation itself is conservative (Unknown over Satisfied) in most residual cases; EasySolver core flow works for declared variables.
-- **spacer**: Audited all 26 files of oxiz-spacer (~15.3k LoC): pdr.rs, smt.rs, bmc.rs, frames.rs, parser.rs, chccomp.rs, existential.rs, theory.rs, distributed.rs, parallel.rs, invariant.rs, generalize.rs, ctg.rs, pob.rs, reach.rs, tactics/. The core PDR loop is placeholder-grade: init-reachability and transition-feasibility stubs make Unsafe unreachable and the inductiveness check is trivially true, so Spacer::solve returns wrong Safe verdicts. ChcParser erases predicate applications; BMC/k-induction conjoin multiple transition rules; Houdini performs no SMT verification; distributed/parallel/existential modules are simulations. Solid: chccomp.rs (real SMT-LIB parser), bmc.rs single-rule linear path with sound Unknown fallbacks, frames/pob data structures, generalize.rs/ctg.rs structure (though dependent on the broken consecution check).
-- **test-gap**: Test-quality audit across all 16 crates, fuzz/, and bench/. Worst issues: the repo's own parity results.json records 4 Sat-answers on UNSAT quantified benchmarks while README claims 100% parity, and no test covers those directories; the parity comparator counts Unknown as Correct; an ignored test documents SAT-with-wrong-model BV behavior; oxiz-solver/oxiz-core property suites are feature-gated off and Unknown-tolerant when on; MBQI has only dead vacuous tests; spacer and MaxSAT (PMRES/SortMax) hide broken basics behind #[ignore]; fuzzing is crash-only with the parser+solver path as dead code. Solid areas: oxiz-solver/tests/bv_soundness_integration.rs (exact sat/unsat), oxiz-py tests (exact results plus model-value checks), most oxiz-sat CDCL exact-result assertions.
-- **theories-arith**: Audited oxiz-theories arithmetic (simplex, simplex_opt, LIA cuts/branching/heuristics, ArithSolver), bv (solver.rs, solver_advanced.rs), and fp (solver.rs, ieee754_full.rs). Production-path critical soundness bugs: BV barrel shifters ignore high shift bits; all four BV division encodings admit wrapped spurious quotients; QF_LIA runs only the LP relaxation (no integrality); simplex reports SAT on pivot exhaustion. Public-API LiaSolver B&B wipes constraints via reset() and adds invalid placeholder MIR/CG cuts; FpSolver comparisons are sign-only stubs and conversions unconstrained; IEEE754 engine mis-rounds RNE ties, halves odd-exponent sqrt inputs, and doubles subnormals. Core bit-blasting gates (and/or/xor/adder/mux/ult), LRA delta-rational strict bounds, and Farkas explanations look sound. bv/solver_advanced.rs is dead stub code.
-- **theories-rest**: Audited oxiz-theories: combination.rs, simplify.rs, euf/*, array/*, string (solver/regex/automata), set/*, datatype/*, character surface. Worst defects are in the production EUF path (wired into oxiz-solver with push/pop): un-trailed path compression and un-popped proof-forest edges both corrupt incremental state, enabling wrong sat/unsat. Nelson-Oppen combiner is largely a facade — no arithmetic propagation, fabricated arrangements, an infinite fixpoint loop, and stub model verification. StringSolver silently drops length conflicts and reports Sat with unresolved constraints; ArraySolver's read-over-write-diff guard and one-literal conflict explanations are unsound; DatatypeSolver lacks acyclicity and leaks state across pop. Set theory propagation and the automata/subset-construction code looked comparatively solid; EUF congruence closure core (sig/fingerprint tables, trail undo) is well-engineered aside from the backtracking bugs.
-- **z3-gap**: Inspected the SMT-LIB frontend (oxiz-core/smtlib), solver Context and CDCL(T) loop (oxiz-solver), MBQI/E-matching, theory wiring, tactics/qe/MBP, oxiz-opt, and spacer against Z3's catalog (no local Z3 checkout referenced; compared from Z3 knowledge). Solid: SAT core (rich inprocessing/DRAT), nlsat crate, push/pop bookkeeping, deletion-based core minimization, datatype/tester parsing. Broken: only Arith/BV/EUF are real theories — string/FP/array checks are benchmark-keyed heuristics that default to sat; MBQI certifies quantifiers from ≤10 finite candidates (wrong sat); the parser silently drops unknown commands (define-fun-rec, assert-soft, check-sat-using, declare-sort); regex, PB, Seq, Set, recfun, special relations, OMT, tactics, and most solver options are unreachable or no-ops despite existing implementation files. "Production ready / 100% Z3 parity" is not supported by the code.
+- Nineteen scoped agents (bindings, core-ast, core-rest, core-tactic, frontends, math, nlsat, opt-proof,
+  panic-audit, release-audit, sat, smtlib-compliance, solver-core, solver-rest, spacer, test-gap, theories-arith,
+  theories-rest, z3-gap); their per-item findings are the P0–P4 lists below. The pattern they agreed on: the
+  CDCL(T) core, SAT engine, term manager and arithmetic/BV/EUF theories were real, while the layers around them —
+  tactics, QE, string/FP/array pre-checks, MaxSAT/OMT, Spacer, bindings, most options — were stubs or facades.
 
 ## Remaining (post-0.3.0 hardening)
 
@@ -1419,69 +1379,56 @@ Line numbers below were re-verified on 2026-09-09, after the two file splits thi
 - [x] **U-Z17 — the SMT-LIB 2.7 bit-vector overflow predicates did not exist in the parser**
   (`bvuaddo`, `bvsaddo`, `bvusubo`, `bvssubo`, `bvumulo`, `bvsmulo`, `bvnego`; fixture `u07`
   errored where the answer is `unsat`). — **(fixed in 0.3.4 as desugarings into existing term
-  kinds — `build_bv_overflow_binary` (`oxiz-core/src/smtlib/parser/build.rs:367`), the `bvnego`
+  kinds — `build_bv_overflow_binary` (`oxiz-core/src/smtlib/parser/build.rs:367`) and the `bvnego`
   arm of `build_unary`; definitions in CHANGELOG 0.3.4 "Added". Tests:
-  `oxiz-solver/tests/overflow_predicates.rs` (13): all 256 ordered pairs at width 4 for all seven
-  predicates and both polarities, 205 pairs at width 8 against a reference cross-checked over all
-  65,536 pairs, plus width 64. `bvsaddo`/`bvssubo` depended on the U-Z10 fix, not U-Z11.)**
-- [x] **U-Z2 — the same seven SMT-LIB 2.7 overflow predicates, tracked twice.** A blueprint
-  backlog item predating the conformance suite's U-Z17; checked on 2026-09-09 against the fixed
-  tree, the two lists are identical (`bvuaddo`, `bvsaddo`, `bvumulo`, `bvsmulo`, `bvnego`,
-  `bvusubo`, `bvssubo`) and all seven parse and solve. — **(fixed in 0.3.4 by the U-Z17 change.)**
+  `oxiz-solver/tests/overflow_predicates.rs` (13) — all 256 ordered width-4 pairs for all seven
+  predicates and both polarities, 205 width-8 pairs against a reference cross-checked over all
+  65,536, plus width 64.)**
+- [x] **U-Z2 — the same seven overflow predicates, tracked twice.** A blueprint backlog item
+  predating U-Z17; checked 2026-09-09, the two lists are identical and all seven parse and solve.
+  — **(fixed in 0.3.4 by the U-Z17 change.)**
 
-- [x] **#P2b-15 — `oxiz-sat` `Lit::pos` / `Lit::neg` truncated silently above `2^31` variables.**
-  `Lit::pos(var)` computed `var.0 << 1`, so `Lit::pos(Var(2^31))` is `0` — **variable 0**, with no
-  diagnostic. Found by cargo-formal's `oxiz-sat-lit` self-hosting harness (blueprint §14,
-  independent of the U-Z catalogue, previously unreported upstream). — **(fixed in 0.3.4 by
-  `Var::MAX_INDEX = (1 << 31) - 2` (`oxiz-sat/src/literal.rs:27`), whose doc comment states both
-  halves of the invariant, enforced by `debug_assert!` in `Var::new` (`:36`), `Lit::pos` (`:61`),
-  `Lit::neg` (`:73`) — `const fn`-legal on rustc 1.95.0, no release cost. Tests: round trips at
-  `0`, `1`, `MAX_INDEX` plus four `#[cfg(debug_assertions)] #[should_panic]` tests.)**
-- [x] **#P2b-16 — `oxiz-sat` `Lit::to_dimacs` returned a wrong number for the literal built
-  from `i32::MIN`.** `from_dimacs(i32::MIN)` yields `Var(2^31 - 1)`, whose `to_dimacs` computed
-  `(2147483647 + 1) as i32 = i32::MIN` and negated it — `i32::MIN` for **both** polarities in
-  release, an overflow panic in debug. Same harness as the previous item. — **(fixed in 0.3.4:
-  `to_dimacs` (`oxiz-sat/src/literal.rs:110`) delegates to the new non-panicking `try_to_dimacs`
-  (`:127`, `checked_add` + `i32::try_from`) and otherwise panics with an explicit `match` — no
-  `unwrap`, no `expect`; `from_dimacs` (`:88`) gained `debug_assert!`. Tests:
-  `dimacs_round_trip_at_the_index_extremes`, `from_dimacs_i32_max_round_trips`,
-  `try_to_dimacs_is_none_exactly_where_to_dimacs_panics`, `to_dimacs_panics_above_max_index`.)**
+- [x] **#P2b-15/#P2b-16 — `oxiz-sat` literal arithmetic wrapped silently at the index extremes.**
+  `Lit::pos(var)` computed `var.0 << 1`, so `Lit::pos(Var(2^31))` was **variable 0** with no
+  diagnostic; and `from_dimacs(i32::MIN)`'s `to_dimacs` returned `i32::MIN` for *both* polarities
+  in release (overflow panic in debug). Both found by cargo-formal's `oxiz-sat-lit` self-hosting
+  harness (blueprint §14, previously unreported upstream). — **(fixed in 0.3.4: `Var::MAX_INDEX =
+  (1 << 31) - 2` (`oxiz-sat/src/literal.rs:27`) enforced by `debug_assert!` in `Var::new`,
+  `Lit::pos` and `Lit::neg`, `const fn`-legal with no release cost; `to_dimacs` (`:110`) delegates
+  to the new non-panicking `try_to_dimacs` (`:127`, `checked_add` + `i32::try_from`) and otherwise
+  panics through an explicit `match` — no `unwrap`, no `expect`. Tests: index-extreme round trips,
+  `try_to_dimacs_is_none_exactly_where_to_dimacs_panics`, and five `#[should_panic]` guards.)**
 - [x] **#P2b-17 — `#[must_use]` on the six `BvSolver::assert_*` methods, and 74 call sites that
-  discarded the answer.** All six of `assert_eq` / `assert_neq` / `assert_ult` (`:370`) /
-  `assert_ule` (`:411`) / `assert_slt` / `assert_sle` in `oxiz-theories/src/bv/solver.rs` return
-  `bool` meaning "I actually asserted something", and a discarded `false` read as "no theory
-  objection" about an atom the circuit was never told about. — **(fixed in 0.3.4: the attribute
-  on all six, all 74 discarding sites across 10 files rewritten as `assert!(<call>)`, every one
-  passing; `bv_run_check` (`oxiz-solver/src/solver/theory_manager/bv_bridge.rs:84`) takes an
-  `asserted: bool` and sets `bv_atom_unmodelled` (`theory_manager.rs:239`), folded into
-  `resource_exhausted()` (`:437`) to turn a final `Sat` into `Unknown` — `#P2b-12`.)**
+  discarded the answer.** All six of `assert_eq`/`assert_neq`/`assert_ult`/`assert_ule`/`assert_slt`/
+  `assert_sle` in `oxiz-theories/src/bv/solver.rs` return `bool` meaning "I actually asserted
+  something", and a discarded `false` read as "no theory objection" about an atom the circuit was
+  never told about. — **(fixed in 0.3.4: the attribute on all six, all 74 discarding sites across 10
+  files rewritten as `assert!(<call>)`, every one passing; `bv_run_check`
+  (`solver/theory_manager/bv_bridge.rs:84`) takes an `asserted: bool` and sets `bv_atom_unmodelled`
+  (`theory_manager.rs:239`), folded into `resource_exhausted()` to turn a final `Sat` into
+  `Unknown` — `#P2b-12`.)**
 - [x] **#P2b-18 — two comments describing the model gate as bit-vector-blind became false.**
-  `oxiz-solver/src/solver/check_array/eval_bv.rs`'s module doc and the section banner at
-  `check_array/tests.rs:262` both said the gate's `EvalVal` "has no bit-vector variant at all",
-  and both are the load-bearing rationale for `check_array/eval_bv.rs` existing. — **(fixed in
-  0.3.4 by rewriting, not deleting: the gate now reads bit-vector values but inspects a *finished
-  candidate model*, while this evaluator runs *during* the search on the partial assignment, so
-  it can find the conflict that lets the search reach the correct `Unsat`.)**
-- [x] **#P2b-19 (2026-09-14) — a learned clause outlived the `push`ed scope that entailed it,
-  producing a false `unsat` after `pop`.** `(assert A) (push 1) (assert B) (check-sat) (pop 1)
-  (assert C) (check-sat)` answered `unsat` for a `{A, C}` the same tree answered `sat` for when
-  spelled flat: `learn_clause` (`oxiz-sat/src/solver/learn.rs`, all three arms) pushed each id to
-  `learned_clause_ids` but not to `assertion_clause_ids.last_mut()`, which `Solver::pop` deletes.
-  Reachable only once the U-Z10 journals re-encode a popped circuit, so 0.3.3 answers all thirteen
-  witnesses correctly. — **(fixed in 0.3.4 by `Solver::register_learned_at_assertion_level`
-  (`learn.rs:129`) from all three arms; `pop`'s per-clause `retain` became one `FxHashSet` pass and
-  skips an id already deleted, so no duplicate `drat_delete`/`lrat_delete` line is emitted (pinned
-  by `oxiz-sat/tests/pop_proof_deletion_regressions.rs`: 554 ids, 0 duplicates). Tests:
-  `oxiz-solver/tests/bv_scope_rollback_pushpop.rs` — 4 reproducers, 13 witnesses, a 200-trial
-  differential test; **all 18 fail pre-fix**.)**
-- [x] **#P2b-20 (2026-09-14) — a bare `push`/`pop` discarded a contradiction proved before the
-  `push`.** `(assert (distinct b b)) (push 1) (pop 1) (check-sat)` answered `sat`, and with a
-  `(check-sat)` before the `push`, `["unsat", "sat"]`; sort-independent and **not** a 0.3.4
-  regression. `Solver::pop` ended with an unconditional `self.trivially_unsat = false`, a latch over
-  the whole clause database with no record of its level. The model gate missed it too
-  (`#P2b-22`). — **(fixed in 0.3.4 by a parallel `assertion_trivially_unsat: Vec<bool>` snapshot
-  stack (`oxiz-sat/src/solver/mod.rs:386`), pushed at `:1646`, restored at `:1792`. Tests: the four
-  `minimal_*` cases in `bv_scope_rollback_pushpop.rs` plus witness `wrong_005`.)**
+  `check_array/eval_bv.rs`'s module doc and `check_array/tests.rs:262` both said the gate's
+  `EvalVal` "has no bit-vector variant at all", the load-bearing rationale for that file. —
+  **(fixed in 0.3.4 by rewriting, not deleting: the gate reads bit-vector values but inspects a
+  *finished* candidate model, while this evaluator runs *during* the search on the partial
+  assignment, where it can find the conflict that reaches the correct `Unsat`.)**
+- [x] **#P2b-19/#P2b-20 (2026-09-14) — two `push`/`pop` defects, one a false `unsat`.** (19) A
+  learned clause outlived the scope that entailed it: `learn_clause` (`oxiz-sat/src/solver/learn.rs`,
+  all three arms) pushed each id to `learned_clause_ids` but not to `assertion_clause_ids.last_mut()`,
+  which `pop` deletes, so `(assert A) (push 1) (assert B) (check-sat) (pop 1) (assert C) (check-sat)`
+  answered `unsat` for a `{A, C}` the same tree answered `sat` for spelled flat; reachable only once
+  the U-Z10 journals re-encode a popped circuit, so 0.3.3 answers all thirteen witnesses correctly.
+  (20) `pop` ended with an unconditional `self.trivially_unsat = false`, a latch over the whole
+  clause database with no record of its level, so `(assert (distinct b b)) (push 1) (pop 1)
+  (check-sat)` answered `sat`; sort-independent, not a 0.3.4 regression, and missed by the model
+  gate too (`#P2b-22`). — **(fixed in 0.3.4 by `Solver::register_learned_at_assertion_level`
+  (`learn.rs:129`) from all three arms, with `pop`'s per-clause `retain` folded into one `FxHashSet`
+  pass that skips an already-deleted id so no duplicate `drat_delete`/`lrat_delete` is emitted
+  (`oxiz-sat/tests/pop_proof_deletion_regressions.rs`: 554 ids, 0 duplicates); and by a parallel
+  `assertion_trivially_unsat: Vec<bool>` snapshot stack (`oxiz-sat/src/solver/mod.rs:386`). Tests:
+  `oxiz-solver/tests/bv_scope_rollback_pushpop.rs` — 4 reproducers, 13 witnesses, the four
+  `minimal_*` cases, witness `wrong_005`, a 200-trial differential; **all 18 fail pre-fix**.)**
 
 ### Still open
 
@@ -1489,6 +1436,20 @@ Line numbers below were re-verified on 2026-09-09, after the two file splits thi
   `produce-proofs` → `Proof` reconstruction → Alethe output, with the `ProofStep` construction
   points inside the solver. The visible symptom is U-Z16 below; this is the work behind it.
   Evidence: cargo-formal blueprint §14.1 item 1.
+- [ ] **#P2b-40 (2026-09-16) — a function whose *return* sort is uninterpreted prints as a constant,
+  so its model falsifies its own assertion.** `(declare-sort U 0) (declare-fun g (U) U)
+  (declare-const p U) (declare-const q U) (assert (distinct (g p) (g q)))` answers `sat` and publishes
+  `(define-fun g ((x!0 U)) U @uc_U_0)` beside `p = @uc_U_0`, `q = @uc_U_1` — one constant function, so
+  the printed `g` makes `(g p) = (g q)` and contradicts the assertion it satisfies. Root cause:
+  `model_fmt::class_values::build_class_values` mints `@uc_S_n` witnesses only for *declared
+  constants*, so an `Apply` result class of uninterpreted sort gets no value, `class_value_string`
+  returns `None`, `func_interp_from` skips the entry, and the interpretation collapses to
+  `default_value(ret_sort)`. Found while extending `#P2b-39`; **pre-existing, not a regression** —
+  byte-identical on the base `c4b04b7`, and crates.io 0.3.3 prints no `g` line at all. The bit-vector
+  twin *is* fixed under `#P2b-39` (`fa` returning `(_ BitVec 2)` prints a two-branch `ite` chain,
+  pinned by `foreign_array_arguments_in_different_classes_print_differently`). Fix: mint witnesses
+  for uninterpreted-sort classes with no declared constant, *after* the declared ones so the
+  user-visible `@uc_S_n` numbering does not move.
 - [ ] **U-Z3 — HORN has no script-path dispatch, and the Spacer parser has no BV/Array sorts.**
   Blueprint §14.1 item 3.
 - [ ] **U-Z4 — QF_FP has no decision procedure (bit-blasting).** Blueprint §14.1 item 4.
@@ -1587,35 +1548,25 @@ Line numbers below were re-verified on 2026-09-09, after the two file splits thi
   failed to verify: hint 575 does not reference a currently active clause (never added, or deleted
   before this point)") }` — id 575 is the first original clause added after the `pop`. **The `pop`
   path is not the cause**; the test pins the rejection so a future fix fails loudly (cf. `U-Z9`).
-- [x] **#P2b-24 (2026-09-15) — an `ite` selector outside the bit-blaster's fragment turned the
-  whole term into a *free* bit-vector: a silent wrong `sat` (0.3.3), an `unknown` here, and the
-  debug self-check panic cargo-formal reported.** `theory_bv_encode::bit_blast_cond_operands` and
-  `BvSolver::encode_bool_node` accepted only `not`/`and`/`or` over `=`/`bvult`/`bvule`/`bvslt`/`bvsle`;
-  cargo-formal's printer also emits `distinct`, `xor` and `=>` inside selectors. One such selector
-  made `encode_bv_term_recursive` fail for the atom's *root*, and all three call sites
-  (`bit_blast_bv_pair`, the comparison arm of `process_constraint`, `bit_blast_cond_operands`)
-  answered with `new_bv(root, w)` — unconstrained bits for a `bvsub`/`ite` whose semantics are
-  known. A second atom sharing the sub-term blasted it for real, the two disagreed, and
-  `debug_verify_bv_circuits` panicked ("the model says … but the operation evaluates to …" on
-  `Ite`/`BvSub` at width 64). What the unfixed tree does, script by script: the un-minimised fuzz
-  script seed 0 trial 44 (`SELFCHECK_PANIC` in `oxiz-solver/tests/bv_ite_selfcheck_regressions.rs`,
-  `define-fun` form, `:random-seed 42`) panics in a debug build; its declared-constant form
-  (`PANIC_MIN_DECLARED`) and the `c13` fixture answer `unknown` there — the model gate refusing the
-  free-bit model, not the self-check, which only fires on the atom checked last — while crates.io
-  0.3.3 answers both `sat`. A sibling gap: a Boolean pinned into a live selector *after* the last
-  check never triggered one, so `(= x (ite p 1 2)) ∧ (= x 2) ∧ p` in that order answered `sat` on
-  0.3.3 / `unknown` here. — **(fixed in 0.3.4: `encode_bool_node` and `bit_blast_cond_operands`
-  cover `xor`, `=>`, Bool `ite`, Bool `=`, `distinct` over Bool and BV
-  (`oxiz-theories/src/bv/solver/bool_node.rs`, split out of `solver.rs`); the encoder abstracts an
-  opaque leaf (`Apply`, `select`, …) *at the leaf* and a remaining failure sets
-  `bv_atom_unmodelled`; `BvSolver::bv_ite` is `#[must_use] -> bool`; `assert_bool_value` reports a
-  pin on a live node and `final_check` runs one deferred `bv_check_after_pin`. Measured with the
-  differential fuzz `oxiz-solver/tests/bv_ite_selfcheck_fuzz.rs` (widths 8/32/63/64, plain /
-  `:timeout` / named-core forms, `u128` reference + exhaustive width-8 oracle): 10 `unknown` in the
-  100-trial bounded slice before, 0 after; campaign figures in CHANGELOG 0.3.4, together with the
-  two pre-existing mechanisms fresh seeds then exposed on the fixed fragment (`#P2b-27`,
-  `#P2b-28`). `c13` is cargo-formal's `u11_ite_selector_free_bits` (`upstream: U-Z18`);
-  conformance 23/24, `u06` the one disagreement.)**
+- [x] **#P2b-24 (2026-09-15) — an `ite` selector outside the bit-blaster's fragment turned into
+  free bits (a wrong `sat`), and a live selector pinned after the last check was never re-checked.**
+  `BvSolver::bv_ite` could not encode a selector the Boolean encoder did not cover (`xor`, `=>`,
+  Bool `ite`, Bool `=`, `distinct` over Bool/BV, an opaque `Apply` or `select`), and answered with
+  `new_bv(root, w)` — unconstrained bits for a `bvsub`/`ite` whose semantics are known. A second
+  atom sharing the sub-term blasted it for real, the two disagreed, and `debug_verify_bv_circuits`
+  panicked. The unfixed tree panics in a debug build on the fuzz script (`SELFCHECK_PANIC`),
+  answers `unknown` on its declared-constant form and on `c13` — the model gate refusing the
+  free-bit model — while crates.io 0.3.3 answers both `sat`. A sibling gap: a Boolean pinned into a
+  live selector *after* the last check never triggered one. — **(fixed in 0.3.4: `encode_bool_node`
+  and `bit_blast_cond_operands` cover the whole Boolean fragment
+  (`oxiz-theories/src/bv/solver/bool_node.rs`); the encoder abstracts an opaque leaf *at the leaf*
+  and a remaining failure sets `bv_atom_unmodelled`; `BvSolver::bv_ite` is `#[must_use] -> bool`;
+  `assert_bool_value` reports a pin on a live node and `final_check` runs one deferred
+  `bv_check_after_pin`. Measured with `bv_ite_selfcheck_fuzz.rs` (widths 8/32/63/64, plain /
+  `:timeout` / named-core forms, `u128` reference + exhaustive width-8 oracle): 10 `unknown` in
+  the 100-trial bounded slice before, 0 after; campaign figures in CHANGELOG 0.3.4, with the two
+  pre-existing mechanisms fresh seeds then exposed (`#P2b-27`, `#P2b-28`). `c13` is cargo-formal's
+  `u11_ite_selector_free_bits` (`upstream: U-Z18`).)**
 - [x] **#P2b-25 (2026-09-15) — a theory conflict explanation omitted the outer Booleans pinned into
   the circuit: a false proof.** `on_assignment` mirrors every outer assignment into the bit-blaster
   through `BvSolver::assert_bool_value` (a unit clause on the selector's boolean node); the embedded
@@ -1636,21 +1587,15 @@ Line numbers below were re-verified on 2026-09-09, after the two file splits thi
   the sort default, and the model gate could not see it: the root cause of the pre-fix campaign's
   wrong `sat`.** Such a Boolean has no outer clause, the SAT core never assigns it, `build_model`
   recorded nothing, `(get-value)`/`(get-model)` printed `false`, and every assertion above it
-  evaluated `Undetermined` to `model_refutes_assertions`, which skips what it cannot evaluate. Two
-  faces: `(= x (ite p #x01 #x02)) ∧ (= x #x01)` answered `sat` with `p = false` — a model that
-  violates the first assertion — on 0.3.3, on the tree carrying only `#P2b-24`/`#P2b-25`, and in
-  19 distinct trials of the close-out's fresh-seed fuzz run (seeds 1000–1035, 280 trials, 19,403+
-  of 20,160 scripts, every one holding with `p0` flipped); and the pre-fix free-bit model of seed 1
-  trial 82 (`P2B27_CAMPAIGN_PREFIX` in `bv_ite_selfcheck_regressions.rs`, exhaustively unsat)
-  got past the gate through the same blindness, while seed 2 trial 115 of that campaign was this
-  mechanism outright, not a free-bit model. — **(fixed in 0.3.4: `build_model` publishes
-  `BvSolver::bool_value` for every Bool variable with a circuit node the core never assigned
-  (`oxiz-solver/src/solver/model_builder.rs`), and `check_core` answers `unknown` instead of `sat`
-  when an assertion is `Undetermined` because a Bool variable has no model entry
-  (`Solver::model_leaves_a_boolean_undetermined`, `model_eval.rs`). Tests: `p2b27_*` in
-  `bv_ite_selfcheck_regressions.rs` (both polarities; `xor`, nested, `define-fun` and width-64
-  shapes; `(get-model)`; the campaign script verbatim and its satisfiable twin),
-  `bv_ite_adversarial_probe.rs`, three `model_eval` unit tests.)**
+  evaluated `Undetermined` to `model_refutes_assertions`, which skips what it cannot evaluate.
+  `(= x (ite p #x01 #x02)) ∧ (= x #x01)` answered `sat` with `p = false` on 0.3.3, on the
+  `#P2b-24`/`#P2b-25` tree, and in 19 distinct trials of the close-out's fresh-seed fuzz run
+  (seeds 1000–1035, 280 trials). — **(fixed in 0.3.4: `build_model` publishes
+  `BvSolver::bool_value` for every Bool variable with a circuit node the core never assigned, and
+  `check_core` answers `unknown` instead of `sat` when an assertion is `Undetermined` because a
+  Bool variable has no model entry (`Solver::model_leaves_a_boolean_undetermined`). Tests:
+  `p2b27_*` in `bv_ite_selfcheck_regressions.rs`, `bv_ite_adversarial_probe.rs`, three
+  `model_eval` unit tests.)**
 - [x] **#P2b-28 (2026-09-15) — a wide comparison against the top of the `i64` range panicked in a
   debug build and lost its verdict in release.** `(assert (bvult #x7fffffffffffffff v))` alone:
   `bvult`/`bvule` were *also* parsed into the linear arithmetic solver as a bounded-integer
@@ -1667,229 +1612,283 @@ Line numbers below were re-verified on 2026-09-09, after the two file splits thi
   `#x8000…`, `#xffff…` at width 64 and their width-63 counterparts, each witness re-evaluated),
   `bv_ite_adversarial_probe.rs`; fixture `c16_i64_max_bound_wide_comparison` written for
   cargo-formal beside `c13`/`c14`.)**
-- [x] **#P2b-29 (2026-09-15) — congruence never reached an opaque leaf under a bit-vector operation,
-  and a circuit-entailed equality never reached congruence.** `(= a b) ∧ (distinct (bvadd (f a)
-  #x01) (bvadd (f b) #x01))` answered `sat` on 0.3.3, HEAD and the `#P2b-24` tree: the encoder gave
-  `(f a)` and `(f b)` two unrelated free bit-vectors and nothing carried EUF's `f(a) = f(b)` into
-  the circuit — likewise with `bvnot`, with the leaves inside two `ite` selectors, and with array
-  `select`s under `(= i j)` — while the bare pair `(distinct (f a) (f b))` was refuted by EUF alone.
-  The reverse direction was open too: `(= (bvadd x #x01) (bvadd y #x01)) ∧ (distinct (g x) (g y))`
-  answered `sat` on 0.3.3 and here because nothing told EUF that the circuit forces `x = y`. —
-  **(fixed in 0.3.4 by a bidirectional exchange in `final_check`
-  (`TheoryManager::combine_bv_with_euf`, `theory_manager/bv_bridge.rs`): opaque leaves are
-  journalled by the bit-blaster (`BvSolver::new_opaque_leaf`/`opaque_leaves`), interned into
-  congruence closure, and two leaves EUF holds equal get their bit-equality asserted under EUF's
-  explanation (`share_euf_equalities_with_bv`); the other way, the circuit's model is read as a
-  partition of the application arguments, EUF is asked in a scratch scope whether it accepts it,
-  and a refusal becomes a *lemma* entailed by the atoms EUF named — `A ⊨ ∨ sᵢ ≠ tᵢ`, or `… ∨ l = r`
-  for a leaf pair the induced classes force equal — asserted into the circuit
-  (`BvSolver::assert_any`) and re-checked until EUF accepts a partition or the circuit refutes the
-  lemmas (`share_bv_equalities_with_euf`). No guess is ever a fact: every crossing carries an
-  explanation in `DerivedReasons`, so a conflict clause names the atoms it rests on. Two
-  consequences fixed with it: the `resync_theory_state` backstop is gated on the bit-blaster
-  holding no circuit (its `bv_terms.is_empty()` test was true for a leaf-only problem and its
-  rebuild threw the exchange's state away), and `build_model` publishes the circuit's value for a
-  bit-vector variable that occurs only as an application argument (`(distinct (g x) (g y))`
-  printed `x = y = 0`, a model violating the assertion, on 0.3.3 too). Measured:
-  `oxiz-solver/tests/bv_euf_combination.rs`, random QF_UFBV/QF_ABV formulas against an exhaustive
-  oracle that enumerates variable values *and* function tables — bounded tests on every `cargo test`: 320 scripts at widths 1–2, 216 `sat` / 104 `unsat` / 0 `unknown`, and 150 scripts at widths 3/4/8, 98 `sat` / 52 `unsat` / 0 `unknown`, all with 0 wrong `sat`, 0 wrong `unsat`, 0 bad cores, 0 models that fail to extend; the long campaign (`bv_euf_campaign`, seeds 0–7 × 100 trials, 924 s) 1,600 scripts, 1,138 `sat`, 456 `unsat`, 6 `unknown` (2 on formulas the exhaustive oracle decided `sat`; all six are width-3 scripts nesting `f` four and five deep, not root-caused), 0 wrong `sat`, 0 wrong `unsat`, 0 bad cores, 0 models failing to extend; before the lemma form of the exchange the same bounded run answered `unknown` on 34 of the 320 decided scripts and printed two models that did not extend. `BvSolver::
-  notify_equality` (`#P2b-11`) stays unreachable; the exchange goes through `assert_eq`/`assert_any`.
-  Tests: `p2b29_*` in `bv_ite_selfcheck_regressions.rs` (both directions, named cores,
-  `push`/`pop`, satisfiable controls, the entailed-disjunction case), `bv_ite_adversarial_probe.rs`,
-  `oxiz-theories/tests/bv_selector_fragment_and_pins.rs`; fixture
-  `c15_congruence_under_bv_operation` written for cargo-formal. **Scope**: the exchange closes
-  congruence and circuit-entailed argument equalities and nothing wider — an equality that comes
-  from an array axiom is `#P2b-32`'s (one the axiom pass never instantiated at all, `#P2b-33`'s). **Open remainder, measured by the close-out recheck** (dev
-  profile, load average 40–76): fresh seeds 16–23 of `bv_euf_campaign` (1,600 scripts, 1,086 `sat`
-  / 510 `unsat` / 4 `unknown`, all width-3 QF_ABV nesting `select` four to six deep with a sampled
-  witness, 0 wrong either way, 818 s) reproduce the six campaign `unknown`s' shape, and each gave
-  up only after 63–82 s with no `:timeout` — the `MAX_LEMMAS = 512` exit, root-caused here: every
-  `assert_any` lemma re-encoded its pair disequalities (`bool_bv_eq` had no memo), so the embedded
-  instance grew with the round count (76 variables / 171 clauses at round 1, 16,689 / 50,354 at
-  round 500), the full-assignment search each round runs grew with it (4 ms → 429 ms per round),
-  and the loop was quadratic; the EUF partition probe and `assert_any` themselves cost ~15–25 µs
-  per round. Fixed in 0.3.4 by `BvSolver::eq_cache`, a per-pair memo journalled like `ult_cache`:
-  the four scripts now reach the same 511-round exit in 1.4–1.8 s, the bounded campaigns keep every
-  verdict and run in 2.3 s instead of 10.4 s (longest loop 208 rounds: 1.64 s → 113 ms). Still
-  open: (1) the loop enumerates partitions of ~15 argument terms one lemma at a time — under a
-  temporary 8,192-round cap two of the four decide `sat` at rounds 2,030 (13.6 s) and 1,645
-  (34 s); `MAX_LEMMAS` stays 512 so a give-up costs seconds, and the remedy is to make the
-  argument equalities atoms of the *outer* search (delayed theory combination / Ackermann-style
-  splitting with CDCL learning) rather than a lemma loop — a `Var`-preferring witness order for the tentative merges, the review's cheaper suggestion, is untried; (2) the pigeonhole shape `(distinct (g
-  x0) … (g x8))` at width 3 is `unsat` in 62–71 s (width-2 five- and six-argument variants in
-  < 6 ms) and never enters the lemma loop — its cost is the outer CDCL(T) search over the pairwise
-  disequalities with the `resync_theory_state` backstop replaying the theory state on every
-  `final_check`; (3) 16 width-32 variables chained by `bvadd`/`bvsub`/`bvxor` constants take 147 s
-  pure QF_BV for `(distinct x0 x15)`, 86 s as `(distinct (f x0) (f x15))`, 243 s with the pair
-  under `bvadd`, and the 32-variable chain > 300 s — the bit-blaster's miter hardness (`#P2b-14`),
-  not the exchange.)**
-- [x] **#P2b-32 (2026-09-15) — array read-over-write was never instantiated for a `select` nested
-  under a bit-vector or arithmetic operator: a wrong `sat`, pre-existing on 0.3.3.** `(distinct
-  (bvadd (select (store arr i #x05) i) #x01) #x06)` answered `sat` on 0.3.3, HEAD and the
-  `#P2b-24`–`#P2b-29` tree — likewise under `bvnot`, `concat` and `bvult`, the RoW-2 miss with the
-  base read pinned (`(distinct i j) ∧ (= (bvadd (select (store arr i v) j) #x01) #x06) ∧ (= (select
-  arr j) #x07)`), and the `QF_AUFLIA` twins `(distinct (+ (select (store arr i 5) i) 1) 6)` — while
-  the same read as a *direct* atom operand was decided, and adding the RoW-1 lemma by hand turned
-  the verdict to `unsat`. `array_axioms::collect_array_structure` descended through a hand-written
-  child list (`Not`/`Neg`/`And`/`Or`/`Distinct`/`Implies`/`Xor`/`Ite`/`Apply`, then `_ =>
-  Vec::new()`), so the read under `BvAdd` was never collected, no read-over-write instance was
-  built, the leaf stayed a free bit-vector in the circuit (a free column in the tableau), and the
-  model gate had no `Select` arm — `open_in_model` fell to `model.get`, evaluated the assertion
-  `Undetermined`, and `arr = ((as const …) #x00), i = #x00, s = #xff` was published for `(= s
-  (bvadd (select (store arr i #x05) i) #x01))`, a model that violates the assertion. Outside
-  cargo-formal's QF_BV fragment; found by the close-out review of `#P2b-29`, whose equality
-  exchange cannot see an equality that comes from an array axiom rather than from congruence.
-  **Scope**: this is the *walk* the instantiator makes over the assertions, so it covers a read in
-  any atom-operand or operator context. A read that occurs only as an application's ARGUMENT never
-  reached that walk at all — the guard on the whole refinement loop was false — and is `#P2b-33`.
-  — **(fixed in 0.3.4: the walk delegates to `term_walk::collect_structural_children` for every
-  non-binder kind (`ground_children`), so any present or future `TermKind` reaches it; the model
-  gate reads a `select` over a `store` as read-over-write (`model_eval::Op::Select` — the index,
-  then each level's store index against it from the outermost store inwards, the stored value on a
-  definite hit, the published read of the innermost base on a miss of every level, `Undetermined`
-  for an unpinned index or a numeric collision) under `SelectSemantics::ReadOverWrite`, while the
-  array-axiom instantiator keeps the published-leaf reading (`SelectSemantics::PublishedLeaf`): an
-  instantiator that evaluated a read by the axiom itself would find every instance satisfied and
-  assert nothing, and the gate would then refuse candidate after candidate for want of the lemma.
-  All 44 scripts of the review's `f3arr` battery answer as the theory says (the a8/a9 misses stay
-  `sat` with `i ≠ j`). Tests: `p2b32_*` in `bv_ite_selfcheck_regressions.rs` (eight bit-vector
-  rows, three integer rows, satisfiable controls with models, the named form's core, `push`/`pop`),
-  `bv_ite_adversarial_probe.rs`, four `model_eval` unit tests, four `array_axioms` unit tests
-  (the binder exclusion included); fixture `c17_nested_select_read_over_write` written for
-  cargo-formal beside `c13`–`c16`.)**
-- [x] **#P2b-33 (2026-09-15) — the array-axiom refinement loop never ran at all for a formula whose
-  only `select` is an application's ARGUMENT: a wrong `sat`, pre-existing on 0.3.3.** `(distinct (f
-  (select (store arr i v) i)) (f v))` answered `sat` on 0.3.3, on the `#P2b-32` tree and on every
-  tree before it, in QF_AUF (pure EUF over an uninterpreted sort, no circuit and no tableau
-  anywhere), QF_AUFBV and QF_AUFLIA alike — likewise the RoW-2 sibling `(distinct i j) ∧ (distinct
-  (f (select (store arr i v) j)) (f (select arr j)))`, a binary `g`, a nested `(f (f sel))`, `not
-  (= …)` instead of `distinct`, the value reached through a third constant, and the read under
-  `bvadd` *inside* the application — while the same read as a direct atom operand, or with the
-  instance asserted by hand, was decided. `Solver::has_array_ops` is the guard on
-  `instantiate_array_axioms`, and it was raised only by `track_theory_vars` and the encoder's
-  `Select`/`Store` arm; `track_theory_vars` deliberately does not descend into an application's
-  arguments (nor into `Distinct`/`Implies`/`Xor`/`Let` operands), so the flag stayed `false`, no
-  read-over-write instance was ever built, the read stayed a free bit-vector in the circuit (a free
-  column in the tableau, an unconstrained EUF leaf), and the model gate — seeing the same free leaf
-  — vouched for it. `#P2b-32` repaired the instantiator's *walk*, which this shape never reached.
-  Outside cargo-formal's QF_BV fragment; found by the close-out review of `#P2b-32`.
-  — **(fixed in 0.3.4 by two mechanisms. (1) The guard is computed by the instantiator's own
-  exhaustive walk (`array_axioms::Solver::mark_array_ops`, called from `Solver::encode` — the one
-  choke point every user assertion, array/arith/datatype lemma and MBQI instance passes through),
-  with the same `ground_children` binder exclusion, so guard and consumer agree on what "mentions an
-  array" means: over-approximating costs one refinement round that reports nothing to add, and
-  under-approximating is a wrong answer. It stops at the first array term and only runs while the
-  flag is false, so an array-free formula pays one boolean test. (2) EUF interns `store` as a
-  ternary application of `TheoryManager::STORE_FUNC_ID` (`u32::MAX - 1`; `u32::MAX` is the E-graph's
-  own `NO_FUNC` and `0` is `SELECT_FUNC_ID`), which the `Int` rows need: `purify_numeric_uf_args`
-  rewrites a numeric literal under an application into a fresh proxy variable *throughout that
-  assertion*, so `(distinct (g (select (store arr i 5) i)) (g 5))` is encoded over `store(arr,i,w)`
-  while the instantiator — which walks `Solver::assertions`, the pre-purification terms — reasons
-  about `store(arr,i,5)`; congruence over `store` is what joins the two once `5 = w` merges.
-  Measured: the 45 array benchmark scripts keep every verdict at 1,250 ms against 1,251 ms before
-  the store interning, the 300-level store chain stays at 30–40 ms, and all 106 scripts of the
-  review's array battery answer as the theory says. Tests: seven `p2b33_*` in
-  `array_axiom_instantiation.rs` (QF_AUF, QF_AUFBV and QF_AUFLIA rows, the application wrappers,
-  congruent stores, satisfiable controls, the atom-operand controls), the inverted probe in
-  `bv_ite_adversarial_probe.rs`, and a new exhaustive differential campaign
-  `array_uf_combination.rs` whose oracle enumerates every variable assignment × array table ×
-  function table at widths 1–2 — half its problems are shapes whose reads occur only in argument
-  position, because a problem with any other read is decided correctly even by the broken tree;
-  reverting `mark_array_ops` makes the bounded run report 32 wrong `sat`, and the long form (seeds
-  0–15 × 100 trials, 318 s) is 3,200 scripts, 1,456 `sat` / 1,698 `unsat` / 46 `unknown` (14 on
-  formulas the oracle decided), 0 wrong `sat`, 0 wrong `unsat`, 0 bad cores, 0 models failing to
-  extend. Fixture `c18_read_over_write_under_application` written for cargo-formal (`upstream:
-  U-Z23`), verified `sat` on crates.io 0.3.3 and `unsat` here.)**
-- [x] **#P2b-34 (2026-09-15) — published models for array reads were wrong while the verdict was
-  right, and `(get-model)` printed no function interpretations: pre-existing on 0.3.3.** `(= (bvadd
-  (select arr i) #x01) #x06)` is satisfiable and was answered `sat`, then printed `i = #x00` beside
-  `arr = ((as const …) #x00)` — a model in which the assertion reads `0 + 1 = 6` — while `(get-value
-  ((select arr i)))` echoed the term. An array *always* printed the constant array of its sort
-  default, contradicting its own `select` entries where the model had them (`(select arr i) = #x05`
-  beside `arr = ((as const …) #x00)`), and `(get-model)` omitted every declared function, so a model
-  over `(f x)` could be neither printed nor checked. `build_model`'s circuit-publication loop
-  (`#P2b-29`) filtered `BvSolver::circuit_terms()` to `TermKind::Var`, so an opaque `Select`/`Apply`
-  leaf the circuit had valued never reached the model, and the gate read such a leaf `Undetermined`
-  and could not refuse. Every verdict in the family was correct. — **(fixed in 0.3.4: the circuit
-  filter admits every opaque *leaf* (`Var`/`Select`/`Apply`, never a derived node); a new pass
-  `model_builder::opaque_leaves` publishes each `select` the ground assertions and the asserted
-  array lemmas mention, from whichever theory decided it (circuit, tableau, congruence class) and
-  the read's *index* with it — a read whose index the model leaves blank names no position and
-  cannot appear in a printed array; `context::model_fmt::array_model` renders an array constant as
-  the `store` chain of its published reads over the constant default, deduplicated by evaluated
-  index so the chain cannot shadow a read it published, and prints `(define-fun f ((x!0 S)) T (ite
-  (= x!0 …) … else))` for every declared *uninterpreted* function — `DeclaredFun::interpreted` now
-  separates those from datatype constructors/selectors and `define-fun` macros, which briefly
-  printed as `(define-fun blue () Color red)`. Tests: six `p2b34_*` in
-  `model_output_and_options.rs`, including
-  `p2b34_published_array_reads_agree_with_the_printed_array`, which replays every constant the
-  model prints as an assertion and requires the goal to stay `sat`.)**
-- [x] **#P2b-35 (2026-09-15) — the `(get-value)` residue left by `#P2b-26`'s half-fix.** Six shapes
-  still echoed their body on 0.3.3 and on the `#P2b-26` tree: an `Int`-indexed read-over-write never
-  folded (a numeric index collision, even the syntactically same index, was read as inconclusive)
-  while the bit-vector twin folded; a strict comparison at its boundary (`(< x 4)` with `x = 4`) and
-  `distinct` over two assigned integers echoed although `(<= x 4)` answered `true`; a term mixing a
-  defaulted constant with an assigned one printed half-substituted (`(bvult w v)` → `(bvult #x00
-  v)`); real division printed as `div` and did not fold; and an application absent from the
-  assertions echoed although `(get-model)` prints the very interpretation that answers it.
-  — **(fixed in 0.3.4: under `LeafSource::Model` the printed model *is* the model, so `combine_eq`,
-  `cmp_strict`, `Op::Distinct` and the read-over-write index comparison all fold exactly there,
-  while the gate (`LeafSource::Tableau`) keeps every softening — an LP collision is still not
-  evidence; `(get-value)` evaluates against the model *completed* with the same sort defaults
-  `(get-model)` reports, so the two readings cannot disagree about an unconstrained constant; a
-  `Real`-sorted `Div` folds (`EagerKind::RealDiv`) and prints as `/` in both printers, since one
-  `TermKind` carries both SMT-LIB divisions and `div` on a `Real` is not a term any reader accepts;
-  and an application with no entry of its own is resolved against the function's interpretation by
-  ARGUMENT VALUE (`Op::ApplyInterp`, built once per query by `Solver::collect_func_interps` so the
-  walk never re-enters itself), with no match answering `Undetermined` rather than guessing an
-  else-value `(get-model)` might spell differently. Tests: six `p2b35_*` in
-  `model_output_and_options.rs`.)**
-- [x] **#P2b-36 (2026-09-15) — a read of the SMT-LIB array constant `((as const (Array D R)) d)`
-  was an opaque free leaf: a wrong `sat`, pre-existing on 0.3.3.** `(= (select ((as const (Array (_
-  BitVec 8) (_ BitVec 8))) #x00) #x00) #x05)` answered `sat` on 0.3.3 and on every tree before this
-  one, as did the `Int` spelling, the read at a variable index, the read under `bvadd`, the read
-  wrapped in an uninterpreted function, a `store` chain that misses down to a constant base, and
-  `arr = ((as const …) #x00)` with a read on `arr`. The review's battery tried ten shapes: eight
-  were wrong `sat`, seven of those are fixed here (the eighth is the open remainder below), and
-  the two controls (`… = #x00`, and `distinct` between one array constant and itself) were
-  correct throughout. The array constant has no term
-  kind of its own: the parser turns the qualified identifier into an ordinary uninterpreted `Apply`
-  whose function symbol is the string `"(as const)"`, so no array axiom related the read to the
-  default, the read stayed a free bit-vector in the circuit (a free column in the tableau), and the
-  model gate — reading the same free leaf — vouched for it. Found by the `#P2b-34` close-out check,
-  where the "replay the printed model" test turned out to be vacuous for exactly this reason:
-  pinning `arr = ((as const …) #x00)` carried no information into a `select`, so the replay stayed
-  `sat` even with the `store`-chain rendering removed.
-  — **(fixed in 0.3.4: `array_axioms::build_const_array_reads` instantiates the missing axiom — an
-  array constant reads back its default at every index — as one unconditional ground equality per
-  collected read, and it composes with the two families around it rather than duplicating them: a
-  miss down a `store` chain is reduced by RoW-2 to a read *of* the constant, and `arr = ((as const
-  …) d)` is carried across by select congruence, each decided on the next refinement round.
-  `Solver::store_chain` gives the model evaluator the same reading, so the gate can refute a bad
-  candidate and `(get-value)` answers `#x03` where it used to echo. The recognition is structural,
-  not by name: `|(as const)|` is a legal quoted SMT-LIB symbol that interns to exactly that string,
-  so arity, an array sort and an argument sort equal to the array's range are all checked, and a
-  script that *declares* the name switches the axiom off for the rest of the script
-  (`Solver::const_array_symbol_shadowed`, set from `Context::push_fun_decl` and deliberately never
-  cleared by `pop`) rather than read a user's function as an array constant — `(= (select (|(as
-  const)| #x00) #x00) #x05)` stays `sat`. Measured: the array corpus (40 z3-parity array/AUFLIRA
-  benchmarks plus the review's 106-script battery, three repetitions) runs 926–956 ms with the axiom
-  against 978–1,028 ms with it off, and all 106 battery scripts keep their verdicts (13 `sat` / 1
-  `unknown` / 92 `unsat`). Tests: five `p2b36_*` in `array_axiom_instantiation.rs` (bare reads at
-  literal and variable indices and in `Int`, the wrapper positions, the composition with RoW-2 and
-  congruence, the satisfiable controls, the declared-symbol control), two in
-  `model_output_and_options.rs` for `(get-value)`, the sixth inverted probe in
-  `bv_ite_adversarial_probe.rs`, and `array_uf_combination.rs` extended with an `ArrTerm::Const`
-  whose literal default costs the exhaustive oracle no enumeration bits — reverting the axiom makes
-  its bounded exhaustive run report 12 wrong `sat` of 72 scripts. Fixture
-  `c19_array_constant_read_default` written for cargo-formal (`upstream: U-Z24`), verified `sat` on
-  crates.io 0.3.3 and `unsat` here. **Open remainder:** `(= ((as const …) #x00) ((as const …)
-  #x01))` — two array constants with different defaults are disequal by extensionality — is still
-  `sat`, the one row of the ten that this axiom does not reach; it needs the extensionality witness
-  threaded into select congruence (or a const-vs-const equality rule) and `mark_array_ops` raised by
-  an array constant that no `select` reads. The name ambiguity above is the other residual: closing
-  it outright needs a term kind of its own, or a reserved function name no SMT-LIB symbol can
-  spell — the AST and both printers, not the array theory.)**
+- [x] **#P2b-29 (2026-09-15) — congruence never reached an opaque leaf under a bit-vector operation, and a
+  circuit-entailed equality never reached congruence.** `(= a b) ∧ (distinct (bvadd (f a) #x01) (bvadd (f b) #x01))`
+  answered `sat` on 0.3.3, HEAD and the `#P2b-24` tree: the encoder gave `(f a)` and `(f b)` two unrelated free
+  bit-vectors and nothing carried EUF's `f(a) = f(b)` into the circuit — likewise with `bvnot`, with the leaves inside
+  two `ite` selectors, and with array `select`s under `(= i j)` — while the bare pair `(distinct (f a) (f b))` was
+  refuted by EUF alone. The reverse direction was open too: `(= (bvadd x #x01) (bvadd y #x01)) ∧ (distinct (g x) (g
+  y))` answered `sat` on 0.3.3 and here because nothing told EUF that the circuit forces `x = y`. — **(fixed in 0.3.4
+  by a bidirectional exchange in `final_check` (`TheoryManager::combine_bv_with_euf`): opaque leaves are journalled by
+  the bit-blaster, interned into congruence closure, and two leaves EUF holds equal get their bit-equality asserted
+  under EUF's explanation; the other way, the circuit's model is read as a partition of the application arguments, EUF
+  is asked in a scratch scope whether it accepts it, and a refusal becomes a *lemma* entailed by the atoms EUF named,
+  asserted into the circuit (`BvSolver::assert_any`) and re-checked until EUF accepts a partition or the circuit
+  refutes the lemmas. Every crossing carries an explanation in `DerivedReasons`, so a conflict clause names the atoms
+  it rests on. Two consequences fixed with it: the `resync_theory_state` backstop is gated on the bit-blaster holding
+  no circuit (its `bv_terms.is_empty()` test was true for a leaf-only problem), and `build_model` publishes the
+  circuit's value for a bit-vector variable that occurs only as an application argument. Measured by
+  `oxiz-solver/tests/bv_euf_combination.rs` against an exhaustive oracle over variable values *and* function tables:
+  320 bounded scripts at widths 1–2 and 150 at widths 3/4/8, 0 wrong either way, 0 bad cores, 0 models failing to
+  extend (before the lemma form, 34 of the 320 answered `unknown` and two models did not extend); the long campaign
+  (seeds 0–7 × 100 trials, 924 s) 1,600 scripts with 6 `unknown` and 0 wrong answers. `BvSolver::notify_equality`
+  (`#P2b-11`) stays unreachable. Tests: `p2b29_*` in `bv_ite_selfcheck_regressions.rs`, `bv_ite_adversarial_probe.rs`,
+  `oxiz-theories/tests/bv_selector_fragment_and_pins.rs`; fixture `c15_congruence_under_bv_operation`. **Scope**: the
+  exchange closes congruence and circuit-entailed argument equalities and nothing wider — an equality from an array
+  axiom is `#P2b-32`'s, one the axiom pass never instantiated at all `#P2b-33`'s. The close-out recheck root-caused
+  the campaign's `unknown`s to a missing per-pair memo in `assert_any` (76 variables / 171 clauses at round 1, 16,689
+  / 50,354 at round 500); fixed by `BvSolver::eq_cache`, journalled like `ult_cache` — the same 511-round exit now
+  costs 1.4–1.8 s instead of 63–82 s. **Still open:** (1) the loop enumerates partitions of ~15 argument terms one
+  lemma at a time (`MAX_LEMMAS = 512`); the remedy is to make the argument equalities atoms of the *outer* search
+  (delayed theory combination / Ackermann-style splitting with CDCL learning); (2) the pigeonhole shape `(distinct (g
+  x0) … (g x8))` at width 3 is `unsat` in 62–71 s in the outer CDCL(T) search; (3) 16 width-32 variables chained by
+  `bvadd`/`bvsub`/`bvxor` take 147 s pure QF_BV and the 32-variable chain > 300 s — the bit-blaster's miter hardness
+  (`#P2b-14`), not the exchange.)**
+- [x] **#P2b-32 (2026-09-15) — array read-over-write was never instantiated for a `select` nested under a bit-vector
+  or arithmetic operator: a wrong `sat`, pre-existing on 0.3.3.** `(distinct (bvadd (select (store arr i #x05) i)
+  #x01) #x06)` answered `sat` on 0.3.3, HEAD and the `#P2b-24`–`#P2b-29` tree — likewise under `bvnot`, `concat` and
+  `bvult`, the RoW-2 miss with the base read pinned, and the `QF_AUFLIA` twins — while the same read as a *direct*
+  atom operand was decided. `array_axioms::collect_array_structure` descended through a hand-written child list with
+  `_ => Vec::new()`, so the read under `BvAdd` was never collected, the leaf stayed free, and the model gate had no
+  `Select` arm. Found by the close-out review of `#P2b-29`. **Scope**: this is the *walk* the instantiator makes over
+  the assertions; a read that occurs only as an application's ARGUMENT never reached that walk at all and is
+  `#P2b-33`. — **(fixed in 0.3.4: the walk delegates to `term_walk::collect_structural_children` for every non-binder
+  kind (`ground_children`), so any present or future `TermKind` reaches it; the model gate reads a `select` over a
+  `store` as read-over-write (`model_eval::Op::Select`) under `SelectSemantics::ReadOverWrite`, while the instantiator
+  keeps the published-leaf reading — an instantiator that evaluated a read by the axiom itself would find every
+  instance satisfied and assert nothing. All 44 scripts of the review's `f3arr` battery answer as the theory says.
+  Tests: `p2b32_*` in `bv_ite_selfcheck_regressions.rs`, `bv_ite_adversarial_probe.rs`, four `model_eval` and four
+  `array_axioms` unit tests; fixture `c17_nested_select_read_over_write`.)**
+- [x] **#P2b-33 (2026-09-15) — the array-axiom refinement loop never ran at all for a formula whose only `select` is
+  an application's ARGUMENT: a wrong `sat`, pre-existing on 0.3.3.** `(distinct (f (select (store arr i v) i)) (f v))`
+  answered `sat` on 0.3.3, on the `#P2b-32` tree and on every tree before it, in QF_AUF, QF_AUFBV and QF_AUFLIA alike
+  — likewise the RoW-2 sibling, a binary `g`, a nested `(f (f sel))`, `not (= …)` instead of `distinct`, the value
+  reached through a third constant, and the read under `bvadd` *inside* the application — while the same read as a
+  direct atom operand was decided. `Solver::has_array_ops` is the guard on `instantiate_array_axioms`, and it was
+  raised only by `track_theory_vars` and the encoder's `Select`/`Store` arm; `track_theory_vars` deliberately does not
+  descend into an application's arguments, so the flag stayed `false`, no instance was built, the read stayed a free
+  leaf, and the model gate — seeing the same free leaf — vouched for it. `#P2b-32` repaired the instantiator's *walk*,
+  which this shape never reached. Found by the close-out review of `#P2b-32`. — **(fixed in 0.3.4 by two mechanisms.
+  (1) The guard is computed by the instantiator's own exhaustive walk (`array_axioms::Solver::mark_array_ops`, called
+  from `Solver::encode` — the one choke point every user assertion, lemma and MBQI instance passes through), with the
+  same `ground_children` binder exclusion, so guard and consumer agree on what "mentions an array" means:
+  over-approximating costs one refinement round, under-approximating is a wrong answer. (2) EUF interns `store` as a
+  ternary application of `TheoryManager::STORE_FUNC_ID`, which the `Int` rows need: `purify_numeric_uf_args` rewrites
+  a numeric literal under an application into a proxy variable throughout that assertion, so the encoder sees
+  `store(arr,i,w)` while the instantiator reasons about `store(arr,i,5)`; congruence over `store` joins the two once
+  `5 = w` merges. Measured: the 45 array benchmark scripts keep every verdict at 1,250 ms against 1,251 ms before the
+  store interning, and all 106 scripts of the review's array battery answer as the theory says. Tests: seven `p2b33_*`
+  in `array_axiom_instantiation.rs`, the inverted probe in `bv_ite_adversarial_probe.rs`, and a new exhaustive
+  differential campaign `array_uf_combination.rs` whose oracle enumerates every variable assignment × array table ×
+  function table at widths 1–2; reverting `mark_array_ops` makes the bounded run report 32 wrong `sat`, and the long
+  form (seeds 0–15 × 100 trials, 318 s) is 3,200 scripts with 0 wrong answers. Fixture
+  `c18_read_over_write_under_application` (`upstream: U-Z23`), `sat` on crates.io 0.3.3 and `unsat` here.)** —
+  **(amended in 0.3.4 by `#P2b-37`: `mark_array_ops` now fires on any array-*sorted* term, not only on a
+  `select`/`store` application — `(= ((as const A) #b1) ((as const A) #b0))` mentions neither operator, so the guard
+  stayed false and the atom was a free Boolean; and `int_case_split::assert_value_disjunction` and
+  `encode::finite_map_ite` were the two callers of `encode_depth(.., 0)` that bypassed `Solver::encode`, which made
+  the "one choke point" claim above literally false. Both now go through `encode`.)**
+- [x] **#P2b-34 (2026-09-15) — published models for array reads were wrong while the verdict was right, and
+  `(get-model)` printed no function interpretations: pre-existing on 0.3.3.** `(= (bvadd (select arr i) #x01) #x06)`
+  was answered `sat`, then printed `i = #x00` beside `arr = ((as const …) #x00)` — a model in which the assertion
+  reads `0 + 1 = 6`. An array *always* printed the constant array of its sort default, contradicting its own `select`
+  entries, and `(get-model)` omitted every declared function. `build_model`'s circuit-publication loop (`#P2b-29`)
+  filtered `BvSolver::circuit_terms()` to `TermKind::Var`, so an opaque `Select`/`Apply` leaf the circuit had valued
+  never reached the model, and the gate read it `Undetermined`. Every verdict in the family was correct. — **(fixed in
+  0.3.4: the circuit filter admits every opaque *leaf*; `model_builder::opaque_leaves` publishes each `select` the
+  ground assertions and the asserted array lemmas mention, and the read's *index* with it;
+  `context::model_fmt::array_model` renders an array as the `store` chain of its published reads over the constant
+  default, deduplicated by evaluated index, and prints `(define-fun f ((x!0 S)) T (ite (= x!0 …) … else))` for every
+  declared *uninterpreted* function — `DeclaredFun::interpreted` separates those from datatype constructors/selectors
+  and `define-fun` macros. Tests: six `p2b34_*` in `model_output_and_options.rs`.)** — **(amended in 0.3.4 by
+  `#P2b-37`: the 0.3.4 rendering was a *regression* in one place and incomplete in three. The regression:
+  `(get-model)` began printing a function interpretation over an uninterpreted sort that falsified the assertions —
+  `(= (f a) b)` with `(distinct a b)` printed `b = @uc_U_1` beside `f = @uc_U_0`, because `get_func_interp_raw` had
+  its own class walk and no `@uc_S_n` synthesis, so `b`'s class looked valueless; `p` printed the *same* guard twice
+  with contradicting answers. Fixed by one canonical class → value map per query (`context/model_fmt/class_values.rs`)
+  that the constants, the `define-fun` interpretations, the array chains and `(get-value)` all read, with entries
+  keyed by the *rendered* argument tuple and a `debug_assert!` that two entries of one congruence class cannot
+  disagree; a class with no direct value is resolved by folding a member in the model (`Solver::eval_in_model`) or,
+  for an array-sorted class, by the array rendering, and only a class no reading resolves falls back to the sort
+  default — in a second pass, so a guess never claims the tuple an exact entry needs. The three incompletenesses: an
+  array is rendered per **EUF class** (the default of an `(as const d)` member, else a `store` member's base with that
+  write on top, else the sort default, then every published read of any member, arrays of arrays recursively); an
+  array described only from the outside inherits the class of a `store` it is the base of, minus that store's index;
+  and two reads of one array at indices the candidate model makes equal are forced to agree
+  (`Solver::build_index_congruence`, model-guided). Measured with the round-3 recheck's evaluator, corrected first
+  (see `#P2b-37`): the corpus-wide model check over all 217 `bench/` scripts with `(get-model)` appended goes 4 →
+  **0** falsifying models, campaign A's published models 234 → 12 of 6,000 and campaign B's 255 → 85. Tests: eleven in
+  `model_one_reading.rs`.)**
+- [x] **#P2b-35 (2026-09-15) — the `(get-value)` residue left by `#P2b-26`'s half-fix.** Six shapes still echoed their
+  body on 0.3.3 and on the `#P2b-26` tree: an `Int`-indexed read-over-write never folded (a numeric index collision,
+  even the syntactically same index, was read as inconclusive) while the bit-vector twin folded; a strict comparison
+  at its boundary (`(< x 4)` with `x = 4`) and `distinct` over two assigned integers echoed although `(<= x 4)`
+  answered `true`; a term mixing a defaulted constant with an assigned one printed half-substituted (`(bvult w v)` →
+  `(bvult #x00 v)`); real division printed as `div` and did not fold; and an application absent from the assertions
+  echoed although `(get-model)` prints the very interpretation that answers it. — **(fixed in 0.3.4: under
+  `LeafSource::Model` the printed model *is* the model, so `combine_eq`, `cmp_strict`, `Op::Distinct` and the
+  read-over-write index comparison all fold exactly there, while the gate (`LeafSource::Tableau`) keeps every
+  softening; `(get-value)` evaluates against the model *completed* with the same sort defaults `(get-model)` reports;
+  a `Real`-sorted `Div` folds (`EagerKind::RealDiv`) and prints as `/` in both printers; and an application with no
+  entry of its own is resolved against the function's interpretation by ARGUMENT VALUE (`Op::ApplyInterp`), with no
+  match answering `Undetermined`. Tests: six `p2b35_*` in `model_output_and_options.rs`.)** — **(amended in 0.3.4 by
+  `#P2b-37`: the "answer `Undetermined` rather than guess an else-value" decision is retired. `(get-model)` prints
+  each declared function as a *total* function whose innermost `ite` branch is that very else-value, so echoing the
+  term instead made the two commands describe two different models — `(get-value ((f a)))` answered `(f a)` while
+  `(get-model)` said `f` is `#x07` everywhere. `Context::applied_interp_value` now evaluates the argument tuple
+  exactly as the interpretation printer does and answers the matching entry, or the else-value when no entry matches.
+  Tests: three `get_value_*` in `model_one_reading.rs`.)**
+- [x] **#P2b-36 (2026-09-15) — a read of the SMT-LIB array constant `((as const (Array D R)) d)` was an opaque free
+  leaf: a wrong `sat`, pre-existing on 0.3.3.** `(= (select ((as const (Array (_ BitVec 8) (_ BitVec 8))) #x00) #x00)
+  #x05)` answered `sat` on 0.3.3 and on every tree before this one, as did the `Int` spelling, the read at a variable
+  index, the read under `bvadd`, the read wrapped in an uninterpreted function, a `store` chain that misses down to a
+  constant base, and `arr = ((as const …) #x00)` with a read on `arr` — eight of the review's ten shapes, the two
+  controls correct throughout. The array constant has no term kind of its own: the parser turns the qualified
+  identifier into an ordinary uninterpreted `Apply`, so no array axiom related the read to the default and the model
+  gate — reading the same free leaf — vouched for it. Found by the `#P2b-34` close-out check, where "replay the
+  printed model" turned out to be vacuous for exactly this reason. — **(fixed in 0.3.4:
+  `array_axioms::build_const_array_reads` instantiates the missing axiom — an array constant reads back its default at
+  every index — as one unconditional ground equality per collected read, composing with the two families around it (a
+  miss down a `store` chain is reduced by RoW-2 to a read *of* the constant; `arr = ((as const …) d)` is carried
+  across by select congruence). `Solver::store_chain` gives the model evaluator the same reading. Measured: the array
+  corpus (40 z3-parity benchmarks plus the review's 106-script battery, three repetitions) runs 926–956 ms with the
+  axiom against 978–1,028 ms with it off, and all 106 scripts keep their verdicts. Tests: five `p2b36_*` in
+  `array_axiom_instantiation.rs`, two in `model_output_and_options.rs`, the inverted probe in
+  `bv_ite_adversarial_probe.rs`, and an `ArrTerm::Const` in `array_uf_combination.rs` — reverting the axiom makes its
+  bounded run report 12 wrong `sat` of 72 scripts. Fixture `c19_array_constant_read_default` (`upstream: U-Z24`).)** —
+  **(amended in 0.3.4 by `#P2b-37`: the recognition is no longer *structural only*. The parser interns an array
+  constant under the reserved symbol `oxiz_core::smtlib::CONST_ARRAY_FUNC`, which contains a backslash — SMT-LIB 2.6
+  §3.1 excludes it from a simple symbol's character set and forbids it inside `|…|`, and the lexer now rejects one
+  there — so no script can spell the name, `Parser::reject_reserved_symbol` refuses it if one ever reaches the parser,
+  and both term printers render the application back as `((as const (Array D R)) d)` from the node's own sort.
+  `Solver::const_array_symbol_shadowed`, `shadow_const_array_symbol` and the `Context::push_fun_decl` hook are deleted
+  with their trail comment; `const_array_default` keeps its structural checks for a builder-API caller. A script may
+  now declare `|(as const)|` as an ordinary function *and* have its real array constants decided in the same breath,
+  and `(reset)` needs no bookkeeping. The **open remainder** is closed by `#P2b-37`.)**
+- [x] **#P2b-37 (2026-09-16) — array extensionality: `distinct` over arrays recorded no pair, a store's own index was
+  never read, and two arrays shared with the uninterpreted fragment were never compared. Four wrong-`sat` families,
+  pre-existing on 0.3.3 and on the 0.3.4 base.** `(distinct arr brr)` with every index of a two-element index sort
+  pinned equal answered `sat` (`r3/ext/e10`, width-2 twin `r3/ext2/f5`) — the shape needs neither an array constant
+  nor a `store`, so the store-only and constant-only repairs before it left it standing, and the published model
+  printed both arrays as the same `store` chain. `collect_array_structure` recorded an array-sorted (dis)equality from
+  `TermKind::Eq` alone; `distinct` over array-sorted operands fell into the generic arm. Three more holes rode with
+  it: a store's own-index read `select(store(b,i,v), i)` is never a *collected* read unless the script spells it, so
+  `(= (store ((as const A) #b1) i #b0) ((as const A) #b1))` had no read at all (`r3/ext/e04`–`e06`, and the `#P2b-36`
+  remainder `(= ((as const A) d1) ((as const A) d2))`); the pair's own witness index never reached select congruence;
+  and `(distinct (f arr) (f brr))` with every index pinned equal contains no array atom for the family to fire on.
+  Found by the round-3 adversarial recheck. — **(fixed in 0.3.4, `oxiz-solver/src/solver/array_axioms.rs`: (a) every
+  unordered pair of an `n`-ary `distinct` over array-sorted operands is an extensionality pair — `distinct` is
+  pairwise, so five arrays over `(Array (_ BitVec 1) (_ BitVec 1))` are unsat by cardinality and four are sat; (b)
+  `register_store_own_index_reads` registers `select(store(b,i,v), i)` as a read of every collected store and `i` as
+  one of its read indices; (c) select congruence is instantiated at each pair's own witness index; (d) the ext rule
+  for shared array terms (de Moura & Bjørner, FMCAD 2009) instantiates the witness lemma for a pair of *foreign* array
+  terms — an uninterpreted application's argument, a value stored into another array, an array-sorted `ite` branch —
+  whose EUF classes differ and which the candidate model does not already separate, one pair per round, only when the
+  three syntactic families added nothing; (e) arrays of arrays fall out of the fixpoint. Three rules beyond that list
+  were needed and are recorded as such: `mark_array_ops` fires on any array-*sorted* term (`(= ((as const A) #b1) ((as
+  const A) #b0))` mentions no `select`/`store`, so the guard on the whole loop stayed false); a cardinality-guarded
+  **off-chain Skolem index** is minted per pair whose two store chains are laid over different base arrays,
+  constrained different from every write on either chain and admitted only where the index sort provably has more
+  elements than the chains have writes (`index_sort_lower_bound`: `Bool` 2, `(_ BitVec w)` `2^w`,
+  `Int`/`Real`/`String` unbounded, `RoundingMode` 5, an array `|R|^|D|`, and *nothing* for an uninterpreted, datatype,
+  floating-point or parametric sort, where minting one would make a satisfiable formula `unsat`) — it refutes `(=
+  (store ((as const A) #b0) i #b1) ((as const A) #b1))`, whose discriminating index no term in the formula names; and
+  the array constant is excluded from `purify_numeric_uf_args`, which had been replacing its default with a proxy
+  variable (`(not (distinct 2 (select ((as const (Array Int Int)) 1) (+ 0 1))))` answered `sat`). Model side: see the
+  `#P2b-34` amendment. **Measured** against the round-3 recheck's independent evaluator, *corrected first* (its
+  `ArrayVal.__eq__` compared `(default, overrides)` structurally instead of the two functions pointwise, which
+  mis-scored 17 of campaign A's 6,000 verdicts, so the recheck's "22 wrong sat" was 15): campaign A (6,000
+  exhaustive-oracle scripts) 15 → **0** wrong `sat`, campaign B (6,000 random scripts) 4 → **0**, the 103-script
+  battery 99/103 → **103/103**, and the 217-benchmark sweep keeps every verdict at a 2.53 s median of five runs
+  against the base's 2.50 s. Tests: 25 in `array_extensionality_reserved.rs` (both `distinct` spellings at widths 1
+  and 2, the `n`-ary
+  cardinality pair, the store/constant rows in both polarities, foreign pairs with their satisfiable control, arrays
+  of arrays, the off-chain rule's `Bool`-index and uninterpreted-sort guards, a chain covering the domain,
+  `push`/`pop` around a witness lemma) plus the new `array_ext_shapes_bounded` campaign in
+  `array_uf_combination/ext_shapes.rs` — 480 scripts, every verdict against an exhaustive oracle and every `sat` model
+  replayed through the reference semantics, and a 6,000-script `#[ignore]`d long form (0 wrong `sat`, 0 wrong `unsat`, 22 bad models). **Mutation counts** — re-measured under `#P2b-39`, after the off-chain rule
+  moved into a phase of its own: reverting (a) → 61 wrong `sat` and 129 falsifying models; (d) → 1 wrong `sat`, 4
+  falsifying models and 92 assertion panics (the restored unscoped `debug_assert!` turns a class collision into a
+  panic); the off-chain phase → 15 wrong `sat`. Reverting (b) or (c) changes neither the campaign nor any of the 65
+  array unit tests — with the witness-index congruence and RoW saturation in place the instance they add arrives one
+  round later by another route — so both are implemented as specified but *not* independently observable at these
+  widths, recorded rather than claimed, with the subsumption argument written beside each rule in `array_axioms.rs`. Fixtures `c20_array_extensionality_distinct` (`upstream: U-Z25`) and
+  `c21_store_equals_constant_array` (`upstream: U-Z26`), both `sat` on crates.io 0.3.3 and on the 0.3.4 base, `unsat`
+  here.)** **Open residue:** 1 published model in 480 of the bounded campaign still falsifies its own script (`(=
+  (store a0 #b01 #b1) ((as const A) #b1))` with a stale published read of `a0`), campaign A 12 of 6,000 and campaign B
+  85 — down from the base's 234 and 255, with the corpus-wide model check at 0; a model-gate hole, not a verdict one.
+- [x] **#P2b-39 (2026-09-16) — the round-4 adversarial recheck: a spellable Skolem name (a wrong `unsat` in six
+  lines), a non-termination regression on `n`-ary array `distinct`, two published models that falsify their own
+  script, and the `(get-value)` residue.** All six findings were against the `#P2b-37` tree; the first is the worst
+  class of defect this project tracks. **(1) Wrong `unsat`.** The off-chain Skolem index was named
+  `!oxiz!off!{lo}!{hi}`, and SMT-LIB 2.6 §3.1 admits `!` in a *simple* symbol — so the name was spellable, `mk_var`
+  interns on `(name, sort)`, and a script that declared it took the solver's Skolem constant as its own and inherited
+  the `d != i_k` constraints the rule asserts *about that symbol*: six lines with a free extra constant answered
+  `unsat` where 0.3.3 and the base answer `sat`. The extensionality witness prefix was equally spellable but harmless
+  (its lemmas hold for every index), which isolated the off-chain rule as the unsound one. **(2) Non-termination.**
+  Four generated scripts the base answers in 4–23 ms ran past 60 s, and campaign B's `s30028_31` (base: `unknown` in
+  0.46 s) past 300 s: every pair of an `n`-ary array `distinct` minted an off-chain index eagerly, each index is a
+  fresh bit-vector argument term of the reads taken at it, and the BV↔EUF partition exchange's cost grows with the
+  partitions of that set. **(3) Foreign arrays printed identically.**
+  `(distinct (fa brr) (fa arr))` — five lines, no `select`, no `store`, no array equality — answered `sat` printing
+  both arrays as the same constant with `fa` a constant function, a model falsifying its own assertion:
+  `instantiate_array_axioms` returned before phase 4 whenever the three syntactic families had nothing to collect, so
+  the ext rule for shared array terms never ran on the one shape that has nothing else. **(4) A compound read
+  published at the wrong index.** `(select arr (bvadd k #b10))` published its entry at the value of `k` rather than
+  of the index term — `publish_array_reads` asked the circuit for a leaf value of a *derived* node, whose bits
+  nothing constrains — so `(get-value ((bvadd k #b10)))` answered `#b00` beside `k = #b00`. **(5) `(get-value)`
+  residue:** `select` and datatype selectors still echoed and a `define-fun` key came back as the inlined body.
+  **(6) Cardinality:** `n` pairwise-distinct arrays over a sort with fewer than `n` elements answered `unknown`. —
+  **(fixed in 0.3.4: (1) both prefixes moved to `oxiz_core::smtlib` and now carry a backslash, unspellable in both
+  symbol forms, with `Parser::reject_reserved_symbol` refusing them by prefix and the lexical error left to win
+  where the backslash is the user's own; (2) the off-chain family is built in a phase of its own
+  (`build_off_chain_family` / `assert_off_chain_family`), one pair per round and only when the three syntactic
+  families add nothing, and the refinement's re-solves run under an adaptive wall-clock budget
+  (`check_core::array_refinement_resolve_deadline`, `max(120 s, 20× the work before the first lemma)`) so an
+  unbounded search becomes `unknown` rather than nothing — armed only where the caller set no `:timeout`, since one
+  who asked for `:timeout 200000` has already bounded the loop and must not be cut short by a default; (3) the early return now weighs the foreign set too; (4)
+  `publish_array_reads` publishes a compound index by *folding* it — the rule the circuit publication pass already
+  states — after the leaves it is built from; (5) `format_get_value` answers a `select` through
+  `Context::array_class_read` (the read-side twin of the array renderer), folds datatype selectors from the
+  declaration table, and keys the response with the term as queried (`Command::GetValue` carries each term's source
+  spelling); (6) `build_cardinality_refutations` refutes `(distinct …)` over arrays outright when the operand count
+  exceeds the sort's exact size, one lemma instead of `C(n,2)` witnesses. The narrowed `debug_assert!` in
+  `get_func_interp_raw` is restored unscoped, which immediately caught a second reading: the interpretation printers
+  ran on the *stale* candidate model after an `unsat`, and now share `get_model`'s `Sat` guard; live, it survived
+  the 6,000-script long extensionality campaign with 0 panics — the evidence that (3) closed the class the assert
+  guards, not only the five-line repro. Tests:
+  `round4_recheck_regressions.rs` (10, the recheck's own pins inverted), `array_distinct_timing.rs` (the four
+  `distinct` scripts, two release-calibrated) and three agreement tests in `model_one_reading.rs` comparing every
+  `(get-value)` array read against the printed chain — which found the renderer and the read disagreeing at a
+  store's own index. They cover all four index shapes the two sides resolve differently — plain, compound,
+  store-pinned, and an uninterpreted *application*, where `publish_index_leaves` gives an `Apply` leaf no default
+  (its value belongs to the printed interpretation) while `array_read_value` resolves it through `model_value_in`'s
+  `euf_class_value` fallback: two routes to one index, which is how (4) happened. Measured in agreement, and pinned. **Mutation counts** on the 480-script bounded campaign: reverting the
+  `distinct` arm → 61 wrong `sat` / 129 falsifying models; the foreign-pair rule → 1 wrong `sat` / 4 falsifying
+  models / 92 assertion panics; the off-chain phase → 15 wrong `sat`; the pigeonhole rule → its regression test.)**
+- [ ] **#P2b-38 — the array refinement loop is incomplete on `n`-ary and nested shapes, measured.** Campaign B (6,000
+  random scripts, widths 1–64, `Int` and bit-vector) answers `unknown` on 6 formulas its exhaustive oracle decided,
+  and campaign A on 166 of 5,024; the bounded extensionality campaign on 6 of 470, its long form on 57 of 5,898. All are budget exits, never wrong
+  answers. Two shapes are named: an equality between two *concrete* arrays of arrays takes 12 s on the 0.3.4 base and
+  longer here (`(= row0 (select matrix 0))` with both sides substituted as `define-fun`s), and a store chain whose
+  writes cover the whole index domain needs the index case split the lemma loop does not make. The generative
+  direction — a witness read of an array-of-arrays range is itself an array term, so each round can mint another pair
+  — is bounded by `MAX_ARRAY_EXT_WITNESSES` (512), which reports through `Solver::array_axioms_incomplete` and so
+  downgrades the `Sat` it would otherwise license to `Unknown`. **Three strands added by the round-4 recheck
+  (`#P2b-39`).** (a) *Satisfiable* array cardinality above the cliff is undecided: nine pairwise-distinct arrays over
+  `(Array (_ BitVec 2) (_ BitVec 1))` (sixteen exist) answer `unknown` where eight answer `sat` — the BV↔EUF
+  partition-lemma exchange reaches its 512-round budget (`#P2b-29`) before the nine witnesses are separated; the
+  *unsatisfiable* side of the same shape is now decided outright by the pigeonhole rule. Pinned by
+  `round4_recheck_regressions::satisfiable_array_cardinality_at_the_cliff_is_still_undecided`. (b) One 15-line
+  generated script (`s30028_31`) answers `unknown` only on the refinement budget, where the base answered `unknown`
+  in 0.46 s: the congruence family at the chain indices of two four-deep store chains roughly quadruples the
+  bit-blasted circuit and the per-assignment `BvSolver::check` grows with it. Sound, and bounded now; the cost model
+  of that family is the open item. (c) The budget is wall-clock, so on a frozen
+  clock (`wasm32-unknown-unknown`, `no_std`) it never fires, and a slow build reaches it where a fast
+  one does not: campaign A's `s20012_31` and `s20027_43` answer `sat` in 0.13 s and 0.27 s in release
+  but hit the 120 s floor in the unoptimised build (circuit self-check live) under parallel load.
+  Sound either way, and the only movement in 6,000 scripts, but a *deterministic* budget — lemma
+  count, or conflicts across the re-solves — would not depend on the build.
 - [ ] **#P2b-26 — `(get-unsat-core)` re-solves every candidate subset from scratch; `(get-value …)`
   of any non-variable term printed its body.** cargo-formal's named form is ≥ 3.8× the plain script
   because `Solver::minimize_unsat_core` builds a fresh `Solver` per core member (c13: 1.8× here, 4

@@ -297,7 +297,7 @@ fn print_command(index: usize, cmd: &Command) {
         Command::ResetAssertions => {
             println!("  {}: reset-assertions", index);
         }
-        Command::GetValue(terms) => {
+        Command::GetValue { terms, .. } => {
             println!("  {}: get-value {:?}", index, terms);
         }
         Command::GetUnsatCore => {

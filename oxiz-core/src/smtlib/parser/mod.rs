@@ -84,8 +84,19 @@ pub enum Command {
     GetConsequences(Vec<TermId>, Vec<TermId>),
     /// Get model
     GetModel,
-    /// Get value
-    GetValue(Vec<TermId>),
+    /// Get value: the parsed terms, and the source spelling of each.
+    ///
+    /// The two are not interchangeable.  The parser inlines a `define-fun`
+    /// body, so `(get-value ((dbl a)))` yields the term `(bvadd a a)` — the
+    /// thing to *evaluate* — while SMT-LIB 2.6 §4.1.1 requires the response to
+    /// pair each value with the term as *queried*, which only the source
+    /// spelling still is.
+    GetValue {
+        /// The parsed terms, `define-fun` bodies inlined.
+        terms: Vec<TermId>,
+        /// The source spelling of each term, in the same order.
+        keys: Vec<String>,
+    },
     /// Get unsat core
     GetUnsatCore,
     /// Get unsat assumptions (the failed subset of the assumptions passed to

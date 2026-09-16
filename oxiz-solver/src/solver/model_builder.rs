@@ -1090,6 +1090,32 @@ impl Solver {
         self.equality_skeleton_classes.get(&term).copied()
     }
 
+    /// Every term of `term`'s congruence class, or just `term` itself when the
+    /// congruence closure never interned it.
+    ///
+    /// The model printers need the *class*, not the term: an array is
+    /// rendered from what the model published about any member of its class —
+    /// the default of an `(as const d)` member, the writes of a `store`
+    /// member, the reads of any member — so that two arrays the solver proved
+    /// equal print identically and two it proved different print differently
+    /// (`#P2b-34`).
+    pub(crate) fn euf_class_terms(&self, term: TermId) -> Vec<TermId> {
+        let Some(node) = self.euf.term_to_node(term) else {
+            return vec![term];
+        };
+        let representative = self.euf.find_immutable(node);
+        let mut members: Vec<TermId> = self
+            .euf
+            .class_members(representative)
+            .into_iter()
+            .filter_map(|member| self.euf.node_term(member))
+            .collect();
+        if !members.contains(&term) {
+            members.push(term);
+        }
+        members
+    }
+
     /// The value `model` gives some member of `term`'s congruence class, for
     /// a term whose own entry `build_model` never wrote.
     ///
