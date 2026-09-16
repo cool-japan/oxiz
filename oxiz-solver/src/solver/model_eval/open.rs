@@ -389,9 +389,7 @@ impl Solver {
         // An array constant bottoms the chain out with a definite value: it
         // reads back its default at every index, so no published read of the
         // base is needed — or exists (`#P2b-36`).
-        if !self.const_array_symbol_shadowed
-            && let Some(default) = crate::solver::array_axioms::const_array_default(base, manager)
-        {
+        if let Some(default) = crate::solver::array_axioms::const_array_default(base, manager) {
             let value = parse_value_term(default, manager);
             if matches!(value, EvalOutcome::Value(_)) {
                 return (levels, value);

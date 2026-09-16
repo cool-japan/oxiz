@@ -27,7 +27,7 @@ use crate::ast::{RoundingMode, TermId};
 use crate::error::{OxizError, Result};
 #[allow(unused_imports)]
 use crate::prelude::*;
-use crate::sort::SortId;
+use crate::sort::{SortId, SortKind};
 use num_bigint::BigInt;
 use smallvec::SmallVec;
 use std::cell::Cell;
@@ -713,7 +713,29 @@ impl Parser<'_> {
                 // For known forms like `(as const (Array D R))` we represent the
                 // qualified application as an `Apply` node whose function name
                 // records the qualifier and whose sort is the annotated one.
-                let func_name = format!("(as {name})");
+                //
+                // The array constant is the one qualified identifier the solver
+                // *interprets* (its value at every index is its argument), so
+                // its name must be one no script can also declare — otherwise a
+                // user function of the same name is read as an array constant
+                // and a satisfiable formula answers `unsat`.  It is therefore
+                // interned under the reserved
+                // [`CONST_ARRAY_FUNC`](crate::smtlib::CONST_ARRAY_FUNC), which
+                // contains a backslash and so is unspellable in either SMT-LIB
+                // symbol form; the printers render it back to
+                // `((as const (Array D R)) d)`.  Every other qualified
+                // identifier keeps the transparent `(as name)` spelling.
+                let is_const_array = name == "const"
+                    && self
+                        .manager
+                        .sorts
+                        .get(sort)
+                        .is_some_and(|s| matches!(s.kind, SortKind::Array { .. }));
+                let func_name = if is_const_array {
+                    crate::smtlib::CONST_ARRAY_FUNC.to_string()
+                } else {
+                    format!("(as {name})")
+                };
                 Ok(self
                     .manager
                     .mk_apply(&func_name, args.iter().copied(), sort))
@@ -1278,6 +1300,7 @@ impl Parser<'_> {
     }
 
     pub(super) fn parse_symbol(&mut self, s: &str) -> Result<TermId> {
+        Self::reject_reserved_symbol(s, self.lexer.position())?;
         match s {
             "true" => Ok(self.manager.mk_true()),
             "false" => Ok(self.manager.mk_false()),

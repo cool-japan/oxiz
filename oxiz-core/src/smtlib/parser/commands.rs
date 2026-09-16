@@ -103,12 +103,40 @@ impl<'a> Parser<'a> {
             })?;
 
         match token.kind {
-            TokenKind::Symbol(s) => Ok(s),
+            TokenKind::Symbol(s) => {
+                Self::reject_reserved_symbol(&s, token.start)?;
+                Ok(s)
+            }
             _ => Err(OxizError::ParseError {
                 position: token.start,
                 message: format!("expected symbol, found {:?}", token.kind),
             }),
         }
+    }
+
+    /// Refuse a symbol that collides with a name the solver reserves for
+    /// itself.
+    ///
+    /// Today that is exactly [`crate::smtlib::CONST_ARRAY_FUNC`], the interned
+    /// function symbol of the array constant `((as const (Array D R)) d)`.  A
+    /// script that could declare or apply the same symbol would make a user
+    /// function indistinguishable from an array constant, and the
+    /// array-constant axiom would then answer `unsat` for a satisfiable
+    /// formula.  The reserved name contains a backslash, so neither SMT-LIB
+    /// symbol form can produce it — a simple symbol's character set excludes
+    /// `\`, and the lexer rejects one inside `|...|` — which makes this check
+    /// unreachable from well-formed input and a belt-and-braces guard against
+    /// a future lexer or API change that made it reachable.
+    pub(super) fn reject_reserved_symbol(name: &str, position: usize) -> Result<()> {
+        if name == crate::smtlib::CONST_ARRAY_FUNC {
+            return Err(OxizError::ParseError {
+                position,
+                message: "this symbol is reserved for the SMT-LIB array constant \
+                          ((as const (Array D R)) d) and cannot be declared or used"
+                    .to_string(),
+            });
+        }
+        Ok(())
     }
 
     /// Expect a keyword token (e.g., :named) and return its string value (without leading colon)

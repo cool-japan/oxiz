@@ -287,22 +287,6 @@ pub struct Solver {
     /// the lazy array-axiom instantiation refinement (see
     /// [`Solver::instantiate_array_axioms`]) so non-array problems pay no cost.
     pub(super) has_array_ops: bool,
-    /// Set to `true` when the script declares a function named `(as const)`,
-    /// which makes the array-constant recognition ambiguous and turns the
-    /// array-constant read axiom off for the whole script (`#P2b-36`).
-    ///
-    /// See [`array_axioms::const_array_default`]: an array constant has no
-    /// term kind of its own, so it is an `Apply` whose function symbol is the
-    /// string `"(as const)"` — a string a user can also reach with the quoted
-    /// symbol `|(as const)|`.  Reading such an application as an array
-    /// constant would answer `unsat` for a satisfiable formula, so when the
-    /// name is shadowed the axiom is not instantiated at all: the reads stay
-    /// the free leaves they were before the axiom existed, which is the
-    /// pre-`#P2b-36` behaviour and cannot be wrong in the `unsat` direction.
-    ///
-    /// Never cleared by `pop` — a scope that declared the name may have left
-    /// terms behind, and keeping the axiom off is the conservative direction.
-    pub(super) const_array_symbol_shadowed: bool,
     /// Ground array-axiom instances (read-over-write / extensionality /
     /// select-congruence) already added to the SAT core as lemmas, keyed by the
     /// interned lemma term id.  Guarantees each valid instance is asserted at
@@ -690,7 +674,6 @@ impl Solver {
             fp_constraint_cache: FxHashMap::default(),
             encode_depth_exceeded: false,
             has_array_ops: false,
-            const_array_symbol_shadowed: false,
             array_axiom_instances: FxHashSet::default(),
             arith_defined_terms: FxHashSet::default(),
             numeric_trichotomy_atoms: FxHashSet::default(),
@@ -746,16 +729,6 @@ impl Solver {
     /// instantiated with constants that exist in scope.
     pub fn register_declared_const(&mut self, term: TermId, sort: SortId) {
         self.mbqi.register_declared_const(term, sort);
-    }
-
-    /// Record that the script declared a function named
-    /// [`array_axioms::CONST_ARRAY_FUNC`], which switches the array-constant
-    /// read axiom off for the rest of the script.
-    ///
-    /// See [`Solver::const_array_symbol_shadowed`] for why, and why this is
-    /// one-way.
-    pub(crate) fn shadow_const_array_symbol(&mut self) {
-        self.const_array_symbol_shadowed = true;
     }
 
     /// Check satisfiability of the asserted formulas.

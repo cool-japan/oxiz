@@ -315,14 +315,6 @@ impl Context {
             interpreted,
         });
         self.fun_name_to_index.insert(name.to_string(), index);
-        // An array constant is an `Apply` whose function symbol is the string
-        // `"(as const)"`, and `|(as const)|` is a legal quoted SMT-LIB symbol:
-        // once a script declares that name, an application of it can no longer
-        // be told from an array constant, so the array-constant read axiom is
-        // switched off for the rest of the script (`#P2b-36`).
-        if name == crate::solver::array_axioms::CONST_ARRAY_FUNC {
-            self.solver.shadow_const_array_symbol();
-        }
     }
 
     /// Get function signature if it exists
