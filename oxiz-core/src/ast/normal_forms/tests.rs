@@ -210,7 +210,7 @@ mod shallow_pinned_outputs {
 
         let result = skolemize(formula, &mut m);
 
-        let sk0 = m.mk_var("sk!0", int_sort);
+        let sk0 = m.mk_var(&crate::smtlib::reserved_name("sk", "0"), int_sort);
         let expected = m.mk_apply("P", [sk0], bool_sort);
         assert_eq!(result, expected);
     }
@@ -230,7 +230,7 @@ mod shallow_pinned_outputs {
         let result = skolemize(formula, &mut m);
 
         let y2 = m.mk_var("y", int_sort);
-        let sk0_y = m.mk_apply("sk!0", [y2], int_sort);
+        let sk0_y = m.mk_apply(&crate::smtlib::reserved_name("sk", "0"), [y2], int_sort);
         let p_sk0y_y = m.mk_apply("P", [sk0_y, y2], bool_sort);
         let expected = m.mk_forall([("y", int_sort)], p_sk0y_y);
         assert_eq!(result, expected);

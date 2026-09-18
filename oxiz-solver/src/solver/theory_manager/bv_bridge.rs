@@ -436,6 +436,10 @@ impl TheoryManager<'_> {
         if !encoded.is_empty() {
             changed = true;
             self.bv_pin_pending = false;
+            if self.charge_bv_embedded_check() {
+                self.resource_exhausted = true;
+                return Exchange::Refuted(TheoryCheckResult::Sat);
+            }
             match self.bv.check() {
                 Ok(TheoryCheckResultEnum::Sat) | Ok(TheoryCheckResultEnum::Propagate(_)) => {}
                 Ok(TheoryCheckResultEnum::Unsat(conflict_terms)) => {
@@ -453,7 +457,7 @@ impl TheoryManager<'_> {
         // distinct clauses over a finite set of pairs.  Generous because a
         // narrow domain (width 1 or 2) with many arguments has many
         // partitions to rule out one lemma at a time.
-        const MAX_LEMMAS: usize = 512;
+        const MAX_LEMMAS: usize = 8192;
         for _ in 0..MAX_LEMMAS {
             let lemma = match self.model_partition_lemma(&candidates) {
                 Partition::Consistent => {
@@ -481,6 +485,10 @@ impl TheoryManager<'_> {
             self.bv.record_constraint_term(lemma.tag);
             changed = true;
             self.bv_pin_pending = false;
+            if self.charge_bv_embedded_check() {
+                self.resource_exhausted = true;
+                return Exchange::Refuted(TheoryCheckResult::Sat);
+            }
             match self.bv.check() {
                 Ok(TheoryCheckResultEnum::Sat) | Ok(TheoryCheckResultEnum::Propagate(_)) => {}
                 Ok(TheoryCheckResultEnum::Unsat(conflict_terms)) => {
@@ -755,6 +763,13 @@ impl TheoryManager<'_> {
             return None;
         }
         self.bv.record_constraint_term(constraint_term);
+        // Deterministic budget: one embedded check is one unit of it, and an
+        // exhausted budget stops running them rather than reporting a verdict
+        // from work it did not do (`#P2b-46`).
+        if self.charge_bv_embedded_check() {
+            self.resource_exhausted = true;
+            return None;
+        }
         self.bv_pin_pending = false;
         match self.bv.check() {
             Ok(TheoryCheckResultEnum::Unsat(conflict_terms)) => {
@@ -807,6 +822,10 @@ impl TheoryManager<'_> {
         use oxiz_theories::Theory;
         use oxiz_theories::TheoryCheckResult as TheoryCheckResultEnum;
         self.bv_pin_pending = false;
+        if self.charge_bv_embedded_check() {
+            self.resource_exhausted = true;
+            return Some(TheoryCheckResult::Sat);
+        }
         match self.bv.check() {
             Ok(TheoryCheckResultEnum::Unsat(conflict_terms)) => {
                 Some(self.conflict_from_terms(&conflict_terms))

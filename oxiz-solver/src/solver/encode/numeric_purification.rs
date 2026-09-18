@@ -233,7 +233,10 @@ impl Solver {
             let Some(arg_t) = manager.get(arg) else {
                 continue;
             };
-            let v = manager.mk_var(&format!("$encode-numarg!{}", arg.0), arg_t.sort);
+            let v = manager.mk_var(
+                &oxiz_core::smtlib::reserved_name("numarg", &arg.0.to_string()),
+                arg_t.sort,
+            );
             self.mark_numeric_uf_arg(v);
             proxy_of.insert(arg, v);
         }

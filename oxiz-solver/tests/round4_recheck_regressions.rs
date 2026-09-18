@@ -386,41 +386,79 @@ fn array_cardinality_beyond_the_sort_is_refuted() {
     }
 }
 
-/// The residue this round did **not** close, pinned so it cannot silently
-/// change: nine pairwise-distinct arrays over `BV2 -> BV1` (sixteen exist) are
-/// satisfiable, and the tree answers `unknown` — the BV↔EUF partition-lemma
-/// exchange gives up before the nine witnesses are separated (`#P2b-29`).
-/// Nine is the cliff: eight is decided `sat` (the control in
-/// [`array_cardinality_beyond_the_sort_is_refuted`]), and every size from nine
-/// to sixteen answers `unknown`.  Sound, and recorded in `TODO.md` under
-/// `#P2b-38`.
+/// R6's completeness residue, **closed** and guarded here so it cannot return.
 ///
-/// A failure here is good news: the answer became `sat`.  Replace the pin with
-/// `assert_eq!(…, "sat")` and close the strand.
+/// Nine pairwise-distinct arrays over `BV2 -> BV1` (sixteen such arrays exist)
+/// are satisfiable, and the tree answered `unknown`: the BV<->EUF
+/// partition-lemma exchange gave up before the nine witnesses were separated
+/// (`#P2b-29`).  Nine was the cliff — eight was decided `sat`, every size from
+/// nine to sixteen answered `unknown` — and the trade was recorded as open,
+/// because the same round's pigeonhole rule had fixed the *unsat* side (the
+/// 0.3.4 base answers a wrong `sat` at seventeen).
 ///
-/// Costs 7.8 s on its own and 12.6 s under a loaded `nextest` run, in a debug
-/// build on the development machine.  The number is here because it is the
-/// interesting one: this script reaches `unknown` through the exchange's
-/// `MAX_LEMMAS` cap, not through a clock, and an earlier draft of the array
-/// refinement's wall-clock budget was set at 5 s and made exactly this test
-/// flake under parallel load.  Any future budget must stay well clear of it.
+/// Decision (10)'s enumeration lever closed it: over an index sort the solver
+/// can write out, extensionality is a finite conjunction at the domain's own
+/// elements, which every pair shares, instead of a fresh Skolem witness per
+/// pair whose reads feed the exchange
+/// (`array_axioms::ARRAY_INDEX_ENUMERATION_LIMIT`).  Re-measured on this tree
+/// in a release build: every `n` from two to sixteen answers `sat`
+/// (n = 9 in 5.8 ms, n = 11 in 13.9 ms, n = 16 in 5.9 s) and seventeen answers
+/// `unsat` in 0.5 ms.
+///
+/// The guard carries the cliff itself (n = 9 and n = 10, milliseconds each) and
+/// the refutation one past the sort's cardinality.  The expensive tail of the
+/// ladder is an `#[ignore]`d cost pin below, because a debug build pays an
+/// order of magnitude for it.
 #[test]
-fn satisfiable_array_cardinality_at_the_cliff_is_still_undecided() {
+fn satisfiable_array_cardinality_at_the_cliff_is_decided() {
+    for n in [9u32, 10] {
+        assert_eq!(
+            verdict(&run(&distinct_arrays(n, 2))),
+            "sat",
+            "{n} pairwise-distinct arrays over BV2 -> BV1 fit in the sort's \
+             sixteen inhabitants and are satisfiable"
+        );
+    }
+    assert_eq!(
+        verdict(&run(&distinct_arrays(17, 2))),
+        "unsat",
+        "seventeen pairwise-distinct arrays do not fit in sixteen"
+    );
+}
+
+/// The rest of the ladder, one script per size, `#[ignore]`d because the top of
+/// it costs seconds in a release build and an order of magnitude more in the
+/// debug build `cargo nextest` produces.
+///
+/// Run it explicitly when touching the array refinement: it is the measurement
+/// behind the claim that R6's satisfiable side is closed, and the point where
+/// the cost climbs (n = 12) is the one to watch.
+#[test]
+#[ignore = "cost pin: seconds per script in release, minutes in debug"]
+fn the_whole_array_cardinality_ladder_is_decided() {
+    for n in 2..=16u32 {
+        assert_eq!(
+            verdict(&run(&distinct_arrays(n, 2))),
+            "sat",
+            "{n} pairwise-distinct arrays over BV2 -> BV1 are satisfiable"
+        );
+    }
+    assert_eq!(verdict(&run(&distinct_arrays(17, 2))), "unsat");
+}
+
+/// `n` pairwise-distinct arrays of `(Array (_ BitVec width) (_ BitVec 1))`
+/// under one `n`-ary `distinct`.
+fn distinct_arrays(n: u32, index_width: u32) -> String {
     let mut script = String::from("(set-logic QF_ABV)\n");
-    for x in 0..9u32 {
+    for x in 0..n {
         script.push_str(&format!(
-            "(declare-const c{x} (Array (_ BitVec 2) (_ BitVec 1)))\n"
+            "(declare-const c{x} (Array (_ BitVec {index_width}) (_ BitVec 1)))\n"
         ));
     }
     script.push_str("(assert (distinct");
-    for x in 0..9u32 {
+    for x in 0..n {
         script.push_str(&format!(" c{x}"));
     }
     script.push_str("))\n(check-sat)\n");
-    assert_eq!(
-        verdict(&run(&script)),
-        "unknown",
-        "THE HOLE IS CLOSED: nine pairwise-distinct width-2 arrays are decided \
-         again -- replace this pin with assert_eq!(verdict, \"sat\")"
-    );
+    script
 }

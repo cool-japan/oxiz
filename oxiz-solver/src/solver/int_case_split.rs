@@ -69,9 +69,19 @@
 //! A refinement round discards the search and starts over, which is only worth
 //! doing when starting over is cheap. The instances a missing case split
 //! actually rescues are the ones that answered quickly and wrongly, so the
-//! whole refinement is gated on the first solve having finished inside
-//! [`REFINEMENT_TIME_CEILING_MS`] and is allowed
+//! whole refinement is gated on the search so far having stayed inside
+//! `check_core::REFINEMENT_WORK_CEILING_PROPAGATIONS` and is allowed
 //! [`MAX_REFINEMENT_ROUNDS`] round.
+//!
+//! That gate used to be a *wall-clock* ceiling of two minutes on the first
+//! solve, armed whether or not the caller had set a `:timeout`. It decided
+//! verdicts — the unaffordable branch marks its `Sat` unverified — so the
+//! verdict was a property of how busy the machine was. Decision (9) of the
+//! `#P2b-38` close-out replaced it with a propagation count, which the search
+//! advances itself; the calibration that justified 120 s (a `Wisa` QF_UFLIA
+//! instance whose first candidate model takes a *minute*, and which answers a
+//! wrong `sat` at 258 s with the gate at 5 s and `unsat` at 254 s with the
+//! gate raised) is preserved in that constant's own documentation.
 
 use num_traits::ToPrimitive;
 use oxiz_core::ast::TermManager;
@@ -84,30 +94,6 @@ use super::int_range_lp::RootLevelLp;
 use super::trail::TrailOp;
 use super::types::{ArithConstraintType, Constraint, ParsedArithConstraint};
 use oxiz_core::ast::TermId;
-
-/// Wall-clock ceiling on the *first* solve, past which no refinement round is
-/// attempted at all.
-///
-/// OxiZ tuning decision. A round throws the search away and redoes it, so the
-/// ceiling buys a bounded slowdown (roughly a doubling) on instances that get
-/// no benefit, in exchange for the chance to correct a wrong `sat`.
-///
-/// It was 5s, chosen when the only refinement was the single-atom reading,
-/// whose targets are found in milliseconds — "a fast, confident, wrong `sat`"
-/// really did describe every instance it could help. The LP relaxation
-/// ([`super::int_range_lp`]) changed that. The QF_UFLIA `Wisa` instances it
-/// exists for are wrong `sat`s that take a *minute* to reach the first
-/// candidate model, so at 5s the refinement was built, correct, and never
-/// reached: `xs-08-20-3-2-4-5` answers `sat` at 258s with the gate at 5s, and
-/// `unsat` at 254s with the gate raised — the refinement costs almost nothing
-/// there, it was simply forbidden from running.
-///
-/// 120s is set against that measurement: high enough that a minute-scale
-/// candidate model still gets its one refinement round, low enough that a
-/// genuinely long search is not doubled. A wrong verdict is a much worse
-/// outcome than a slow one, and the round budget
-/// ([`MAX_REFINEMENT_ROUNDS`]) caps the downside at one extra search.
-pub(super) const REFINEMENT_TIME_CEILING_MS: u64 = 120_000;
 
 /// How many discard-and-re-solve rounds one `check` may spend.
 ///

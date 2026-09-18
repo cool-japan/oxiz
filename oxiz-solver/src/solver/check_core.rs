@@ -154,6 +154,13 @@ impl Solver {
             return SolverResult::Unknown;
         }
 
+        // The array refinement's deterministic work counters describe *this*
+        // check, not the script's history: a second `(check-sat)` gets the
+        // same budget as the first.  See [`Statistics::array_refinement_rounds`].
+        self.statistics.array_refinement_rounds = 0;
+        self.statistics.array_lemma_instances = 0;
+        self.statistics.bv_embedded_checks = 0;
+
         // Check resource limits before starting
         if self.config.max_conflicts > 0 && self.statistics.conflicts >= self.config.max_conflicts {
             return SolverResult::Unknown;
@@ -185,11 +192,6 @@ impl Solver {
         // (`wasm32-unknown-unknown` / `no_std`) `now()` is a constant t = 0, so
         // no deadline built from it can ever be reached and `:timeout` is the
         // documented no-op `oxiz_time`'s crate docs describe.
-        // When this check started, for the array refinement's own budget
-        // ([`array_refinement_resolve_deadline`]).  Not `cfg`-gated for the
-        // same reason `deadline` is not: on a frozen clock every instant is
-        // t = 0 and the budget simply never fires.
-        let check_entry = oxiz_time::Instant::now();
         let deadline: Option<oxiz_time::Instant> = if self.config.timeout_ms > 0 {
             oxiz_time::Instant::now()
                 .checked_add(core::time::Duration::from_millis(self.config.timeout_ms))
@@ -308,18 +310,18 @@ impl Solver {
         // saturation well within this generous cap for realistic inputs.
         let max_array_refinement_rounds = 256;
         let mut array_refinement_rounds = 0;
-        // Wall-clock budget for the *re-solves* the array refinement triggers
-        // (`#P2b-38`), armed when the first array lemma is asserted; see
-        // [`array_refinement_resolve_deadline`].
-        let mut array_resolve_deadline: Option<oxiz_time::Instant> = None;
+        // Deterministic budget for the *re-solves* the array refinement
+        // triggers (`#P2b-38` strand (c)), armed when the first array lemma is
+        // asserted: the value of `SolverStats::conflicts` past which this check
+        // answers `Unknown`.  See [`ARRAY_REFINEMENT_RESOLVE_CONFLICTS`].
+        let mut array_resolve_conflict_ceiling: Option<u64> = None;
 
-        // Stamp the start of the search so the non-convex-LIA case-split
-        // refinement can gate itself on how long the *first* solve took (see
-        // `int_case_split::REFINEMENT_TIME_CEILING_MS`): the refinement
-        // re-solves the whole problem from scratch, which is only affordable
-        // when the first solve was fast.
-        #[cfg(feature = "std")]
-        let check_start = oxiz_time::Instant::now();
+        // How much SAT work this check had done before the search started.
+        // The two repair gates below (`case_split_affordable`,
+        // `blocking_affordable`) are relative to it, so that "the first solve
+        // was cheap" is a statement about propagations performed and not about
+        // seconds elapsed — see [`REFINEMENT_WORK_CEILING_PROPAGATIONS`].
+        let propagations_at_entry = self.sat.stats().propagations;
 
         loop {
             // Enforce the wall-clock timeout between MBQI rounds.  Mid-`solve`
@@ -327,6 +329,36 @@ impl Solver {
             // since U-Z12, inside both SAT engines themselves.
             if let Some(d) = deadline {
                 if oxiz_time::Instant::now() >= d {
+                    return SolverResult::Unknown;
+                }
+            }
+            // The array refinement's own budget, in conflicts rather than in
+            // seconds (decision (9)).  Checked here, at the same round
+            // boundary the wall-clock version used, so an exhausted budget
+            // answers `Unknown` and never a verdict; the model goes with it for
+            // the reason the round-budget exit below gives.
+            if let Some(ceiling) = array_resolve_conflict_ceiling {
+                // Two counters, because a refinement loop can run away in two
+                // different ways and a single one does not see both.
+                //
+                // * Conflicts bound a loop that *searches*: the re-solves
+                //   branch and backtrack, and the conflict count climbs.
+                // * Lemma instances bound a loop that only *builds*.  The
+                //   const-array / chain-index families can enlarge the circuit
+                //   round after round while the search itself stays
+                //   conflict-free — `rc3/slow/m5.smt2` (six declarations, three
+                //   assertions) ran 400 s with no answer and never accrued the
+                //   50,000 conflicts the ceiling asked for, because the work
+                //   was all in interning and re-solving a growing circuit, not
+                //   in conflict analysis.  Only an explicit `:timeout` stopped
+                //   it, which is exactly the machine-dependence decision (9)
+                //   removes.
+                //
+                // Both are monotone counts of work performed, so they are
+                // identical on an idle and on a loaded machine.
+                if self.sat.stats().conflicts >= ceiling {
+                    self.model = None;
+                    self.unsat_core = None;
                     return SolverResult::Unknown;
                 }
             }
@@ -421,17 +453,18 @@ impl Solver {
                         // the CDCL(T) core has no atom to branch its value on
                         // and a genuine `unsat` can come back a spurious
                         // `sat`. Emit an explicit `(or (= t v0) ...)` lemma
-                        // for each such term and re-solve. Gated on the first
-                        // solve having been fast, since the refinement
+                        // for each such term and re-solve. Gated on the search
+                        // so far having been cheap, since the refinement
                         // re-solves the whole problem from scratch — see
-                        // `int_case_split::REFINEMENT_TIME_CEILING_MS`.
-                        #[cfg(feature = "std")]
-                        let case_split_affordable = check_start.elapsed()
-                            < std::time::Duration::from_millis(
-                                int_case_split::REFINEMENT_TIME_CEILING_MS,
-                            );
-                        #[cfg(not(feature = "std"))]
-                        let case_split_affordable = true;
+                        // [`REFINEMENT_WORK_CEILING_PROPAGATIONS`], the
+                        // deterministic ceiling that replaced the wall-clock
+                        // one this gate used to read (decision (9)).
+                        let case_split_affordable = self
+                            .sat
+                            .stats()
+                            .propagations
+                            .saturating_sub(propagations_at_entry)
+                            < REFINEMENT_WORK_CEILING_PROPAGATIONS;
                         // The affordability test must not simply short-circuit
                         // the call away: `split_narrow_int_domains` is what
                         // discovers whether this candidate has unbranched
@@ -439,8 +472,8 @@ impl Solver {
                         // `case_split_skipped_targets` for the honesty gate in
                         // `check`. With a plain `affordable && split(..)` the
                         // gate never heard about a candidate whose refinement
-                        // the ceiling declined, so the verdict depended on
-                        // machine speed — `sat` under load, `unsat` idle.
+                        // the ceiling declined, so the verdict silently changed
+                        // with the ceiling.
                         //
                         // When the round is unaffordable the targets are still
                         // *counted* (marking the `Sat` unverified) but no lemma
@@ -490,6 +523,25 @@ impl Solver {
                         // then re-solve.  Only genuine array models survive.
                         if self.has_array_ops && self.instantiate_array_axioms(manager) {
                             array_refinement_rounds += 1;
+                            self.statistics.array_refinement_rounds =
+                                self.statistics.array_refinement_rounds.saturating_add(1);
+                            if self.statistics.array_lemma_instances
+                                >= ARRAY_REFINEMENT_LEMMA_BUDGET
+                            {
+                                // The second deterministic currency (decision
+                                // (9)).  The conflict ceiling at the loop head
+                                // bounds a refinement loop that *searches*;
+                                // this one bounds a loop that only *builds*,
+                                // which the conflict counter cannot see
+                                // because such a loop never conflicts.  See
+                                // [`ARRAY_REFINEMENT_LEMMA_BUDGET`].
+                                //
+                                // The model goes with it for the same reason
+                                // the round-budget exit below gives.
+                                self.model = None;
+                                self.unsat_core = None;
+                                return SolverResult::Unknown;
+                            }
                             if array_refinement_rounds >= max_array_refinement_rounds {
                                 // Could not saturate the array axioms within the
                                 // round budget: do not fabricate a verdict.
@@ -503,34 +555,68 @@ impl Solver {
                                 self.unsat_core = None;
                                 return SolverResult::Unknown;
                             }
-                            // Arm the refinement's own wall-clock budget on the
-                            // first round, and hand it to every engine the
-                            // re-solve below drives.  Without it a single
-                            // re-solve can run unboundedly: the lemmas this
-                            // loop asserts enlarge the bit-blasted circuit, the
-                            // per-assignment `BvSolver::check` grows with it,
-                            // and a fifteen-line script that the same tree
-                            // answered in 0.46 s before the lemmas existed ran
-                            // for more than five minutes with no answer at all.
+                            // Arm the refinement's own budget on the first
+                            // round.  Without it a single re-solve can run
+                            // unboundedly: the lemmas this loop asserts enlarge
+                            // the bit-blasted circuit, the per-assignment
+                            // `BvSolver::check` grows with it, and a
+                            // fifteen-line script that the same tree answered
+                            // in 0.46 s before the lemmas existed ran for more
+                            // than five minutes with no answer at all.
                             // `Unknown` is the honest outcome there, and it is
                             // what the round budget above already returns for
                             // the same reason.
                             //
-                            // Only when the caller set no `:timeout`, and never
-                            // the *earlier* of the two.  A caller who asked for
-                            // `:timeout 200000` asked for two hundred seconds
-                            // and has already bounded this loop; handing them
-                            // `unknown` at the floor below would override an
-                            // explicit instruction with a default.  The budget
-                            // exists to bound the *unbounded* case, which is
-                            // exactly `deadline == None`.
-                            if deadline.is_none() && array_resolve_deadline.is_none() {
-                                array_resolve_deadline =
-                                    array_refinement_resolve_deadline(check_entry);
+                            // The budget is a *conflict count*, not a clock
+                            // (decision (9), `#P2b-38` strand (c)).  It was a
+                            // wall-clock floor, and that made the verdict a
+                            // property of the machine: the same release binary
+                            // on the same script answered `sat` at 77.5 s run
+                            // alone and `unknown` at the 120 s floor with ten
+                            // copies in flight.  A solver whose answers are
+                            // consumed as verification evidence cannot do that
+                            // — the evidence has to reproduce elsewhere — so
+                            // the bound is now the number of Boolean conflicts
+                            // the search accrues from the first array lemma
+                            // onwards: monotone, measurable, and identical on
+                            // an idle and a loaded machine.  An explicit
+                            // `:timeout` remains the only wall clock, and it is
+                            // installed at the top of `check` exactly as
+                            // before.
+                            if array_resolve_conflict_ceiling.is_none() {
+                                let ceiling = self
+                                    .sat
+                                    .stats()
+                                    .conflicts
+                                    .saturating_add(ARRAY_REFINEMENT_RESOLVE_CONFLICTS);
+                                array_resolve_conflict_ceiling = Some(ceiling);
+                                // Bound the *inner* search too, so one re-solve
+                                // cannot run past the ceiling before the round
+                                // boundary above gets to look at it.  Never
+                                // above a user `:max-conflicts`, which is the
+                                // stricter instruction where both are present.
+                                // A user `:max-conflicts N` is the budget of the
+                                // *whole check*, not of every refinement round:
+                                // the entry ceiling is
+                                // `conflicts_so_far + N` with `conflicts_so_far`
+                                // read once, at the top of this function, and it
+                                // is that value the refinement must not exceed.
+                                // Re-reading `stats().conflicts` here instead
+                                // re-based the ceiling on the conflicts the
+                                // first solve had already spent, silently
+                                // granting the search more than the user asked
+                                // for.
+                                let installed = match conflict_budget {
+                                    Some(user) => core::cmp::min(
+                                        ceiling,
+                                        conflicts_so_far.saturating_add(user),
+                                    ),
+                                    None => ceiling,
+                                };
+                                self.sat.set_max_conflicts(Some(installed));
                             }
-                            let round_deadline = deadline.or(array_resolve_deadline);
-                            self.sat.set_deadline(round_deadline);
-                            self.bv.set_budget(conflict_budget, round_deadline);
+                            self.sat.set_deadline(deadline);
+                            self.bv.set_budget(conflict_budget, deadline);
                             // A read-over-write lemma is an `ite` over the two
                             // array values; at Int/Real sort that `ite` is a new
                             // opaque arithmetic atom, so define it before the
@@ -569,7 +655,7 @@ impl Solver {
                                 self.has_bv_arith_ops,
                                 self.has_quantifiers,
                                 &self.quantifier_uf_funcs,
-                                round_deadline,
+                                deadline,
                             );
                             continue;
                         }
@@ -596,17 +682,16 @@ impl Solver {
                             // a search restriction rather than a lemma, and for
                             // the `Unsat` downgrade that pays for it.
                             //
-                            // Gated on the same wall-clock ceiling the
+                            // Gated on the same deterministic ceiling the
                             // case-split refinement uses, and for the same
                             // reason: a round is a full re-solve from scratch,
-                            // affordable only when the first solve was fast.
-                            #[cfg(feature = "std")]
-                            let blocking_affordable = check_start.elapsed()
-                                < std::time::Duration::from_millis(
-                                    int_case_split::REFINEMENT_TIME_CEILING_MS,
-                                );
-                            #[cfg(not(feature = "std"))]
-                            let blocking_affordable = true;
+                            // affordable only when the search so far was cheap.
+                            let blocking_affordable = self
+                                .sat
+                                .stats()
+                                .propagations
+                                .saturating_sub(propagations_at_entry)
+                                < REFINEMENT_WORK_CEILING_PROPAGATIONS;
                             if self.block_refuted_model_and_rebase(blocking_affordable) {
                                 theory_manager = TheoryManager::new(
                                     manager,
@@ -1017,44 +1102,106 @@ impl Solver {
     }
 }
 
-/// Minimum wall clock the array-axiom refinement's re-solves may have, and the
-/// floor under the adaptive budget [`array_refinement_resolve_deadline`]
-/// computes (`#P2b-38`).
+/// Boolean conflicts the array-axiom refinement's re-solves may accrue, counted
+/// from the round that asserts the first array lemma (`#P2b-38` strand (c)).
 ///
-/// Generous on purpose, and for the same reason
-/// `int_case_split::REFINEMENT_TIME_CEILING_MS` is (two minutes there).  The
-/// budget exists to turn *unbounded* into `unknown` — the script that
-/// motivated it ran for more than five minutes with no answer, where the
-/// 0.3.4 base answered `unknown` in 0.46 s — not to police slow-but-finite
-/// searches, and a debug build is an order of magnitude slower than the
-/// release build these numbers were measured on.  The whole 217-script
-/// benchmark corpus answers in about 3.2 s *in total*, so nothing that
-/// decides today comes near this.
-const ARRAY_REFINEMENT_RESOLVE_FLOOR_MS: u64 = 120_000;
+/// # Why a conflict count and not a clock
+///
+/// This budget used to be a wall-clock floor of two minutes, and that made the
+/// *verdict* a property of the machine.  Measured on one release binary and one
+/// twelve-line script with no `:timeout`: run alone it answered `sat` at
+/// 77.5 s; with ten copies in flight all ten answered `unknown` at the 120 s
+/// floor; with six copies all six answered `sat` at 114-116 s.  `oxiz` verdicts
+/// are consumed as verification evidence by `cargo-formal`, which requires the
+/// same verdict on every machine, so a budget that reads the clock is not a
+/// budget this solver may use to *decide* anything.
+///
+/// `SolverStats::conflicts` is the replacement: monotone, advanced by the
+/// search itself rather than by the scheduler, and identical on an idle and a
+/// loaded machine.  A user `:timeout` is unaffected and remains the only
+/// wall-clock limit there is.
+///
+/// # Calibration
+///
+/// Measured on this tree (2026-09-18), total conflicts per script — an
+/// over-estimate of the refinement's share, which starts counting later: the
+/// whole 217-script `bench/` corpus peaks at 1,408, on a datatype goal that
+/// reaches no array lemma at all; 1,200 exhaustive array/UF scripts peak at 65;
+/// 1,200 random mixed scripts at 5; 700 new-shape scripts at 4,098; 400
+/// array-constant scripts at 1; 300 datatype scripts at 0; an 80-script sample
+/// of the `n`-ary-`distinct`-over-store-chains corpus peaks at 8,106, and the
+/// twelve-line script that motivated the budget answers `sat` at 558.
+///
+/// Fifty thousand is six times the largest of those, so nothing that decides
+/// today comes near it, and it still turns an unbounded search into an
+/// `unknown` that reproduces byte for byte on an idle and on a loaded machine.
+/// Verified live rather than assumed: dropping the constant to 1 in an
+/// isolated tree copy turns
+/// `round4_pass2_recheck_pins::n_ary_distinct_over_store_chains_is_decided`
+/// red, so the ceiling really does reach the search.
+///
+/// It is not, on its own, a bound on the loop: see
+/// [`ARRAY_REFINEMENT_LEMMA_BUDGET`] for the case it does not see.
+const ARRAY_REFINEMENT_RESOLVE_CONFLICTS: u64 = 50_000;
 
-/// How many times the work already done before the first array lemma the
-/// refinement's re-solves may cost, when that is more than the floor.
+/// Array-axiom lemma instances one `check` may assert before it answers
+/// `Unknown` (`#P2b-38` strand (c), second currency).
 ///
-/// Adaptive for the reason `int_case_split::REFINEMENT_TIME_CEILING_MS` is:
-/// a refinement that re-solves the whole problem from scratch is affordable in
-/// proportion to what the first solve cost, so a goal that was already slow
-/// gets a proportionally larger allowance rather than being cut off at a
-/// constant no one can calibrate for every input.
-const ARRAY_REFINEMENT_RESOLVE_FACTOR: u32 = 20;
+/// # Why a second counter
+///
+/// [`ARRAY_REFINEMENT_RESOLVE_CONFLICTS`] bounds a refinement loop that
+/// *searches*.  It does not bound one that only *builds*: a family that mints
+/// a fresh index per pair per round enlarges the circuit every round while the
+/// re-solves stay conflict-free, so the conflict count never moves and the
+/// ceiling never fires.  That is not hypothetical — `rc3/slow/m5.smt2` (six
+/// declarations, three assertions, answered `sat` in 0.5 ms by the 0.3.4 base)
+/// ran 400 s under `/usr/bin/time` on the previous tree with no answer and no
+/// budget stopping it; only an explicit `:timeout` did.
+///
+/// Counted in [`crate::solver::Statistics::array_lemma_instances`], which
+/// `Solver::assert_new_instances` advances once per lemma that reaches the SAT
+/// core, and checked at the same round boundary the conflict ceiling is.
+/// Budget exhaustion answers `Unknown` and clears the model; it never produces
+/// a verdict.
+///
+/// # Calibration
+///
+/// Measured on this tree (2026-09-18), lemma instances per script over the
+/// corpora this round uses: the 217-script `bench/` corpus peaks at 116; the
+/// four in-tree `n`-ary-`distinct` scripts at 158; the 2,350-script generated
+/// campaign at 372; `c20`/`c21` at 12 and 9.  Ten thousand is more than
+/// twenty-five times the largest of those, so nothing that decides today comes
+/// near it, while the runaway shapes cross it in well under a second.
+const ARRAY_REFINEMENT_LEMMA_BUDGET: u64 = 10_000;
 
-/// The deadline the array-axiom refinement's re-solves run under, given when
-/// the check started.
+/// SAT propagations, counted from the entry of this `check`, past which the
+/// two *repair* refinements below decline to re-solve: the non-convex-LIA
+/// case split (`split_narrow_int_domains`) and bounded model blocking
+/// (`block_refuted_model_and_rebase`).
 ///
-/// `None` only when the instant arithmetic overflows, which means "no
-/// deadline" — the behaviour before this budget existed.
-fn array_refinement_resolve_deadline(
-    check_entry: oxiz_time::Instant,
-) -> Option<oxiz_time::Instant> {
-    let now = oxiz_time::Instant::now();
-    let spent = now.saturating_duration_since(check_entry);
-    let budget = core::cmp::max(
-        core::time::Duration::from_millis(ARRAY_REFINEMENT_RESOLVE_FLOOR_MS),
-        spent.saturating_mul(ARRAY_REFINEMENT_RESOLVE_FACTOR),
-    );
-    now.checked_add(budget)
-}
+/// # Why this is not a clock
+///
+/// Both repairs re-solve the whole problem from scratch, so both are only
+/// affordable when the search so far has been cheap; both used to read
+/// `Instant::elapsed()` against `int_case_split::REFINEMENT_TIME_CEILING_MS`
+/// (two minutes), *whether or not the caller set a `:timeout`*.  A gate that
+/// reads the clock and then decides a verdict makes the verdict a property of
+/// the machine: the unaffordable branch of the first marks its `Sat`
+/// unverified, and the unaffordable branch of the second falls through to
+/// `Unknown`.  Reachability is measured, not argued — with this ceiling set to
+/// 1 in an isolated tree copy, 7 of the 217 `bench/` scripts flip `sat` to
+/// `unknown`.
+///
+/// Propagations are the replacement currency: monotone, advanced by the search
+/// rather than by the scheduler, and cheap to read.  Decision (9) leaves an
+/// explicit `:timeout` as the only wall clock in the solver.
+///
+/// # Calibration
+///
+/// Measured on this tree (2026-09-18): of the 217 `bench/` scripts the largest
+/// propagation count at the first candidate model is 1.4 million, and the
+/// seven scripts the mutation above flips peak at 41 thousand.  One hundred
+/// million is seventy times the largest, so every script that decides today
+/// stays affordable, while a search that has already propagated a hundred
+/// million times is not one a from-scratch re-solve will rescue.
+const REFINEMENT_WORK_CEILING_PROPAGATIONS: u64 = 100_000_000;

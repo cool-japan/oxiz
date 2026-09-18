@@ -291,7 +291,9 @@ impl Context {
                 render_nl_witness_value(exact)
             } else if let Some(val) = solver_model.get(decl.term) {
                 self.format_value(val)
-            } else if let Some(chain) = self.array_model_value(decl.term, decl.sort, solver_model) {
+            } else if let Some(chain) =
+                self.array_model_value(decl.term, decl.sort, solver_model, &class_values)
+            {
                 // An array is never *assigned* a value term — there is no
                 // literal for "the function `{0 ↦ 5}` extended by 0" — so
                 // before `#P2b-34` it fell through to the sort default and
@@ -313,6 +315,19 @@ impl Context {
                 // `?` — and, being the same map every other renderer reads,
                 // the same witness `f`'s interpretation prints.
                 witness.to_string()
+            } else if let Some(value) =
+                self.datatype_class_value(decl.term, decl.sort, solver_model, &class_values)
+            {
+                // A datatype constant the reconstruction could not build
+                // (`#P2b-39`): assembled from the values this model gives the
+                // *selector applications* the script itself spells, rather
+                // than from the sort defaults.  Falling through to
+                // `default_value` printed a constructor whose fields were the
+                // sort defaults while `(get-value ((tag b)))` answered the
+                // asserted value out of the same model in the same run — 153
+                // of 300 generated datatype scripts published a model that
+                // contradicted their own assertions that way.
+                value
             } else {
                 // Default value based on sort
                 self.default_value(decl.sort)
@@ -557,7 +572,7 @@ impl Context {
             {
                 continue;
             }
-            if let Some(chain) = self.array_model_value(member, sort, solver_model) {
+            if let Some(chain) = self.array_model_value(member, sort, solver_model, class_values) {
                 return Some(chain);
             }
             return Some(self.default_value(sort));
@@ -1105,7 +1120,18 @@ impl Context {
             Some(model) => {
                 let mut lines = vec!["(model".to_string()];
                 for (name, sort, value) in model {
-                    lines.push(format!("  (define-fun {} () {} {})", name, sort, value));
+                    // The name goes through the one symbol encoder
+                    // (`#P2b-39`): a declaration the script wrote as `|a b|`
+                    // was printed back bare, which is not re-parsable SMT-LIB
+                    // — `(define-fun a b () (_ BitVec 1) #b0)` reads as two
+                    // symbols — and disagreed with the `(get-value)` key path,
+                    // which answers with the term's source spelling.
+                    lines.push(format!(
+                        "  (define-fun {} () {} {})",
+                        oxiz_core::smtlib::format_symbol(&name),
+                        sort,
+                        value
+                    ));
                 }
                 lines.extend(func_lines);
                 lines.extend(recfun_lines);

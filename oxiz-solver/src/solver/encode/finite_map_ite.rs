@@ -221,8 +221,10 @@ impl Solver {
                 .get(spine.root)
                 .map(|t| t.sort)
                 .unwrap_or(manager.sorts.int_sort);
-            let result =
-                manager.mk_var(&format!("$lookup-result!{}-{ordinal}", spine.root.0), sort);
+            let result = manager.mk_var(
+                &oxiz_core::smtlib::reserved_name("lookup", &format!("{}-{ordinal}", spine.root.0)),
+                sort,
+            );
             result_of.insert(spine.root, result);
 
             let mut not_any_key: Vec<TermId> = Vec::with_capacity(spine.arms.len());

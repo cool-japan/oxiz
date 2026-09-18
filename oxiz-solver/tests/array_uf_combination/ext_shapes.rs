@@ -76,6 +76,20 @@ enum Arr {
     Store(Box<Arr>, Idx, Box<Elem>),
     /// `(select N x)` — a row of an array of arrays.
     Row(usize, Idx),
+    /// `(ite (= x y) A B)` — an *array-sorted* `ite` (`#P2b-41`).
+    ///
+    /// The shape this generator was missing, and its absence is why four
+    /// passes of review never saw the hole it hides: a `select` through an
+    /// array-sorted `ite` used to be a free bit-vector, because the encoder
+    /// refused to name an `Array`-sorted `ite` with a fresh variable and the
+    /// array theory only noted its branches as *foreign*.  Seven lines were a
+    /// wrong `sat`.
+    ///
+    /// The condition is an index equality rather than a fresh Boolean: it
+    /// keeps the oracle total (`eval_array` decides it from the same
+    /// interpretation it already has) while still making the branch depend on
+    /// the search rather than on a constant.
+    Ite(Idx, Idx, Box<Arr>, Box<Arr>),
 }
 
 /// A Boolean combination of atoms.
@@ -136,6 +150,16 @@ fn gen_array(rng: &mut Rng, problem: &Problem, depth: u32) -> Arr {
             _ => Arr::Var(rng.below(ARRAYS as u64) as usize),
         };
     }
+    if rng.chance(1, 3) {
+        // An array-sorted `ite`, drawn often enough that a few hundred scripts
+        // contain a good number of them (`#P2b-41`).
+        return Arr::Ite(
+            gen_index(rng, problem),
+            gen_index(rng, problem),
+            Box::new(gen_array(rng, problem, depth - 1)),
+            Box::new(gen_array(rng, problem, depth - 1)),
+        );
+    }
     Arr::Store(
         Box::new(gen_array(rng, problem, depth - 1)),
         gen_index(rng, problem),
@@ -174,7 +198,61 @@ fn gen_elem(rng: &mut Rng, problem: &Problem, depth: u32) -> Elem {
 fn gen_planted(rng: &mut Rng, problem: &Problem) -> Vec<Formula> {
     let index_count = problem.index_count() as u8;
     let elem_count = problem.elem_count() as u8;
-    match rng.below(6) {
+    match rng.below(8) {
+        // (1f) a read through an array-sorted `ite`, with both branches pinned
+        // (`#P2b-41`).  The planted form of the seven-line wrong `sat`: the
+        // read is one branch's read or the other's, and both are pinned, so
+        // demanding a third value is unsatisfiable.
+        6 => {
+            let pinned = rng.below(u64::from(elem_count)) as u8;
+            let demanded = (pinned + 1) % elem_count;
+            vec![
+                Formula::ElemEq(
+                    Elem::Read(
+                        Box::new(Arr::Ite(
+                            gen_index(rng, problem),
+                            gen_index(rng, problem),
+                            Box::new(Arr::Var(0)),
+                            Box::new(Arr::Var(1)),
+                        )),
+                        Idx::Lit(0),
+                    ),
+                    Elem::Lit(demanded),
+                ),
+                Formula::ElemEq(
+                    Elem::Read(Box::new(Arr::Var(0)), Idx::Lit(0)),
+                    Elem::Lit(pinned),
+                ),
+                Formula::ElemEq(
+                    Elem::Read(Box::new(Arr::Var(1)), Idx::Lit(0)),
+                    Elem::Lit(pinned),
+                ),
+            ]
+        }
+        // (1f) an array-sorted `ite` under `distinct`, the shape a random
+        // corpus reaches: both operands can denote the same array.
+        7 => {
+            vec![
+                Formula::ArrDistinct(vec![
+                    Arr::Ite(
+                        Idx::Lit(0),
+                        Idx::Lit(0),
+                        Box::new(Arr::Var(0)),
+                        Box::new(Arr::Var(0)),
+                    ),
+                    Arr::Ite(
+                        gen_index(rng, problem),
+                        gen_index(rng, problem),
+                        Box::new(Arr::Var(1)),
+                        Box::new(Arr::Var(0)),
+                    ),
+                ]),
+                Formula::Not(Box::new(Formula::ArrDistinct(vec![
+                    Arr::Var(1),
+                    Arr::Var(0),
+                ]))),
+            ]
+        }
         // (1a) `distinct` over two arrays with every index pinned equal, or
         // one index left free.
         0 => {
@@ -361,6 +439,17 @@ fn print_array(array: &Arr, problem: &Problem, out: &mut String) {
             print_index(index, problem, out);
             out.push(')');
         }
+        Arr::Ite(left, right, then_branch, else_branch) => {
+            out.push_str("(ite (= ");
+            print_index(left, problem, out);
+            out.push(' ');
+            print_index(right, problem, out);
+            out.push_str(") ");
+            print_array(then_branch, problem, out);
+            out.push(' ');
+            print_array(else_branch, problem, out);
+            out.push(')');
+        }
     }
 }
 
@@ -457,12 +546,22 @@ fn render(problem: &Problem, with_model: bool) -> String {
         print_formula(assertion, problem, &mut body);
         body.push_str(")\n");
     }
-    // A budget per check, as the parent campaign does: an `unknown` from an
-    // exhausted budget is scored (`unknown_decided`), never a failure, so one
-    // expensive circuit cannot stall the suite while every decided verdict is
-    // still checked against the oracle.
+    // A *deterministic* budget per check, as the parent campaign does: an
+    // `unknown` from an exhausted budget is scored (`unknown_decided`), never a
+    // failure, so one expensive circuit cannot stall the suite while every
+    // decided verdict is still checked against the oracle.
+    //
+    // `(set-option :timeout 1000)` used to sit beside it and is gone
+    // (decision (16)).  A wall clock here does not only put a verdict behind
+    // the machine's speed — it puts the *tally* there: `score` replays a
+    // published model only on the `sat` branch, so a script that timed out was
+    // never model-checked, and `array_ext_shapes_bounded`'s `bad_model` bound
+    // therefore moved with how many scripts got past the clock.  That is a gate
+    // that breaks on a *faster* machine, which is why no pass ever saw it go
+    // red.  With `:max-conflicts` as the only budget, which scripts answer
+    // `sat` is a property of the formula and not of the host.
     let mut out = String::from(
-        "(set-logic QF_AUFBV)\n         (set-option :produce-models true)\n         (set-option :max-conflicts 20000)\n         (set-option :timeout 1000)\n",
+        "(set-logic QF_AUFBV)\n         (set-option :produce-models true)\n         (set-option :max-conflicts 20000)\n",
     );
     for k in 0..ARRAYS {
         if body.contains(&format!("a{k}")) {
@@ -620,6 +719,13 @@ fn eval_array(array: &Arr, interp: &Interp) -> Vec<u8> {
                 .and_then(|rows| rows.get(outer))
                 .cloned()
                 .unwrap_or_else(|| vec![0; interp.index_count])
+        }
+        Arr::Ite(left, right, then_branch, else_branch) => {
+            if eval_index(left, interp) == eval_index(right, interp) {
+                eval_array(then_branch, interp)
+            } else {
+                eval_array(else_branch, interp)
+            }
         }
     }
 }

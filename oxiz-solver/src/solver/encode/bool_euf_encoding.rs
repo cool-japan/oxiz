@@ -47,30 +47,59 @@ use super::*;
 /// actually owns: an uninterpreted sort, or (redundantly but harmlessly,
 /// since `arith_axioms.rs` already axiomatises these) `Int`/`Real`.
 ///
-/// `BitVec`, `Array`, `String` and `FloatingPoint` sorts each have their own
+/// `BitVec`, `String` and `FloatingPoint` sorts each have their own
 /// theory-specific encoder that recurses through `ite` directly as part of
-/// bit-blasting / axiom instantiation / ground solving -- and, critically,
-/// some bit-vector operators (`bvsmod`, `bvcomp`, the rotates,
-/// `zero_extend`/`sign_extend`) are *desugared into a `BitVec`-sorted `ite`*
-/// by the term builder itself, so a real assertion can easily contain one
-/// without the user ever writing `ite`. Replacing that `ite` with a fresh
-/// opaque variable before the bit-blaster ever sees it deletes the very
-/// structure the blaster recurses on: this was caught by
+/// bit-blasting / ground solving -- and, critically, some bit-vector operators
+/// (`bvsmod`, `bvcomp`, the rotates, `zero_extend`/`sign_extend`) are
+/// *desugared into a `BitVec`-sorted `ite`* by the term builder itself, so a
+/// real assertion can easily contain one without the user ever writing `ite`.
+/// Replacing that `ite` with a fresh opaque variable before the bit-blaster
+/// ever sees it deletes the very structure the blaster recurses on: this was
+/// caught by
 /// `test_bvsmod_symbolic_divisor_operand_unsat`/`test_bvsmod_controls_stay_sat`
 /// going from correct to a false `sat` (the model no longer matched the
 /// operation's reference semantics) the first time this pass ran
 /// unconditionally.
+///
+/// # Why `Array` is *not* in that list (`#P2b-41`)
+///
+/// It used to be, on the same "the theory's own encoder recurses through it"
+/// grounds -- and for arrays that was simply false. `array_axioms.rs` notes an
+/// `ite`'s branches as *foreign* array terms and stops there: no rule ever
+/// relates `select(ite(c,a,b), i)` to `select(a,i)` or `select(b,i)`, so a
+/// read through an array-sorted `ite` was a free bit-vector. Seven lines were
+/// enough for a wrong `sat`:
+///
+/// ```smt2
+/// (declare-const a0 (Array (_ BitVec 1) (_ BitVec 1)))
+/// (declare-const a1 (Array (_ BitVec 1) (_ BitVec 1)))
+/// (declare-const p Bool)
+/// (assert (= (select (ite p a0 a1) #b0) #b1))
+/// (assert (= (select a0 #b0) #b0))
+/// (assert (= (select a1 #b0) #b0))
+/// ```
+///
+/// The read is `a0[0]` or `a1[0]`, both pinned to `#b0`, so the script is
+/// unsatisfiable; it answered `sat` in 0.5 ms on this tree, on the 0.3.4 base
+/// and on crates.io 0.3.3 alike, and the model it printed falsified its own
+/// assertion. The same hole was the second-largest family of falsifying models
+/// in an independent 2,350-script campaign (48 of 114).
+///
+/// Naming the `ite` with a fresh array variable `v` plus `c => v = then` /
+/// `!c => v = else` closes both halves at once, and it is the *only* fix that
+/// closes the model half: read-side lemmas would refute the wrong `sat` but
+/// leave the `ite` an unnamed compound term the model builder has nothing to
+/// publish for. Array-sorted equality atoms are ordinary atoms since
+/// `#P2b-37`, and the array refinement treats `v` as it treats any other array
+/// variable, so no rule needed a special case for it. Nothing desugars into an
+/// `Array`-sorted `ite` the way `bvsmod` does into a `BitVec`-sorted one: the
+/// only way to get one is to write it.
 pub(in crate::solver) fn needs_ite_elimination(sort: SortId, manager: &TermManager) -> bool {
     if sort == manager.sorts.bool_sort {
         return false;
     }
     match manager.sorts.get(sort) {
-        Some(s) => {
-            !(s.is_bitvec()
-                || s.is_string()
-                || s.is_float()
-                || matches!(s.kind, oxiz_core::sort::SortKind::Array { .. }))
-        }
+        Some(s) => !(s.is_bitvec() || s.is_string() || s.is_float()),
         None => false,
     }
 }
@@ -193,7 +222,10 @@ impl Solver {
                 continue;
             };
             if matches!(t.kind, TermKind::Ite(..)) && needs_ite_elimination(t.sort, manager) {
-                let v = manager.mk_var(&format!("$encode-ite-elim!{}", st.0), t.sort);
+                let v = manager.mk_var(
+                    &oxiz_core::smtlib::reserved_name("iteelim", &st.0.to_string()),
+                    t.sort,
+                );
                 fresh_of.insert(st, v);
                 ite_terms.push(st);
             }
@@ -303,7 +335,10 @@ impl Solver {
         let mut fresh_of: FxHashMap<TermId, TermId> = FxHashMap::default();
         let mut side_conditions: Vec<TermId> = Vec::with_capacity(compound_args.len());
         for arg in compound_args {
-            let v = manager.mk_var(&format!("$encode-bool-arg!{}", arg.0), bool_sort);
+            let v = manager.mk_var(
+                &oxiz_core::smtlib::reserved_name("boolarg", &arg.0.to_string()),
+                bool_sort,
+            );
             side_conditions.push(manager.mk_eq(v, arg));
             self.mark_bool_uf_arg(v);
             fresh_of.insert(arg, v);

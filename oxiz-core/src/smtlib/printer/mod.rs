@@ -1509,3 +1509,84 @@ mod tests {
         );
     }
 }
+
+/// Whether `name` is a *simple symbol* in the sense of SMT-LIB 2.6 section
+/// 3.1: a non-empty sequence of letters, digits and
+/// `~ ! @ $ % ^ & * _ - + = < > . ? /` that does not begin with a digit.
+///
+/// The one definition in the workspace, so the two printers cannot drift about
+/// how the same symbol is written.
+#[must_use]
+pub fn is_simple_symbol(name: &str) -> bool {
+    let mut chars = name.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    let allowed = |c: char| {
+        c.is_ascii_alphanumeric()
+            || matches!(
+                c,
+                '~' | '!'
+                    | '@'
+                    | '$'
+                    | '%'
+                    | '^'
+                    | '&'
+                    | '*'
+                    | '_'
+                    | '-'
+                    | '+'
+                    | '='
+                    | '<'
+                    | '>'
+                    | '.'
+                    | '?'
+                    | '/'
+            )
+    };
+    if first.is_ascii_digit() || !allowed(first) {
+        return false;
+    }
+    chars.all(allowed)
+}
+
+/// Write `name` the way SMT-LIB 2.6 section 3.1 requires it to be read back:
+/// bare when it is a simple symbol, wrapped in `|…|` when it is not.
+///
+/// # Why one function rather than one per printer
+///
+/// `(get-model)` printed a quoted symbol *without* its bars — `(declare-const
+/// |a b| …)` came back as `(define-fun a b () (_ BitVec 1) #b0)`, which is not
+/// re-parsable SMT-LIB and silently turns one symbol into two — while the
+/// `(get-value)` key path, which answers with the term's *source* spelling,
+/// printed `|a b|`.  Two commands then disagreed about how to write the same
+/// symbol in the same run.  Routing both through this function is what makes
+/// that disagreement unrepresentable.
+///
+/// A name containing `|` or `\` has no SMT-LIB spelling at all — a quoted
+/// symbol "may not contain `|` or `\`" and a simple symbol admits neither — so
+/// such a name is written bare rather than wrapped in bars that would not
+/// parse.  The only names in that class are the solver's own reserved ones
+/// ([`crate::smtlib::RESERVED_PREFIX`]), which no user symbol can collide with
+/// and which the term printers special-case before reaching here.
+///
+/// ```
+/// # use oxiz_core::smtlib::format_symbol;
+/// assert_eq!(format_symbol("x"), "x");
+/// assert_eq!(format_symbol("a-b?"), "a-b?");
+/// assert_eq!(format_symbol("a b"), "|a b|");
+/// assert_eq!(format_symbol("0start"), "|0start|");
+/// assert_eq!(format_symbol(""), "||");
+/// ```
+#[must_use]
+pub fn format_symbol(name: &str) -> String {
+    if is_simple_symbol(name) || name.contains('|') || name.contains('\\') {
+        name.to_string()
+    } else {
+        let mut out = String::with_capacity(name.len() + 2);
+        out.push('|');
+        out.push_str(name);
+        out.push('|');
+        out
+    }
+}

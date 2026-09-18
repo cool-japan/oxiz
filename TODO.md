@@ -1,6 +1,6 @@
 # OxiZ TODO
 
-Last Updated: 2026-08-26
+Last Updated: 2026-09-19
 
 ---
 
@@ -451,26 +451,23 @@ Recent Achievements entries above.
   simplifier, EUF explanations and the theory-lemma combiner; Linux `VmHWM` peak memory; Big-M phase-1 simplex;
   `#![allow(dead_code)]` removed from 40+ modules. 6,735 tests, ~419,576 code lines across ~1,012 files.
 
-### May 5–18, 2026 - v0.2.2 passes 2–6 (condensed 2026-09-16; the v0.2.2 release entry above carries the outcome)
+### May 5–18, 2026 - v0.2.2 passes 2–6 (condensed 2026-09-19; the v0.2.2 entry above carries the outcome)
 
-- Five passes over two weeks, delivering what the v0.2.2 entry above lists, plus: the `MLBranchingHeuristic` adapter
-  behind `SolverConfig::external_branching`; `oxiz-proof`'s `transform.rs`/`compression.rs` deleted (−1,167 lines
-  over a non-existent `ProofRule`); the SMT-COMP 2026 entry package and the BV/LRA/Arrays criterion benchmarks;
-  `z3_compat_ext{,2,3}.rs` (arrays, quantifiers, `Z3Optimize`, `Z3Statistics`/`Z3Params`/`Z3Probe`/`Z3Goal`/
-  `Z3Tactic`); LIA `feasibility_pump`/`probe_variables`/`manage_cuts` in `LiaSolver::check()`. 6,629 → 6,834 tests.
+- Plus: the `MLBranchingHeuristic` adapter behind `SolverConfig::external_branching`; `oxiz-proof`'s
+  `transform.rs`/`compression.rs` deleted (−1,167 lines over a non-existent `ProofRule`); the SMT-COMP 2026 entry
+  package; `z3_compat_ext{,2,3}.rs`; LIA `feasibility_pump`/`probe_variables`/`manage_cuts`. 6,629 → 6,834 tests.
 
-### April 4 → April 25, 2026 - Statistics snapshots (v0.2.1; condensed 2026-09-15)
+### April 4 → April 25, 2026 - Statistics snapshots (v0.2.1; condensed 2026-09-19)
 
-- **April 4 → 25**: 931 → 1,182 Rust files and 312,495 → 408,320 code lines (tokei), 6,155 → 6,415 tests, 16 → 17
-  workspace crates, 0 stubs; five EUF allocation/data-layout improvements, the Set-theory CDCL(T) interface, the Sylvester-matrix discriminant (degree ≥ 4) and Hong projection.
+- 931 → 1,182 Rust files, 312,495 → 408,320 code lines, 6,155 → 6,415 tests, 16 → 17 crates, 0 stubs; five EUF
+  allocation improvements, the Set-theory CDCL(T) interface, the Sylvester discriminant (degree ≥ 4), Hong projection.
 
-### Feb 5 → March 31, 2026 - parity, milestone and polish (condensed 2026-09-16)
+### Feb 5 → March 31, 2026 - parity, milestone and polish (condensed 2026-09-19)
 
-- **March 31**: nine performance optimizations (arena allocator, clause pool, SIMD polynomial ops, `TermKindHasher`,
-  caches, parallel theory checking, lock-free structures, lazy evaluation); the `EasySolver` API, better errors and
-  resource limits; state visualization, traces, conflict explanations, model minimization; 6,155 tests.
-- **March 23 (v0.3.0 milestone)**: 168/168 Z3 parity tests, 5,993 tests, every file under 2,000 lines.
-- **February 5 (100% Z3 parity)**: 88/88 benchmarks across 8 core logics; 31 test failures fixed; 13 algorithmic improvements.
+- **March 31**: nine performance optimizations (arena allocator, clause pool, SIMD polynomial ops, caches, parallel
+  theory checking, lock-free structures, lazy evaluation); the `EasySolver` API, better errors, resource limits,
+  state visualization, traces, conflict explanations, model minimization; 6,155 tests. **March 23 (v0.3.0)**:
+  168/168 Z3 parity tests, 5,993 tests, every file under 2,000 lines. **February 5**: 88/88 benchmarks, 8 logics.
 
 ---
 
@@ -524,8 +521,7 @@ A full `cargo nextest run --all-features` on a 14.6 GB developer machine was ter
   - **Priority:** P1  **Scope:** small
 - [ ] **Production: `IndentedText` and `AsciiTree` are Theta(depth^2) in output size** — `oxiz-proof/src/visualization.rs:277` (`"  ".repeat(current_indent)`) and `:223`-`:227` (prefix grown by `format!` per level, re-emitted per line). Unlike the JSON case this is output volume only, not live heap, so a caller writing to a file or a pipe never holds it. Inherent to indent-by-depth rendering; only fixable by capping the indent, which changes the rendered format. Decide whether to cap or to document the cost; do not silently change the format.
   - **Priority:** P3  **Scope:** small
-- [ ] **Test infra: nextest has no `slow-timeout`, so a runaway test can only be stopped by the OOM killer** — `.config/nextest.toml` defines a `test-groups` serial group for the `oxiz-cli` subprocess tests but sets no `slow-timeout`. nextest's default reports SLOW at 60s and never terminates, so an unbounded allocation runs until the machine dies. Fix: add `slow-timeout = { period = "60s", terminate-after = 3 }` to `profile.default` so a runaway is reported as TIMEOUT and killed, and consider a tighter `profile.ci`.
-  - **Priority:** P2  **Scope:** small
+- [x] **Test infra: nextest has no `slow-timeout`, so a runaway test can only be stopped by the OOM killer** — nextest's default reports SLOW at 60s and never terminates, so an unbounded allocation ran until the machine died. — **(fixed: `.config/nextest.toml` sets `slow-timeout = { period = "60s", terminate-after = 3 }` on `profile.default` and `terminate-after = 2` on `profile.ci`. Amended 2026-09-19 under `#P2b-45` / decision (16): `bv_wide_soundness::wide_sub_of_add_two_vars_is_identity_above_64_bits` has its own override at `terminate-after = 10`, because it bit-blasts three wide two-variable soundness goals in one body and took 151.5 s inside a workspace run on this machine — under the shared 180 s ceiling its colour was a property of what else was running.)**
 - [ ] **Test infra: document a memory-capped way to run the suite** — nothing stops a local full-suite run from taking down the developer's desktop session. Add a `CONTRIBUTING.md` recipe — on Linux, `systemd-run --user --scope --collect -p MemoryMax=10G -q -- cargo nextest run ...` confines a runaway to its own cgroup — and record the build/test parallelism caps (`-j 6`, `--test-threads 8`) that were needed on a 16-thread / 14.6 GB machine.
   - **Priority:** P2  **Scope:** small
 - [ ] **Remaining deep-depth test sites not yet swept** — the 2026-07-31 pass covered only `oxiz-spacer`, `oxiz-solver`, `oxiz-proof`, `oxiz-theories`, and `oxiz-wasm`. Not swept, with approximate counts of large-depth literals (`50_000` / `60_000` / `100_000` / `200_000`): `oxiz-core` 74, `oxiz-math` 16, `oxiz-sat` 10, `oxiz-opt` 6, `oxiz-nlsat` 5, `oxiz-ml` 3. Apply the same rule: scale the thread stack size and the constructed depth by the same factor so the bytes-per-frame threshold is preserved.
@@ -1436,20 +1432,17 @@ Line numbers below were re-verified on 2026-09-09, after the two file splits thi
   `produce-proofs` → `Proof` reconstruction → Alethe output, with the `ProofStep` construction
   points inside the solver. The visible symptom is U-Z16 below; this is the work behind it.
   Evidence: cargo-formal blueprint §14.1 item 1.
-- [ ] **#P2b-40 (2026-09-16) — a function whose *return* sort is uninterpreted prints as a constant,
-  so its model falsifies its own assertion.** `(declare-sort U 0) (declare-fun g (U) U)
-  (declare-const p U) (declare-const q U) (assert (distinct (g p) (g q)))` answers `sat` and publishes
-  `(define-fun g ((x!0 U)) U @uc_U_0)` beside `p = @uc_U_0`, `q = @uc_U_1` — one constant function, so
-  the printed `g` makes `(g p) = (g q)` and contradicts the assertion it satisfies. Root cause:
-  `model_fmt::class_values::build_class_values` mints `@uc_S_n` witnesses only for *declared
-  constants*, so an `Apply` result class of uninterpreted sort gets no value, `class_value_string`
-  returns `None`, `func_interp_from` skips the entry, and the interpretation collapses to
-  `default_value(ret_sort)`. Found while extending `#P2b-39`; **pre-existing, not a regression** —
-  byte-identical on the base `c4b04b7`, and crates.io 0.3.3 prints no `g` line at all. The bit-vector
-  twin *is* fixed under `#P2b-39` (`fa` returning `(_ BitVec 2)` prints a two-branch `ite` chain,
-  pinned by `foreign_array_arguments_in_different_classes_print_differently`). Fix: mint witnesses
-  for uninterpreted-sort classes with no declared constant, *after* the declared ones so the
-  user-visible `@uc_S_n` numbering does not move.
+- [x] **#P2b-40 (2026-09-16) — a function whose *return* sort is uninterpreted prints as a constant, so its model
+  falsifies its own assertion.** `(declare-fun g (U) U)` with `(assert (distinct (g p) (g q)))` answered `sat` and
+  published `(define-fun g ((x!0 U)) U @uc_U_0)` beside `p = @uc_U_0`, `q = @uc_U_1` — one constant function, so the
+  printed `g` made `(g p) = (g q)`. `build_class_values` minted `@uc_S_n` only for *declared constants*, so an
+  `Apply` result class got no value and the interpretation collapsed to `default_value(ret_sort)`. Pre-existing,
+  byte-identical on `c4b04b7`. — **(fixed 2026-09-18 under `#P2b-41` / decision (11): `build_class_values` walks the
+  remaining EUF classes of each uninterpreted sort after the declared constants, numbered from the declared count
+  upward so `p` and `q` keep `@uc_U_0`/`@uc_U_1`. Guarded by
+  `round4_pass2_recheck_pins::an_uninterpreted_return_sort_prints_a_distinct_witness_per_class`, mutation-verified.
+  Amended 2026-09-19 (`#P2b-45`): those witnesses are no longer *spellable* — the parser refuses a user symbol
+  beginning with `@` or `.`, which SMT-LIB 2.6 §3.1 reserves for solver use.)**
 - [ ] **U-Z3 — HORN has no script-path dispatch, and the Spacer parser has no BV/Array sorts.**
   Blueprint §14.1 item 3.
 - [ ] **U-Z4 — QF_FP has no decision procedure (bit-blasting).** Blueprint §14.1 item 4.
@@ -1554,18 +1547,14 @@ Line numbers below were re-verified on 2026-09-09, after the two file splits thi
   Bool `ite`, Bool `=`, `distinct` over Bool/BV, an opaque `Apply` or `select`), and answered with
   `new_bv(root, w)` — unconstrained bits for a `bvsub`/`ite` whose semantics are known. A second
   atom sharing the sub-term blasted it for real, the two disagreed, and `debug_verify_bv_circuits`
-  panicked. The unfixed tree panics in a debug build on the fuzz script (`SELFCHECK_PANIC`),
-  answers `unknown` on its declared-constant form and on `c13` — the model gate refusing the
-  free-bit model — while crates.io 0.3.3 answers both `sat`. A sibling gap: a Boolean pinned into a
-  live selector *after* the last check never triggered one. — **(fixed in 0.3.4: `encode_bool_node`
+  panicked; crates.io 0.3.3 answers `sat`. A sibling gap: a Boolean pinned into a live selector
+  *after* the last check never triggered one. — **(fixed in 0.3.4: `encode_bool_node`
   and `bit_blast_cond_operands` cover the whole Boolean fragment
   (`oxiz-theories/src/bv/solver/bool_node.rs`); the encoder abstracts an opaque leaf *at the leaf*
   and a remaining failure sets `bv_atom_unmodelled`; `BvSolver::bv_ite` is `#[must_use] -> bool`;
   `assert_bool_value` reports a pin on a live node and `final_check` runs one deferred
-  `bv_check_after_pin`. Measured with `bv_ite_selfcheck_fuzz.rs` (widths 8/32/63/64, plain /
-  `:timeout` / named-core forms, `u128` reference + exhaustive width-8 oracle): 10 `unknown` in
-  the 100-trial bounded slice before, 0 after; campaign figures in CHANGELOG 0.3.4, with the two
-  pre-existing mechanisms fresh seeds then exposed (`#P2b-27`, `#P2b-28`). `c13` is cargo-formal's
+  `bv_check_after_pin`. Measured with `bv_ite_selfcheck_fuzz.rs`: 10 `unknown` in the 100-trial
+  bounded slice before, 0 after; campaign figures in CHANGELOG 0.3.4. `c13` is cargo-formal's
   `u11_ite_selector_free_bits` (`upstream: U-Z18`).)**
 - [x] **#P2b-25 (2026-09-15) — a theory conflict explanation omitted the outer Booleans pinned into
   the circuit: a false proof.** `on_assignment` mirrors every outer assignment into the bit-blaster
@@ -1615,30 +1604,24 @@ Line numbers below were re-verified on 2026-09-09, after the two file splits thi
 - [x] **#P2b-29 (2026-09-15) — congruence never reached an opaque leaf under a bit-vector operation, and a
   circuit-entailed equality never reached congruence.** `(= a b) ∧ (distinct (bvadd (f a) #x01) (bvadd (f b) #x01))`
   answered `sat` on 0.3.3, HEAD and the `#P2b-24` tree: the encoder gave `(f a)` and `(f b)` two unrelated free
-  bit-vectors and nothing carried EUF's `f(a) = f(b)` into the circuit — likewise with `bvnot`, with the leaves inside
-  two `ite` selectors, and with array `select`s under `(= i j)` — while the bare pair `(distinct (f a) (f b))` was
-  refuted by EUF alone. The reverse direction was open too: `(= (bvadd x #x01) (bvadd y #x01)) ∧ (distinct (g x) (g
-  y))` answered `sat` on 0.3.3 and here because nothing told EUF that the circuit forces `x = y`. — **(fixed in 0.3.4
+  bit-vectors and nothing carried EUF's `f(a) = f(b)` into the circuit — likewise under `bvnot`, inside two `ite`
+  selectors, and with array `select`s under `(= i j)`. The reverse direction was open too: `(= (bvadd x #x01) (bvadd
+  y #x01)) ∧ (distinct (g x) (g y))` answered `sat` because nothing told EUF the circuit forces `x = y`. — **(fixed
+  in 0.3.4
   by a bidirectional exchange in `final_check` (`TheoryManager::combine_bv_with_euf`): opaque leaves are journalled by
   the bit-blaster, interned into congruence closure, and two leaves EUF holds equal get their bit-equality asserted
   under EUF's explanation; the other way, the circuit's model is read as a partition of the application arguments, EUF
   is asked in a scratch scope whether it accepts it, and a refusal becomes a *lemma* entailed by the atoms EUF named,
   asserted into the circuit (`BvSolver::assert_any`) and re-checked until EUF accepts a partition or the circuit
-  refutes the lemmas. Every crossing carries an explanation in `DerivedReasons`, so a conflict clause names the atoms
-  it rests on. Two consequences fixed with it: the `resync_theory_state` backstop is gated on the bit-blaster holding
-  no circuit (its `bv_terms.is_empty()` test was true for a leaf-only problem), and `build_model` publishes the
-  circuit's value for a bit-vector variable that occurs only as an application argument. Measured by
+  refutes the lemmas; every crossing carries an explanation in `DerivedReasons`. Two consequences fixed with it: the
+  `resync_theory_state` backstop is gated on the bit-blaster holding no circuit, and `build_model` publishes the
+  circuit's value for a bit-vector variable occurring only as an application argument. Measured by
   `oxiz-solver/tests/bv_euf_combination.rs` against an exhaustive oracle over variable values *and* function tables:
-  320 bounded scripts at widths 1–2 and 150 at widths 3/4/8, 0 wrong either way, 0 bad cores, 0 models failing to
-  extend (before the lemma form, 34 of the 320 answered `unknown` and two models did not extend); the long campaign
-  (seeds 0–7 × 100 trials, 924 s) 1,600 scripts with 6 `unknown` and 0 wrong answers. `BvSolver::notify_equality`
-  (`#P2b-11`) stays unreachable. Tests: `p2b29_*` in `bv_ite_selfcheck_regressions.rs`, `bv_ite_adversarial_probe.rs`,
-  `oxiz-theories/tests/bv_selector_fragment_and_pins.rs`; fixture `c15_congruence_under_bv_operation`. **Scope**: the
-  exchange closes congruence and circuit-entailed argument equalities and nothing wider — an equality from an array
-  axiom is `#P2b-32`'s, one the axiom pass never instantiated at all `#P2b-33`'s. The close-out recheck root-caused
-  the campaign's `unknown`s to a missing per-pair memo in `assert_any` (76 variables / 171 clauses at round 1, 16,689
-  / 50,354 at round 500); fixed by `BvSolver::eq_cache`, journalled like `ult_cache` — the same 511-round exit now
-  costs 1.4–1.8 s instead of 63–82 s. **Still open:** (1) the loop enumerates partitions of ~15 argument terms one
+  320 bounded scripts at widths 1–2 and 150 at widths 3/4/8, 0 wrong either way, 0 bad cores; the long campaign
+  1,600 scripts with 6 `unknown` and 0 wrong answers. Tests: `p2b29_*` in `bv_ite_selfcheck_regressions.rs`,
+  `bv_ite_adversarial_probe.rs`, `oxiz-theories/tests/bv_selector_fragment_and_pins.rs`; fixture
+  `c15_congruence_under_bv_operation`. The close-out recheck root-caused the campaign's `unknown`s to a missing
+  per-pair memo in `assert_any`, fixed by `BvSolver::eq_cache`. **Still open:** (1) the loop enumerates partitions of ~15 argument terms one
   lemma at a time (`MAX_LEMMAS = 512`); the remedy is to make the argument equalities atoms of the *outer* search
   (delayed theory combination / Ackermann-style splitting with CDCL learning); (2) the pigeonhole shape `(distinct (g
   x0) … (g x8))` at width 3 is `unsat` in 62–71 s in the outer CDCL(T) search; (3) 16 width-32 variables chained by
@@ -1647,248 +1630,284 @@ Line numbers below were re-verified on 2026-09-09, after the two file splits thi
 - [x] **#P2b-32 (2026-09-15) — array read-over-write was never instantiated for a `select` nested under a bit-vector
   or arithmetic operator: a wrong `sat`, pre-existing on 0.3.3.** `(distinct (bvadd (select (store arr i #x05) i)
   #x01) #x06)` answered `sat` on 0.3.3, HEAD and the `#P2b-24`–`#P2b-29` tree — likewise under `bvnot`, `concat` and
-  `bvult`, the RoW-2 miss with the base read pinned, and the `QF_AUFLIA` twins — while the same read as a *direct*
-  atom operand was decided. `array_axioms::collect_array_structure` descended through a hand-written child list with
-  `_ => Vec::new()`, so the read under `BvAdd` was never collected, the leaf stayed free, and the model gate had no
-  `Select` arm. Found by the close-out review of `#P2b-29`. **Scope**: this is the *walk* the instantiator makes over
-  the assertions; a read that occurs only as an application's ARGUMENT never reached that walk at all and is
-  `#P2b-33`. — **(fixed in 0.3.4: the walk delegates to `term_walk::collect_structural_children` for every non-binder
-  kind (`ground_children`), so any present or future `TermKind` reaches it; the model gate reads a `select` over a
-  `store` as read-over-write (`model_eval::Op::Select`) under `SelectSemantics::ReadOverWrite`, while the instantiator
-  keeps the published-leaf reading — an instantiator that evaluated a read by the axiom itself would find every
-  instance satisfied and assert nothing. All 44 scripts of the review's `f3arr` battery answer as the theory says.
+  `bvult` and in the `QF_AUFLIA` twins — while the same read as a *direct* atom operand was decided.
+  `collect_array_structure` descended through a hand-written child list with `_ => Vec::new()`. **Scope**: this is
+  the instantiator's *walk*; a read occurring only as an application's ARGUMENT is `#P2b-33`. — **(fixed in 0.3.4: the walk delegates to `term_walk::collect_structural_children` for every non-binder
+  kind (`ground_children`); the model gate reads a `select` over a `store` as read-over-write under
+  `SelectSemantics::ReadOverWrite`, while the instantiator keeps the published-leaf reading — one that evaluated a
+  read by the axiom itself would find every instance satisfied and assert nothing. All 44 `f3arr` scripts answer as
+  the theory says.
   Tests: `p2b32_*` in `bv_ite_selfcheck_regressions.rs`, `bv_ite_adversarial_probe.rs`, four `model_eval` and four
   `array_axioms` unit tests; fixture `c17_nested_select_read_over_write`.)**
 - [x] **#P2b-33 (2026-09-15) — the array-axiom refinement loop never ran at all for a formula whose only `select` is
   an application's ARGUMENT: a wrong `sat`, pre-existing on 0.3.3.** `(distinct (f (select (store arr i v) i)) (f v))`
   answered `sat` on 0.3.3, on the `#P2b-32` tree and on every tree before it, in QF_AUF, QF_AUFBV and QF_AUFLIA alike
-  — likewise the RoW-2 sibling, a binary `g`, a nested `(f (f sel))`, `not (= …)` instead of `distinct`, the value
-  reached through a third constant, and the read under `bvadd` *inside* the application — while the same read as a
-  direct atom operand was decided. `Solver::has_array_ops` is the guard on `instantiate_array_axioms`, and it was
-  raised only by `track_theory_vars` and the encoder's `Select`/`Store` arm; `track_theory_vars` deliberately does not
-  descend into an application's arguments, so the flag stayed `false`, no instance was built, the read stayed a free
-  leaf, and the model gate — seeing the same free leaf — vouched for it. `#P2b-32` repaired the instantiator's *walk*,
-  which this shape never reached. Found by the close-out review of `#P2b-32`. — **(fixed in 0.3.4 by two mechanisms.
-  (1) The guard is computed by the instantiator's own exhaustive walk (`array_axioms::Solver::mark_array_ops`, called
-  from `Solver::encode` — the one choke point every user assertion, lemma and MBQI instance passes through), with the
-  same `ground_children` binder exclusion, so guard and consumer agree on what "mentions an array" means:
-  over-approximating costs one refinement round, under-approximating is a wrong answer. (2) EUF interns `store` as a
-  ternary application of `TheoryManager::STORE_FUNC_ID`, which the `Int` rows need: `purify_numeric_uf_args` rewrites
-  a numeric literal under an application into a proxy variable throughout that assertion, so the encoder sees
-  `store(arr,i,w)` while the instantiator reasons about `store(arr,i,5)`; congruence over `store` joins the two once
-  `5 = w` merges. Measured: the 45 array benchmark scripts keep every verdict at 1,250 ms against 1,251 ms before the
-  store interning, and all 106 scripts of the review's array battery answer as the theory says. Tests: seven `p2b33_*`
-  in `array_axiom_instantiation.rs`, the inverted probe in `bv_ite_adversarial_probe.rs`, and a new exhaustive
-  differential campaign `array_uf_combination.rs` whose oracle enumerates every variable assignment × array table ×
-  function table at widths 1–2; reverting `mark_array_ops` makes the bounded run report 32 wrong `sat`, and the long
-  form (seeds 0–15 × 100 trials, 318 s) is 3,200 scripts with 0 wrong answers. Fixture
-  `c18_read_over_write_under_application` (`upstream: U-Z23`), `sat` on crates.io 0.3.3 and `unsat` here.)** —
-  **(amended in 0.3.4 by `#P2b-37`: `mark_array_ops` now fires on any array-*sorted* term, not only on a
-  `select`/`store` application — `(= ((as const A) #b1) ((as const A) #b0))` mentions neither operator, so the guard
-  stayed false and the atom was a free Boolean; and `int_case_split::assert_value_disjunction` and
-  `encode::finite_map_ite` were the two callers of `encode_depth(.., 0)` that bypassed `Solver::encode`, which made
-  the "one choke point" claim above literally false. Both now go through `encode`.)**
+  — likewise the RoW-2 sibling, a binary `g`, a nested `(f (f sel))` and the read under `bvadd` *inside* the
+  application — while the same read as a direct atom operand was decided. `Solver::has_array_ops` guards
+  `instantiate_array_axioms`, and it was
+  raised only by `track_theory_vars` and the encoder's `Select`/`Store` arm, and `track_theory_vars` deliberately
+  does not descend into an application's arguments, so the flag stayed `false` and the read stayed a free leaf that
+  the model gate vouched for. Found by the close-out review of `#P2b-32`. — **(fixed in 0.3.4: the guard is
+  computed by the instantiator's own exhaustive walk (`array_axioms::Solver::mark_array_ops`, from `Solver::encode`)
+  with the same `ground_children` binder exclusion, so guard and consumer agree on what "mentions an array" means;
+  and EUF interns `store` as a ternary application of `TheoryManager::STORE_FUNC_ID` so congruence joins the
+  purified and unpurified spellings. Measured: 45 array benchmarks keep every verdict at 1,250 ms; all 106 scripts
+  of the review's battery answer as the theory says. Tests: seven `p2b33_*` in `array_axiom_instantiation.rs`, the
+  inverted probe in `bv_ite_adversarial_probe.rs`, and `array_uf_combination.rs` — reverting `mark_array_ops` gives
+  32 wrong `sat`. Fixture `c18_read_over_write_under_application` (`upstream: U-Z23`).)**
+  — **(amended by `#P2b-37`: `mark_array_ops` fires on any array-*sorted* term, not only on a `select`/`store`
+  application, and the two callers of `encode_depth(.., 0)` that bypassed `Solver::encode` —
+  `int_case_split::assert_value_disjunction` and `encode::finite_map_ite` — now go through it.)**
 - [x] **#P2b-34 (2026-09-15) — published models for array reads were wrong while the verdict was right, and
   `(get-model)` printed no function interpretations: pre-existing on 0.3.3.** `(= (bvadd (select arr i) #x01) #x06)`
   was answered `sat`, then printed `i = #x00` beside `arr = ((as const …) #x00)` — a model in which the assertion
   reads `0 + 1 = 6`. An array *always* printed the constant array of its sort default, contradicting its own `select`
-  entries, and `(get-model)` omitted every declared function. `build_model`'s circuit-publication loop (`#P2b-29`)
-  filtered `BvSolver::circuit_terms()` to `TermKind::Var`, so an opaque `Select`/`Apply` leaf the circuit had valued
-  never reached the model, and the gate read it `Undetermined`. Every verdict in the family was correct. — **(fixed in
-  0.3.4: the circuit filter admits every opaque *leaf*; `model_builder::opaque_leaves` publishes each `select` the
-  ground assertions and the asserted array lemmas mention, and the read's *index* with it;
-  `context::model_fmt::array_model` renders an array as the `store` chain of its published reads over the constant
-  default, deduplicated by evaluated index, and prints `(define-fun f ((x!0 S)) T (ite (= x!0 …) … else))` for every
-  declared *uninterpreted* function — `DeclaredFun::interpreted` separates those from datatype constructors/selectors
-  and `define-fun` macros. Tests: six `p2b34_*` in `model_output_and_options.rs`.)** — **(amended in 0.3.4 by
+  entries, and `(get-model)` omitted every declared function: `build_model`'s circuit-publication loop filtered
+  `BvSolver::circuit_terms()` to `TermKind::Var`, so an opaque `Select`/`Apply` leaf the circuit had valued never
+  reached the model. Every verdict in the family was correct. — **(fixed in 0.3.4: the circuit filter admits every
+  opaque *leaf*; `model_builder::opaque_leaves` publishes each `select` the ground assertions and the asserted array
+  lemmas mention, with the read's *index*; `context::model_fmt::array_model` renders an array as the `store` chain of
+  its published reads over the constant default and prints a total `define-fun` for every declared *uninterpreted*
+  function. Tests: six `p2b34_*` in `model_output_and_options.rs`.)** — **(amended in 0.3.4 by
   `#P2b-37`: the 0.3.4 rendering was a *regression* in one place and incomplete in three. The regression:
-  `(get-model)` began printing a function interpretation over an uninterpreted sort that falsified the assertions —
   `(= (f a) b)` with `(distinct a b)` printed `b = @uc_U_1` beside `f = @uc_U_0`, because `get_func_interp_raw` had
-  its own class walk and no `@uc_S_n` synthesis, so `b`'s class looked valueless; `p` printed the *same* guard twice
-  with contradicting answers. Fixed by one canonical class → value map per query (`context/model_fmt/class_values.rs`)
-  that the constants, the `define-fun` interpretations, the array chains and `(get-value)` all read, with entries
-  keyed by the *rendered* argument tuple and a `debug_assert!` that two entries of one congruence class cannot
-  disagree; a class with no direct value is resolved by folding a member in the model (`Solver::eval_in_model`) or,
-  for an array-sorted class, by the array rendering, and only a class no reading resolves falls back to the sort
-  default — in a second pass, so a guess never claims the tuple an exact entry needs. The three incompletenesses: an
-  array is rendered per **EUF class** (the default of an `(as const d)` member, else a `store` member's base with that
-  write on top, else the sort default, then every published read of any member, arrays of arrays recursively); an
-  array described only from the outside inherits the class of a `store` it is the base of, minus that store's index;
-  and two reads of one array at indices the candidate model makes equal are forced to agree
-  (`Solver::build_index_congruence`, model-guided). Measured with the round-3 recheck's evaluator, corrected first
-  (see `#P2b-37`): the corpus-wide model check over all 217 `bench/` scripts with `(get-model)` appended goes 4 →
-  **0** falsifying models, campaign A's published models 234 → 12 of 6,000 and campaign B's 255 → 85. Tests: eleven in
-  `model_one_reading.rs`.)**
-- [x] **#P2b-35 (2026-09-15) — the `(get-value)` residue left by `#P2b-26`'s half-fix.** Six shapes still echoed their
-  body on 0.3.3 and on the `#P2b-26` tree: an `Int`-indexed read-over-write never folded (a numeric index collision,
-  even the syntactically same index, was read as inconclusive) while the bit-vector twin folded; a strict comparison
-  at its boundary (`(< x 4)` with `x = 4`) and `distinct` over two assigned integers echoed although `(<= x 4)`
-  answered `true`; a term mixing a defaulted constant with an assigned one printed half-substituted (`(bvult w v)` →
-  `(bvult #x00 v)`); real division printed as `div` and did not fold; and an application absent from the assertions
-  echoed although `(get-model)` prints the very interpretation that answers it. — **(fixed in 0.3.4: under
+  its own class walk and no `@uc_S_n` synthesis. Fixed by one canonical class → value map per query
+  (`context/model_fmt/class_values.rs`) that the constants, the `define-fun` interpretations, the array chains and
+  `(get-value)` all read, keyed by the *rendered* argument tuple and guarded by a `debug_assert!`; plus three
+  completions — an array rendered per EUF class, one described only from the outside inheriting the class of a
+  `store` it is the base of, and two reads at model-equal indices forced to agree. Measured: the 217-script
+  corpus-wide model check 4 → **0**, campaign A 234 → 12 of 6,000, campaign B 255 → 85. Tests: eleven in
+  `model_one_reading.rs`.)** — **(amended 2026-09-19 by `#P2b-45`: the array renderer also names a position of an
+  uninterpreted index sort, evaluates an `(as const)` default, and publishes the shortest faithful chain.)**
+- [x] **#P2b-35 (2026-09-15) — the `(get-value)` residue left by `#P2b-26`'s half-fix.** Six shapes still echoed
+  their body on 0.3.3 and on the `#P2b-26` tree: an `Int`-indexed read-over-write never folded while the bit-vector
+  twin did; a strict comparison at its boundary and `distinct` over two assigned integers echoed although `(<= x 4)`
+  answered `true`; a term mixing a defaulted constant with an assigned one printed half-substituted; real division
+  printed as `div`; and an application absent from the assertions echoed. — **(fixed in 0.3.4: under
   `LeafSource::Model` the printed model *is* the model, so `combine_eq`, `cmp_strict`, `Op::Distinct` and the
-  read-over-write index comparison all fold exactly there, while the gate (`LeafSource::Tableau`) keeps every
-  softening; `(get-value)` evaluates against the model *completed* with the same sort defaults `(get-model)` reports;
-  a `Real`-sorted `Div` folds (`EagerKind::RealDiv`) and prints as `/` in both printers; and an application with no
-  entry of its own is resolved against the function's interpretation by ARGUMENT VALUE (`Op::ApplyInterp`), with no
-  match answering `Undetermined`. Tests: six `p2b35_*` in `model_output_and_options.rs`.)** — **(amended in 0.3.4 by
-  `#P2b-37`: the "answer `Undetermined` rather than guess an else-value" decision is retired. `(get-model)` prints
-  each declared function as a *total* function whose innermost `ite` branch is that very else-value, so echoing the
-  term instead made the two commands describe two different models — `(get-value ((f a)))` answered `(f a)` while
-  `(get-model)` said `f` is `#x07` everywhere. `Context::applied_interp_value` now evaluates the argument tuple
-  exactly as the interpretation printer does and answers the matching entry, or the else-value when no entry matches.
-  Tests: three `get_value_*` in `model_one_reading.rs`.)**
+  read-over-write index comparison fold exactly there while the gate (`LeafSource::Tableau`) keeps every softening;
+  `(get-value)` evaluates against the model *completed* with `(get-model)`'s sort defaults; a `Real`-sorted `Div`
+  folds and prints as `/`. Tests: six `p2b35_*` in `model_output_and_options.rs`.)** — **(amended by `#P2b-37`: the
+  "answer `Undetermined` rather than guess an else-value" decision is retired, because `(get-model)` prints each
+  declared function as a *total* function whose innermost `ite` branch is that else-value.
+  `Context::applied_interp_value` evaluates the argument tuple exactly as the interpretation printer does. Tests:
+  three `get_value_*` in `model_one_reading.rs`.)**
 - [x] **#P2b-36 (2026-09-15) — a read of the SMT-LIB array constant `((as const (Array D R)) d)` was an opaque free
   leaf: a wrong `sat`, pre-existing on 0.3.3.** `(= (select ((as const (Array (_ BitVec 8) (_ BitVec 8))) #x00) #x00)
-  #x05)` answered `sat` on 0.3.3 and on every tree before this one, as did the `Int` spelling, the read at a variable
-  index, the read under `bvadd`, the read wrapped in an uninterpreted function, a `store` chain that misses down to a
-  constant base, and `arr = ((as const …) #x00)` with a read on `arr` — eight of the review's ten shapes, the two
-  controls correct throughout. The array constant has no term kind of its own: the parser turns the qualified
-  identifier into an ordinary uninterpreted `Apply`, so no array axiom related the read to the default and the model
-  gate — reading the same free leaf — vouched for it. Found by the `#P2b-34` close-out check, where "replay the
-  printed model" turned out to be vacuous for exactly this reason. — **(fixed in 0.3.4:
+  #x05)` answered `sat` on 0.3.3 and on every tree before this one, as did seven more shapes of the review's ten.
+  The array constant has no term kind of its own: the parser turns the qualified identifier into an ordinary
+  uninterpreted `Apply`, so no array axiom related the read to the default and the model gate — reading the same
+  free leaf — vouched for it. — **(fixed in 0.3.4:
   `array_axioms::build_const_array_reads` instantiates the missing axiom — an array constant reads back its default at
   every index — as one unconditional ground equality per collected read, composing with the two families around it (a
   miss down a `store` chain is reduced by RoW-2 to a read *of* the constant; `arr = ((as const …) d)` is carried
-  across by select congruence). `Solver::store_chain` gives the model evaluator the same reading. Measured: the array
-  corpus (40 z3-parity benchmarks plus the review's 106-script battery, three repetitions) runs 926–956 ms with the
-  axiom against 978–1,028 ms with it off, and all 106 scripts keep their verdicts. Tests: five `p2b36_*` in
-  `array_axiom_instantiation.rs`, two in `model_output_and_options.rs`, the inverted probe in
-  `bv_ite_adversarial_probe.rs`, and an `ArrTerm::Const` in `array_uf_combination.rs` — reverting the axiom makes its
-  bounded run report 12 wrong `sat` of 72 scripts. Fixture `c19_array_constant_read_default` (`upstream: U-Z24`).)** —
-  **(amended in 0.3.4 by `#P2b-37`: the recognition is no longer *structural only*. The parser interns an array
-  constant under the reserved symbol `oxiz_core::smtlib::CONST_ARRAY_FUNC`, which contains a backslash — SMT-LIB 2.6
-  §3.1 excludes it from a simple symbol's character set and forbids it inside `|…|`, and the lexer now rejects one
-  there — so no script can spell the name, `Parser::reject_reserved_symbol` refuses it if one ever reaches the parser,
-  and both term printers render the application back as `((as const (Array D R)) d)` from the node's own sort.
-  `Solver::const_array_symbol_shadowed`, `shadow_const_array_symbol` and the `Context::push_fun_decl` hook are deleted
-  with their trail comment; `const_array_default` keeps its structural checks for a builder-API caller. A script may
-  now declare `|(as const)|` as an ordinary function *and* have its real array constants decided in the same breath,
-  and `(reset)` needs no bookkeeping. The **open remainder** is closed by `#P2b-37`.)**
+  across by select congruence). `Solver::store_chain` gives the model evaluator the same reading. Tests: five
+  `p2b36_*` in `array_axiom_instantiation.rs`, two in `model_output_and_options.rs`, the inverted probe in
+  `bv_ite_adversarial_probe.rs`, and an `ArrTerm::Const` in `array_uf_combination.rs` — reverting the axiom gives 12
+  wrong `sat` of 72. Fixture `c19_array_constant_read_default` (`upstream: U-Z24`).)** — **(amended by `#P2b-37`:
+  the parser interns an array constant under `oxiz_core::smtlib::CONST_ARRAY_FUNC`, whose backslash no SMT-LIB
+  symbol form can produce, so the shadowing bookkeeping — `const_array_symbol_shadowed`, `shadow_const_array_symbol`
+  and the `Context::push_fun_decl` hook — is deleted and both printers render the application back from the node's
+  own sort. The **open remainder** is closed by `#P2b-37`; the *indirect* half by `#P2b-41`.)**
 - [x] **#P2b-37 (2026-09-16) — array extensionality: `distinct` over arrays recorded no pair, a store's own index was
   never read, and two arrays shared with the uninterpreted fragment were never compared. Four wrong-`sat` families,
   pre-existing on 0.3.3 and on the 0.3.4 base.** `(distinct arr brr)` with every index of a two-element index sort
-  pinned equal answered `sat` (`r3/ext/e10`, width-2 twin `r3/ext2/f5`) — the shape needs neither an array constant
-  nor a `store`, so the store-only and constant-only repairs before it left it standing, and the published model
-  printed both arrays as the same `store` chain. `collect_array_structure` recorded an array-sorted (dis)equality from
-  `TermKind::Eq` alone; `distinct` over array-sorted operands fell into the generic arm. Three more holes rode with
-  it: a store's own-index read `select(store(b,i,v), i)` is never a *collected* read unless the script spells it, so
-  `(= (store ((as const A) #b1) i #b0) ((as const A) #b1))` had no read at all (`r3/ext/e04`–`e06`, and the `#P2b-36`
-  remainder `(= ((as const A) d1) ((as const A) d2))`); the pair's own witness index never reached select congruence;
-  and `(distinct (f arr) (f brr))` with every index pinned equal contains no array atom for the family to fire on.
-  Found by the round-3 adversarial recheck. — **(fixed in 0.3.4, `oxiz-solver/src/solver/array_axioms.rs`: (a) every
-  unordered pair of an `n`-ary `distinct` over array-sorted operands is an extensionality pair — `distinct` is
-  pairwise, so five arrays over `(Array (_ BitVec 1) (_ BitVec 1))` are unsat by cardinality and four are sat; (b)
-  `register_store_own_index_reads` registers `select(store(b,i,v), i)` as a read of every collected store and `i` as
-  one of its read indices; (c) select congruence is instantiated at each pair's own witness index; (d) the ext rule
-  for shared array terms (de Moura & Bjørner, FMCAD 2009) instantiates the witness lemma for a pair of *foreign* array
-  terms — an uninterpreted application's argument, a value stored into another array, an array-sorted `ite` branch —
-  whose EUF classes differ and which the candidate model does not already separate, one pair per round, only when the
-  three syntactic families added nothing; (e) arrays of arrays fall out of the fixpoint. Three rules beyond that list
-  were needed and are recorded as such: `mark_array_ops` fires on any array-*sorted* term (`(= ((as const A) #b1) ((as
-  const A) #b0))` mentions no `select`/`store`, so the guard on the whole loop stayed false); a cardinality-guarded
-  **off-chain Skolem index** is minted per pair whose two store chains are laid over different base arrays,
-  constrained different from every write on either chain and admitted only where the index sort provably has more
-  elements than the chains have writes (`index_sort_lower_bound`: `Bool` 2, `(_ BitVec w)` `2^w`,
-  `Int`/`Real`/`String` unbounded, `RoundingMode` 5, an array `|R|^|D|`, and *nothing* for an uninterpreted, datatype,
-  floating-point or parametric sort, where minting one would make a satisfiable formula `unsat`) — it refutes `(=
-  (store ((as const A) #b0) i #b1) ((as const A) #b1))`, whose discriminating index no term in the formula names; and
-  the array constant is excluded from `purify_numeric_uf_args`, which had been replacing its default with a proxy
-  variable (`(not (distinct 2 (select ((as const (Array Int Int)) 1) (+ 0 1))))` answered `sat`). Model side: see the
-  `#P2b-34` amendment. **Measured** against the round-3 recheck's independent evaluator, *corrected first* (its
-  `ArrayVal.__eq__` compared `(default, overrides)` structurally instead of the two functions pointwise, which
-  mis-scored 17 of campaign A's 6,000 verdicts, so the recheck's "22 wrong sat" was 15): campaign A (6,000
-  exhaustive-oracle scripts) 15 → **0** wrong `sat`, campaign B (6,000 random scripts) 4 → **0**, the 103-script
-  battery 99/103 → **103/103**, and the 217-benchmark sweep keeps every verdict at a 2.53 s median of five runs
-  against the base's 2.50 s. Tests: 25 in `array_extensionality_reserved.rs` (both `distinct` spellings at widths 1
-  and 2, the `n`-ary
-  cardinality pair, the store/constant rows in both polarities, foreign pairs with their satisfiable control, arrays
-  of arrays, the off-chain rule's `Bool`-index and uninterpreted-sort guards, a chain covering the domain,
-  `push`/`pop` around a witness lemma) plus the new `array_ext_shapes_bounded` campaign in
-  `array_uf_combination/ext_shapes.rs` — 480 scripts, every verdict against an exhaustive oracle and every `sat` model
-  replayed through the reference semantics, and a 6,000-script `#[ignore]`d long form (0 wrong `sat`, 0 wrong `unsat`, 22 bad models). **Mutation counts** — re-measured under `#P2b-39`, after the off-chain rule
-  moved into a phase of its own: reverting (a) → 61 wrong `sat` and 129 falsifying models; (d) → 1 wrong `sat`, 4
-  falsifying models and 92 assertion panics (the restored unscoped `debug_assert!` turns a class collision into a
-  panic); the off-chain phase → 15 wrong `sat`. Reverting (b) or (c) changes neither the campaign nor any of the 65
-  array unit tests — with the witness-index congruence and RoW saturation in place the instance they add arrives one
-  round later by another route — so both are implemented as specified but *not* independently observable at these
-  widths, recorded rather than claimed, with the subsumption argument written beside each rule in `array_axioms.rs`. Fixtures `c20_array_extensionality_distinct` (`upstream: U-Z25`) and
-  `c21_store_equals_constant_array` (`upstream: U-Z26`), both `sat` on crates.io 0.3.3 and on the 0.3.4 base, `unsat`
-  here.)** **Open residue:** 1 published model in 480 of the bounded campaign still falsifies its own script (`(=
-  (store a0 #b01 #b1) ((as const A) #b1))` with a stale published read of `a0`), campaign A 12 of 6,000 and campaign B
-  85 — down from the base's 234 and 255, with the corpus-wide model check at 0; a model-gate hole, not a verdict one.
+  pinned equal answered `sat` (`r3/ext/e10`) — the shape needs neither an array constant nor a `store`, so the
+  store-only and constant-only repairs before it left it standing. `collect_array_structure` recorded an array-sorted
+  (dis)equality from `TermKind::Eq` alone. Three more holes rode with it: a store's own-index read is never a
+  *collected* read unless the script spells it, so `(= (store ((as const A) #b1) i #b0) ((as const A) #b1))` had no
+  read at all; the pair's own witness index never reached select congruence; and `(distinct (f arr) (f brr))` with
+  every index pinned equal contains no array atom to fire on. Found by the round-3 adversarial recheck. — **(fixed in
+  0.3.4, `oxiz-solver/src/solver/array_axioms.rs`: (a) every unordered pair of an `n`-ary `distinct` over array-sorted
+  operands is an extensionality pair — `distinct` is pairwise, so five arrays over `(Array (_ BitVec 1) (_ BitVec 1))`
+  are unsat by cardinality and four are sat; (b) `register_store_own_index_reads` registers `select(store(b,i,v), i)`
+  as a read of every collected store and `i` as one of its read indices; (c) select congruence is instantiated at each
+  pair's own witness index; (d) the ext rule for shared array terms (de Moura & Bjørner, FMCAD 2009) instantiates the
+  witness lemma for a pair of *foreign* array terms — an uninterpreted application's argument, a value stored into
+  another array, an array-sorted `ite` branch — whose EUF classes differ and which the candidate model does not
+  already separate, one pair per round, only when the three syntactic families added nothing; (e) arrays of arrays
+  fall out of the fixpoint. Three rules beyond that list were needed and are recorded as such: `mark_array_ops` fires
+  on any array-*sorted* term; a cardinality-guarded **off-chain Skolem index** is minted per pair whose two store
+  chains are laid over different base arrays, constrained different from every write on either chain and admitted only
+  where the index sort provably has more elements than the chains have writes (`index_sort_lower_bound`, which answers
+  *nothing* for an uninterpreted, datatype, floating-point or parametric sort, where minting one would make a
+  satisfiable formula `unsat`); and the array constant is excluded from `purify_numeric_uf_args`. Model side: see the
+  `#P2b-34` amendment. **Measured** against the round-3 recheck's evaluator, corrected first (its `ArrayVal.__eq__`
+  compared `(default, overrides)` structurally, mis-scoring 17 of 6,000): campaign A 15 → **0** wrong `sat`, campaign
+  B 4 → **0**, the 103-script battery 99/103 → **103/103**, 217-benchmark sweep verdict-identical. Tests: 25 in
+  `array_extensionality_reserved.rs` plus `array_ext_shapes_bounded`. **Mutation counts** — re-measured under
+  `#P2b-39`: reverting (a) → 61 wrong `sat` and 129 falsifying models; (d) → 1 wrong `sat`, 4 falsifying models, 92
+  panics; the off-chain phase → 15 wrong `sat`. **Corrected 2026-09-18 by `#P2b-41`:** rule (b) *does* have a mutation
+  witness (`round4_pass2_recheck_pins::the_store_own_index_read_is_what_decides_this_script`); (c), the witness-index
+  congruence, remains genuinely unwitnessed and is labelled an absence of coverage rather than shown-redundant —
+  **still true after `#P2b-45`, which did not mutate it either**. Fixtures `c20_array_extensionality_distinct`
+  (`upstream: U-Z25`), `c21_store_equals_constant_array` (`upstream: U-Z26`) and `c22_array_constant_indirection`
+  (`upstream: U-Z27`), all `sat` on crates.io 0.3.3 and on the 0.3.4 base and `unsat` here; carried in cargo-formal as
+  `u18`/`u19`/`u20`, where the live set scores **31/32 agree** with `u06` (`U-Z16`, proof generation) the only
+  disagreement.)** **Open residue:** 1 published model in 480 of the bounded campaign still falsifies its own script;
+  the 2,350-script campaign of `#P2b-45` is at **0**.
 - [x] **#P2b-39 (2026-09-16) — the round-4 adversarial recheck: a spellable Skolem name (a wrong `unsat` in six
   lines), a non-termination regression on `n`-ary array `distinct`, two published models that falsify their own
   script, and the `(get-value)` residue.** All six findings were against the `#P2b-37` tree; the first is the worst
   class of defect this project tracks. **(1) Wrong `unsat`.** The off-chain Skolem index was named
-  `!oxiz!off!{lo}!{hi}`, and SMT-LIB 2.6 §3.1 admits `!` in a *simple* symbol — so the name was spellable, `mk_var`
-  interns on `(name, sort)`, and a script that declared it took the solver's Skolem constant as its own and inherited
-  the `d != i_k` constraints the rule asserts *about that symbol*: six lines with a free extra constant answered
-  `unsat` where 0.3.3 and the base answer `sat`. The extensionality witness prefix was equally spellable but harmless
-  (its lemmas hold for every index), which isolated the off-chain rule as the unsound one. **(2) Non-termination.**
-  Four generated scripts the base answers in 4–23 ms ran past 60 s, and campaign B's `s30028_31` (base: `unknown` in
-  0.46 s) past 300 s: every pair of an `n`-ary array `distinct` minted an off-chain index eagerly, each index is a
-  fresh bit-vector argument term of the reads taken at it, and the BV↔EUF partition exchange's cost grows with the
-  partitions of that set. **(3) Foreign arrays printed identically.**
-  `(distinct (fa brr) (fa arr))` — five lines, no `select`, no `store`, no array equality — answered `sat` printing
-  both arrays as the same constant with `fa` a constant function, a model falsifying its own assertion:
-  `instantiate_array_axioms` returned before phase 4 whenever the three syntactic families had nothing to collect, so
-  the ext rule for shared array terms never ran on the one shape that has nothing else. **(4) A compound read
-  published at the wrong index.** `(select arr (bvadd k #b10))` published its entry at the value of `k` rather than
-  of the index term — `publish_array_reads` asked the circuit for a leaf value of a *derived* node, whose bits
-  nothing constrains — so `(get-value ((bvadd k #b10)))` answered `#b00` beside `k = #b00`. **(5) `(get-value)`
-  residue:** `select` and datatype selectors still echoed and a `define-fun` key came back as the inlined body.
-  **(6) Cardinality:** `n` pairwise-distinct arrays over a sort with fewer than `n` elements answered `unknown`. —
-  **(fixed in 0.3.4: (1) both prefixes moved to `oxiz_core::smtlib` and now carry a backslash, unspellable in both
-  symbol forms, with `Parser::reject_reserved_symbol` refusing them by prefix and the lexical error left to win
-  where the backslash is the user's own; (2) the off-chain family is built in a phase of its own
-  (`build_off_chain_family` / `assert_off_chain_family`), one pair per round and only when the three syntactic
-  families add nothing, and the refinement's re-solves run under an adaptive wall-clock budget
-  (`check_core::array_refinement_resolve_deadline`, `max(120 s, 20× the work before the first lemma)`) so an
-  unbounded search becomes `unknown` rather than nothing — armed only where the caller set no `:timeout`, since one
-  who asked for `:timeout 200000` has already bounded the loop and must not be cut short by a default; (3) the early return now weighs the foreign set too; (4)
-  `publish_array_reads` publishes a compound index by *folding* it — the rule the circuit publication pass already
-  states — after the leaves it is built from; (5) `format_get_value` answers a `select` through
-  `Context::array_class_read` (the read-side twin of the array renderer), folds datatype selectors from the
-  declaration table, and keys the response with the term as queried (`Command::GetValue` carries each term's source
-  spelling); (6) `build_cardinality_refutations` refutes `(distinct …)` over arrays outright when the operand count
-  exceeds the sort's exact size, one lemma instead of `C(n,2)` witnesses. The narrowed `debug_assert!` in
-  `get_func_interp_raw` is restored unscoped, which immediately caught a second reading: the interpretation printers
-  ran on the *stale* candidate model after an `unsat`, and now share `get_model`'s `Sat` guard; live, it survived
-  the 6,000-script long extensionality campaign with 0 panics — the evidence that (3) closed the class the assert
-  guards, not only the five-line repro. Tests:
-  `round4_recheck_regressions.rs` (10, the recheck's own pins inverted), `array_distinct_timing.rs` (the four
-  `distinct` scripts, two release-calibrated) and three agreement tests in `model_one_reading.rs` comparing every
-  `(get-value)` array read against the printed chain — which found the renderer and the read disagreeing at a
-  store's own index. They cover all four index shapes the two sides resolve differently — plain, compound,
-  store-pinned, and an uninterpreted *application*, where `publish_index_leaves` gives an `Apply` leaf no default
-  (its value belongs to the printed interpretation) while `array_read_value` resolves it through `model_value_in`'s
-  `euf_class_value` fallback: two routes to one index, which is how (4) happened. Measured in agreement, and pinned. **Mutation counts** on the 480-script bounded campaign: reverting the
-  `distinct` arm → 61 wrong `sat` / 129 falsifying models; the foreign-pair rule → 1 wrong `sat` / 4 falsifying
-  models / 92 assertion panics; the off-chain phase → 15 wrong `sat`; the pigeonhole rule → its regression test.)**
+  `!oxiz!off!{lo}!{hi}`, and SMT-LIB 2.6 §3.1 admits `!` in a *simple* symbol, so a script that declared the name
+  took the solver's Skolem constant as its own and inherited the `d != i_k` constraints the rule asserts *about that
+  symbol*: six lines answered `unsat` where 0.3.3 and the base answer `sat`. **(2) Non-termination.** Four generated
+  scripts the base answers in 4–23 ms ran past 60 s: every pair of an `n`-ary array `distinct` minted an off-chain
+  index eagerly, each a fresh bit-vector argument term feeding the BV↔EUF partition exchange. **(3) Foreign arrays
+  printed identically.** `(distinct (fa brr) (fa arr))` — five lines, no `select`, no `store`, no array equality —
+  answered `sat` printing both arrays as the same constant, a model falsifying its own assertion:
+  `instantiate_array_axioms` returned before phase 4 whenever the three syntactic families had nothing to collect.
+  **(4)** `(select arr (bvadd k #b10))` published its entry at the value of `k`. **(5)** `select` and datatype
+  selectors still echoed in `(get-value)` and a `define-fun` key came back as the inlined body. **(6)** `n`
+  pairwise-distinct arrays over a sort with fewer than `n` elements answered `unknown`. —
+  **(fixed in 0.3.4: (1) both prefixes moved to `oxiz_core::smtlib` and now carry a backslash,
+  unspellable in both SMT-LIB symbol forms, and `reject_reserved_symbol` refuses them at the parser. (2) the
+  off-chain family is one pair per refinement round, deferred behind the two cheaper phases. (3) phase 4 runs
+  whenever the foreign set is non-empty, not only when the syntactic families collected something. (4) the entry is
+  published at the index term's *model value*. (5) `(get-value)` folds selectors and array reads and keeps a
+  `define-fun` key's source spelling. (6) the pigeonhole rule refutes `n` arrays over a sort with fewer than `n`
+  elements. Tests: `round4_recheck_regressions.rs`, the recheck's own pins inverted into guards.)**
+- [x] **#P2b-41 (2026-09-18) — the round-4 recheck, pass 2: the reserved-name fix was by name and not by class (wrong
+  `unsat` from eight lines again), an array constant one indirection away was not refuted (wrong `sat`, 14.4 % of a
+  generated corpus), the refinement budget was wall clock and decided verdicts, `(get-value)` answered a *wrong* value
+  through an `ite`, and two model-quality families were systematic.** **(1)** `#P2b-39` reserved the two array
+  prefixes only; `$encode-numarg!{id}`, `$encode-bool-arg!{id}`, `$encode-ite-elim!{id}`, `$lookup-result!{r}-{o}`,
+  `dt.size!{id}`, `sk!{n}`, `skf!{n}` and `_no_purify_{n}` were still spellable, and the first two assert `proxy =
+  arg`, so eight lines turned a satisfiable script into `unsat`. **(2)** `(= a ((as const A) #b1))` with `(= a ((as
+  const A) #b0))` answered `sat` — each pair is instantiated at its *own* witness index; 52 of 361 oracle-decided
+  scripts of the shape were wrong, on this tree and on the base alike. **(3) Decision (9):** the re-solve budget was
+  `max(120 s, 20× spent)` of wall clock, so the same binary answered one script `sat` at 77.5 s alone and `unknown` at
+  the 120 s floor with ten copies in flight. **(4)** `(get-value ((select (ite p a b) #b0)))` answered the *else*
+  branch beside a `(get-model)` printing `p = true`. **(5)** an array-sorted datatype selector still echoed, and
+  `(get-model)` printed a quoted symbol without its bars. **(6) Decision (12):** 153 of 300 datatype scripts and 89 of
+  400 array-constant scripts published a model contradicting their own assertions. **(7) Decision (11):** `#P2b-40`. —
+  **(fixed in 0.3.4: (1) the class moved behind `oxiz_core::smtlib::reserved_name(tag, suffix)`, the single
+  constructor of the `\oxiz.` prefix, with `is_reserved_tag` as its read-side twin — the MBQI candidate filters were
+  matching `starts_with("sk")` and would have gone silently dead — and `reject_reserved_symbol` collapsed to one
+  `starts_with(RESERVED_PREFIX)` so a *new* mint site is covered the moment it calls the helper. Audited and reported
+  honestly: `t{i}`, `x{level}`, `!filler!{i}`, `q{i}` and `p{i}` are all `cfg(test)`. (2)
+  `build_const_array_witness_congruence` reads a constant's default at the extensionality witness of *every* array
+  pair of its sort, so the two defaults meet at one index. The one-line `c1 = c2 ⇒ d1 = d2` was tried first and
+  rejected: it introduces a new array-sorted equality atom, the BV↔EUF partition exchange reached its 512-round
+  budget, and a script that answered `sat` in 28 ms answered `unknown` in 86 ms. (3)
+  `ARRAY_REFINEMENT_RESOLVE_CONFLICTS = 50_000`, a ceiling on `SolverStats::conflicts` counted from the first array
+  lemma; an explicit `:timeout` is the only wall clock left. (4) `resolve_array_branch` folds the `ite` condition
+  through the model and the sort-default fallback is gated on the renderer describing the array at all. (5)
+  `array_query_value` routes an array-sorted query term through the renderer `(get-model)` prints from, and one
+  `oxiz_core::smtlib::format_symbol` serves both printers. (6) `datatype_class_value` builds the constructor value
+  from the values the model gives the selector applications the script spells: 153/300 → 0/300, the base still 153.
+  (7) `build_class_values` mints `@uc_S_n` for the remaining EUF classes of each uninterpreted sort, numbered from the
+  declared count upward so `p`/`q` keep `@uc_U_0`/`@uc_U_1`. **Decision (10)** is *not* met and is reported open under
+  `#P2b-38` (b). **Measured 2026-09-18** over 4,000 scored scripts: 0 wrong `sat` (from 52), 0 wrong `unsat`, 0
+  panics, 0 falsifying models (from 89+153); 217-benchmark sweep 0 verdict differences. **Mutation counts:** eleven
+  mutations, ten red. Tests: `round4_pass2_recheck_pins.rs`, its 20 pins inverted into guards.)**
+- [x] **#P2b-45 (2026-09-19) — the round-4 recheck, pass 3: a `select` through an array-sorted `ite` was a free
+  bit-vector (wrong `sat` from seven lines), the pass-2 const-array fix made a 0.5 ms `sat` never answer, three
+  families of published model falsified their own script, two wall-clock gates decided verdicts, and the `@uc_S_n`
+  witnesses were spellable.** **(1) Wrong `sat`, blocker.** `needs_ite_elimination` excluded `SortKind::Array`, so an
+  array-sorted `ite` was never named by a fresh variable with its two defining implications, and `array_axioms`' walk
+  only noted the branches as *foreign*: nothing related `select(ite(c,a,b),i)` to `select(a,i)`/`select(b,i)`. Ten of
+  fifteen shapes and 48 of 114 falsifying models; identical on `c4b04b7` and crates.io 0.3.3, and missed by four
+  passes because the in-tree generator had no array-sorted `ite`. **(2) Non-termination.** the eager const-array
+  witness rule was cubic and `rc3/slow/m5.smt2` (six declarations, three assertions) ran 400 s with no answer; the
+  conflict ceiling never fired because the loop accrued no conflicts. **(3) Machine-dependent verdicts.**
+  `case_split_affordable` and `blocking_affordable` still read `Instant::elapsed()` against a 120 s ceiling with no
+  user `:timeout`; a 1 ms mutation flips 7 of 217 `bench/` scripts `sat` → `unknown`. **(4)** three families of
+  falsifying model: an uninterpreted index sort printed as one constant (50/50), array-sorted `ite` (48), `(as const)`
+  with a variable default (16); **(5)** `@uc_U_0` is spellable, so a script could declare the model's own witness. —
+  **(fixed in 0.3.4: (1) `Array` dropped from `needs_ite_elimination`, so the encoder names the `ite`; and
+  `families::build_array_ite_reads` closes it from the theory side too — the array walk sees the *un-eliminated* term,
+  so `select(store(ite(c,x,y),j,v),i)` reduced by read-over-write to a read of a term no rule knew, and one `store`
+  was enough for the wrong `sat` to survive the encoder half. Array-sorted `ite` is now in the in-tree generator
+  (`array_uf_combination/ext_shapes.rs`). **Mutation coverage, corrected 2026-09-19 (`#P2b-46`): the "71 of 480
+  scripts red" figure recorded here does not reproduce and is withdrawn.** Measured on an isolated copy of the final
+  tree with `SortKind::Array` put back into `needs_ite_elimination`: `round4_pass2_recheck_pins`,
+  `round4_pass3_recheck_pins`, `round4_pass4_recheck_pins` and `array_uf_combination` give **46 run / 46 passed / 0
+  failed**, `array_ext_shapes_bounded` included, and 915 ground array-`ite` scripts score identically to the
+  unmutated tree. Only the *theory* half is witnessed: stubbing `families::build_array_ite_reads` to `return` gives 1
+  wrong `sat` (`ite_ite_under_store.smt2`) and exactly one red test,
+  `round4_pass3_recheck_pins::a_read_through_an_array_ite_under_a_store_is_refuted`. The encoder half is therefore
+  recorded as **covered only in combination**, not as dead code: every ground quantifier-free script reaches the
+  array-`ite` through `ArrayStructure::array_ites`, which is precisely the path the theory half owns, and says
+  nothing about a term the collector never sees (an MBQI instance, for one). Decision (7) applies to it in the same
+  words rule (1c) is labelled with: an absence of coverage, not a proof of redundancy. (2)
+  `build_const_array_witness_cell`, one (constant, pair) cell per refinement round and only for pairs the assignment
+  has not decided, plus `ARRAY_REFINEMENT_LEMMA_BUDGET = 10_000` in `Statistics::array_lemma_instances` so a loop that
+  only builds is bounded: m5 answers `sat` in 4 ms. (3) Both gates read `SatStats::propagations` against
+  `REFINEMENT_WORK_CEILING_PROPAGATIONS = 100_000_000`; `int_case_split::REFINEMENT_TIME_CEILING_MS` is gone and
+  `:timeout` is the only clock. (4) the array printer names a position of an uninterpreted index sort with the
+  `@uc_S_n` witnesses, renders an `(as const)` class value from the *evaluated* default, publishes the `ite`'s
+  defining variable, merges a `store` member's background chain after the reads instead of folding it into the base
+  (it published the same index twice), and collapses a chain covering a finite index domain onto its majority value —
+  a model a consumer cannot re-check is not much better than a wrong one. (5) the parser refuses a symbol beginning
+  with `@` or `.`, which SMT-LIB 2.6 §3.1 reserves for solver use, and the tactic layer's `!ack_`, `!bb_`, `__card_*`,
+  `__tot_*` and `{name}_bv` mints moved into `oxiz_core::smtlib::reserved_name` — they are asserted side conditions in
+  the subgoals a caller gets back, and `x_bv` beside `x` was a collision a user could build by accident. **Measured
+  2026-09-19, re-run after the last edit:** 2,350 generated scripts scored against a from-scratch total-table oracle
+  with model replay — 0 wrong `sat` (from 1), 0 wrong `unsat`, **0 falsifying models (from 114)**, 0 timeouts (from
+  1), 0 panics, 14 `unknown` on decided; the 15-shape array-`ite` battery 0/15 wrong (from 10/15). 217-benchmark sweep
+  against `c4b04b7`, best of 3, both probes back to back: 0 verdict differences, 0 response differences, 2,437 ms vs
+  2,440 ms = 0.999×. Determinism: 260 decided scripts, 0 verdict differences across a second release run, a
+  six-way-loaded run and a debug build. **Mutation counts:** ten mutations, nine red — the `Array` exclusion (2 guards
+  + 71 generator failures), the `@`/`.` parser rule (1), the covered-domain collapse (3), the background merge (1),
+  the enumerated-const-read gate (1), the budget re-base (1), the propagation ceiling (2), the enumeration limit (5),
+  the ackermann mint (1); the eager const-witness family alone no longer reproduces its own non-termination, reported
+  as an attribution gap rather than claimed. Tests: `round4_pass3_recheck_pins.rs` (every pass-3 pin inverted, plus
+  the load-invariance and `:max-conflicts` guards decisions (18)/(20) ask for) and
+  `oxiz-core/tests/round4_reserved_mints.rs`.)**
 - [ ] **#P2b-38 — the array refinement loop is incomplete on `n`-ary and nested shapes, measured.** Campaign B (6,000
   random scripts, widths 1–64, `Int` and bit-vector) answers `unknown` on 6 formulas its exhaustive oracle decided,
-  and campaign A on 166 of 5,024; the bounded extensionality campaign on 6 of 470, its long form on 57 of 5,898. All are budget exits, never wrong
-  answers. Two shapes are named: an equality between two *concrete* arrays of arrays takes 12 s on the 0.3.4 base and
-  longer here (`(= row0 (select matrix 0))` with both sides substituted as `define-fun`s), and a store chain whose
-  writes cover the whole index domain needs the index case split the lemma loop does not make. The generative
-  direction — a witness read of an array-of-arrays range is itself an array term, so each round can mint another pair
-  — is bounded by `MAX_ARRAY_EXT_WITNESSES` (512), which reports through `Solver::array_axioms_incomplete` and so
-  downgrades the `Sat` it would otherwise license to `Unknown`. **Three strands added by the round-4 recheck
-  (`#P2b-39`).** (a) *Satisfiable* array cardinality above the cliff is undecided: nine pairwise-distinct arrays over
-  `(Array (_ BitVec 2) (_ BitVec 1))` (sixteen exist) answer `unknown` where eight answer `sat` — the BV↔EUF
-  partition-lemma exchange reaches its 512-round budget (`#P2b-29`) before the nine witnesses are separated; the
-  *unsatisfiable* side of the same shape is now decided outright by the pigeonhole rule. Pinned by
-  `round4_recheck_regressions::satisfiable_array_cardinality_at_the_cliff_is_still_undecided`. (b) One 15-line
-  generated script (`s30028_31`) answers `unknown` only on the refinement budget, where the base answered `unknown`
-  in 0.46 s: the congruence family at the chain indices of two four-deep store chains roughly quadruples the
-  bit-blasted circuit and the per-assignment `BvSolver::check` grows with it. Sound, and bounded now; the cost model
-  of that family is the open item. (c) The budget is wall-clock, so on a frozen
-  clock (`wasm32-unknown-unknown`, `no_std`) it never fires, and a slow build reaches it where a fast
-  one does not: campaign A's `s20012_31` and `s20027_43` answer `sat` in 0.13 s and 0.27 s in release
-  but hit the 120 s floor in the unoptimised build (circuit self-check live) under parallel load.
-  Sound either way, and the only movement in 6,000 scripts, but a *deterministic* budget — lemma
-  count, or conflicts across the re-solves — would not depend on the build.
+  and campaign A on 166 of 5,024; the bounded extensionality campaign on 6 of 470, its long form on 57 of 5,898. All
+  are budget exits, never wrong answers. Two shapes are named: an equality between two *concrete* arrays of arrays
+  takes 12 s on the 0.3.4 base and longer here (`(= row0 (select matrix 0))` with both sides substituted as
+  `define-fun`s), and a store chain whose writes cover the whole index domain needs the index case split the lemma
+  loop does not make. The generative direction — a witness read of an array-of-arrays range is itself an array term,
+  so each round can mint another pair — is bounded by `MAX_ARRAY_EXT_WITNESSES` (512), which reports through
+  `Solver::array_axioms_incomplete` and so downgrades the `Sat` it would otherwise license to `Unknown`. **Three
+  strands added by the round-4 recheck (`#P2b-39`).** (a) **Closed 2026-09-18 under `#P2b-45`.** *Satisfiable* array
+  cardinality above the cliff was undecided: nine pairwise-distinct arrays over `(Array (_ BitVec 2) (_ BitVec 1))`
+  (sixteen exist) answered `unknown` where eight answered `sat`, because the BV↔EUF partition-lemma exchange reached
+  its 512-round budget (`#P2b-29`) before the nine Skolem witnesses were separated. Decision (10)'s enumeration lever
+  removed the witnesses for such a sort. Release: every `n` from 2 to 16 answers `sat` (9 in 5.8 ms, 16 in 5.9 s) and
+  17 answers `unsat` in 0.5 ms, where the base answers a wrong `sat` at 17. Guarded by
+  `round4_recheck_regressions::satisfiable_array_cardinality_at_the_cliff_is_decided` plus an `#[ignore]`d ladder. (b)
+  `n`-ary `distinct` over store chains costs more than the base. **Amended 2026-09-19 (`#P2b-45`)**: the eager
+  extensionality family was one cost centre (fixed under `#P2b-41`: `pair_polarity` reads the trail first and the
+  chain-index half is one pair per round) and the Skolem witness itself was the other. `ARRAY_INDEX_ENUMERATION_LIMIT
+  = 8` decides a pair over a small index sort by enumeration instead, and phases 3a/3b/3c skip such a pair entirely.
+  Release, best of 3, tree vs `c4b04b7`, all re-measured after the last edit: the four in-tree scripts of
+  `array_distinct_timing.rs` 0.32/0.35/1.06/1.30 ms against 0.07/0.10/0.07/0.35 ms (3.5×–15×); the guard's own
+  four-operand script 1.90 ms against 0.08 ms (24×); the `s30028_31` shape 3.29 ms against 0.07 ms (47×), where the
+  recheck measured 6,637 ms / ~22,000×; the two rc2 scripts that took 24.9 s and 15.4 s answer in 0.8 ms and 1.1 ms.
+  **Still open:** decision (10) asked for a *small constant factor*, and 24×–47× is not that. Cost model for the
+  residue: an enumerated pair costs `|D|` lemmas and `|D|` reads per array term, so enumeration pays only while `|D|`
+  stays at or under the Skolem cascade; above `ARRAY_INDEX_ENUMERATION_LIMIT` the Skolem path returns at its original
+  cost, and the factor there is `BvSolver::check` running a full embedded `solve()` per theory assignment. Cost-pinned
+  by `round4_pass2_recheck_pins::n_ary_array_distinct_over_store_chains_is_fast` (`#[ignore]`d, per decision (16)).
+  (c) **Closed 2026-09-18**: the budget was wall-clock, so on a frozen clock (`wasm32-unknown-unknown`, `no_std`) it
+  never fired and, in the other direction, the same release binary answered one script `sat` at 77.5 s run alone and
+  `unknown` at the 120 s floor with ten copies in flight. It is now `ARRAY_REFINEMENT_RESOLVE_CONFLICTS = 50_000`
+  beside `ARRAY_REFINEMENT_LEMMA_BUDGET = 10_000` (`#P2b-45`), so a refinement loop that only *builds* is bounded too;
+  an explicit `:timeout` is the only wall-clock limit left. (d) **Re-measured 2026-09-19 (`#P2b-45`):** 18 of the
+  2,350-script campaign answer `unknown`, 14 on inputs the oracle decides (the pass-2 figure was 159 of 1,200 and is
+  superseded, not re-run). Instrumented rather than guessed: **17 of the 18 reproduce and all 17** exit at
+  `Context::check_sat_core`'s array honesty gate (`Solver::array_atoms_need_theory`), not at any budget — the
+  pre-`#P2b-37` syntactic approximation, which vetoes a `Sat` the lazy refinement has already saturated for every
+  positive store=store equality its crude `eval_read` scan cannot separate. **Reworded 2026-09-19 (`#P2b-46`): the
+  "unsound-shaped in the other direction" claim previously recorded here is withdrawn as unsubstantiated.** Read at
+  the source (`check_array.rs`'s `store_extensionality_conflict` and its two helpers), the separation is
+  conservative in the safe direction: `eval_read` returns `Some` only where the read is *forced*, advancing past a
+  store link only when `are_different_values` holds, which is true only for two same-width `BitVecConst` /
+  `IntConst` / `RealConst` literals with different values, and a match needs `terms_equal_simple` (identical
+  `TermId`, or equal `IntConst`). A separation at index `k` therefore means both sides are forced to *different
+  constants* at `k`, which entails `x != y`. No counterexample exists in 3,470 scored scripts (0 wrong `unsat` on
+  every corpus) and none could be constructed. What **is** measured is weaker and stands: the gate is incomplete on
+  the `sat` side and order-dependent — two ground four-link chains denoting the same array differ only in link order
+  and one answers `sat`, the other `unknown` (`rf5/replay_dedup.smt2` `sat` 6.5 ms, `rf5/replay_now.smt2` `unknown`
+  0.77 ms), reproducing identically on `c4b04b7`, so it is a pre-existing precision residue and not a regression.
+  Base-identical on `c4b04b7` and 0.3.3, and deliberately **not** touched here: the gate decides `bench/` verdicts and
+  the 0-verdict-differences sweep is binding. The strongest lead this round leaves open; it wants its own campaign.
 - [ ] **#P2b-26 — `(get-unsat-core)` re-solves every candidate subset from scratch; `(get-value …)`
   of any non-variable term printed its body.** cargo-formal's named form is ≥ 3.8× the plain script
   because `Solver::minimize_unsat_core` builds a fresh `Solver` per core member (c13: 1.8× here, 4

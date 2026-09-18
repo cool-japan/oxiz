@@ -117,36 +117,95 @@ impl<'a> Parser<'a> {
     /// Refuse a symbol that collides with a name the solver reserves for
     /// itself.
     ///
-    /// Three names are reserved today —
-    /// [`crate::smtlib::CONST_ARRAY_FUNC`] (the interned function symbol of
-    /// the array constant `((as const (Array D R)) d)`) and the two families
-    /// of array-theory witness index,
-    /// [`crate::smtlib::ARRAY_EXT_WITNESS_PREFIX`] and
-    /// [`crate::smtlib::ARRAY_OFF_CHAIN_PREFIX`] — and every one of them is
-    /// reserved by the same device: it contains a backslash, which neither
-    /// SMT-LIB 2.6 symbol form can produce (a simple symbol's character set
-    /// excludes `\`, and the lexer rejects one inside `|...|`).
+    /// There are two reserved classes, and they protect different things.
     ///
-    /// The witness indices are *parameterised* — `\oxiz.ext!{lo}!{hi}`, one
-    /// per array pair — so they are matched by prefix rather than by equality.
-    /// The check stops there rather than rejecting every symbol carrying a
-    /// backslash: a backslash anywhere else is a *lexical* error, which says
-    /// something more useful about the input than "reserved" would, and
-    /// answering "reserved" first would mask it.
+    /// The first is the one SMT-LIB 2.6 section 3.1 itself sets aside: a
+    /// symbol beginning with `@` or `.`. Those are the names the solver
+    /// *prints* — the `@uc_S_n` witnesses that name the elements of an
+    /// uninterpreted sort in a model and in a `(get-value)` response. They are
+    /// output rather than interned terms, so a user declaration of the same
+    /// spelling cannot produce a wrong verdict, but it can produce a model
+    /// that reads as a statement about that declaration and contradicts the
+    /// script (`#P2b-44`, worked example in the function body).
     ///
-    /// Unreachable from well-formed input, and belt and braces against a
-    /// future lexer or builder-API change that made it reachable.
+    /// The second is this solver's own, and it protects the names the solver
+    /// *interns*.  It is a *class*, not a list: every symbol the solver mints
+    /// for itself carries [`crate::smtlib::RESERVED_PREFIX`] (`\oxiz.`)
+    /// because [`crate::smtlib::reserved_name`] is the only constructor for
+    /// one.  Members today are the array constant's function symbol
+    /// [`crate::smtlib::CONST_ARRAY_FUNC`], the two families of array-theory
+    /// witness index ([`crate::smtlib::ARRAY_EXT_WITNESS_PREFIX`],
+    /// [`crate::smtlib::ARRAY_OFF_CHAIN_PREFIX`]), the encoder's purification
+    /// proxies (`numarg`, `boolarg`, `iteelim`, `lookup`, `nopurify`), the
+    /// Skolem constants and functions (`sk`, `skf`) and the datatype size
+    /// measure (`dtsize`) — and a *future* member needs no edit here.
+    ///
+    /// One `starts_with` is the whole check, and matching the class rather
+    /// than each name is the point: a mint site that is added later is covered
+    /// the moment it calls `reserved_name`, so the two halves of the guarantee
+    /// cannot drift apart the way they did while each family was listed by
+    /// hand.
+    ///
+    /// The check stops at this prefix rather than rejecting every symbol
+    /// carrying a backslash: a backslash anywhere else is a *lexical* error,
+    /// which says something more useful about the input than "reserved" would,
+    /// and answering "reserved" first would mask it.
+    ///
+    /// The `\oxiz.` half is unreachable from well-formed input — the lexer
+    /// refuses a backslash in both symbol forms — and is belt and braces
+    /// against a future lexer or builder-API change that made it reachable.
+    /// The `@`/`.` half is very much reachable: both characters are in the
+    /// simple-symbol character set and the lexer admits them.
     pub(super) fn reject_reserved_symbol(name: &str, position: usize) -> Result<()> {
-        let reserved = name == crate::smtlib::CONST_ARRAY_FUNC
-            || name.starts_with(crate::smtlib::ARRAY_EXT_WITNESS_PREFIX)
-            || name.starts_with(crate::smtlib::ARRAY_OFF_CHAIN_PREFIX);
-        if reserved {
+        // SMT-LIB 2.6 section 3.1: "the symbols starting with the characters
+        // `.` and `@` are reserved for solver use".  This solver uses them:
+        // `(get-model)` and `(get-value)` print `@uc_S_n` witnesses for the
+        // elements of an uninterpreted sort, one per congruence class, and
+        // those names are *output*, not interned terms.
+        //
+        // # The falsifying model this closes (`#P2b-44`)
+        //
+        // ```smt2
+        // (declare-sort U 0)
+        // (declare-const a U)
+        // (declare-const @uc_U_0 U)
+        // (assert (distinct a @uc_U_0))
+        // ```
+        //
+        // answered `sat` and printed `(define-fun a () U @uc_U_0)` beside
+        // `(define-fun @uc_U_0 () U @uc_U_1)`.  Read as SMT-LIB — `@uc_U_0`
+        // *is* a declared symbol in scope — that model says `a = @uc_U_0`
+        // while the script asserts they differ.  `(get-value)` could be made
+        // to contradict itself the same way, answering
+        // `((g p) @uc_U_2) (@uc_U_2 @uc_U_0) (p @uc_U_0)` in one response with
+        // `(assert (distinct (g p) p))` in the script.
+        //
+        // Refusing the two reserved leading characters closes the whole
+        // print-side family at once, and it costs nothing a conforming script
+        // is allowed to do.  It is the same shape of fix as the `\oxiz.`
+        // prefix below, one level up: that prefix protects names the solver
+        // *interns*, this protects names the solver *prints*.
+        if name.starts_with('@') || name.starts_with('.') {
+            return Err(OxizError::ParseError {
+                position,
+                message: format!(
+                    "the symbol `{name}` begins with `{}`, which SMT-LIB 2.6 section 3.1 \
+                     reserves for solver use: this solver prints `@uc_S_n` witnesses for the \
+                     elements of an uninterpreted sort, so a script that declared such a \
+                     symbol could read its own model as a statement about that declaration",
+                    &name[..1]
+                ),
+            });
+        }
+        if name.starts_with(crate::smtlib::RESERVED_PREFIX) {
             return Err(OxizError::ParseError {
                 position,
                 message: "this symbol contains a backslash, which SMT-LIB 2.6 section 3.1 \
                           admits in neither symbol form and which the solver reserves for \
-                          its own names (the array constant ((as const (Array D R)) d) and \
-                          the array-theory witness indices): it cannot be declared or used"
+                          the whole class of names it mints for itself (the array constant \
+                          ((as const (Array D R)) d), the array-theory witness indices, the \
+                          encoder's purification proxies, the Skolem symbols and the \
+                          datatype size measure): it cannot be declared or used"
                     .to_string(),
             });
         }

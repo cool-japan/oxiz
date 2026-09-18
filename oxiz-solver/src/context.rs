@@ -864,14 +864,17 @@ impl Context {
     pub fn get_statistics(&self) -> String {
         let stats = self.solver.get_statistics();
         format!(
-            "(:decisions {} :conflicts {} :propagations {} :restarts {} :learned-clauses {} :theory-propagations {} :theory-conflicts {})",
+            "(:decisions {} :conflicts {} :propagations {} :restarts {} :learned-clauses {} :theory-propagations {} :theory-conflicts {} :array-refinement-rounds {} :array-lemma-instances {} :bv-embedded-checks {})",
             stats.decisions,
             stats.conflicts,
             stats.propagations,
             stats.restarts,
             stats.learned_clauses,
             stats.theory_propagations,
-            stats.theory_conflicts
+            stats.theory_conflicts,
+            stats.array_refinement_rounds,
+            stats.array_lemma_instances,
+            stats.bv_embedded_checks
         )
     }
 

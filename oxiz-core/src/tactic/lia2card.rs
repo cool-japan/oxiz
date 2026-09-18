@@ -426,7 +426,13 @@ impl<'a> Lia2CardTactic<'a> {
                 // variables from distinct cardinality constraints (or
                 // distinct encoding passes, e.g. Exactly's AtMost/AtLeast
                 // pair) never alias to the same interned term.
-                let name = format!("__card_s_{}_{}_{}", self.aux_var_counter, i, j);
+                // Reserved class (`#P2b-44`): a sequential-counter variable is
+                // defined by the clauses this tactic emits, so a user symbol of
+                // the same spelling would be captured by that definition.
+                let name = crate::smtlib::reserved_name(
+                    "cards",
+                    &format!("{}!{i}!{j}", self.aux_var_counter),
+                );
                 row.push(self.manager.mk_var(&name, bool_sort));
                 self.aux_var_counter += 1;
             }
@@ -555,7 +561,8 @@ impl<'a> Lia2CardTactic<'a> {
             // across the AtMost/AtLeast passes used to encode Exactly), so
             // fold in the per-tactic aux_var_counter to guarantee a fresh,
             // globally-unique interned name.
-            let cmd_name = format!("__card_cmd_{}_{}", self.aux_var_counter, g);
+            let cmd_name =
+                crate::smtlib::reserved_name("cardcmd", &format!("{}!{g}", self.aux_var_counter));
             let cmd = self.manager.mk_var(&cmd_name, bool_sort);
             self.aux_var_counter += 1;
             commanders.push(cmd);
@@ -649,7 +656,8 @@ impl<'a> Lia2CardTactic<'a> {
         let mut sum = Vec::with_capacity(sum_len);
 
         for i in 0..sum_len {
-            let name = format!("__tot_{}_{}", self.aux_var_counter, i);
+            let name =
+                crate::smtlib::reserved_name("tot", &format!("{}!{i}", self.aux_var_counter));
             sum.push(self.manager.mk_var(&name, bool_sort));
             self.aux_var_counter += 1;
         }
@@ -688,7 +696,7 @@ impl<'a> Lia2CardTactic<'a> {
     #[allow(dead_code)]
     fn mk_aux_var(&mut self) -> TermId {
         let bool_sort = self.manager.sorts.bool_sort;
-        let name = format!("__card_aux_{}", self.aux_var_counter);
+        let name = crate::smtlib::reserved_name("cardaux", &self.aux_var_counter.to_string());
         self.aux_var_counter += 1;
         self.manager.mk_var(&name, bool_sort)
     }

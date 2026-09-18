@@ -18,6 +18,12 @@
 
 use super::*;
 
+/// How deep an array-sorted `ite` chain [`Context::resolve_array_branch`] will
+/// follow before giving up.  Terms are a DAG, not a tree, so this is a
+/// belt-and-braces bound rather than a real limit: no well-formed script
+/// nests array `ite`s anywhere near this deep.
+const MAX_ITE_BRANCH_DEPTH: usize = 256;
+
 impl Context {
     /// A ground *term* carrying the same default value that
     /// [`Context::default_value`] renders as a string, or `None` for sorts with
@@ -172,13 +178,27 @@ impl Context {
                 // `(get-model)` reports for it, witnesses included.
                 value
             } else if let Some(value) =
+                self.array_query_value(term, &completed_model, &class_values)
+            {
+                // An array-sorted query term (`#P2b-39`).  Before this arm the
+                // structural reading below folded `(ite p a b)` to the *term*
+                // `a` and printed it, and an array-sorted datatype selector
+                // `(arr b)` echoed itself — decision (4) says an array value is
+                // a store chain or an `(as const …)` value, never a term, and
+                // an echo beside a `(get-model)` that prints the chain is two
+                // commands describing two different models.  Placed *above* the
+                // structural reading because that reading answers an array
+                // `ite` with a term and would shadow this one.
+                value
+            } else if let Some(value) =
                 self.solver
                     .model_value_in(term, &completed_model, &mut self.terms)
             {
                 // The structural reading: bit-vector operators, comparisons,
                 // read-over-write and congruent applications fold here.
                 oxiz_core::smtlib::Printer::new(&self.terms).print_term(value)
-            } else if let Some(value) = self.array_read_value(term, &completed_model) {
+            } else if let Some(value) = self.array_read_value(term, &completed_model, &class_values)
+            {
                 // A read of an array the model describes only through its
                 // class (`#P2b-35`): no store to reduce, no published value of
                 // its own, so the structural reading above cannot fold it and
@@ -235,24 +255,147 @@ impl Context {
     /// its *value* names, not the one its leading variable does — and the read
     /// itself is answered by [`Context::array_class_read`], the read-side twin
     /// of the renderer `(get-model)` prints from.
-    fn array_read_value(&mut self, term: TermId, model: &crate::solver::Model) -> Option<String> {
+    fn array_read_value(
+        &mut self,
+        term: TermId,
+        model: &crate::solver::Model,
+        class_values: &super::class_values::ClassValues,
+    ) -> Option<String> {
         let TermKind::Select(array, index) = self.terms.get(term)?.kind else {
             return None;
         };
         let sort = self.terms.get(array)?.sort;
-        let range = match self.terms.sorts.get(sort).map(|s| &s.kind) {
-            Some(SortKind::Array { range, .. }) => *range,
-            _ => return None,
+        let Some(SortKind::Array { range, .. }) = self.terms.sorts.get(sort).map(|s| &s.kind)
+        else {
+            return None;
         };
+        let range = *range;
         let index_value = match model.get(index) {
             Some(value) => value,
             None => self.solver.model_value_in(index, model, &mut self.terms)?,
         };
+        // Resolve an `ite` array operand through the model's value for its
+        // condition before the class is looked up, the way `publish_index_leaves`
+        // folds a compound *index*.  Without it the whole `(ite p a b)` term is
+        // handed to `array_class_read`, which has no class for a term the
+        // congruence closure never interned.
+        let array = self.resolve_array_branch(array, model)?;
         let mut visiting: Vec<TermId> = Vec::new();
-        Some(
-            self.array_class_read(array, index_value, sort, model, 0, &mut visiting)
-                .unwrap_or_else(|| self.default_value(range)),
-        )
+        // No class for this array term is *not* "the array is the sort
+        // default": it is "this reading cannot answer", and the caller then
+        // falls back to the substitution path, whose echo a consumer can
+        // detect.  Answering `default_value(range)` instead turned a
+        // detectable non-answer into a wrong one — `(get-value ((select (ite p
+        // a b) #b0)))` answered `#b0`, the *else* branch's value, beside a
+        // `(get-model)` in the same run that printed `p = true` and
+        // `(select a #b0) = #b1`.  A `(get-value)` answer that contradicts the
+        // same run's `(get-model)` is the one failure mode a consumer's model
+        // check cannot catch, because it trusts the value.
+        //
+        // The *background* of the chain is still an answer, though, and it is
+        // the one `(get-model)` prints: a read at an index no `store` of the
+        // published chain covers takes the chain's `(as const …)` value, not
+        // the sort's.  Only when neither reading exists does the query decline.
+        if let Some(value) = self.array_class_read(
+            array,
+            index_value,
+            sort,
+            model,
+            class_values,
+            0,
+            &mut visiting,
+        ) {
+            return Some(value);
+        }
+        let mut visiting: Vec<TermId> = Vec::new();
+        if let Some(value) = self.array_class_background(
+            array,
+            index_value,
+            sort,
+            model,
+            class_values,
+            0,
+            &mut visiting,
+        ) {
+            return Some(value);
+        }
+        // Last, the renderer's *own* last resort, and only where the renderer
+        // reaches it: `array_class_parts_inner` prints the sort default as the
+        // base of a chain whose class pins some entries but names no
+        // background, so at an index that chain does not cover the printed
+        // array really is that default.  The gate — "does the renderer
+        // describe this array at all" — is the whole fix.  Ungated, "no class
+        // for this term" was answered with the sort default too, and
+        // `(get-value ((select (ite p a b) #b0)))` answered `#b0`, the *else*
+        // branch's value, beside a `(get-model)` in the same run printing
+        // `p = true` and `(select a #b0) = #b1`.
+        self.array_model_value(array, sort, model, class_values)
+            .map(|_| self.default_value(range))
+    }
+
+    /// The store chain `(get-model)` would print for an array-sorted query
+    /// term, or `None` when the term is not array-sorted or the model does not
+    /// describe it.
+    ///
+    /// Three shapes reach here that `(get-model)` never has to render, because
+    /// it only ever prints *declared constants*: an `ite` between two arrays,
+    /// an array-sorted datatype field, and a `store` expression.  All three are
+    /// resolved to the array term the model means — the `ite` through its
+    /// condition's value, the selector through the constructor value
+    /// [`Context::fold_dt_selectors`] put in the completed model — and then
+    /// handed to the same [`Context::array_model_value`] renderer
+    /// `(get-model)` uses, so the two commands cannot describe the same array
+    /// differently.
+    fn array_query_value(
+        &mut self,
+        term: TermId,
+        model: &crate::solver::Model,
+        class_values: &super::class_values::ClassValues,
+    ) -> Option<String> {
+        let sort = self.terms.get(term)?.sort;
+        if !matches!(
+            self.terms.sorts.get(sort).map(|s| &s.kind),
+            Some(SortKind::Array { .. })
+        ) {
+            return None;
+        }
+        // A folded datatype selector is recorded in the completed model as the
+        // field term; anything else stands for itself.
+        let resolved = model.get(term).unwrap_or(term);
+        let resolved = self.resolve_array_branch(resolved, model)?;
+        self.array_model_value(resolved, sort, model, class_values)
+    }
+
+    /// Follow an array-sorted `ite` down to the branch the model selects.
+    ///
+    /// `(ite p a b)` is not an array term the congruence closure interned, so
+    /// no class rendering exists for it; the array the model *means* is `a` or
+    /// `b`, and which one is decided by the model's value for `p`.  Nested
+    /// `ite`s resolve by iterating, bounded by the term count so a malformed
+    /// cycle cannot spin.  `None` when the condition has no definite value in
+    /// the model, which is the honest non-answer.
+    fn resolve_array_branch(
+        &mut self,
+        array: TermId,
+        model: &crate::solver::Model,
+    ) -> Option<TermId> {
+        let mut current = array;
+        for _ in 0..MAX_ITE_BRANCH_DEPTH {
+            let TermKind::Ite(cond, then_branch, else_branch) = self.terms.get(current)?.kind
+            else {
+                return Some(current);
+            };
+            let value = match model.get(cond) {
+                Some(value) => value,
+                None => self.solver.model_value_in(cond, model, &mut self.terms)?,
+            };
+            current = match self.terms.get(value)?.kind {
+                TermKind::True => then_branch,
+                TermKind::False => else_branch,
+                _ => return None,
+            };
+        }
+        None
     }
 
     /// Map every datatype *selector* application inside `terms` whose argument

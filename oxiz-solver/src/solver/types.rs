@@ -655,6 +655,50 @@ pub struct Statistics {
     /// search: a `sat` is a genuine model all the same, and an `unsat` was
     /// downgraded to `unknown` rather than reported.
     pub model_blocking_clauses: u64,
+    /// Lazy array-axiom refinement rounds performed by the last `check`.
+    ///
+    /// One round is one full re-solve driven by freshly asserted array
+    /// lemmas. Reset at the entry of every `check`, so the number describes
+    /// that check and not the script's history.
+    ///
+    /// This and [`Self::array_lemma_instances`] are the *deterministic*
+    /// currency the array refinement budget is denominated in: both count
+    /// work the solver performs, not seconds it spends, so the same script on
+    /// the same build reaches the same budget on an idle and on a loaded
+    /// machine (`#P2b-38` strand (c)).
+    pub array_refinement_rounds: u64,
+    /// Array-axiom lemma instances asserted by the last `check`, summed over
+    /// its refinement rounds.
+    ///
+    /// Reset at the entry of every `check`. See
+    /// [`Self::array_refinement_rounds`].
+    pub array_lemma_instances: u64,
+    /// Complete checks of the **embedded bit-blasted solver** run by the
+    /// theory callbacks during the last `check`, summed over its refinement
+    /// rounds.
+    ///
+    /// Reset at the entry of every `check`, like the two counters above, and
+    /// in the same deterministic currency: it counts work the solver
+    /// performs, not seconds it spends.
+    ///
+    /// # Why this is counted (`#P2b-46`)
+    ///
+    /// `array_refinement_rounds` and `array_lemma_instances` bound a
+    /// refinement loop that *searches* and one that only *builds*.  Neither
+    /// sees the third shape: **one** round whose re-solve is enormous.  The
+    /// enumerated extensionality family can put `C(n,2) · |D|` bit-vector
+    /// equality atoms into a single round, and the outer search then runs one
+    /// complete embedded `BvSolver::check` per bit-vector atom propagation —
+    /// measured at 75,740 checks for twelve pairwise-distinct arrays over
+    /// `(Array (_ BitVec 3) (_ BitVec 1))`, in *one* refinement round with 66
+    /// lemma instances and 1,444 conflicts, three orders of magnitude below
+    /// every other ceiling.  Twenty such arrays ran 900 s with no answer and
+    /// no budget stopping them; only a wall-clock `:timeout` did, which is
+    /// exactly the machine-dependence decision (9) removed.
+    ///
+    /// This counter is what that shape moves, so it is what the budget is
+    /// denominated in.  See `check_core::BV_EMBEDDED_CHECK_CEILING`.
+    pub bv_embedded_checks: u64,
 }
 
 impl Statistics {

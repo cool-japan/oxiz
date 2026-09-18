@@ -278,8 +278,8 @@ fn ackermann_converter_drops_fresh_variables() {
 
     // Fresh variables are interned by name+sort, so re-creating them yields
     // the same TermIds the tactic allocated.
-    let ack0 = manager.mk_var("!ack_0", int_sort);
-    let ack1 = manager.mk_var("!ack_1", int_sort);
+    let ack0 = manager.mk_var(&oxiz_core::smtlib::reserved_name("ack", "0"), int_sort);
+    let ack1 = manager.mk_var(&oxiz_core::smtlib::reserved_name("ack", "1"), int_sort);
     let v_a = manager.mk_int(11);
     let v_b = manager.mk_int(22);
     let v_ack = manager.mk_int(33);

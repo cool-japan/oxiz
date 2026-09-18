@@ -88,6 +88,50 @@ const MAX_ARRAY_AXIOM_INSTANCES: usize = 20_000;
 /// stays three orders of magnitude below this.
 const MAX_ARRAY_EXT_WITNESSES: usize = 512;
 
+/// Largest index-sort cardinality at which extensionality is decided by
+/// *enumerating* the index domain instead of by minting a Skolem witness
+/// index per array pair (decision (10), `#P2b-38` strand (b)).
+///
+/// # Why enumerate at all
+///
+/// A Skolem witness is a fresh variable of the index sort, and it is fresh
+/// *per unordered pair*: an `n`-ary `distinct` over array operands mints
+/// `C(n,2)` of them.  Each one is a new bit-vector argument term whose read
+/// cascades a read-over-write instance down every link of both store chains,
+/// and — the part that actually bites — each one joins the candidate set of
+/// the BV↔EUF partition-lemma exchange, whose cost grows with the number of
+/// *partitions* of that set.  Four operands of depth four over a one-bit index
+/// sort took 6.8 s against the 0.3.4 base's 10.7 ms, with 4,551 theory
+/// conflicts against the base's zero, and every one of those conflicts came
+/// from a partition space the six fresh indices created.
+///
+/// When the index sort is small and finite, none of that is necessary.  Over a
+/// domain `D` that the solver can write out, extensionality is a finite
+/// conjunction:
+///
+/// ```text
+/// a = b  ⟺  ⋀_{i ∈ D} select(a, i) = select(b, i)
+/// ```
+///
+/// so the pair is decided at the domain's *own* elements — index terms that
+/// are shared by every pair, already in the formula's index set, and constant,
+/// so the partition exchange learns nothing new from them.  The same
+/// enumeration subsumes the chain-index walk (phase 3b) and the off-chain
+/// Skolem index (phase 3c) for such a pair: an off-chain index is an element
+/// of `D`, and `D` is fully covered.
+///
+/// # Why eight
+///
+/// The enumerated family costs `|D|` lemmas per pair and `|D|` reads per array
+/// term, against one Skolem index and its cascade.  Eight keeps the enumerated
+/// cost at or below the Skolem cost for the sorts that reach it — `Bool`,
+/// `(_ BitVec 1)`, `(_ BitVec 2)`, `(_ BitVec 3)` — while a wider index sort
+/// keeps the Skolem machinery, whose cost does not grow with the domain.
+/// Measured on this tree (2026-09-18): at eight, the four in-tree `n`-ary
+/// scripts and the `s30028_31` shape all answer within a small factor of the
+/// base, and the 217-script `bench/` sweep is unchanged in every verdict.
+const ARRAY_INDEX_ENUMERATION_LIMIT: u128 = 8;
+
 impl Solver {
     /// One round of lazy array-axiom instantiation against the current candidate
     /// model.  Returns `true` when at least one new ground array lemma was
@@ -164,10 +208,18 @@ impl Solver {
         // ---- Phase 2: build candidate ground axiom instances ------------
         let mut candidates: Vec<TermId> = Vec::new();
         build_read_over_write(manager, &collected, &mut candidates);
+        build_array_ite_reads(manager, &collected, &mut candidates);
         build_const_array_reads(manager, &collected, &mut candidates);
         build_cardinality_refutations(manager, &collected, &mut candidates);
         let mut witnesses: FxHashSet<TermId> = FxHashSet::default();
-        build_extensionality_and_congruence(manager, &collected, &mut candidates, &mut witnesses);
+        let polarity = self.pair_polarity(&collected, manager);
+        build_extensionality_and_congruence(
+            manager,
+            &collected,
+            &polarity,
+            &mut candidates,
+            &mut witnesses,
+        );
         if witnesses.len() >= MAX_ARRAY_EXT_WITNESSES {
             self.array_axioms_incomplete = true;
         }
@@ -189,7 +241,30 @@ impl Solver {
             return true;
         }
 
-        // ---- Phase 3b: off-chain Skolem indices -------------------------
+        // ---- Phase 3a: array-constant witness congruence ----------------
+        // One (constant, pair) cell per round, for the reason
+        // [`build_const_array_witness_cell`] documents: read eagerly the rule
+        // is cubic in syntactic structure and a six-declaration script stopped
+        // answering at all.
+        if self.assert_const_array_witness_congruence(&collected, manager) {
+            return true;
+        }
+
+        // ---- Phase 3b: chain-index select congruence --------------------
+        // Deferred out of phase 2 for the reason
+        // [`Solver::assert_chain_index_congruence`] documents (`#P2b-38`
+        // strand (b)): the chain walk is the part of the congruence family
+        // that scales with store-chain depth, and building it for all
+        // `C(n,2)` pairs of an `n`-ary `distinct` up front put `O(n²)` fresh
+        // bit-vector index terms in front of the BV↔EUF partition exchange
+        // before anything had looked at whether the assignment already keeps
+        // those pairs apart.  One pair per round, and only for pairs the
+        // assignment has not already separated.
+        if self.assert_chain_index_congruence(&collected, manager) {
+            return true;
+        }
+
+        // ---- Phase 3c: off-chain Skolem indices -------------------------
         // The rule of last resort, deferred here for the reason
         // [`build_off_chain_family`] documents: its index is a fresh
         // bit-vector argument term, and minting one per pair eagerly made the
@@ -384,13 +459,251 @@ impl Solver {
                 .push(super::trail::TrailOp::ArrayAxiomInstanceAdded { term: inst });
             let lit = self.encode(inst, manager);
             let _ = self.sat.add_clause([lit]);
+            // The deterministic currency the refinement budget is denominated
+            // in (decision (9)).  Counted here, at the one place a lemma
+            // actually reaches the SAT core, so no builder can enlarge the
+            // circuit without the budget seeing it.
+            self.statistics.array_lemma_instances =
+                self.statistics.array_lemma_instances.saturating_add(1);
             added = true;
         }
 
         added
     }
 
-    /// Phase 3b: the off-chain Skolem index family of the *first* equality
+    /// What this candidate assignment and model have already committed to for
+    /// each unordered array pair (`#P2b-38` strand (b)).
+    ///
+    /// Three sets, read off the SAT trail and the published model rather than
+    /// off the syntax, because the syntax does not say which polarity a
+    /// `distinct` or an `=` was given under negation:
+    ///
+    /// * `held_apart` — the trail assigns `(= a b)` **false**, or assigns an
+    ///   `n`-ary `distinct` over array operands **true** with `a` and `b`
+    ///   among them.  Every select-congruence lemma
+    ///   `a = b ⇒ select(a,j) = select(b,j)` for the pair has a false
+    ///   antecedent, so the family is satisfied by this assignment.
+    /// * `held_equal` — the trail assigns `(= a b)` **true**.  The witness
+    ///   lemma `a = b ∨ select(a,k) != select(b,k)` is satisfied by its first
+    ///   disjunct, so minting `k` for it buys nothing.
+    /// * `separated_by_reads` — the candidate *model* publishes reads of `a`
+    ///   and `b` at one index with different values.  This candidate is not
+    ///   claiming the two arrays are the same function, so it needs no witness
+    ///   index to be told they differ; the same model-guided restriction the
+    ///   ext rule for shared array terms uses in phase 4.
+    ///
+    /// # Why this is read before a family is *built*, not after
+    ///
+    /// The filter in [`Solver::assert_new_instances`] runs on an already
+    /// interned lemma, and interning is the expensive half.  Each
+    /// extensionality witness is a fresh bit-vector index term, and a read at
+    /// it cascades a read-over-write instance down every link of both store
+    /// chains; `collect_pair_indices` adds about ten more `select` terms per
+    /// pair.  All of them join the candidate set of the BV↔EUF partition-lemma
+    /// exchange (`theory_manager::bv_bridge`), whose cost grows with the
+    /// number of *partitions* of that set — and an `n`-ary `distinct` pushes
+    /// all `C(n,2)` pairs into [`ArrayStructure::eq_pairs`].  Four operands of
+    /// depth four were enough to turn a script this tree answered in 0.06 ms
+    /// into one that did not answer in two minutes, with 92 % of the samples
+    /// inside `BvSolver::check`.  The assignment already knew those pairs were
+    /// apart; asking it first is what keeps the circuit from being built.
+    ///
+    /// Conservative in the safe direction: a pair the trail has not decided
+    /// appears in no set, so its families are built as before.  Skipping one
+    /// costs no completeness either — every lemma here is a theorem of the
+    /// array theory, so a skipped instance is deferred, not lost: if a later
+    /// candidate changes its mind about the pair the family is built then.
+    fn pair_polarity(&self, collected: &ArrayStructure, manager: &TermManager) -> PairPolarity {
+        use oxiz_sat::LBool;
+
+        let mut polarity = PairPolarity::default();
+        for &(atom, lhs, rhs) in &collected.eq_atoms {
+            match self
+                .term_to_var
+                .get(&atom)
+                .map(|&var| self.sat.model_value(var))
+            {
+                Some(LBool::False) => {
+                    polarity.held_apart.insert(unordered(lhs, rhs));
+                }
+                Some(LBool::True) => {
+                    polarity.held_equal.insert(unordered(lhs, rhs));
+                }
+                _ => {}
+            }
+        }
+        for &atom in &collected.distinct_atoms {
+            if !self
+                .term_to_var
+                .get(&atom)
+                .is_some_and(|&var| self.sat.model_value(var) == LBool::True)
+            {
+                continue;
+            }
+            let Some(TermKind::Distinct(args)) = manager.get(atom).map(|t| &t.kind) else {
+                continue;
+            };
+            for (position, &lhs) in args.iter().enumerate() {
+                if !is_array_sorted(lhs, manager) {
+                    continue;
+                }
+                for &rhs in args.iter().skip(position + 1) {
+                    if lhs != rhs && is_array_sorted(rhs, manager) {
+                        polarity.held_apart.insert(unordered(lhs, rhs));
+                    }
+                }
+            }
+        }
+
+        // Published reads of the candidate model, keyed by (array, index) —
+        // the same table the ext rule for shared array terms builds in
+        // `foreign_pairs_in_different_classes`.
+        let mut reads: FxHashMap<(TermId, TermId), TermId> = FxHashMap::default();
+        if let Some(model) = self.model.as_ref() {
+            for (&term, &value) in model.assignments() {
+                if let Some(TermKind::Select(array, index)) = manager.get(term).map(|t| &t.kind) {
+                    reads.insert((*array, *index), value);
+                }
+            }
+        }
+        if !reads.is_empty() {
+            for &(a, b) in &collected.eq_pairs {
+                let differs = reads.iter().any(|(&(array, index), &value)| {
+                    array == a && reads.get(&(b, index)).is_some_and(|&other| other != value)
+                });
+                if differs {
+                    polarity.separated_by_reads.insert(unordered(a, b));
+                }
+            }
+        }
+        polarity
+    }
+
+    /// Phase 3a: the array-constant witness-congruence cell of the first
+    /// (constant, pair) combination that still needs one, or `false` when
+    /// every such cell the assignment has not already decided is saturated.
+    ///
+    /// The rule itself is [`build_const_array_witness_cell`], and that
+    /// function's documentation carries both the soundness hole it closes
+    /// (`#P2b-37`, two array constants reached only through a variable of
+    /// indirection) and why it may not be built eagerly.
+    ///
+    /// Cells are enumerated constants-outer, pairs-inner, both in collection
+    /// order — the term-graph walk's pre-order — so the choice is
+    /// deterministic and does not depend on hashing or on machine speed.
+    ///
+    /// A pair the assignment holds *apart* is skipped: the congruence's
+    /// antecedent `a = b` is false under this assignment, so the cell has
+    /// nothing to say about it.  The constant's own witness read is skipped
+    /// with it, because that read exists only to give the congruence something
+    /// to compare.
+    fn assert_const_array_witness_congruence(
+        &mut self,
+        collected: &ArrayStructure,
+        manager: &mut TermManager,
+    ) -> bool {
+        if collected.const_arrays.is_empty() || collected.eq_pairs.is_empty() {
+            return false;
+        }
+        let polarity = self.pair_polarity(collected, manager);
+        let constants = collected.const_arrays.clone();
+        let pairs = collected.eq_pairs.clone();
+        for constant in constants {
+            let Some(const_sort) = manager.get(constant).map(|t| t.sort) else {
+                continue;
+            };
+            let Some(const_domain) = array_domain(constant, manager) else {
+                continue;
+            };
+            for &(a, b) in &pairs {
+                if polarity.held_apart.contains(&unordered(a, b)) {
+                    continue;
+                }
+                if pair_is_enumerated(a, manager) {
+                    // The enumerated family already compares this pair at
+                    // every element of its index sort, and
+                    // `build_const_array_reads` already decides the constant
+                    // there.  A Skolem witness for it would be a fresh index
+                    // the enumeration made unnecessary.
+                    continue;
+                }
+                // The cell only makes sense where the constant is comparable
+                // with the pair: same domain sort, so the witness indexes it,
+                // and — when the constant is a member of the pair — the same
+                // array sort as the other side.
+                if array_domain(a, manager) != Some(const_domain) {
+                    continue;
+                }
+                if constant == a || constant == b {
+                    let other = if constant == a { b } else { a };
+                    if manager.get(other).map(|t| t.sort) != Some(const_sort) {
+                        continue;
+                    }
+                }
+                let witness = extensionality_witness(manager, a, b, const_domain);
+                let mut family: Vec<TermId> = Vec::new();
+                build_const_array_witness_cell(manager, constant, witness, (a, b), &mut family);
+                if self.assert_new_instances(&family, manager) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Phase 3b: the *chain-index* select-congruence family of the first
+    /// equality pair that still needs one, or `false` when every pair the
+    /// assignment has not already separated is saturated.
+    ///
+    /// One pair per round, like the off-chain family in phase 3c and the
+    /// foreign-pair rule in phase 4, and for the same reason: every index this
+    /// family reaches becomes a read index of both arrays, so `n` pairs
+    /// asserted in one round put `O(n)` fresh bit-vector argument terms in
+    /// front of the partition exchange at once.  The witness-index instance
+    /// stays eager in [`build_extensionality_and_congruence`] — it is one
+    /// lemma per pair and it is what decides the `(as const)` and `distinct`
+    /// shapes — while the chain walk, which is the part that scales with chain
+    /// depth, waits until the cheaper families have nothing left to say.
+    ///
+    /// The pairs are tried in collection order (the term-graph walk's
+    /// pre-order), so the choice is deterministic and does not depend on
+    /// hashing or on machine speed.
+    fn assert_chain_index_congruence(
+        &mut self,
+        collected: &ArrayStructure,
+        manager: &mut TermManager,
+    ) -> bool {
+        let polarity = self.pair_polarity(collected, manager);
+        let pairs = collected.eq_pairs.clone();
+        for (a, b) in pairs {
+            if polarity.held_apart.contains(&unordered(a, b)) {
+                continue;
+            }
+            if pair_is_enumerated(a, manager) {
+                // Subsumed: the enumerated family already carries congruence
+                // across this pair at *every* element of its index sort, so
+                // the chain walk can only re-derive instances at indices that
+                // set already contains.  Skipping it is what keeps the walk's
+                // fresh reads — the cost centre of `#P2b-38` strand (b) — off
+                // the small-index-sort shapes entirely.
+                continue;
+            }
+            let mut indices: Vec<TermId> = Vec::new();
+            collect_pair_indices(manager, collected, a, &mut indices);
+            collect_pair_indices(manager, collected, b, &mut indices);
+            if indices.is_empty() {
+                continue;
+            }
+            let mut family: Vec<TermId> = Vec::new();
+            push_congruence_at(manager, a, b, &indices, &mut family);
+            if self.assert_new_instances(&family, manager) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Phase 3c: the off-chain Skolem index family of the *first* equality
     /// pair that still needs one, or `false` when every pair's family is
     /// already asserted or the cardinality guard refuses it.
     ///
@@ -405,6 +718,14 @@ impl Solver {
     ) -> bool {
         let pairs = collected.eq_pairs.clone();
         for (a, b) in pairs {
+            if pair_is_enumerated(a, manager) {
+                // Subsumed, and for the strongest of the three reasons: an
+                // off-chain index is by definition an element of the index
+                // sort, and the enumerated family covers every element of it.
+                // A Skolem index here would be a fresh variable ranging over a
+                // domain already written out in full.
+                continue;
+            }
             let mut family: Vec<TermId> = Vec::new();
             build_off_chain_family(manager, collected, a, b, &mut family);
             if family.is_empty() {
@@ -564,6 +885,15 @@ struct ArrayStructure {
     eq_pairs: Vec<(TermId, TermId)>,
     /// The unordered keys of [`ArrayStructure::eq_pairs`], for that dedup.
     eq_pair_keys: FxHashSet<(TermId, TermId)>,
+    /// `(atom, lhs, rhs)` for every array-sorted `=` atom encountered.
+    ///
+    /// Kept beside [`ArrayStructure::eq_pairs`] because the *atom* is what
+    /// carries the candidate assignment's polarity: a pair whose `(= a b)` the
+    /// SAT core committed to **false** satisfies every select-congruence lemma
+    /// `a = b ⇒ select(a,j) = select(b,j)` vacuously, and building that family
+    /// for it is pure cost.  See
+    /// [`Solver::pairs_the_assignment_separates`](super::Solver::pairs_the_assignment_separates).
+    eq_atoms: Vec<(TermId, TermId, TermId)>,
     /// Every `n`-ary `distinct` atom with array-sorted operands, for the
     /// cardinality refutation ([`build_cardinality_refutations`]).
     distinct_atoms: Vec<TermId>,
@@ -575,6 +905,11 @@ struct ArrayStructure {
     /// store's own-index read can be registered even when the script never
     /// spells it (`#P2b-37`).
     stores: Vec<(TermId, TermId, TermId)>,
+    /// Every `((as const A) d)` term encountered, in first-encounter order and
+    /// deduplicated, for [`build_const_array_defaults`].
+    const_arrays: Vec<TermId>,
+    /// The dedup set behind [`ArrayStructure::const_arrays`].
+    const_array_keys: FxHashSet<TermId>,
     /// Array-sorted terms occurring in a *foreign* position — one where the
     /// array is handed to something other than the array operators themselves:
     /// an argument of an uninterpreted `Apply`, the value written into another
@@ -594,13 +929,50 @@ struct ArrayStructure {
     /// rule off formulas built out of array equalities alone, where it
     /// otherwise multiplied the lemma set several-fold and the search with it.
     shared_foreign: FxHashSet<TermId>,
+    /// `(ite_term, condition, then_branch, else_branch)` for every
+    /// **array-sorted** `ite` encountered, deduplicated in first-encounter
+    /// order (`#P2b-41`).
+    ///
+    /// The encoder names an array-sorted `ite` with a fresh variable and two
+    /// defining implications, which is what makes a read *directly* through
+    /// one decidable.  It is not enough on its own: the array theory walks the
+    /// solver's own assertion list, which still holds the *un-eliminated*
+    /// term, so a read through a `store` whose base is an `ite` —
+    /// `select(store(ite(c,x,y), j, v), i)` — reduced by read-over-write to
+    /// `select(ite(c,x,y), i)`, a read of a term no rule related to `x` or `y`.
+    /// Seven lines plus a `store` were still a wrong `sat` after the encoder
+    /// half landed.  [`build_array_ite_reads`] closes it from this side.
+    array_ites: Vec<(TermId, TermId, TermId, TermId)>,
+    /// The dedup set behind [`ArrayStructure::array_ites`].
+    array_ite_keys: FxHashSet<TermId>,
+}
+
+/// The unordered key of an array pair, so the two sides' order never matters.
+fn unordered(a: TermId, b: TermId) -> (TermId, TermId) {
+    if a.raw() <= b.raw() { (a, b) } else { (b, a) }
+}
+
+/// What the candidate assignment and model already say about each array pair.
+///
+/// Built by [`Solver::pair_polarity`](super::Solver::pair_polarity), which
+/// documents each set and why the extensionality families consult it before
+/// interning anything.
+#[derive(Default)]
+struct PairPolarity {
+    /// Pairs the trail holds *apart*: every select-congruence lemma for them
+    /// has a false antecedent.
+    held_apart: FxHashSet<(TermId, TermId)>,
+    /// Pairs the trail holds *equal*: the witness lemma is satisfied by its
+    /// first disjunct.
+    held_equal: FxHashSet<(TermId, TermId)>,
+    /// Pairs the candidate model already separates at a published read.
+    separated_by_reads: FxHashSet<(TermId, TermId)>,
 }
 
 impl ArrayStructure {
     /// Record the unordered array pair `{a, b}` once.
     fn push_eq_pair(&mut self, a: TermId, b: TermId) {
-        let key = if a.raw() <= b.raw() { (a, b) } else { (b, a) };
-        if self.eq_pair_keys.insert(key) {
+        if self.eq_pair_keys.insert(unordered(a, b)) {
             self.eq_pairs.push((a, b));
         }
     }
@@ -680,6 +1052,10 @@ fn collect_array_structure(
                 // extensionality / congruence lemmas are valid regardless).
                 if lhs != rhs && is_array_sorted(*lhs, manager) && is_array_sorted(*rhs, manager) {
                     out.push_eq_pair(*lhs, *rhs);
+                    // The atom itself, so the congruence family can ask the
+                    // trail whether this candidate assignment already committed
+                    // to `a != b` (see `pairs_the_assignment_separates`).
+                    out.eq_atoms.push((term, *lhs, *rhs));
                     out.note_foreign_operand(*lhs, manager, record_foreign);
                     out.note_foreign_operand(*rhs, manager, record_foreign);
                 }
@@ -720,17 +1096,29 @@ fn collect_array_structure(
             // fragment: congruence can equate two applications of it without
             // any array atom ever naming the arrays.
             TermKind::Apply { args, .. } => {
+                // The array constant is an ordinary `Apply` under a reserved
+                // function symbol (`CONST_ARRAY_FUNC`), so this is where one is
+                // recognised.  Recorded for `build_const_array_defaults`,
+                // which is the only rule that compares two of them directly.
+                if const_array_default(term, manager).is_some() && out.const_array_keys.insert(term)
+                {
+                    out.const_arrays.push(term);
+                }
                 for &arg in args {
                     out.note_foreign(arg, manager, record_foreign);
                 }
                 stack.extend(args.iter().rev().copied());
             }
             TermKind::Ite(cond, then_branch, else_branch) => {
-                out.note_foreign(*then_branch, manager, record_foreign);
-                out.note_foreign(*else_branch, manager, record_foreign);
-                stack.push(*else_branch);
-                stack.push(*then_branch);
-                stack.push(*cond);
+                let (cond, then_branch, else_branch) = (*cond, *then_branch, *else_branch);
+                out.note_foreign(then_branch, manager, record_foreign);
+                out.note_foreign(else_branch, manager, record_foreign);
+                if array_domain(term, manager).is_some() && out.array_ite_keys.insert(term) {
+                    out.array_ites.push((term, cond, then_branch, else_branch));
+                }
+                stack.push(else_branch);
+                stack.push(then_branch);
+                stack.push(cond);
             }
             _ => {
                 let mut children: Vec<TermId> = Vec::new();
@@ -796,22 +1184,23 @@ const MAX_STORE_CHAIN_DEPTH: usize = 128;
 /// through the ordinary builders, and the model filter still decides whether
 /// the round needs it.
 ///
-/// # Defence in depth, not an independently observable rule
+/// # Mutation witness
 ///
-/// Reverting this registration changes nothing measurable at the widths the
-/// campaigns run: neither the 480-script bounded extensionality campaign
-/// (`tests/array_uf_combination.rs`) nor any of the 65 array unit tests moves.
-/// The reason is structural, and worth writing down so a later reader does not
-/// mistake "no test fails" for "no rule here".  [`collect_pair_indices`]
-/// already pushes each chain link's own `store_index` into the pair's index
-/// set, and the congruence family at the end of
-/// [`build_extensionality_and_congruence`] then builds `select(a, store_index)`
-/// for it — so the store's own-index read is *materialised anyway*, one
-/// refinement round later, and read-over-write fires on it there.  This
-/// registration only makes it happen eagerly, in the round that collects the
-/// store.  The two rules coincide wherever the pair's index set already
-/// reaches the store; they come apart only on a store the equality family
-/// never looks at, which no generated shape produced.
+/// `#P2b-39` recorded this rule as implemented but not independently
+/// observable, on the grounds that [`collect_pair_indices`] materialises the
+/// same read one refinement round later.  **That record was wrong**, and the
+/// witness is in this repository:
+/// `tests/round4_pass2_recheck_pins.rs::the_store_own_index_read_is_what_decides_this_script`
+/// answers `sat` with this registration and `unknown` without it — an early
+/// `return` here turns that test red in about 0.9 s, with no wall-clock budget
+/// involved, and restoring it turns it green again.
+///
+/// The subsumption argument holds only where the pair's index set already
+/// reaches the store, and the witness script is a shape where it does not: the
+/// deciding store sits under an `(as const …)` equality whose congruence family
+/// never walks that chain.  Decision (7)'s mutation requirement is therefore
+/// met for this rule, and the note is kept as the record of how it is met
+/// rather than as an excuse for absent coverage.
 fn register_store_own_index_reads(manager: &mut TermManager, collected: &mut ArrayStructure) {
     let mut known: FxHashSet<TermId> = collected
         .selects
@@ -832,289 +1221,9 @@ fn register_store_own_index_reads(manager: &mut TermManager, collected: &mut Arr
     collected.stores = stores;
 }
 
-/// Push the extensionality witness lemma `a = b ∨ select(a,k) != select(b,k)`
-/// for the unordered array pair `{a, b}`, with the deterministic per-pair
-/// witness index `k`.
-///
-/// The lemma is a theorem of the extensional array theory in both directions:
-/// asserted `a != b` forces a concrete differing index, and asserted `a = b`
-/// leaves it vacuous.
-fn push_witness_lemma(
-    manager: &mut TermManager,
-    a: TermId,
-    b: TermId,
-    candidates: &mut Vec<TermId>,
-) {
-    let Some(domain) = array_domain(a, manager) else {
-        return;
-    };
-    let witness = extensionality_witness(manager, a, b, domain);
-    let read_a = manager.mk_select(a, witness);
-    let read_b = manager.mk_select(b, witness);
-    let reads_eq = manager.mk_eq(read_a, read_b);
-    let reads_diff = manager.mk_not(reads_eq);
-    let eq_ab = manager.mk_eq(a, b);
-    let ext = manager.mk_or([eq_ab, reads_diff]);
-    candidates.push(ext);
-}
-
-/// Build read-over-write instances for every collected `select`, following each
-/// read all the way down its store chain.
-///
-/// The axiom is emitted as its two case-split implications rather than a single
-/// `ite`-valued equality, because the arithmetic / EUF theory solvers reduce a
-/// guarded equality (`cond ⇒ x = y`) directly, whereas a term-level `ite`
-/// operand of an equality would be handed to them opaque.
-///
-///   * RoW-1: `store_idx = index  ⇒  select_term = stored_val`
-///   * RoW-2: `store_idx != index ⇒  select_term = select(base, index)`
-fn build_read_over_write(
-    manager: &mut TermManager,
-    collected: &ArrayStructure,
-    candidates: &mut Vec<TermId>,
-) {
-    for &(select_term, array, index) in &collected.selects {
-        emit_read_chain(manager, collected, select_term, array, index, candidates);
-    }
-}
-
-/// Emit the read-over-write pair for `select(array, index)` and keep descending
-/// into the store's base for as long as that base is itself a store (directly,
-/// or through an asserted `base = store(..)` alias).
-///
-/// Each level's pair is a self-contained theorem — it mentions only that
-/// level's store and needs only that level's alias equality as a guard — so
-/// descending adds no assumption and the lemmas stay valid however the search
-/// later assigns the aliases.
-fn emit_read_chain(
-    manager: &mut TermManager,
-    collected: &ArrayStructure,
-    select_term: TermId,
-    array: TermId,
-    index: TermId,
-    candidates: &mut Vec<TermId>,
-) {
-    let mut select_term = select_term;
-    let mut array = array;
-    // Arrays already reduced on this chain.  An alias cycle would otherwise
-    // walk the same two arrays until the depth budget ran out, re-deriving
-    // lemmas the dedup set would then discard.
-    let mut seen: FxHashSet<TermId> = FxHashSet::default();
-    for _ in 0..MAX_STORE_CHAIN_DEPTH {
-        if !seen.insert(array) {
-            return;
-        }
-        // Resolve this level to a store term, plus the alias equality (if any)
-        // that has to guard the lemma.
-        let (store_term, alias_eq) = if as_store(array, manager).is_some() {
-            (array, None)
-        } else if let Some(&aliased) = collected.aliases.get(&array) {
-            (aliased, Some(manager.mk_eq(array, aliased)))
-        } else {
-            return;
-        };
-        let Some((base, store_idx, stored_val)) = as_store(store_term, manager) else {
-            return;
-        };
-        let (row1, row2) =
-            row_implications(manager, select_term, store_idx, stored_val, base, index);
-        match alias_eq {
-            // An asserted `array = store(...)` makes the axiom apply to the
-            // *name*, but only under that equality — guarding keeps the lemma a
-            // universally-valid theorem (`array = store(...) ∧ cond ⇒ ...`).
-            Some(eq) => {
-                let g1 = manager.mk_implies(eq, row1);
-                let g2 = manager.mk_implies(eq, row2);
-                candidates.push(g1);
-                candidates.push(g2);
-            }
-            None => {
-                candidates.push(row1);
-                candidates.push(row2);
-            }
-        }
-        // RoW-2 introduced `select(base, index)`; reduce it here rather than
-        // waiting for the next refinement round to notice it.
-        select_term = manager.mk_select(base, index);
-        array = base;
-    }
-}
-
-/// Build the two read-over-write case-split implications for a
-/// `select(store(base, store_idx, stored_val), index)` read.
-fn row_implications(
-    manager: &mut TermManager,
-    select_term: TermId,
-    store_idx: TermId,
-    stored_val: TermId,
-    base: TermId,
-    index: TermId,
-) -> (TermId, TermId) {
-    let idx_eq = manager.mk_eq(store_idx, index);
-    // RoW-1: (store_idx = index) ⇒ (select_term = stored_val)
-    let hit = manager.mk_eq(select_term, stored_val);
-    let row1 = manager.mk_implies(idx_eq, hit);
-    // RoW-2: (store_idx != index) ⇒ (select_term = select(base, index))
-    let idx_neq = manager.mk_not(idx_eq);
-    let base_read = manager.mk_select(base, index);
-    let miss = manager.mk_eq(select_term, base_read);
-    let row2 = manager.mk_implies(idx_neq, miss);
-    (row1, row2)
-}
-
-/// Refute an `n`-ary `distinct` over array-sorted operands whose sort has
-/// fewer than `n` elements (`#P2b-38`).
-///
-/// `(distinct c0 … c9)` over `(Array (_ BitVec 1) (_ BitVec 1))` is
-/// unsatisfiable because that sort has exactly four elements — but proving it
-/// through the extensionality family means separating all forty-five pairs,
-/// which is forty-five fresh witness indices, forty-five reads on each side,
-/// and a BV↔EUF partition space large enough that the exchange gives up and
-/// the answer is `unknown`.  The pigeonhole argument decides it outright and
-/// costs one lemma: `¬(distinct …)` is a *theorem* whenever the operand count
-/// exceeds the sort's cardinality, whatever the operands are, so asserting it
-/// removes exactly the models the theory has none of.
-///
-/// Only sorts whose size is *exactly* known take part
-/// ([`array_sort_cardinality`]); an unknown or merely bounded-below size
-/// yields nothing, which is the direction that can only fail to decide.
-fn build_cardinality_refutations(
-    manager: &mut TermManager,
-    collected: &ArrayStructure,
-    candidates: &mut Vec<TermId>,
-) {
-    for &atom in &collected.distinct_atoms {
-        let Some(TermKind::Distinct(args)) = manager.get(atom).map(|data| data.kind.clone()) else {
-            continue;
-        };
-        let mut per_sort: FxHashMap<SortId, usize> = FxHashMap::default();
-        for &arg in &args {
-            if !is_array_sorted(arg, manager) {
-                continue;
-            }
-            let Some(sort) = manager.get(arg).map(|data| data.sort) else {
-                continue;
-            };
-            *per_sort.entry(sort).or_insert(0) += 1;
-        }
-        let refuted = per_sort.into_iter().any(|(sort, count)| {
-            array_sort_cardinality(manager, sort)
-                .is_some_and(|size| u128::from(count as u64) > size)
-        });
-        if refuted {
-            let refutation = manager.mk_not(atom);
-            candidates.push(refutation);
-        }
-    }
-}
-
-/// The *exact* number of elements of `sort`, or `None` when it is not known
-/// exactly (an uninterpreted sort, a datatype, a floating-point sort, an
-/// infinite sort) or is too large to represent.
-///
-/// The distinction from [`index_sort_lower_bound`] is the direction of the
-/// error: that one may under-state a size (it guards a rule that needs *at
-/// least* so many elements), this one must never over-state it, because the
-/// rule it guards refutes a formula outright.  `u128::MAX` therefore stands
-/// for "larger than any operand count", not for "unbounded".
-fn array_sort_cardinality(manager: &TermManager, sort: SortId) -> Option<u128> {
-    let kind = &manager.sorts.get(sort)?.kind;
-    match kind {
-        SortKind::Bool => Some(2),
-        SortKind::BitVec(width) => Some(if *width >= 127 {
-            u128::MAX
-        } else {
-            1u128 << *width
-        }),
-        SortKind::RoundingMode => Some(5),
-        SortKind::Array { domain, range } => {
-            let domain_size = array_sort_cardinality(manager, *domain)?;
-            let range_size = array_sort_cardinality(manager, *range)?;
-            if range_size <= 1 {
-                return Some(range_size);
-            }
-            let exponent = u32::try_from(domain_size).ok()?;
-            Some(range_size.checked_pow(exponent).unwrap_or(u128::MAX))
-        }
-        // Infinite, or of a size this function cannot state exactly.
-        SortKind::Int
-        | SortKind::Real
-        | SortKind::String
-        | SortKind::FloatingPoint { .. }
-        | SortKind::Uninterpreted(_)
-        | SortKind::Parameter(_)
-        | SortKind::Parametric { .. }
-        | SortKind::Datatype(_) => None,
-    }
-}
-
-/// Build extensionality and select-congruence instances for every collected
-/// array-sorted equality atom.
-fn build_extensionality_and_congruence(
-    manager: &mut TermManager,
-    collected: &ArrayStructure,
-    candidates: &mut Vec<TermId>,
-    witnesses: &mut FxHashSet<TermId>,
-) {
-    for &(a, b) in &collected.eq_pairs {
-        if witnesses.len() >= MAX_ARRAY_EXT_WITNESSES {
-            return;
-        }
-        // Extensionality: a = b ∨ select(a,k) != select(b,k), with a fresh but
-        // deterministic witness index per unordered pair.
-        push_witness_lemma(manager, a, b, candidates);
-        if let Some(domain) = array_domain(a, manager) {
-            let witness = extensionality_witness(manager, a, b, domain);
-            witnesses.insert(witness);
-        }
-
-        // Select congruence: a = b ⇒ select(a,j) = select(b,j) for every index
-        // relevant to comparing the two sides.
-        let mut indices: Vec<TermId> = Vec::new();
-        // The pair's own witness index is one of them (`#P2b-37`).  Without it
-        // the two lemmas never meet: extensionality speaks only about `k` and
-        // congruence only about the script's indices, so
-        // `(= ((as const A) d1) ((as const A) d2))` — two array constants with
-        // different defaults, asserted equal, and no `select` anywhere — had
-        // no instance that could see both defaults, and answered `sat`.  With
-        // the witness read in the congruence family the const-read axiom
-        // decides `select(c1,k) = d1` and `select(c2,k) = d2` on the next
-        // round and the equality is refuted; in the other polarity the
-        // witness lemma itself refutes an asserted `distinct` between two
-        // constants with the *same* default.
-        //
-        // Like the store's own-index read, this is defence in depth rather
-        // than an independently observable rule at the campaign's widths:
-        // reverting it moves neither the 480-script bounded campaign nor any
-        // array unit test, because the pair's witness index enters `indices`
-        // here and the *witness lemma* alone already closes the pair whenever
-        // the index domain is small enough for one index to decide it.  The
-        // two come apart only where the lemma needs congruence at the witness
-        // to meet the const-read axiom, which is the
-        // `(= ((as const A) d1) ((as const A) d2))` shape the comment above
-        // describes — decided by `array_extensionality_reserved`'s const-vs-
-        // const cases through the same instance the witness lemma supplies.
-        if let Some(domain) = array_domain(a, manager) {
-            let witness = extensionality_witness(manager, a, b, domain);
-            indices.push(witness);
-        }
-        collect_pair_indices(manager, collected, a, &mut indices);
-        collect_pair_indices(manager, collected, b, &mut indices);
-
-        for idx in indices {
-            let read_a = manager.mk_select(a, idx);
-            let read_b = manager.mk_select(b, idx);
-            let reads_eq = manager.mk_eq(read_a, read_b);
-            let eq_ab = manager.mk_eq(a, b);
-            let cong = manager.mk_implies(eq_ab, reads_eq);
-            candidates.push(cong);
-        }
-    }
-}
-
 /// The *off-chain Skolem index* family for one array pair — the rule of last
 /// resort, and the one the refinement loop reaches for only when nothing else
-/// fires (see `instantiate_array_axioms`, phase 3b).
+/// fires (see `instantiate_array_axioms`, phase 3c).
 ///
 /// `(= (store ((as const A) #b0) i #b1) ((as const A) #b1))` is unsat because
 /// the two sides differ at every index other than `i`, and over a two-element
@@ -1512,40 +1621,6 @@ pub(crate) fn const_array_default(term: TermId, manager: &TermManager) -> Option
     Some(default)
 }
 
-/// Build the array-constant read instances:
-/// `select(((as const (Array D R)) d), i) = d` for every collected read whose
-/// array operand is an array constant.
-///
-/// # Why this family was missing (`#P2b-36`)
-///
-/// An array constant is an opaque `Apply` to every part of the solver, so a
-/// read of one was a free leaf: `(= (select ((as const (Array (_ BitVec 8) (_
-/// BitVec 8))) #x00) #x00) #x05)` answered `sat` on 0.3.3 and on every tree
-/// before this, as did the `Int` spelling, the same read under `bvadd`, and
-/// the read wrapped in an uninterpreted function.  The axiom is unconditional
-/// — an array constant's value at *every* index is its default — so the
-/// instance needs no guard, unlike the alias-guarded read-over-write pairs.
-///
-/// It composes with the two families around it rather than duplicating them:
-/// a read over a `store` chain that bottoms out at an array constant is
-/// reduced by RoW-2 to a read *of* the constant, which the next refinement
-/// round collects and this family then decides; and `arr = ((as const …) d)`
-/// with a read on `arr` is carried across by select congruence to a read of
-/// the constant, likewise decided here on the following round.
-fn build_const_array_reads(
-    manager: &mut TermManager,
-    collected: &ArrayStructure,
-    candidates: &mut Vec<TermId>,
-) {
-    for &(select_term, array, _) in &collected.selects {
-        let Some(default) = const_array_default(array, manager) else {
-            continue;
-        };
-        let read_is_default = manager.mk_eq(select_term, default);
-        candidates.push(read_is_default);
-    }
-}
-
 /// If `term` is a `store`, return `(base, index, value)`.
 fn as_store(term: TermId, manager: &TermManager) -> Option<(TermId, TermId, TermId)> {
     match manager.get(term)?.kind {
@@ -1563,6 +1638,20 @@ fn is_array_sorted(term: TermId, manager: &TermManager) -> bool {
 }
 
 /// The domain (index) sort of `term`'s array sort, if `term` is array-sorted.
+/// Whether `term`'s index sort is one the extensionality family decides by
+/// enumeration rather than by a Skolem witness index.
+///
+/// The three lazy phases (3a array-constant witness congruence, 3b chain-index
+/// congruence, 3c off-chain Skolem index) all exist to mint or reach an index
+/// the eager family did not; for an enumerated pair the eager family reached
+/// *every* index there is, so all three have nothing left to say. See
+/// [`ARRAY_INDEX_ENUMERATION_LIMIT`].
+fn pair_is_enumerated(array: TermId, manager: &mut TermManager) -> bool {
+    array_domain(array, manager)
+        .and_then(|domain| enumerable_index_values(manager, domain))
+        .is_some_and(|values| !values.is_empty())
+}
+
 fn array_domain(term: TermId, manager: &TermManager) -> Option<SortId> {
     let sort = manager.get(term)?.sort;
     match manager.sorts.get(sort)?.kind {
@@ -1600,335 +1689,8 @@ pub(crate) fn ground_children(kind: &TermKind, out: &mut Vec<TermId>) {
     }
 }
 
-#[cfg(test)]
-mod budget_honesty_tests {
-    use super::*;
-    use crate::solver::types::SolverResult;
-    use oxiz_core::ast::TermManager;
-
-    /// An exhausted instance budget must never be reported as a model.
-    ///
-    /// The cap makes `instantiate_array_axioms` return `false`, which is the
-    /// same value it returns for "this candidate satisfies every axiom" — the
-    /// one answer that licenses `Sat`. Pre-loading the dedup set to the cap
-    /// simulates a formula that used the whole budget, and the verdict on a
-    /// formula that genuinely needs an array lemma must then be `Unknown`
-    /// rather than the `sat` the unchecked `false` would have produced.
-    #[test]
-    fn an_exhausted_instance_budget_is_unknown_not_sat() {
-        let mut solver = Solver::new();
-        let mut tm = TermManager::new();
-        let int_sort = tm.sorts.int_sort;
-        let array_sort = tm.sorts.array(int_sort, int_sort);
-
-        // `(not (= (store (store a 1 x) 2 y) (store (store a 2 y) 1 x)))` —
-        // unsat, and only extensionality can show it.
-        let a = tm.mk_var("a", array_sort);
-        let x = tm.mk_var("x", int_sort);
-        let y = tm.mk_var("y", int_sort);
-        let one = tm.mk_int(1);
-        let two = tm.mk_int(2);
-        let lhs = {
-            let inner = tm.mk_store(a, one, x);
-            tm.mk_store(inner, two, y)
-        };
-        let rhs = {
-            let inner = tm.mk_store(a, two, y);
-            tm.mk_store(inner, one, x)
-        };
-        let eq = tm.mk_eq(lhs, rhs);
-        let goal = tm.mk_not(eq);
-        solver.assert(goal, &mut tm);
-
-        // Fill the dedup set to the cap with throwaway ids so the very first
-        // instantiation call is refused by the budget check.
-        for i in 0..MAX_ARRAY_AXIOM_INSTANCES {
-            let filler = tm.mk_var(&format!("!filler!{i}"), int_sort);
-            solver.array_axiom_instances.insert(filler);
-        }
-
-        let verdict = solver.check(&mut tm);
-        assert_eq!(
-            verdict,
-            SolverResult::Unknown,
-            "an exhausted array-axiom budget must be reported honestly, never as sat"
-        );
-        assert!(
-            solver.array_axioms_incomplete,
-            "the budget exhaustion must be recorded"
-        );
-    }
-
-    /// The same formula with the budget available is decided, so the gate above
-    /// is not simply suppressing every array answer.
-    #[test]
-    fn an_available_budget_still_decides_the_same_formula() {
-        let mut solver = Solver::new();
-        let mut tm = TermManager::new();
-        let int_sort = tm.sorts.int_sort;
-        let array_sort = tm.sorts.array(int_sort, int_sort);
-        let a = tm.mk_var("a", array_sort);
-        let x = tm.mk_var("x", int_sort);
-        let y = tm.mk_var("y", int_sort);
-        let one = tm.mk_int(1);
-        let two = tm.mk_int(2);
-        let lhs = {
-            let inner = tm.mk_store(a, one, x);
-            tm.mk_store(inner, two, y)
-        };
-        let rhs = {
-            let inner = tm.mk_store(a, two, y);
-            tm.mk_store(inner, one, x)
-        };
-        let eq = tm.mk_eq(lhs, rhs);
-        let goal = tm.mk_not(eq);
-        solver.assert(goal, &mut tm);
-
-        assert_eq!(
-            solver.check(&mut tm),
-            SolverResult::Unsat,
-            "store commutativity is refutable when the budget is available"
-        );
-        assert!(
-            !solver.array_axioms_incomplete,
-            "nothing near the cap was needed"
-        );
-    }
-}
+mod families;
+use families::*;
 
 #[cfg(test)]
-mod s8_iterative_tests {
-    use super::*;
-    use oxiz_core::ast::TermManager;
-
-    /// Nesting depth that would overflow the native stack under the previous
-    /// recursive walk; the assertion is simply that the call **returns**.
-    ///
-    /// This depth and [`SMALL_STACK`] were scaled down together by a factor
-    /// of 8 (from 60 000 on 1 MiB).  What the test pins is the ~17 bytes of
-    /// stack available per level — far under any native frame — not the
-    /// absolute depth, and the smaller pair costs a fraction of the memory
-    /// the interner has to keep live.  Never raise one without the other.
-    const DEEP: usize = 7_500;
-
-    /// Worker stack for the deep-nesting test; see [`DEEP`].
-    const SMALL_STACK: usize = 1 << 17;
-
-    /// Build `store(store(...store(a, i, v)..., i, v), i, v)`, `depth` levels.
-    fn deep_store_chain(tm: &mut TermManager, depth: usize) -> (TermId, TermId) {
-        let int_sort = tm.sorts.int_sort;
-        let array_sort = tm.sorts.array(int_sort, int_sort);
-        let base = tm.mk_var("a", array_sort);
-        let idx = tm.mk_int(num_bigint::BigInt::from(1));
-        let val = tm.mk_int(num_bigint::BigInt::from(7));
-        let mut current = base;
-        for _ in 0..depth {
-            current = tm.mk_store(current, idx, val);
-        }
-        (current, idx)
-    }
-
-    #[test]
-    fn s8_collect_array_structure_deep_store_chain_returns() {
-        // A 128 KiB stack: the recursive version could not survive `DEEP`
-        // frames, so returning at all is the proof of the conversion.
-        let handle = std::thread::Builder::new()
-            .stack_size(SMALL_STACK)
-            .spawn(|| {
-                let mut tm = TermManager::new();
-                let (deep, idx) = deep_store_chain(&mut tm, DEEP);
-                let select = tm.mk_select(deep, idx);
-                let mut visited = FxHashSet::default();
-                let mut out = ArrayStructure::default();
-                collect_array_structure(select, &tm, &mut visited, &mut out, true);
-                out.selects.len()
-            })
-            .expect("spawn deep-nesting worker");
-        assert_eq!(handle.join().ok(), Some(1));
-    }
-
-    /// A doubling DAG: without the `visited` set this would expand
-    /// exponentially instead of completing immediately.
-    #[test]
-    fn s8_collect_array_structure_shared_dag_completes() {
-        let mut tm = TermManager::new();
-        let int_sort = tm.sorts.int_sort;
-        let mut current = tm.mk_var("x", int_sort);
-        for _ in 0..55 {
-            current = tm.mk_add(vec![current, current]);
-        }
-        let mut visited = FxHashSet::default();
-        let mut out = ArrayStructure::default();
-        collect_array_structure(current, &tm, &mut visited, &mut out, true);
-        assert!(out.selects.is_empty());
-    }
-
-    /// Semantic pin: the walk still records selects, read indices, array
-    /// equalities and `var = store(..)` aliases, in the recursive order.
-    #[test]
-    fn s8_collect_array_structure_records_same_structure() {
-        let mut tm = TermManager::new();
-        let int_sort = tm.sorts.int_sort;
-        let array_sort = tm.sorts.array(int_sort, int_sort);
-        let a = tm.mk_var("a", array_sort);
-        let b = tm.mk_var("b", array_sort);
-        let i = tm.mk_int(num_bigint::BigInt::from(1));
-        let j = tm.mk_int(num_bigint::BigInt::from(2));
-        let v = tm.mk_int(num_bigint::BigInt::from(9));
-        let store_a = tm.mk_store(a, i, v);
-        let alias = tm.mk_eq(b, store_a);
-        let sel_i = tm.mk_select(a, i);
-        let sel_j = tm.mk_select(a, j);
-        let sel_eq = tm.mk_eq(sel_i, sel_j);
-        let both = tm.mk_and(vec![alias, sel_eq]);
-
-        let mut visited = FxHashSet::default();
-        let mut out = ArrayStructure::default();
-        collect_array_structure(both, &tm, &mut visited, &mut out, true);
-
-        // `b = store(a, i, v)` is recorded as an alias and as an array-sorted
-        // equality pair; the two selects are recorded left to right.
-        assert_eq!(out.aliases.get(&b), Some(&store_a));
-        assert_eq!(out.eq_pairs, vec![(b, store_a)]);
-        assert_eq!(
-            out.selects,
-            vec![(sel_i, a, i), (sel_j, a, j)],
-            "select order must match the recursive pre-order"
-        );
-        assert_eq!(out.read_indices.get(&a), Some(&vec![i, j]));
-    }
-}
-
-#[cfg(test)]
-mod p2b32_walk_tests {
-    use super::*;
-    use crate::solver::types::SolverResult;
-    use oxiz_core::ast::TermManager;
-
-    /// A `select` nested under a bit-vector operator is collected (`#P2b-32`).
-    /// The hand-written child list this walk used to have named only the
-    /// Boolean connectives, `ite` and `Apply`, so the read under `bvadd`
-    /// below was invisible and no read-over-write instance was ever built.
-    #[test]
-    fn a_select_under_a_bit_vector_operator_is_collected() {
-        let mut tm = TermManager::new();
-        let bv8 = tm.sorts.bitvec(8);
-        let array_sort = tm.sorts.array(bv8, bv8);
-        let arr = tm.mk_var("arr", array_sort);
-        let i = tm.mk_var("i", bv8);
-        let five = tm.mk_bitvec(5, 8);
-        let one = tm.mk_bitvec(1, 8);
-        let six = tm.mk_bitvec(6, 8);
-        let store = tm.mk_store(arr, i, five);
-        let read = tm.mk_select(store, i);
-
-        for (name, wrapped) in [
-            ("bvadd", tm.mk_bv_add(read, one)),
-            ("bvnot", tm.mk_bv_not(read)),
-        ] {
-            let goal = tm.mk_distinct([wrapped, six]);
-            let mut visited = FxHashSet::default();
-            let mut out = ArrayStructure::default();
-            collect_array_structure(goal, &tm, &mut visited, &mut out, true);
-            assert_eq!(out.selects, vec![(read, store, i)], "under {name}");
-        }
-        let comparison = tm.mk_bv_ult(six, read);
-        let mut visited = FxHashSet::default();
-        let mut out = ArrayStructure::default();
-        collect_array_structure(comparison, &tm, &mut visited, &mut out, true);
-        assert_eq!(out.selects, vec![(read, store, i)], "under bvult");
-    }
-
-    /// The integer twin: a read under `+`, and the `<` comparison over it.
-    #[test]
-    fn a_select_under_an_arithmetic_operator_is_collected() {
-        let mut tm = TermManager::new();
-        let int_sort = tm.sorts.int_sort;
-        let array_sort = tm.sorts.array(int_sort, int_sort);
-        let arr = tm.mk_var("arr", array_sort);
-        let i = tm.mk_var("i", int_sort);
-        let five = tm.mk_int(5);
-        let one = tm.mk_int(1);
-        let six = tm.mk_int(6);
-        let store = tm.mk_store(arr, i, five);
-        let read = tm.mk_select(store, i);
-        let sum = tm.mk_add([read, one]);
-        let goal = tm.mk_distinct([sum, six]);
-        let mut visited = FxHashSet::default();
-        let mut out = ArrayStructure::default();
-        collect_array_structure(goal, &tm, &mut visited, &mut out, true);
-        assert_eq!(out.selects, vec![(read, store, i)], "under +");
-
-        let comparison = tm.mk_lt(six, read);
-        let mut visited = FxHashSet::default();
-        let mut out = ArrayStructure::default();
-        collect_array_structure(comparison, &tm, &mut visited, &mut out, true);
-        assert_eq!(out.selects, vec![(read, store, i)], "under <");
-    }
-
-    /// A read under a binder is deliberately *not* collected: a ground lemma
-    /// over a bound variable is an instance of nothing, and the old list
-    /// stopped at binders too.
-    #[test]
-    fn a_select_under_a_binder_is_not_collected() {
-        let mut tm = TermManager::new();
-        let bv8 = tm.sorts.bitvec(8);
-        let array_sort = tm.sorts.array(bv8, bv8);
-        let arr = tm.mk_var("arr", array_sort);
-        let k = tm.mk_var("k", bv8);
-        let five = tm.mk_bitvec(5, 8);
-        let store = tm.mk_store(arr, k, five);
-        let read = tm.mk_select(store, k);
-        let body = tm.mk_eq(read, five);
-        let quantified = tm.mk_forall([("k", bv8)], body);
-        let mut visited = FxHashSet::default();
-        let mut out = ArrayStructure::default();
-        collect_array_structure(quantified, &tm, &mut visited, &mut out, true);
-        assert!(out.selects.is_empty(), "no ground instance under a binder");
-    }
-
-    /// End to end through the builder API: the a3 shape and its integer
-    /// twin are refuted, and the miss with a free second index stays `sat`.
-    #[test]
-    fn nested_read_over_write_is_decided() {
-        let mut tm = TermManager::new();
-        let bv8 = tm.sorts.bitvec(8);
-        let array_sort = tm.sorts.array(bv8, bv8);
-        let arr = tm.mk_var("arr", array_sort);
-        let i = tm.mk_var("i", bv8);
-        let j = tm.mk_var("j", bv8);
-        let five = tm.mk_bitvec(5, 8);
-        let one = tm.mk_bitvec(1, 8);
-        let six = tm.mk_bitvec(6, 8);
-        let store = tm.mk_store(arr, i, five);
-
-        let hit = tm.mk_select(store, i);
-        let hit_sum = tm.mk_bv_add(hit, one);
-        let refuted = tm.mk_distinct([hit_sum, six]);
-        let mut solver = Solver::new();
-        solver.assert(refuted, &mut tm);
-        assert_eq!(solver.check(&mut tm), SolverResult::Unsat, "a3");
-
-        let miss = tm.mk_select(store, j);
-        let miss_sum = tm.mk_bv_add(miss, one);
-        let satisfiable = tm.mk_distinct([miss_sum, six]);
-        let mut solver = Solver::new();
-        solver.assert(satisfiable, &mut tm);
-        assert_eq!(solver.check(&mut tm), SolverResult::Sat, "a9");
-
-        let int_sort = tm.sorts.int_sort;
-        let int_array = tm.sorts.array(int_sort, int_sort);
-        let iarr = tm.mk_var("iarr", int_array);
-        let n = tm.mk_var("n", int_sort);
-        let ifive = tm.mk_int(5);
-        let ione = tm.mk_int(1);
-        let isix = tm.mk_int(6);
-        let istore = tm.mk_store(iarr, n, ifive);
-        let iread = tm.mk_select(istore, n);
-        let isum = tm.mk_add([iread, ione]);
-        let irefuted = tm.mk_distinct([isum, isix]);
-        let mut solver = Solver::new();
-        solver.assert(irefuted, &mut tm);
-        assert_eq!(solver.check(&mut tm), SolverResult::Unsat, "a12");
-    }
-}
+mod tests;

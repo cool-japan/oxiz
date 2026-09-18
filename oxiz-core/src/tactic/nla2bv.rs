@@ -857,7 +857,11 @@ impl<'a> Nla2BvTactic<'a> {
             ArithConvData::Var { name, var_width } => {
                 let w = var_width.unwrap_or(width);
                 let name_str = self.manager.resolve_str(name).to_string();
-                let bv_name = format!("{}_bv", name_str);
+                // Reserved class (`#P2b-44`).  This mint was the worst of the
+                // family: it is derived from the *user's own* symbol, so
+                // `x_bv` beside `x` in the same script was a collision a user
+                // could build by accident rather than by attack.
+                let bv_name = crate::smtlib::reserved_name("nlabv", &name_str);
                 let bv_sort = self.manager.sorts.bitvec(w);
                 let bv_var = self.manager.mk_var(&bv_name, bv_sort);
                 Some(bv_var)

@@ -92,7 +92,7 @@ use super::trail::TrailOp;
 ///
 /// Follows the `sk!` Skolem-symbol convention already used by the encoder for
 /// names that cannot collide with a user symbol.
-const DT_SIZE_MEASURE: &str = "dt.size!";
+const DT_SIZE_MEASURE: &str = "dtsize";
 
 /// Cap on the number of distinct ground datatype lemmas one solver run may
 /// assert.  Congruence is expanded Ackermann-style, so the count grows with the
@@ -273,7 +273,7 @@ fn constructor_args(term: TermId, manager: &TermManager) -> Option<Vec<TermId>> 
 /// is one of the explicitly asserted, literal-justified lemmas below.
 fn dt_size(term: TermId, manager: &mut TermManager) -> TermId {
     let int_sort = manager.sorts.int_sort;
-    let name = format!("{DT_SIZE_MEASURE}{}", term.raw());
+    let name = oxiz_core::smtlib::reserved_name(DT_SIZE_MEASURE, &term.raw().to_string());
     manager.mk_var(&name, int_sort)
 }
 

@@ -587,7 +587,34 @@ impl Parser<'_> {
                     state.sexpr.clear();
                 }
                 Some(_) => {
+                    let position = self
+                        .lexer
+                        .peek()
+                        .map_or_else(|| self.lexer.position(), |token| token.start);
                     let value = self.parse_simple_attribute_value()?;
+                    // A `:named` label is the one attribute value that enters
+                    // a *namespace*: it names the assertion for
+                    // `(get-unsat-core)` and it is referable as a term, so it
+                    // has to meet the same reservation rule every other user
+                    // symbol does (`Parser::reject_reserved_symbol`). Without
+                    // this, `(assert (! (= x #b00) :named @uc_U_0))` parsed
+                    // and ran while `(declare-const @uc_U_0 …)` — and
+                    // `(assert @uc_U_0)` — were refused, which is an
+                    // inconsistency in the refusal's coverage even though no
+                    // capture follows from it (an unsat core prints only on
+                    // `unsat`, where there is no model to contradict).
+                    //
+                    // Deliberately narrow: every *other* attribute value is
+                    // left alone. `:source`, `:status` and friends are
+                    // free-form annotations that name nothing and that
+                    // benchmark files in the wild fill with arbitrary
+                    // symbols; refusing those would reject conforming input to
+                    // close nothing.
+                    if key == "named"
+                        && let AttributeValue::Symbol(label) = &value
+                    {
+                        Self::reject_reserved_symbol(label, position)?;
+                    }
                     state.attrs.push(Attribute {
                         key,
                         value: Some(value),

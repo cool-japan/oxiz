@@ -179,7 +179,8 @@ impl NelsonOppenCombiner {
 
     /// Generate a fresh variable name for purification.
     fn fresh_var_name(&mut self) -> String {
-        let name = format!("_no_purify_{}", self.fresh_var_counter);
+        let name =
+            oxiz_core::smtlib::reserved_name("nopurify", &self.fresh_var_counter.to_string());
         self.fresh_var_counter += 1;
         name
     }
