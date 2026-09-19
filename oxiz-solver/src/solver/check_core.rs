@@ -6,6 +6,7 @@
 //! `pub(super)` rather than private: `Solver::check_with_arith_refinement`
 //! (still in `mod.rs`) is `check_core`'s only caller.
 
+use super::array_refinement::ArrayRefinementStep;
 use super::*;
 
 impl Solver {
@@ -305,11 +306,9 @@ impl Solver {
         let max_mbqi_iterations = 100;
         let mut mbqi_iteration = 0;
 
-        // Lazy array-axiom refinement rounds (see `instantiate_array_axioms`).
-        // Bounded independently of the MBQI budget; deduplication guarantees
-        // saturation well within this generous cap for realistic inputs.
-        let max_array_refinement_rounds = 256;
-        let mut array_refinement_rounds = 0;
+        // Lazy array-axiom refinement rounds (see `array_refinement`); the
+        // round cap is [`MAX_ARRAY_REFINEMENT_ROUNDS`].
+        let mut array_refinement_rounds = 0usize;
         // Deterministic budget for the *re-solves* the array refinement
         // triggers (`#P2b-38` strand (c)), armed when the first array lemma is
         // asserted: the value of `SolverStats::conflicts` past which this check
@@ -521,143 +520,48 @@ impl Solver {
                         // array terms in this candidate model and assert every
                         // axiom instance it does not already satisfy as a lemma,
                         // then re-solve.  Only genuine array models survive.
-                        if self.has_array_ops && self.instantiate_array_axioms(manager) {
-                            array_refinement_rounds += 1;
-                            self.statistics.array_refinement_rounds =
-                                self.statistics.array_refinement_rounds.saturating_add(1);
-                            if self.statistics.array_lemma_instances
-                                >= ARRAY_REFINEMENT_LEMMA_BUDGET
-                            {
-                                // The second deterministic currency (decision
-                                // (9)).  The conflict ceiling at the loop head
-                                // bounds a refinement loop that *searches*;
-                                // this one bounds a loop that only *builds*,
-                                // which the conflict counter cannot see
-                                // because such a loop never conflicts.  See
-                                // [`ARRAY_REFINEMENT_LEMMA_BUDGET`].
-                                //
-                                // The model goes with it for the same reason
-                                // the round-budget exit below gives.
-                                self.model = None;
-                                self.unsat_core = None;
+                        // Lazy array-axiom refinement (see
+                        // `solver::array_refinement`).  One round asserts every
+                        // axiom instance this candidate model violates and
+                        // prepares a fresh search; rebuilding the theory
+                        // manager and looping is this call site's job, because
+                        // the manager holds `&mut` borrows the round cannot
+                        // exist across.
+                        match self.array_refinement_round(
+                            manager,
+                            &mut array_refinement_rounds,
+                            &mut array_resolve_conflict_ceiling,
+                            conflict_budget,
+                            conflicts_so_far,
+                            deadline,
+                        ) {
+                            ArrayRefinementStep::OutOfBudget => {
                                 return SolverResult::Unknown;
                             }
-                            if array_refinement_rounds >= max_array_refinement_rounds {
-                                // Could not saturate the array axioms within the
-                                // round budget: do not fabricate a verdict.
-                                //
-                                // The model goes with it (issue #40): since the
-                                // refutation gate moved *below* this path, the
-                                // candidate on the table here may be one the
-                                // gate would have rejected, and a rejected model
-                                // must not stay readable behind an `Unknown`.
-                                self.model = None;
-                                self.unsat_core = None;
-                                return SolverResult::Unknown;
+                            ArrayRefinementStep::Resolve => {
+                                theory_manager = TheoryManager::new(
+                                    manager,
+                                    &mut self.euf,
+                                    &mut self.arith,
+                                    &mut self.bv,
+                                    &self.bv_terms,
+                                    &self.var_to_constraint,
+                                    &self.var_to_parsed_arith,
+                                    &self.term_to_var,
+                                    &self.var_to_term,
+                                    &mut self.derived_reasons,
+                                    self.config.theory_mode,
+                                    &mut self.statistics,
+                                    self.config.max_conflicts,
+                                    self.config.max_decisions,
+                                    self.has_bv_arith_ops,
+                                    self.has_quantifiers,
+                                    &self.quantifier_uf_funcs,
+                                    deadline,
+                                );
+                                continue;
                             }
-                            // Arm the refinement's own budget on the first
-                            // round.  Without it a single re-solve can run
-                            // unboundedly: the lemmas this loop asserts enlarge
-                            // the bit-blasted circuit, the per-assignment
-                            // `BvSolver::check` grows with it, and a
-                            // fifteen-line script that the same tree answered
-                            // in 0.46 s before the lemmas existed ran for more
-                            // than five minutes with no answer at all.
-                            // `Unknown` is the honest outcome there, and it is
-                            // what the round budget above already returns for
-                            // the same reason.
-                            //
-                            // The budget is a *conflict count*, not a clock
-                            // (decision (9), `#P2b-38` strand (c)).  It was a
-                            // wall-clock floor, and that made the verdict a
-                            // property of the machine: the same release binary
-                            // on the same script answered `sat` at 77.5 s run
-                            // alone and `unknown` at the 120 s floor with ten
-                            // copies in flight.  A solver whose answers are
-                            // consumed as verification evidence cannot do that
-                            // — the evidence has to reproduce elsewhere — so
-                            // the bound is now the number of Boolean conflicts
-                            // the search accrues from the first array lemma
-                            // onwards: monotone, measurable, and identical on
-                            // an idle and a loaded machine.  An explicit
-                            // `:timeout` remains the only wall clock, and it is
-                            // installed at the top of `check` exactly as
-                            // before.
-                            if array_resolve_conflict_ceiling.is_none() {
-                                let ceiling = self
-                                    .sat
-                                    .stats()
-                                    .conflicts
-                                    .saturating_add(ARRAY_REFINEMENT_RESOLVE_CONFLICTS);
-                                array_resolve_conflict_ceiling = Some(ceiling);
-                                // Bound the *inner* search too, so one re-solve
-                                // cannot run past the ceiling before the round
-                                // boundary above gets to look at it.  Never
-                                // above a user `:max-conflicts`, which is the
-                                // stricter instruction where both are present.
-                                // A user `:max-conflicts N` is the budget of the
-                                // *whole check*, not of every refinement round:
-                                // the entry ceiling is
-                                // `conflicts_so_far + N` with `conflicts_so_far`
-                                // read once, at the top of this function, and it
-                                // is that value the refinement must not exceed.
-                                // Re-reading `stats().conflicts` here instead
-                                // re-based the ceiling on the conflicts the
-                                // first solve had already spent, silently
-                                // granting the search more than the user asked
-                                // for.
-                                let installed = match conflict_budget {
-                                    Some(user) => core::cmp::min(
-                                        ceiling,
-                                        conflicts_so_far.saturating_add(user),
-                                    ),
-                                    None => ceiling,
-                                };
-                                self.sat.set_max_conflicts(Some(installed));
-                            }
-                            self.sat.set_deadline(deadline);
-                            self.bv.set_budget(conflict_budget, deadline);
-                            // A read-over-write lemma is an `ite` over the two
-                            // array values; at Int/Real sort that `ite` is a new
-                            // opaque arithmetic atom, so define it before the
-                            // re-solve or the lemma carries no numeric meaning.
-                            self.instantiate_arith_axioms(manager);
-                            // Re-solve with the freshly asserted array lemmas from
-                            // a clean state.  `add_clause` backtracked the SAT core
-                            // to root for the unit lemmas, but the incremental
-                            // theory solvers still hold the facts committed by the
-                            // just-refuted candidate model (e.g. a stale
-                            // `select = 6`) — including any left in scopes this
-                            // round's search never unwound.
-                            self.rebase_theory_state();
-                            // After backtracking to root and resetting the
-                            // theory solvers: the SAT-variable <-> term tables
-                            // and the Tseitin memo are *not* reset here, so
-                            // they must still describe the same variables the
-                            // replayed search will re-derive.
-                            self.debug_check_invariants("check_core: after array-lemma backtrack");
-                            // Re-solve with the freshly asserted array lemmas.
-                            theory_manager = TheoryManager::new(
-                                manager,
-                                &mut self.euf,
-                                &mut self.arith,
-                                &mut self.bv,
-                                &self.bv_terms,
-                                &self.var_to_constraint,
-                                &self.var_to_parsed_arith,
-                                &self.term_to_var,
-                                &self.var_to_term,
-                                &mut self.derived_reasons,
-                                self.config.theory_mode,
-                                &mut self.statistics,
-                                self.config.max_conflicts,
-                                self.config.max_decisions,
-                                self.has_bv_arith_ops,
-                                self.has_quantifiers,
-                                &self.quantifier_uf_funcs,
-                                deadline,
-                            );
-                            continue;
+                            ArrayRefinementStep::NoLemma => {}
                         }
                         // Soundness gate: never return `Sat` for a model that
                         // provably violates an assertion (see
@@ -744,6 +648,62 @@ impl Solver {
 
                     // Build partial model for MBQI
                     self.build_model(manager);
+
+                    // Lazy array-axiom refinement, on the *quantified* path.
+                    //
+                    // This call is the other half of the seam
+                    // `solver::ground_instance` documents.  The round used to
+                    // exist only in the `!self.has_quantifiers` branch above,
+                    // so a script with one `forall` in it never ran a single
+                    // array rule — not over the terms an MBQI instance
+                    // grounds, and not even over the ones its own ground
+                    // assertions spell out.  `(assert (= (select a #b1) #b0))`
+                    // beside `(assert (forall ((i …)) (= (select (store a #b0
+                    // #b1) i) #b1)))` is unsatisfiable and answered `sat`,
+                    // with a `(get-value)` that contradicted itself.
+                    //
+                    // It runs *before* `certify_quantified_sat` and before all
+                    // three of the loop's `Sat` exits, because a candidate that
+                    // violates read-over-write is not a model and must not be
+                    // offered to the certifier as one.  A candidate that
+                    // satisfies every applicable instance costs one collection
+                    // walk and returns `NoLemma`.
+                    match self.array_refinement_round(
+                        manager,
+                        &mut array_refinement_rounds,
+                        &mut array_resolve_conflict_ceiling,
+                        conflict_budget,
+                        conflicts_so_far,
+                        deadline,
+                    ) {
+                        ArrayRefinementStep::OutOfBudget => {
+                            return SolverResult::Unknown;
+                        }
+                        ArrayRefinementStep::Resolve => {
+                            theory_manager = TheoryManager::new(
+                                manager,
+                                &mut self.euf,
+                                &mut self.arith,
+                                &mut self.bv,
+                                &self.bv_terms,
+                                &self.var_to_constraint,
+                                &self.var_to_parsed_arith,
+                                &self.term_to_var,
+                                &self.var_to_term,
+                                &mut self.derived_reasons,
+                                self.config.theory_mode,
+                                &mut self.statistics,
+                                self.config.max_conflicts,
+                                self.config.max_decisions,
+                                self.has_bv_arith_ops,
+                                self.has_quantifiers,
+                                &self.quantifier_uf_funcs,
+                                deadline,
+                            );
+                            continue;
+                        }
+                        ArrayRefinementStep::NoLemma => {}
+                    }
 
                     // NOTE (soundness): each of the three `Sat` exits below is
                     // guarded by `quantified_model_refutes_ground_assertions`
@@ -877,16 +837,23 @@ impl Solver {
                                     break;
                                 }
                                 // Scan for pigeonhole patterns (recurses into Implies)
+                                // The seam: an MBQI instance is ground, so it
+                                // gets the pre-passes an assertion gets and
+                                // becomes a root of the next array-structure
+                                // collection round.  See
+                                // `solver::ground_instance` for the wrong `sat`
+                                // that skipping this produced.
+                                let prepared = self.prepare_ground_instance(inst.result, manager);
                                 self.scan_for_pigeonhole(
-                                    inst.result,
+                                    prepared,
                                     manager,
                                     &mut ph_domains,
                                     &mut ph_diseqs,
                                 );
-                                let lit = self.encode(inst.result, manager);
+                                let lit = self.encode(prepared, manager);
                                 let ok = self.sat.add_clause([lit]);
                                 let _ = ok;
-                                self.add_int_domain_clauses(inst.result, manager);
+                                self.add_int_domain_clauses(prepared, manager);
                             }
                             // Add pigeonhole exclusion clauses
                             if !ph_diseqs.is_empty() && !ph_domains.is_empty() {
@@ -903,6 +870,9 @@ impl Solver {
                             let mut new_clauses_added = 0usize;
                             let mut ematch_unsat = false;
                             for lemma in ematch_lemmas {
+                                // Same seam as the MBQI instances above: an
+                                // e-matching lemma is a ground instance too.
+                                let lemma = self.prepare_ground_instance(lemma, manager);
                                 let lit = self.encode(lemma, manager);
                                 if self.sat.add_clause([lit]) {
                                     new_clauses_added += 1;
@@ -941,15 +911,19 @@ impl Solver {
                                     }
                                     // Track domains and disequalities for pigeonhole
                                     let _ = manager.get(inst.result);
+                                    // Same seam as the model-driven instances:
+                                    // a blind instantiation is ground too.
+                                    let prepared =
+                                        self.prepare_ground_instance(inst.result, manager);
                                     self.scan_for_pigeonhole(
-                                        inst.result,
+                                        prepared,
                                         manager,
                                         &mut ph_domains,
                                         &mut ph_diseqs,
                                     );
-                                    let lit = self.encode(inst.result, manager);
+                                    let lit = self.encode(prepared, manager);
                                     let _ = self.sat.add_clause([lit]);
-                                    self.add_int_domain_clauses(inst.result, manager);
+                                    self.add_int_domain_clauses(prepared, manager);
                                 }
                                 // Add pigeonhole exclusion clauses directly
                                 // from the collected domains and disequalities.
@@ -980,6 +954,11 @@ impl Solver {
                                         {
                                             continue;
                                         }
+                                        // Same seam as the other three
+                                        // instantiation paths: a finite-domain
+                                        // instance is ground too.
+                                        let simplified =
+                                            self.prepare_ground_instance(simplified, manager);
                                         self.scan_for_pigeonhole(
                                             simplified, manager, &mut ph_d, &mut ph_q,
                                         );
@@ -1142,7 +1121,7 @@ impl Solver {
 ///
 /// It is not, on its own, a bound on the loop: see
 /// [`ARRAY_REFINEMENT_LEMMA_BUDGET`] for the case it does not see.
-const ARRAY_REFINEMENT_RESOLVE_CONFLICTS: u64 = 50_000;
+pub(super) const ARRAY_REFINEMENT_RESOLVE_CONFLICTS: u64 = 50_000;
 
 /// Array-axiom lemma instances one `check` may assert before it answers
 /// `Unknown` (`#P2b-38` strand (c), second currency).
@@ -1172,7 +1151,7 @@ const ARRAY_REFINEMENT_RESOLVE_CONFLICTS: u64 = 50_000;
 /// campaign at 372; `c20`/`c21` at 12 and 9.  Ten thousand is more than
 /// twenty-five times the largest of those, so nothing that decides today comes
 /// near it, while the runaway shapes cross it in well under a second.
-const ARRAY_REFINEMENT_LEMMA_BUDGET: u64 = 10_000;
+pub(super) const ARRAY_REFINEMENT_LEMMA_BUDGET: u64 = 10_000;
 
 /// SAT propagations, counted from the entry of this `check`, past which the
 /// two *repair* refinements below decline to re-solve: the non-convex-LIA

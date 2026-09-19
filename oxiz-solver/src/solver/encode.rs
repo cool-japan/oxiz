@@ -289,6 +289,13 @@ impl Solver {
         // is the non-convex QF_UFLIA/QF_UFIDL false-`sat` root cause).
         let term_to_encode = self.purify_numeric_uf_args(term_to_encode, manager);
 
+        // The array collector walks `self.assertions`, which holds the
+        // *pre*-rewrite term; when the chain above rewrote this assertion into
+        // something else — most consequentially when it Skolemized an asserted
+        // `exists` into a ground body — the structure the SAT core's clauses
+        // describe is in `term_to_encode` and nowhere else.  Register it.
+        self.register_encoded_assertion_root(term_to_encode, term, manager);
+
         // Collect polarity information if polarity-aware encoding is enabled
         if self.polarity_aware {
             self.collect_polarities(term_to_encode, Polarity::Positive, manager);
@@ -369,6 +376,13 @@ impl Solver {
         // named assertion needs purification just as much as an anonymous
         // one does.
         let term_to_encode = self.purify_numeric_uf_args(term_to_encode, manager);
+
+        // The array collector walks `self.assertions`, which holds the
+        // *pre*-rewrite term; when the chain above rewrote this assertion into
+        // something else — most consequentially when it Skolemized an asserted
+        // `exists` into a ground body — the structure the SAT core's clauses
+        // describe is in `term_to_encode` and nowhere else.  Register it.
+        self.register_encoded_assertion_root(term_to_encode, term, manager);
 
         // Collect polarity information if polarity-aware encoding is enabled
         if self.polarity_aware {

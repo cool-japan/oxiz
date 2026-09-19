@@ -26,6 +26,7 @@ use crate::Sort;
 use crate::ast::{TermId, TermManager};
 #[allow(unused_imports)]
 use crate::prelude::*;
+use crate::smtlib::reserved_name;
 use crate::sort::SortId;
 
 /// Variable identifier (legacy alias, kept for API compatibility).
@@ -224,10 +225,14 @@ impl CaseAnalyzer {
     }
 
     /// Generate a globally unique fresh variable name.
+    ///
+    /// Minted through [`reserved_name`] for the reason its sibling in
+    /// `plugin.rs` documents: `!dtca0` was an ordinary SMT-LIB simple symbol a
+    /// caller of the public `oxiz_core::qe::datatype` API could already hold.
     fn fresh_name(&mut self) -> String {
         let n = self.next_id;
         self.next_id += 1;
-        format!("!dtca{n}")
+        reserved_name("dtca", &n.to_string())
     }
 
     /// Check if a case is trivially false.

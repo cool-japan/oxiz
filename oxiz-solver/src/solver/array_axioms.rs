@@ -171,6 +171,24 @@ impl Solver {
         for &root in &instances {
             collect_array_structure(root, manager, &mut visited, &mut collected, false);
         }
+        // Then every *ground instance* an instantiation path has asserted:
+        // MBQI, blind, finite-domain and e-matching results
+        // (`Solver::prepare_ground_instance` registers them).  These are the
+        // roots that make quantified array reasoning work at all.  An instance
+        // is ground by construction but never enters `self.assertions`, and
+        // `ground_children` stops at binders, so before this loop existed an
+        // array term that was first ground *after* substitution was a root of
+        // nothing: no read-over-write lemma, no constant-array congruence, no
+        // `ite` naming, and the read was a free value of the element sort.
+        //
+        // `record_foreign` is `false` for the same reason it is for the axiom
+        // instances above: the ext rule for shared array terms is about what
+        // the *input* shares between theories, and feeding it the solver's own
+        // derived terms is what made the pair set grow with the lemma set.
+        let instance_roots: Vec<TermId> = self.ground_array_roots.iter().copied().collect();
+        for &root in &instance_roots {
+            collect_array_structure(root, manager, &mut visited, &mut collected, false);
+        }
 
         // Nothing for the three syntactic families *and* nothing for the ext
         // rule for shared array terms (phase 4) — only then is there nothing
@@ -1677,8 +1695,21 @@ fn array_domain(term: TermId, manager: &TermManager) -> Option<SortId> {
 /// Binders are the one deliberate exception, and it is the behaviour the old
 /// list had: a `select` under a `forall`, `exists`, `let` or `match` may
 /// mention a bound variable, and a ground lemma over a bound variable is an
-/// instance of nothing.  Quantified array reasoning is MBQI's job; this walk
-/// stays on the ground fragment.
+/// instance of nothing.  This walk stays on the ground fragment.
+///
+/// That exclusion used to say "quantified array reasoning is MBQI's job", and
+/// that sentence was false for as long as it stood.  MBQI hands its instances
+/// to `Solver::encode` directly, not to `Solver::assert`, so nothing in the
+/// system ever collected their array structure and a read that was first
+/// ground after substitution stayed a free value of the element sort — a
+/// wrong `sat` from four lines, with a `(get-value)` that contradicted it.
+/// The claim is now true by construction rather than by assertion:
+/// `Solver::prepare_ground_instance` registers every instance in
+/// `Solver::ground_array_roots`, `instantiate_array_axioms` walks that set
+/// as a root set beside `self.assertions`, and `Solver::array_refinement_round`
+/// runs on the quantified candidate-model path as well as the ground one.  A
+/// binder is skipped here because its body is not yet ground, not because
+/// someone else is expected to look at it.
 pub(crate) fn ground_children(kind: &TermKind, out: &mut Vec<TermId>) {
     match kind {
         TermKind::Forall { .. }

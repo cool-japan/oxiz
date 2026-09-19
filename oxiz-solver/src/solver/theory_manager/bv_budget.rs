@@ -62,7 +62,37 @@ use super::TheoryManager;
 /// Decision (10) is not closed by this and is not claimed to be: the budget
 /// makes the runaway terminate, it does not make it fast.  See `TODO.md`
 /// `#P2b-38` strand (b).
+///
+/// # Widening this constant moves a test
+///
+/// The two scripts that actually reach the ceiling cost minutes in release and
+/// are therefore `#[ignore]`d, release-calibrated cost pins: nothing in the
+/// default `cargo nextest` gate could observe a widened ceiling, so a later
+/// pass could raise it to make a slow script "answer" and no gate would
+/// notice.  [`bv_embedded_check_ceiling`] exists so one can:
+/// `the_embedded_check_ceiling_is_the_calibrated_value` reads it and asserts
+/// the exact value.  Changing the constant is allowed; changing it silently is
+/// not, and the test is where the new calibration has to be argued.
 const BV_EMBEDDED_CHECK_CEILING: u64 = 250_000;
+
+/// The live value of [`BV_EMBEDDED_CHECK_CEILING`].
+///
+/// A read of the constant the solver actually spends, not a copy of its text:
+/// this is what lets a default-profile test assert the calibrated value
+/// without paying the minutes the two cost pins pay.
+pub(crate) fn bv_embedded_check_ceiling() -> u64 {
+    BV_EMBEDDED_CHECK_CEILING
+}
+
+/// Whether `checks` embedded checks have exhausted the budget.
+///
+/// The single predicate both accessors below use, so the value
+/// [`bv_embedded_check_ceiling`] reports and the point at which the budget
+/// actually fires cannot drift apart — which is the one way an accessor-based
+/// guard could be satisfied while the solver behaved differently.
+pub(crate) fn bv_embedded_budget_is_spent(checks: u64) -> bool {
+    checks > bv_embedded_check_ceiling()
+}
 
 impl TheoryManager<'_> {
     /// Charge one embedded bit-blasted check to this `check`'s deterministic
@@ -72,12 +102,68 @@ impl TheoryManager<'_> {
     /// refinement counters cannot see it.
     pub(super) fn charge_bv_embedded_check(&mut self) -> bool {
         self.statistics.bv_embedded_checks = self.statistics.bv_embedded_checks.saturating_add(1);
-        self.statistics.bv_embedded_checks > BV_EMBEDDED_CHECK_CEILING
+        bv_embedded_budget_is_spent(self.statistics.bv_embedded_checks)
     }
 
     /// Whether the embedded-check budget is already spent, without charging
     /// for another one.
     pub(super) fn bv_embedded_budget_spent(&self) -> bool {
-        self.statistics.bv_embedded_checks > BV_EMBEDDED_CHECK_CEILING
+        bv_embedded_budget_is_spent(self.statistics.bv_embedded_checks)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{bv_embedded_budget_is_spent, bv_embedded_check_ceiling};
+
+    /// **The default-profile guard on the ceiling** (decision (26), finding
+    /// R5-4).
+    ///
+    /// The two pins that would otherwise catch a widened ceiling —
+    /// `the_index_width_three_cardinality_ladder_terminates` and
+    /// `the_store_term_cliff_terminates` in
+    /// `oxiz-solver/tests/round4_pass4_recheck_pins.rs` — both return early
+    /// under `cfg!(debug_assertions)`, which is the profile
+    /// `cargo nextest run --workspace` builds, and the cheapest script that
+    /// reaches the ceiling costs over two minutes in release.  So in the
+    /// default gate they assert nothing about this number and nothing cheap
+    /// could.
+    ///
+    /// This reads the live constant instead.  It is not an `include_str!`
+    /// source-text pin: `bv_embedded_check_ceiling` returns the value the
+    /// solver spends, and the second half below ties that value to the point
+    /// at which the budget actually fires, so an accessor that drifted from
+    /// the charge path would fail here too.
+    ///
+    /// If a calibration pass changes the ceiling, change this number with it
+    /// and say in `TODO.md` `#P2b-46` what the new value was calibrated
+    /// against — the discriminating constraint is "no script the **base**
+    /// `c4b04b7` decides may become `unknown`", over `bench/`, the `rc2`–`rc5`
+    /// corpora and the `rf6/cal` store/cardinality ladder.
+    #[test]
+    fn the_embedded_check_ceiling_is_the_calibrated_value() {
+        assert_eq!(
+            bv_embedded_check_ceiling(),
+            250_000,
+            "the embedded-check ceiling is a calibrated number, not a knob: \
+             widening it makes a slow script answer where the base decides it \
+             in milliseconds, and the two pins that would otherwise catch that \
+             are release-only.  See this test's doc."
+        );
+    }
+
+    /// The accessor and the budget fire at the same count.
+    #[test]
+    fn the_budget_fires_exactly_one_check_past_the_ceiling() {
+        let ceiling = bv_embedded_check_ceiling();
+        assert!(
+            !bv_embedded_budget_is_spent(ceiling),
+            "the ceiling itself is affordable; the budget is `checks > ceiling`"
+        );
+        assert!(
+            bv_embedded_budget_is_spent(ceiling + 1),
+            "one check past the ceiling must exhaust the budget"
+        );
+        assert!(!bv_embedded_budget_is_spent(0));
     }
 }

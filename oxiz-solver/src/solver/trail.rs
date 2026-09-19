@@ -59,6 +59,10 @@ pub(crate) enum TrailOp {
     EqTransitivityTriangleAdded { triangle: [TermId; 3] },
     /// A ground array-axiom instance was asserted to the SAT core
     ArrayAxiomInstanceAdded { term: TermId },
+    /// A ground *instance* (MBQI, blind, finite-domain, e-matching) was
+    /// registered as a root for the next `collect_array_structure` round by
+    /// [`super::Solver::prepare_ground_instance`].
+    GroundArrayRootAdded { term: TermId },
     /// A `div` / `mod` / numeric-`ite` term received its defining axioms
     ArithDefinedTermAdded { term: TermId },
     /// A numeric `Eq` atom received its trichotomy clause
@@ -199,6 +203,7 @@ impl super::Solver {
             encode_depth_exceeded: _, // SNAPSHOT
             has_array_ops: _, // SNAPSHOT
             array_axiom_instances: _, // TRAIL: ArrayAxiomInstanceAdded
+            ground_array_roots: _, // TRAIL: GroundArrayRootAdded
             arith_defined_terms: _, // TRAIL: ArithDefinedTermAdded
             numeric_trichotomy_atoms: _, // TRAIL: NumericTrichotomyAdded
             dt_axiom_instances: _, // TRAIL: DtAxiomInstanceAdded

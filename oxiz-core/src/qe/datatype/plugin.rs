@@ -27,6 +27,7 @@ use crate::Sort;
 use crate::ast::{TermId, TermManager};
 #[allow(unused_imports)]
 use crate::prelude::*;
+use crate::smtlib::reserved_name;
 use crate::sort::SortId;
 
 /// Variable identifier.
@@ -247,14 +248,26 @@ impl DatatypeQePlugin {
 
     /// Generate a globally unique fresh variable name.
     ///
-    /// Names use a reserved prefix that cannot collide with user variables and
-    /// a monotonically increasing counter so that (name, sort) hash-consing in
-    /// the term manager never aliases two distinct fresh arguments.
+    /// Minted through [`reserved_name`], so the name carries
+    /// [`oxiz_core::smtlib::RESERVED_PREFIX`] and the parser refuses its
+    /// spelling outright: a backslash is in neither of SMT-LIB 2.6's two
+    /// symbol forms, so a user cannot write one even inside `|…|`.  The
+    /// monotonically increasing counter is what keeps (name, sort)
+    /// hash-consing in the term manager from aliasing two distinct fresh
+    /// arguments.
+    ///
+    /// This used to be `format!("!dtqe{n}")`, and its doc used to claim the
+    /// prefix "cannot collide with user variables".  `!` *is* in SMT-LIB 2.6's
+    /// simple-symbol character set and this parser accepts it, so
+    /// `(declare-const !dtqe0 Int)` parsed and printed — the claim was false.
+    /// Nothing in `oxiz-solver` calls this plugin, so it could not produce a
+    /// wrong verdict, but `oxiz_core::qe::datatype` is public API and a caller
+    /// with a `!dtqe0` of its own had it captured.
     fn fresh_name(&mut self) -> String {
         let n = self.next_var_id;
         self.next_var_id += 1;
         self.stats.fresh_vars += 1;
-        format!("!dtqe{n}")
+        reserved_name("dtqe", &n.to_string())
     }
 
     /// Extract datatype constraints on `var` from `formula`.

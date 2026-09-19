@@ -1,31 +1,40 @@
-//! Round-4 adversarial recheck, **pass 5** — what the round's array work still
-//! does not reach, and regression guards for what it does.
+//! Round-4 adversarial recheck, **pass 5** — the quantified-instance array
+//! seam, closed, with the guards that keep it closed.
 //!
-//! # The hole this file pins
+//! # The hole this file used to pin
 //!
 //! Every array rule in this solver is collected over the **ground** fragment.
 //! `solver/array_axioms.rs::ground_children` stops at `Forall`/`Exists`/`Let`/
-//! `Match` on purpose, and its doc says why: "a `select` under a `forall` …
-//! may mention a bound variable, and a ground lemma over a bound variable is
-//! an instance of nothing.  Quantified array reasoning is MBQI's job".
+//! `Match`, because a `select` under a binder may mention the bound variable
+//! and a ground lemma over a bound variable is an instance of nothing.  Its
+//! doc used to add "quantified array reasoning is MBQI's job", and that
+//! sentence was false in two independent ways:
 //!
-//! MBQI does not do that job.  An instance is ground by construction, but it
-//! reaches the SAT solver through `Solver::encode` (`check_core.rs`, the
-//! `self.encode(inst.result, manager)` call sites) — not through
-//! `Solver::assert`, which is the only place `collect_array_structure` and
-//! `eliminate_nonbool_ite` ever run.  So an array term that is first ground
-//! *after* instantiation receives neither its read-over-write lemmas, nor its
-//! constant-array congruence, nor an `ite` naming: the read is a free value of
-//! the element sort and the search satisfies the instance by inventing one.
+//! 1. An MBQI instance is ground by construction, but it reached the SAT
+//!    solver through `Solver::encode` — not through `Solver::assert`, which
+//!    was the only place `collect_array_structure` and `eliminate_nonbool_ite`
+//!    ever ran.  So a `store`, an `(as const …)` or an array-sorted `ite` that
+//!    was first ground *after* instantiation got no read-over-write lemma, no
+//!    constant-array congruence and no `ite` naming: the read was a free value
+//!    of the element sort.
+//! 2. The refinement round that would have consumed such a lemma lived inside
+//!    `check_core`'s `if !self.has_quantifiers` branch, so a script with one
+//!    quantifier in it never ran a single array rule at all — not even over
+//!    the array terms its own ground assertions spelled out.
 //!
-//! The result is a wrong `sat` from three lines, and the solver contradicts
-//! itself without any oracle being asked:
+//! A third, narrower instance of the same shape: `Solver::assert` Skolemizes
+//! an asserted `exists` into a ground body, but `self.assertions` — the root
+//! set the collector walks — deliberately stores the *pre*-rewrite term, so
+//! the Skolemized body was invisible too.
+//!
+//! The result was a wrong `sat` from three lines, with the solver
+//! contradicting itself without any oracle being asked:
 //!
 //! ```smt2
 //! (declare-const d (_ BitVec 1))
 //! (assert (forall ((i (_ BitVec 1)))
 //!   (distinct #b0 (select ((as const (Array (_ BitVec 1) (_ BitVec 1))) #b0) i))))
-//! (check-sat)   ; sat, and (get-value) answers #b1 for a read of the
+//! (check-sat)   ; sat, and (get-value) answered #b1 for a read of the
 //!               ; constant-#b0 array
 //! ```
 //!
@@ -33,22 +42,31 @@
 //! assertion with its own ground expansion over the finite index sort (the two
 //! are the same formula, because `forall` over `(_ BitVec w)` *is* the
 //! conjunction over its `2^w` elements): **29 wrong `sat` and 130 published
-//! models that falsify their own script** on the quantified form against
-//! **0 wrong `sat`, 0 wrong `unsat`, 0 falsifying models** on the ground form.
-//! A second 400-script corpus generated with no array-sorted `ite` at all
-//! still gives 20 wrong `sat` and 67 falsifying models, so this is not the
-//! `ite` family of `#P2b-41`: it is every array rule at once.
+//! models that falsified their own script** on the quantified form against
+//! **0 / 0 / 0** on the ground form.  A second 400-script corpus generated
+//! with no array-sorted `ite` at all still gave 20 wrong `sat` and 67
+//! falsifying models, so it was never the `ite` family of `#P2b-41`: it was
+//! every array rule at once.
 //!
-//! crates.io `0.3.3` answers `unknown` on the four-line script above; this
-//! tree and the 0.3.4 base `c4b04b7` both answer `sat`.
+//! # How it is closed
 //!
-//! # Pins versus guards
+//! * `solver::ground_instance` — every ground instance an instantiation path
+//!   hands to `Solver::encode` (MBQI, blind, finite-domain, e-matching) first
+//!   goes through `Solver::prepare_ground_instance`, which runs
+//!   `eliminate_nonbool_ite` over it and registers it as a root of the next
+//!   `collect_array_structure` round.  The same module registers an
+//!   assertion's *encoded* form when the pre-pass chain rewrote it.
+//! * `solver::array_refinement` — the refinement round is hoisted out of the
+//!   `!has_quantifiers` branch and called from the quantified
+//!   candidate-model path too, before all three of that path's `Sat` exits.
 //!
-//! * A **pin** is green because the tree is still wrong.  Each carries a
-//!   `THE HOLE IS CLOSED` message, so the pass that fixes the defect sees it
-//!   turn red and knows to invert it into a guard.
-//! * A **guard** asserts the correct behaviour of something the round closed,
-//!   and turns red if it comes back.
+//! # Guards versus controls
+//!
+//! Every test below is now a **guard**: it asserts the correct behaviour and
+//! turns red if the seam re-opens.  The two **controls** (`the_ground_…`
+//! tests) assert the ground fragment is still right, so the guards cannot be
+//! satisfied by breaking the ground path instead — that is what localises the
+//! whole family to the instantiation seam.
 //!
 //! No test here sets a wall-clock `(set-option :timeout)`, and none asserts a
 //! verdict behind one (decision (16)).  Every script is decided in
@@ -82,8 +100,8 @@ fn joined(lines: &[String]) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// 1. PINS — an array read that is first ground inside a quantifier instance
-//    is a free value of the element sort.
+// 1. GUARDS — an array read that is first ground inside a quantifier instance
+//    carries its lemmas, and its ground twin still does.
 // ---------------------------------------------------------------------------
 
 /// `(store a #b0 #b1)` read at the *other* index under a `forall`.
@@ -95,7 +113,7 @@ fn joined(lines: &[String]) -> String {
 /// `(_ BitVec 1)`, is correctly `unsat`, which is what localises the defect to
 /// the instantiation path rather than to the array rules themselves.
 #[test]
-fn a_store_read_inside_a_quantifier_is_a_free_value() {
+fn a_store_read_inside_a_quantifier_is_refuted() {
     let script = "(set-logic ALL)\n\
          (declare-const a (Array (_ BitVec 1) (_ BitVec 1)))\n\
          (assert (= (select a #b1) #b0))\n\
@@ -104,27 +122,25 @@ fn a_store_read_inside_a_quantifier_is_a_free_value() {
     let lines = run(script);
     assert_eq!(
         verdict(&lines),
-        "sat",
-        "THE HOLE IS CLOSED: a `store` read inside a quantifier instance is \
-         constrained now — invert this pin into a guard that requires `unsat`, \
-         and see the module doc for the other three.  Response:\n{}",
+        "unsat",
+        "a `store` read that is first ground inside a quantifier instance must \
+         carry its read-over-write lemma.  Response:\n{}",
         joined(&lines)
     );
 
-    // And the `sat` is a soundness claim, not an incompleteness one: the
-    // solver serves a model and a `(get-value)` for it, and the two lines it
-    // prints cannot both be true — a `store` at `#b0` read at `#b1` is the
-    // base array's entry at `#b1`.
+    // The other half of the old defect: the solver used to answer `sat` here
+    // and then serve a `(get-value)` whose two lines could not both be true.
+    // There is now no model to ask for, and asking must not resurrect one.
     let with_model = run(&format!(
         "{script_head}(get-model)\n\
          (get-value ((select a #b1) (select (store a #b0 #b1) #b1)))\n",
         script_head = script
     ));
     let text = joined(&with_model);
+    assert_eq!(verdict(&with_model), "unsat", "Response:\n{text}");
     assert!(
-        text.contains("((select a #b1) #b0)")
-            && text.contains("((select (store a #b0 #b1) #b1) #b1)"),
-        "the pin's point is that the answer contradicts the answer.  \
+        !text.contains("((select (store a #b0 #b1) #b1) #b1)"),
+        "an `unsat` script must not publish a value for a read it refuted.  \
          Response:\n{text}"
     );
 }
@@ -132,7 +148,7 @@ fn a_store_read_inside_a_quantifier_is_a_free_value() {
 /// The same script with the quantifier expanded by hand over the two elements
 /// of the index sort: the *identical* formula, decided correctly.
 ///
-/// This is the control that makes the pin above a statement about the
+/// This is the control that makes the guard above a statement about the
 /// instantiation path and not about `store`.
 #[test]
 fn the_ground_expansion_of_that_store_read_is_refuted() {
@@ -147,7 +163,7 @@ fn the_ground_expansion_of_that_store_read_is_refuted() {
         verdict(&lines),
         "unsat",
         "the ground fragment must stay right — this is the control the \
-         quantified pins are measured against.  Response:\n{}",
+         quantified guards are measured against.  Response:\n{}",
         joined(&lines)
     );
 }
@@ -158,7 +174,7 @@ fn the_ground_expansion_of_that_store_read_is_refuted() {
 ///
 /// Four lines, no oracle, no second solver: the answer contradicts the answer.
 #[test]
-fn a_constant_array_read_inside_a_quantifier_contradicts_get_value() {
+fn a_constant_array_read_inside_a_quantifier_is_refuted() {
     let sort = "(Array (_ BitVec 1) (_ BitVec 1))";
     let script = format!(
         "(set-logic ALL)\n\
@@ -172,17 +188,17 @@ fn a_constant_array_read_inside_a_quantifier_contradicts_get_value() {
     let lines = run(&script);
     assert_eq!(
         verdict(&lines),
-        "sat",
-        "THE HOLE IS CLOSED: the constant-array read under a quantifier is \
-         constrained now — invert this pin.  Response:\n{}",
+        "unsat",
+        "the constant-`#b0` array reads `#b0` at every index, including the \
+         one a quantifier instance grounds.  Response:\n{}",
         joined(&lines)
     );
     let values = joined(&lines);
     assert!(
-        values.contains("((select ((as const (Array (_ BitVec 1) (_ BitVec 1))) #b0) d) #b1)"),
-        "the pin's point is the self-contradiction: `(get-value)` must still \
-         answer `#b1` for a read of the constant-`#b0` array while the check \
-         answers `sat`.  Response:\n{values}"
+        !values.contains("((select ((as const (Array (_ BitVec 1) (_ BitVec 1))) #b0) d) #b1)"),
+        "the defect this guards was the self-contradiction: a `sat` whose own \
+         `(get-value)` answered `#b1` for a read of the constant-`#b0` array.  \
+         Response:\n{values}"
     );
 }
 
@@ -211,7 +227,7 @@ fn the_ground_constant_array_read_is_refuted() {
 /// The published model says `p = false` and gives `a1` a `#b0` entry at `#b0`,
 /// while the assertion it is a model of demands `#b1` there.
 #[test]
-fn a_read_through_an_array_ite_inside_a_quantifier_is_a_free_value() {
+fn a_read_through_an_array_ite_inside_a_quantifier_is_refuted() {
     let script = "(set-logic ALL)\n\
          (set-option :produce-models true)\n\
          (declare-const a0 (Array (_ BitVec 1) (_ BitVec 1)))\n\
@@ -224,9 +240,10 @@ fn a_read_through_an_array_ite_inside_a_quantifier_is_a_free_value() {
     let lines = run(script);
     assert_eq!(
         verdict(&lines),
-        "sat",
-        "THE HOLE IS CLOSED: decision (14)'s `ite` naming reaches quantifier \
-         instances now — invert this pin.  Response:\n{}",
+        "unsat",
+        "decision (14)'s `ite` naming must reach a quantifier instance: \
+         whichever of `a0`/`a1` the `ite` picks reads `#b0` at `#b0`, and the \
+         quantified assertion demands `#b1`.  Response:\n{}",
         joined(&lines)
     );
 }
@@ -234,7 +251,7 @@ fn a_read_through_an_array_ite_inside_a_quantifier_is_a_free_value() {
 /// An `Int`-indexed array under a `forall`, so the class cannot be read as a
 /// bit-vector artefact: the index sort is infinite and the same read is free.
 #[test]
-fn an_int_indexed_array_read_inside_a_quantifier_is_a_free_value() {
+fn an_int_indexed_array_read_inside_a_quantifier_is_refuted() {
     let script = "(set-logic ALL)\n\
          (declare-const a (Array Int Int))\n\
          (assert (= (select a 1) 0))\n\
@@ -243,9 +260,9 @@ fn an_int_indexed_array_read_inside_a_quantifier_is_a_free_value() {
     let lines = run(script);
     assert_eq!(
         verdict(&lines),
-        "sat",
-        "THE HOLE IS CLOSED: the `Int`-indexed quantified array read is \
-         constrained now — invert this pin.  Response:\n{}",
+        "unsat",
+        "the defect was never a bit-vector artefact: at `Int` index sort the \
+         same read must be constrained too.  Response:\n{}",
         joined(&lines)
     );
 }
@@ -643,8 +660,8 @@ fn the_three_published_model_families_agree_with_their_own_scripts() {
 }
 
 // ---------------------------------------------------------------------------
-// 6. PIN — the campaign behind the module doc, carried into the tree so the
-//    pass that closes the hole can measure the same thing.
+// 6. GUARD — the campaign behind the module doc, carried into the tree so
+//    the measurement the fix was made against runs on every `cargo nextest`.
 // ---------------------------------------------------------------------------
 
 /// A 64-bit xorshift, so the corpus below is a *fixed* corpus: same scripts,
@@ -785,20 +802,29 @@ fn generate_pair(rng: &mut Rng) -> Pair {
     Pair { quantified, ground }
 }
 
-/// **PIN.**  The quantified form of a formula and its own ground expansion get
-/// different answers, and the quantified one is the wrong one.
+/// **GUARD.**  The quantified form of a formula and its own ground expansion
+/// get the same answer.
 ///
 /// This is the campaign of the module doc, shrunk to 300 fixed scripts so it
-/// costs milliseconds and carried here so the pass that closes the hole can
-/// re-run the same measurement: it must end with *zero* disagreements, and
-/// then this pin turns red and becomes that guard.
+/// costs milliseconds and carried here as the generator the fix is measured
+/// against.  It was a pin: `wrong_sat > 0` was the *defect*, 29 of them on the
+/// 400-script campaign this is a scale model of.  Both directions are zero
+/// now and both are asserted:
 ///
-/// The `unsat`-side count is asserted to be zero today and must stay zero: a
-/// quantified `unsat` where the ground expansion is `sat` would be a wrong
-/// `unsat`, a strictly worse defect than the one pinned here, and nothing in
-/// this round has produced one.
+/// * `wrong_sat` — a quantified `sat` against a ground `unsat` — was the
+///   blocker.  A quantifier instance's array terms now reach
+///   `collect_array_structure` (`solver::ground_instance`) and the refinement
+///   round runs on the quantified candidate-model path
+///   (`solver::array_refinement`).
+/// * `wrong_unsat` — a quantified `unsat` against a ground `sat` — would be
+///   strictly worse, and is the direction a careless "just assert more lemmas"
+///   fix breaks.  It has never been non-zero and must stay zero.
+///
+/// `other` counts the pairs where at least one side answers `unknown`; it is
+/// not a disagreement, and it is printed rather than asserted because the
+/// deterministic budgets are allowed to give up.
 #[test]
-fn quantified_array_scripts_disagree_with_their_own_ground_expansions() {
+fn quantified_array_scripts_agree_with_their_own_ground_expansions() {
     let mut rng = Rng(0x0519_2026_0919_0001);
     let (mut wrong_sat, mut wrong_unsat, mut agree, mut other) = (0u32, 0u32, 0u32, 0u32);
     let mut first = String::new();
@@ -813,7 +839,12 @@ fn quantified_array_scripts_disagree_with_their_own_ground_expansions() {
                     first = pair.quantified.clone();
                 }
             }
-            ("unsat", "sat") => wrong_unsat += 1,
+            ("unsat", "sat") => {
+                wrong_unsat += 1;
+                if first.is_empty() {
+                    first = pair.quantified.clone();
+                }
+            }
             (a, b) if a == b => agree += 1,
             _ => other += 1,
         }
@@ -824,14 +855,13 @@ fn quantified_array_scripts_disagree_with_their_own_ground_expansions() {
     );
     assert_eq!(
         wrong_unsat, 0,
-        "a quantified `unsat` against a ground `sat` would be a wrong `unsat`; \
-         this class has only ever produced wrong `sat`"
+        "a quantified `unsat` against a ground `sat` is a wrong `unsat` — the \
+         direction an over-eager lemma would break.  First offender:\n{first}"
     );
-    assert!(
-        wrong_sat > 0,
-        "THE HOLE IS CLOSED: every quantified script now agrees with its own \
-         ground expansion ({agree} agree, {other} otherwise) — invert this pin \
-         into a guard that requires `wrong_sat == 0` and invert the four pins \
-         above with it"
+    assert_eq!(
+        wrong_sat, 0,
+        "a quantified `sat` against a ground `unsat` is the blocker this \
+         module was written for ({agree} agree, {other} undecided on one \
+         side).  First offender:\n{first}"
     );
 }

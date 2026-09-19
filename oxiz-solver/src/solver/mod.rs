@@ -2,6 +2,7 @@
 
 pub(super) mod arith_axioms;
 pub(crate) mod array_axioms;
+pub(super) mod array_refinement;
 pub(super) mod branch_priority;
 pub(super) mod candidates;
 pub(super) mod check_array;
@@ -17,6 +18,7 @@ pub(super) mod dt_axioms;
 pub(super) mod encode;
 pub(super) mod encode_guards;
 pub(super) mod eq_skeleton;
+pub(super) mod ground_instance;
 pub(super) mod int_case_split;
 pub(super) mod int_range_lp;
 pub(super) mod model_blocking;
@@ -293,6 +295,17 @@ pub struct Solver {
     /// most once, which makes the in-loop refinement in `check` terminate: every
     /// refinement round either adds a strictly new instance or reports `Sat`.
     pub(super) array_axiom_instances: FxHashSet<TermId>,
+    /// Ground *instances* — MBQI instantiations, blind and finite-domain
+    /// instantiations, e-matching lemmas — that mention array structure, kept
+    /// as extra roots for [`Solver::instantiate_array_axioms`]'s collection
+    /// walk.
+    ///
+    /// An instance is not an assertion: it never enters `self.assertions`, so
+    /// without this set the array term it grounds is a root of nothing and
+    /// receives no lemma at all.  See `ground_instance` for the wrong `sat`
+    /// that produced.  Journalled with `TrailOp::GroundArrayRootAdded`, so a
+    /// `pop` retracts the root together with the instance's clauses.
+    pub(super) ground_array_roots: FxHashSet<TermId>,
     /// `div` / `mod` / numeric-`ite` terms whose defining axioms have already
     /// been asserted (see [`Solver::instantiate_arith_axioms`]).  The linear
     /// solver treats those terms as opaque atoms, so this set is what tells the
@@ -675,6 +688,7 @@ impl Solver {
             encode_depth_exceeded: false,
             has_array_ops: false,
             array_axiom_instances: FxHashSet::default(),
+            ground_array_roots: FxHashSet::default(),
             arith_defined_terms: FxHashSet::default(),
             numeric_trichotomy_atoms: FxHashSet::default(),
             dt_axiom_instances: FxHashSet::default(),
@@ -1540,6 +1554,15 @@ impl Solver {
                             // re-assert an axiom it still needs.
                             self.array_axiom_instances.remove(&term);
                         }
+                        TrailOp::GroundArrayRootAdded { term } => {
+                            // The instance's own clauses are retracted with the
+                            // scope, so the root must go with them: a surviving
+                            // root would keep feeding `collect_array_structure`
+                            // array terms that the live assertion stack no
+                            // longer grounds, and the lemmas built over them
+                            // are lemmas about nothing.
+                            self.ground_array_roots.remove(&term);
+                        }
                         TrailOp::ArithDefinedTermAdded { term } => {
                             // The defining lemmas for this `div`/`mod`/`ite`
                             // term are retracted with the scope's clauses, so
@@ -1737,6 +1760,7 @@ impl Solver {
         self.encode_depth_exceeded = false;
         self.has_array_ops = false;
         self.array_axiom_instances.clear();
+        self.ground_array_roots.clear();
         self.array_axioms_incomplete = false;
         self.arith_defined_terms.clear();
         self.numeric_trichotomy_atoms.clear();

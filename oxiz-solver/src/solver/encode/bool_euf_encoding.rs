@@ -208,7 +208,7 @@ impl Solver {
     /// `encode_depth_uncached` already gives them correct Tseitin semantics
     /// (`Bool` completion, via `Constraint::BoolApp`, is what lets EUF see
     /// *those*).
-    pub(super) fn eliminate_nonbool_ite(
+    pub(in crate::solver) fn eliminate_nonbool_ite(
         &mut self,
         term: TermId,
         manager: &mut TermManager,

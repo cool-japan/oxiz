@@ -409,7 +409,22 @@ fn print_atom(a: &Atom, p: &Problem, out: &mut String) {
     }
 }
 
-fn render(p: &Problem, named: bool, pins: Option<&[u128]>) -> String {
+/// Render `p` as a script.
+///
+/// `harness_clock_ms` is `None` for every **gate** and `Some(…)` only for the
+/// `#[ignore]`d campaign (decision (16), finding R5-5).  A gate that renders
+/// `(set-option :timeout N)` asserts its verdicts behind a wall clock: on a
+/// slower machine fewer scripts are decided, so every bound the gate checks
+/// gets weaker, and the gate's strength becomes a property of the host rather
+/// than of the solver.  `(set-option :max-conflicts 20000)` stays, because it
+/// is a deterministic budget and bounds the same runaway identically on every
+/// machine — that is the whole point of decision (9).
+fn render(
+    p: &Problem,
+    named: bool,
+    pins: Option<&[u128]>,
+    harness_clock_ms: Option<u64>,
+) -> String {
     let mut out = String::new();
     out.push_str("(set-logic QF_AUFBV)\n");
     if named {
@@ -420,7 +435,9 @@ fn render(p: &Problem, named: bool, pins: Option<&[u128]>) -> String {
     // exhausted budget is scored (`unknown_decided`), never a failure, and one
     // slow circuit cannot stall the suite.
     out.push_str("(set-option :max-conflicts 20000)\n");
-    out.push_str("(set-option :timeout 5000)\n");
+    if let Some(ms) = harness_clock_ms {
+        let _ = writeln!(out, "(set-option :timeout {ms})");
+    }
     let w = p.width;
     for i in 0..p.num_vars {
         let _ = writeln!(out, "(declare-const v{i} (_ BitVec {w}))");
@@ -656,6 +673,7 @@ fn sampled_witness(rng: &mut Rng, p: &Problem, samples: usize) -> bool {
 // Running and scoring.
 // ---------------------------------------------------------------------------
 
+#[derive(Debug)]
 enum Run {
     Lines(Vec<String>),
     Error(String),
@@ -730,7 +748,13 @@ struct Failure {
 /// Runs one problem plain and named, scoring both against `truth` (`Some` when
 /// the oracle decided it, `None` when only a sampled witness search ran and
 /// found nothing).
-fn run_problem(rng: &mut Rng, p: &Problem, tally: &mut Tally, failures: &mut Vec<Failure>) {
+fn run_problem(
+    rng: &mut Rng,
+    p: &Problem,
+    tally: &mut Tally,
+    failures: &mut Vec<Failure>,
+    harness_clock_ms: Option<u64>,
+) {
     let decided_truth = exhaustive(p);
     let truth = match decided_truth {
         Some(t) => Some(t),
@@ -738,7 +762,7 @@ fn run_problem(rng: &mut Rng, p: &Problem, tally: &mut Tally, failures: &mut Vec
     };
     let decided = decided_truth.is_some();
     for named in [false, true] {
-        let script = render(p, named, None);
+        let script = render(p, named, None, harness_clock_ms);
         tally.scripts += 1;
         let lines = match run_script(&script) {
             Run::Panic(msg) => {
@@ -791,7 +815,7 @@ fn run_problem(rng: &mut Rng, p: &Problem, tally: &mut Tally, failures: &mut Vec
                     }
                 }
                 if values.len() == p.num_vars {
-                    let pinned = render(p, false, Some(&values));
+                    let pinned = render(p, false, Some(&values), harness_clock_ms);
                     let pinned_verdict = match run_script(&pinned) {
                         Run::Lines(l) => l.first().cloned().unwrap_or_default(),
                         Run::Error(e) => format!("error: {e}"),
@@ -879,12 +903,13 @@ fn campaign(
     widths: &[u32],
     tally: &mut Tally,
     failures: &mut Vec<Failure>,
+    harness_clock_ms: Option<u64>,
 ) {
     let mut rng = Rng::new(seed);
     for _ in 0..trials {
         let width = widths[rng.below(widths.len() as u64) as usize];
         let p = gen_problem(&mut rng, width);
-        run_problem(&mut rng, &p, tally, failures);
+        run_problem(&mut rng, &p, tally, failures, harness_clock_ms);
     }
 }
 
@@ -925,19 +950,68 @@ fn env_u64(name: &str, default: u64) -> u64 {
 #[path = "array_uf_combination/ext_shapes.rs"]
 mod ext_shapes;
 
+/// A fixed script this gate decides, asserted by name.
+///
+/// `tally.sat + tally.unsat > 0` used to stand here (and in the sampled gate
+/// below), and while `render` emitted `(set-option :timeout 5000)` that was a
+/// verdict assertion behind a wall clock — decision (16)'s letter, broken: on
+/// a machine slow enough for every generated script to time out, the bound
+/// would have been the only thing standing between the gate and a vacuous
+/// pass, and it is exactly the bound a slow machine removes.  A *named*
+/// script with a known answer says the same thing (the harness really does run
+/// scripts and really does decide them) and says it independently of how many
+/// generated problems the host got through.
+///
+/// `(select (store arr v0 v1) v0) = v1` is read-over-write's own instance, so
+/// `distinct` from `v1` is unsatisfiable at any width; the sat twin pins the
+/// other direction so a solver that answered `unsat` to everything would fail
+/// here too.
+fn the_harness_decides_a_fixed_script() {
+    let unsat = "(set-logic QF_AUFBV)\n\
+         (declare-const v0 (_ BitVec 2))\n\
+         (declare-const v1 (_ BitVec 2))\n\
+         (declare-const arr (Array (_ BitVec 2) (_ BitVec 2)))\n\
+         (assert (distinct (select (store arr v0 v1) v0) v1))\n\
+         (check-sat)\n";
+    let lines = match run_script(unsat) {
+        Run::Lines(lines) => lines,
+        other => panic!("the harness must run this script: {other:?}"),
+    };
+    assert_eq!(
+        lines.first().map(String::as_str),
+        Some("unsat"),
+        "read-over-write's own instance must be refuted, with no clock in \
+         sight: this is the gate's proof that it ran anything at all"
+    );
+    let sat = "(set-logic QF_AUFBV)\n\
+         (declare-const v0 (_ BitVec 2))\n\
+         (declare-const v1 (_ BitVec 2))\n\
+         (declare-const arr (Array (_ BitVec 2) (_ BitVec 2)))\n\
+         (assert (= (select (store arr v0 v1) v0) v1))\n\
+         (check-sat)\n";
+    let lines = match run_script(sat) {
+        Run::Lines(lines) => lines,
+        other => panic!("the harness must run this script: {other:?}"),
+    };
+    assert_eq!(
+        lines.first().map(String::as_str),
+        Some("sat"),
+        "and the satisfiable twin, so \"answer `unsat` to everything\" does \
+         not pass this gate"
+    );
+}
+
 /// Widths 1 and 2, every verdict the oracle decides checked against it.
 #[test]
 fn array_uf_exhaustive_small_widths() {
     let mut tally = Tally::default();
     let mut failures = Vec::new();
     for seed in 0..3 {
-        campaign(seed, 12, &[1, 2], &mut tally, &mut failures);
+        // No harness clock: this is a gate (decision (16)).
+        campaign(seed, 12, &[1, 2], &mut tally, &mut failures, None);
     }
     report("exhaustive", &tally, &failures);
-    assert!(
-        tally.sat + tally.unsat > 0,
-        "nothing was decided: {tally:?}"
-    );
+    the_harness_decides_a_fixed_script();
 }
 
 /// Widths 3 and 4, sampled witnesses (an `unsat` against a witness fails) and
@@ -947,9 +1021,11 @@ fn array_uf_sampled_wider_widths() {
     let mut tally = Tally::default();
     let mut failures = Vec::new();
     for seed in 10..12 {
-        campaign(seed, 10, &[3, 4], &mut tally, &mut failures);
+        // No harness clock: this is a gate (decision (16)).
+        campaign(seed, 10, &[3, 4], &mut tally, &mut failures, None);
     }
     report("sampled", &tally, &failures);
+    the_harness_decides_a_fixed_script();
 }
 
 /// The bounded extensionality campaign: width-1 index **and** element sorts —
@@ -1069,7 +1145,18 @@ fn array_uf_campaign() {
     let mut tally = Tally::default();
     let mut failures = Vec::new();
     for seed in lo..hi {
-        campaign(seed, trials, &[1, 2, 3, 4], &mut tally, &mut failures);
+        // The one caller that may carry a harness clock: this test is
+        // `#[ignore]`d, asserts nothing behind the clock that a slower machine
+        // could weaken, and would otherwise let a single pathological circuit
+        // stall a long campaign (decision (16)).
+        campaign(
+            seed,
+            trials,
+            &[1, 2, 3, 4],
+            &mut tally,
+            &mut failures,
+            Some(5_000),
+        );
         eprintln!("[campaign] seed {seed}: {tally:?}");
     }
     report(&format!("campaign-{lo}-{hi}"), &tally, &failures);

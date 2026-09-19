@@ -248,3 +248,121 @@ fn the_reserved_class_is_unspellable() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// The datatype QE plugin and its case analyser (decision (25), finding R5-3).
+//
+// Decision (19)'s audit covered `nla2bv`, the bit-blaster, `lia2card` and the
+// MBQI universe, and missed these two: `plugin.rs` minted `!dtqe{n}` and
+// `case_analysis.rs` minted `!dtca{n}`, both by `format!` and neither through
+// `reserved_name`.  `!` is in SMT-LIB 2.6's simple-symbol character set and
+// this parser accepts it, so `(declare-const !dtqe0 Int)` parsed and printed —
+// while `plugin.rs`'s doc said the prefix "cannot collide with user
+// variables".  Nothing in `oxiz-solver` calls the plugin, so it could not
+// produce a wrong verdict; what it could do is capture a symbol belonging to a
+// caller of the public `oxiz_core::qe::datatype` API.
+//
+// These two guards drive the real entry points and read the symbols out of
+// what comes back, exactly as the five tactic guards above do.
+// ---------------------------------------------------------------------------
+
+use oxiz_core::qe::datatype::{
+    CaseAnalysisConfig, CaseAnalyzer, Constructor, Datatype, DatatypeQeConfig, DatatypeQePlugin,
+};
+use oxiz_core::sort::Sort;
+
+/// A one-constructor datatype `Box` holding an `Int`, which is the smallest
+/// shape whose case split has to mint an argument name at all.
+fn box_datatype(manager: &mut TermManager) -> (Datatype, oxiz_core::sort::SortId) {
+    let int_sort = manager.sorts.int_sort;
+    let spur = manager.sorts.intern_str("Box");
+    let dt_sort = manager
+        .sorts
+        .intern(oxiz_core::sort::SortKind::Uninterpreted(spur));
+    let int = Sort {
+        id: int_sort,
+        kind: oxiz_core::sort::SortKind::Int,
+    };
+    (
+        Datatype {
+            name: "Box".to_string(),
+            constructors: vec![Constructor {
+                id: 0,
+                name: "box".to_string(),
+                arg_sorts: vec![int],
+            }],
+        },
+        dt_sort,
+    )
+}
+
+/// `DatatypeQePlugin::eliminate` must introduce only reserved symbols.
+#[test]
+fn the_datatype_qe_plugin_mints_in_the_reserved_class() {
+    let mut manager = TermManager::new();
+    let (datatype, dt_sort) = box_datatype(&mut manager);
+    let x = manager.mk_var("x", dt_sort);
+    let int_sort = manager.sorts.int_sort;
+    // A body that mentions the bound variable, so the case split substitutes
+    // into it and the fresh argument survives into the result.
+    let y = manager.mk_var("y", int_sort);
+    let body = {
+        let sel = manager.mk_dt_selector("value", x, int_sort);
+        manager.mk_eq(sel, y)
+    };
+    let before = var_names(&[x, body], &manager);
+    assert!(
+        before.contains("x") && before.contains("y"),
+        "the input must carry the user's own symbols, or the difference below \
+         would not be measuring a mint"
+    );
+
+    let mut plugin = DatatypeQePlugin::new(DatatypeQeConfig::default());
+    plugin.register_datatype(datatype);
+    let eliminated = plugin
+        .eliminate(x, "Box", body, &mut manager)
+        .expect("a registered datatype with case splitting on must eliminate");
+    let after = var_names(&[eliminated], &manager);
+    no_unreserved_mint(&before, &after, "the datatype QE plugin's fresh arguments");
+}
+
+/// `CaseAnalyzer::analyze` is the same mint under a different counter, and it
+/// is reachable on its own through the public re-export.
+#[test]
+fn the_datatype_case_analyser_mints_in_the_reserved_class() {
+    let mut manager = TermManager::new();
+    let (datatype, dt_sort) = box_datatype(&mut manager);
+    let x = manager.mk_var("x", dt_sort);
+    let int_sort = manager.sorts.int_sort;
+    let y = manager.mk_var("y", int_sort);
+    let body = {
+        let sel = manager.mk_dt_selector("value", x, int_sort);
+        manager.mk_eq(sel, y)
+    };
+    let before = var_names(&[x, body], &manager);
+
+    let mut analyzer = CaseAnalyzer::new(CaseAnalysisConfig::default());
+    analyzer.register_datatype(
+        "Box".to_string(),
+        datatype
+            .constructors
+            .iter()
+            .map(|c| oxiz_core::qe::datatype::CaseConstructor {
+                id: c.id,
+                name: c.name.clone(),
+                arg_sorts: c.arg_sorts.clone(),
+            })
+            .collect(),
+    );
+    let result = analyzer.analyze(x, "Box", body, &mut manager);
+    assert!(
+        !result.cases.is_empty(),
+        "a registered one-constructor datatype must produce a case"
+    );
+    let after: HashSet<String> = result
+        .cases
+        .iter()
+        .flat_map(|&case| var_names(&[case], &manager))
+        .collect();
+    no_unreserved_mint(&before, &after, "the datatype case analyser's binders");
+}
