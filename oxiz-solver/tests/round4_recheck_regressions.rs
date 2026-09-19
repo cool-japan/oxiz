@@ -409,6 +409,20 @@ fn array_cardinality_beyond_the_sort_is_refuted() {
 /// the refutation one past the sort's cardinality.  The expensive tail of the
 /// ladder is an `#[ignore]`d cost pin below, because a debug build pays an
 /// order of magnitude for it.
+///
+/// # Two more index widths (`#P2b-46`)
+///
+/// The measurement above is `(Array (_ BitVec 2) (_ BitVec 1))` and nothing
+/// else, and the claim in `TODO.md` / `CHANGELOG.md` is scoped to that sort for
+/// that reason.  One index bit wider the family behaves differently — at width
+/// 3 it is decided but costs seconds from n = 11, and at width 4 it used to
+/// answer **`unknown`** from n = 11, where `c4b04b7` answers `sat` in 0.26 ms
+/// (`#P2b-46`, finding 3: above `ARRAY_INDEX_ENUMERATION_LIMIT` the Skolem
+/// cascade minted `C(11,2) = 55` witness indices in one round and the BV↔EUF
+/// partition exchange gave up at its lemma bound).  So the guard now carries a
+/// cheap case at each of those widths as well: the correctness claim must not
+/// rest on a single sort, and the width-4 case is the regression guard for
+/// that `unknown`.
 #[test]
 fn satisfiable_array_cardinality_at_the_cliff_is_decided() {
     for n in [9u32, 10] {
@@ -424,6 +438,44 @@ fn satisfiable_array_cardinality_at_the_cliff_is_decided() {
         "unsat",
         "seventeen pairwise-distinct arrays do not fit in sixteen"
     );
+    // Index width 3: 256 inhabitants, so nine arrays are trivially
+    // satisfiable — and this is the enumerated branch at its widest.
+    assert_eq!(
+        verdict(&run(&distinct_arrays(9, 3))),
+        "sat",
+        "nine pairwise-distinct arrays over BV3 -> BV1 fit in the sort's 256 \
+         inhabitants"
+    );
+}
+
+/// Index width 4 — *above* `ARRAY_INDEX_ENUMERATION_LIMIT`, so the Skolem
+/// witness cascade runs instead of the enumeration.
+///
+/// Eleven pairwise-distinct arrays over a 65,536-inhabitant sort: `sat` is not
+/// in doubt, and what is guarded is that a verdict comes back at all.  It did
+/// not before `#P2b-46`: the cascade minted `C(11,2) = 55` fresh witness
+/// indices in one round, every one of them a `select` argument and therefore a
+/// candidate of the BV↔EUF partition-lemma exchange, whose lemma bound could
+/// not rule out the partitions of 55 candidates — it gave up, set
+/// `bv_euf_undecided`, and the script answered **`unknown`** where `c4b04b7`
+/// answers `sat` in 0.26 ms.  Eleven is the smallest `n` at this width that
+/// shows it (ten answered `sat` in 64 ms at the old bound).
+///
+/// A test of its own, and not folded into the guard above, because it is the
+/// expensive one: 0.91 s in release and about 110 s in the profile
+/// `cargo nextest` builds, which is why `.config/nextest.toml` gives it a kill
+/// ceiling of its own.  It carries a *correctness* claim, so it is not
+/// `#[ignore]`d — decision (16) puts timing claims behind `#[ignore]`, not
+/// verdicts.  There is no clock in it.
+#[test]
+fn array_cardinality_above_the_enumeration_limit_is_decided() {
+    assert_eq!(
+        verdict(&run(&distinct_arrays(11, 4))),
+        "sat",
+        "eleven pairwise-distinct arrays over BV4 -> BV1 fit in the sort's \
+         65,536 inhabitants; this answered `unknown` before `#P2b-46` while \
+         the 0.3.4 base answered `sat` in 0.26 ms"
+    );
 }
 
 /// The rest of the ladder, one script per size, `#[ignore]`d because the top of
@@ -431,8 +483,11 @@ fn satisfiable_array_cardinality_at_the_cliff_is_decided() {
 /// debug build `cargo nextest` produces.
 ///
 /// Run it explicitly when touching the array refinement: it is the measurement
-/// behind the claim that R6's satisfiable side is closed, and the point where
-/// the cost climbs (n = 12) is the one to watch.
+/// behind the claim that R6's satisfiable side is closed **for
+/// `(Array (_ BitVec 2) (_ BitVec 1))`**, and the point where the cost climbs
+/// (n = 12) is the one to watch.  It says nothing about a wider index sort; the
+/// cheap width-3 and width-4 cases in the non-`#[ignore]`d guard above are what
+/// keep that claim from being read as a claim about the family.
 #[test]
 #[ignore = "cost pin: seconds per script in release, minutes in debug"]
 fn the_whole_array_cardinality_ladder_is_decided() {

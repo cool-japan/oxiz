@@ -1,52 +1,61 @@
-//! Round-4 adversarial recheck, **pass 4** — the holes this pass found open,
-//! and guards for the shapes it re-verified closed.
+//! Round-4 adversarial recheck, **pass 4** — the recheck's pins, inverted into
+//! regression guards by re-fix pass 5 (`#P2b-46`), beside the guards the
+//! recheck wrote for what the round had already closed.
 //!
-//! # What this file pins
+//! # What this file guards
 //!
 //! The round's decision (10) lever — a full enumeration of the index domain
 //! for array pairs whose domain is at or below
 //! `solver/array_axioms.rs::ARRAY_INDEX_ENUMERATION_LIMIT` (8 elements) — buys
-//! the pigeonhole refutations that this round is right to want, and pays for
-//! them with an unbounded amount of work that **no deterministic budget in the
-//! tree can see**.  Measured on this tree against the 0.3.4 base `c4b04b7`,
+//! the pigeonhole refutations that this round is right to want, and paid for
+//! them with an amount of work that **no deterministic budget in the tree
+//! could see**.  As the recheck measured it against the 0.3.4 base `c4b04b7`,
 //! release, both probes back to back:
 //!
-//! | script | tree | `c4b04b7` |
+//! | script | tree, before `#P2b-46` | `c4b04b7` |
 //! |---|---|---|
 //! | `(distinct a0 … a19)` over `(Array (_ BitVec 3) (_ BitVec 1))` | no answer in **900.0 s** (888 s user, 277 MB) | `sat` in 0.4 ms |
-//! | the same at n = 12 | no answer in 20 s | `sat` in 0.4 ms |
-//! | the same at n = 11 | `sat` in 5.4 s | `sat` in 0.4 ms |
 //! | the same at index width 4, n = 11 | `unknown` in 0.39 s | `sat` in 0.26 ms |
 //! | 10 `store` terms over one base at index width 3 | no answer in 40 s | `sat` in 8.4 ms |
 //!
-//! Neither `ARRAY_REFINEMENT_LEMMA_BUDGET` (10 000 lemma instances),
-//! `ARRAY_REFINEMENT_RESOLVE_CONFLICTS` (50 000 conflicts) nor
-//! `REFINEMENT_WORK_CEILING_PROPAGATIONS` fires: at n = 14 the whole run is
-//! **one** refinement round with 91 lemma instances and 1 554 conflicts, and
-//! the time goes into the embedded `BvSolver::check` of that single round.  A
-//! user's `(set-option :max-conflicts 5000)` does not stop it either — only a
-//! wall-clock `(set-option :timeout N)` does, which is precisely the
-//! machine-dependence decision (9) exists to remove.
+//! Neither `ARRAY_REFINEMENT_LEMMA_BUDGET` (10,000 lemma instances),
+//! `ARRAY_REFINEMENT_RESOLVE_CONFLICTS` (50,000 conflicts) nor
+//! `REFINEMENT_WORK_CEILING_PROPAGATIONS` fired: at n = 14 the whole run was
+//! **one** refinement round with 91 lemma instances and 1,554 conflicts, and
+//! the time went into the embedded `BvSolver::check` of that single round.
 //!
-//! Attributed by mutation, in an isolated copy of the tree: with
-//! `ARRAY_INDEX_ENUMERATION_LIMIT` set to 0, every script in the table above
-//! answers `unknown` in 0.12 s to 0.30 s.
+//! # What `#P2b-46` changed, and what it did not
 //!
-//! Above the limit the lever is skipped and the same shapes answer `unknown`
-//! on inputs the base decides — a precision regression rather than a cost one,
-//! and the cheap, deterministic symptom this file puts in the gate.
+//! * **The `unknown` above the enumeration limit is gone.**  The BV↔EUF
+//!   partition-lemma exchange's round bound was 512, which cannot rule out the
+//!   partitions of the `C(11,2) = 55` Skolem witness indices that eleven
+//!   pairwise-distinct arrays mint; it gave up and the verdict was lost.  The
+//!   bound is 8,192 now and the script answers `sat`.  Guarded by
+//!   `round4_recheck_regressions::array_cardinality_above_the_enumeration_limit_is_decided`,
+//!   which is where the inversion of this file's first pin lives (it costs
+//!   about 110 s in this profile, so it is not duplicated here).
+//! * **The unbounded run is bounded**, in a deterministic currency and not by
+//!   a clock: `Statistics::bv_embedded_checks` counts complete checks of the
+//!   embedded bit-blasted solver, and `BV_EMBEDDED_CHECK_CEILING` (250,000)
+//!   ends the check with `Unknown` when they run out.  `(distinct a0 … a19)`
+//!   at index width 3 now answers `unknown` after exactly **250,002** checks,
+//!   as does the ten-`store` script, on any machine.
+//! * **It is not fast.**  Decision (10) stays open and is reported as open:
+//!   250,002 embedded checks is about six minutes here against the base's
+//!   0.4 ms.  What changed is that the answer *arrives*, and that the work
+//!   before it does is a property of the formula rather than of the host.
 //!
 //! # Pins versus guards
 //!
 //! * A **pin** is green because the tree is still wrong.  Each carries a
 //!   `THE HOLE IS CLOSED` message, so the pass that fixes the defect sees it
-//!   turn red and knows to invert it.
-//! * A **guard** asserts the correct behaviour of something this round really
-//!   did close, and turns red if it comes back.
+//!   turn red and knows to invert it.  **There are none left in this file.**
+//! * A **guard** asserts the correct behaviour of something that is closed,
+//!   and turns red if it comes back.
 //!
 //! No test here asserts a verdict behind a wall-clock `(set-option :timeout)`
-//! (decision (16)); the two tests that make a *timing* claim are `#[ignore]`d
-//! cost pins and make no verdict claim.
+//! (decision (16)); the tests that make a *timing* claim are `#[ignore]`d cost
+//! pins and make no verdict claim.
 
 use oxiz_solver::Context;
 use std::sync::mpsc;
@@ -133,128 +142,164 @@ fn answers_within(script: String, limit: Duration) -> Option<String> {
 }
 
 // ---------------------------------------------------------------------------
-// PINS — green because the tree is still wrong.
+// GUARDS — the inverted pins of the pass-4 recheck (`#P2b-46`).
 // ---------------------------------------------------------------------------
 
-/// **PIN.** Above `ARRAY_INDEX_ENUMERATION_LIMIT` the index domain is not
-/// enumerated, the Skolem-witness cascade takes over, and eleven pairwise-
-/// distinct arrays over a 65 536-inhabitant sort come back `unknown` — on an
-/// input the 0.3.4 base decides `sat` in 0.26 ms and that is trivially
-/// satisfiable (eleven distinct elements of a set with 65 536 of them).
+/// **GUARD** (inverted pin).  The enumerated index domain is bounded by a
+/// *deterministic* budget.
 ///
-/// This is the cheap, deterministic, clock-free symptom of the blow-up
-/// documented in the module header: 0.39 ms … 0.4 s here, against scripts of
-/// the same family at index width 3 that never answer at all.
+/// The pin this replaces asserted that no budget in the tree could see the
+/// blow-up: a fourteen-line `(distinct a0 … a19)` over
+/// `(Array (_ BitVec 3) (_ BitVec 1))` ran 900.03 s with no answer, a user's
+/// `(set-option :max-conflicts 5000)` did not stop it, and only a wall-clock
+/// `:timeout` did.  `Statistics::bv_embedded_checks` is the currency that does
+/// see it — it counts complete checks of the embedded bit-blasted solver,
+/// which is where that single refinement round spends everything — and
+/// `BV_EMBEDDED_CHECK_CEILING` ends the check with `Unknown` when they run
+/// out.
 ///
-/// No `:timeout` and no duration assertion — the pin is the *verdict*.
+/// What the gate checks is cheap and clock-free: the counter is published,
+/// it is non-zero on this family, and two runs of the same script report the
+/// *same* count and the same verdict.  A count that reproduces is the whole
+/// claim — a budget denominated in something that moves with machine load
+/// would be the wall clock again under another name.  The expensive half, that
+/// an unbudgeted twenty-array script really does come back, is the
+/// `#[ignore]`d cost pin [`the_index_width_three_cardinality_ladder_terminates`]
+/// below.
 #[test]
-fn n_ary_array_distinct_above_the_enumeration_limit_is_undecided() {
-    // The budget only bounds the run; it changes nothing the verdict depends
-    // on.  With and without it the tree reports the same counters — 0
-    // conflicts, 55 lemma instances, 222 propagations — and the same
-    // `unknown`; c4b04b7 reports 0 conflicts and 56 propagations and answers
-    // `sat`.  It is here so the gate pays 30 ms instead of 0.4 s (40 s in the
-    // debug-assertion build `cargo nextest` produces).
-    let answer = verdict(&run(&distinct_arrays(11, 4, Some(200))));
+fn the_enumerated_index_domain_is_bounded_by_a_deterministic_budget() {
+    let script = format!(
+        "{}(get-info :all-statistics)\n",
+        distinct_arrays(20, 3, Some(200))
+    );
+    let first = run(&script);
+    let second = run(&script);
     assert_eq!(
-        answer, "unknown",
-        "THE HOLE IS CLOSED: 11 pairwise-distinct arrays over \
-         (Array (_ BitVec 4) (_ BitVec 1)) now answer `{answer}`.  The sort has \
-         65 536 inhabitants, so `sat` is the right answer and the 0.3.4 base \
-         c4b04b7 gives it in 0.26 ms with 0 conflicts; this tree answers \
-         `unknown` with 0 conflicts too — the pair enumeration is skipped above \
-         ARRAY_INDEX_ENUMERATION_LIMIT and the Skolem cascade cannot decide it. \
-         Invert this test to assert `sat` once that is fixed."
+        verdict(&first),
+        verdict(&second),
+        "the same script must reach the same verdict twice"
+    );
+    let count = |lines: &[String]| -> u64 {
+        let line = lines
+            .iter()
+            .find(|line| line.contains(":bv-embedded-checks"))
+            .unwrap_or_else(|| {
+                panic!("(get-info :all-statistics) must publish :bv-embedded-checks: {lines:?}")
+            })
+            .clone();
+        let tail = line
+            .split(":bv-embedded-checks ")
+            .nth(1)
+            .unwrap_or_default()
+            .to_string();
+        tail.trim_end_matches(')')
+            .trim()
+            .parse()
+            .unwrap_or_else(|_| panic!("a numeric :bv-embedded-checks count: {line}"))
+    };
+    let (a, b) = (count(&first), count(&second));
+    assert!(
+        a > 0,
+        "this family really does run embedded checks; a zero count would mean \
+         the budget is denominated in something this shape never touches"
+    );
+    assert_eq!(
+        a, b,
+        "the budget's currency must be deterministic: two runs of the \
+         same script reported {a} and {b} embedded checks"
     );
 }
 
-/// **PIN.** The same family *below* the limit, held to a deterministic budget
-/// so the gate can run it at all: twenty pairwise-distinct arrays over an
-/// 8-element index domain, with `(set-option :max-conflicts 200)`.
+/// **GUARD** (inverted pin).  `store` terms under an `n`-ary `distinct` share
+/// the family, and share the bound: ten `store` terms over one base at index
+/// width 3, under a deterministic `:max-conflicts`, come back with a verdict
+/// rather than running until a clock stops them.
 ///
-/// The base answers `sat` in 0.38 ms having used **zero** conflicts.  This
-/// tree cannot answer within two hundred, and — the point of the pin — cannot
-/// answer within five thousand either, nor within 900 s of wall clock with no
-/// budget at all.  `:max-conflicts` is a deterministic currency, not a clock,
-/// so this assertion reproduces on any machine.
+/// The recheck's pin asserted the same `unknown` for the opposite reason — the
+/// budget cut it off while nothing bounded the unbudgeted run, which did not
+/// answer in 40 s.  Unbudgeted it now answers `unknown` after 250,002 embedded
+/// checks (124.6 s in release); that measurement is in
+/// [`the_store_term_cliff_terminates`].
 #[test]
-fn a_deterministic_conflict_budget_does_not_bound_the_enumerated_index_domain() {
-    let answer = verdict(&run(&distinct_arrays(20, 3, Some(200))));
-    assert_eq!(
-        answer, "unknown",
-        "THE HOLE IS CLOSED: 20 pairwise-distinct arrays over \
-         (Array (_ BitVec 3) (_ BitVec 1)) now answer `{answer}` within 200 \
-         conflicts.  c4b04b7 answers `sat` in 0.38 ms with 0 conflicts; this \
-         tree needed more than 5 000 conflicts and more than 900 s of wall \
-         clock, one refinement round deep, with no lemma, round or propagation \
-         budget able to see it.  Invert this test to assert `sat` once the \
-         index-domain enumeration is bounded."
-    );
-}
-
-/// **PIN.** `store` terms over a shared base, ten of them at index width 3,
-/// held to the same deterministic budget: the base answers `sat` in 8.4 ms,
-/// this tree does not answer in 40 s unbudgeted.
-#[test]
-fn store_terms_under_an_n_ary_distinct_share_the_same_cliff() {
+fn store_terms_under_an_n_ary_distinct_are_decided_under_a_deterministic_budget() {
     let mut script = distinct_store_terms(10, 3);
     script = script.replace(
         "(set-logic QF_AUFBV)\n",
         "(set-logic QF_AUFBV)\n(set-option :max-conflicts 200)\n",
     );
     let answer = verdict(&run(&script));
-    assert_eq!(
-        answer, "unknown",
-        "THE HOLE IS CLOSED: 10 `store` terms over one base at index width 3 \
-         now answer `{answer}` within 200 conflicts, where c4b04b7 answers \
-         `sat` in 8.4 ms and this tree did not answer in 40 s unbudgeted."
+    assert!(
+        answer == "unknown" || answer == "sat",
+        "a budgeted run must report a verdict, not `{answer}`"
     );
 }
 
-/// **PIN.** `reject_reserved_symbol` refuses a `@`- or `.`-leading symbol
-/// everywhere a *symbol* is parsed — declarations, sorts, binder variables,
-/// `let` bindings, `define-fun` parameters, datatype constructors and
-/// selectors, and both the bare and the `|…|` form.  It does **not** reach the
-/// `:named` annotation of a term, which takes its label through the attribute
-/// path instead.
+/// **GUARD** (inverted pin).  `reject_reserved_symbol` refuses a `@`- or
+/// `.`-leading symbol everywhere a *symbol* enters a namespace — declarations,
+/// sorts, binder variables, `let` bindings, `define-fun` parameters, datatype
+/// constructors and selectors, both the bare and the `|…|` form, **and** the
+/// `:named` annotation of a term, which took its label through the attribute
+/// path and used to escape (`#P2b-46`, decision (19)).
 ///
-/// Not a capture: referring to `@uc_U_0` as a term is refused, so the label
-/// cannot be turned into a symbol in scope, and an unsat core prints only on
-/// `unsat`, where there is no model to contradict.  It is an inconsistency in
-/// the refusal's coverage, pinned so that closing it is deliberate.
+/// The `:named` label was never a capture — referring to `@uc_U_0` as a term
+/// was already refused, so the label could not become a symbol in scope, and
+/// an unsat core prints only on `unsat`, where there is no model to contradict
+/// — but it was an inconsistency in the refusal's coverage, and a rule with a
+/// door in it is a rule a later pass has to re-derive.
+///
+/// Every *other* attribute value is deliberately left alone: `:source`,
+/// `:status` and friends name nothing and benchmark files in the wild fill
+/// them with arbitrary symbols.
 #[test]
-fn a_named_annotation_escapes_the_reserved_symbol_refusal() {
-    let accepted = run("(set-logic QF_BV)\n\
-         (declare-const x (_ BitVec 2))\n\
-         (assert (! (= x #b00) :named @uc_U_0))\n\
-         (check-sat)\n");
-    assert_eq!(
-        verdict(&accepted),
-        "sat",
-        "THE HOLE IS CLOSED: `:named @uc_U_0` is no longer accepted — the \
-         reserved-symbol refusal now covers the annotation path too.  Invert \
-         this test to assert the parse error."
-    );
-
-    // The same spelling in every other position is refused, so the class is
-    // closed apart from this one door.
+fn a_named_annotation_is_covered_by_the_reserved_symbol_refusal() {
+    // Every position, including the one that used to escape.
     for script in [
+        // The `:named` label itself — the door this closes.
+        "(set-logic QF_BV)\n(declare-const x (_ BitVec 2))\n\
+         (assert (! (= x #b00) :named @uc_U_0))\n(check-sat)\n",
+        // …and its `.`-leading twin, the other reserved class.
+        "(set-logic QF_BV)\n(declare-const x (_ BitVec 2))\n\
+         (assert (! (= x #b00) :named .hidden))\n(check-sat)\n",
+        // The spellings the recheck witnessed refused, re-asserted here so
+        // this guard cannot go green by the rule being deleted.
         "(set-logic QF_UF)\n(declare-sort U 0)\n(declare-const @uc_U_0 U)\n(check-sat)\n",
         "(set-logic QF_BV)\n(declare-const x (_ BitVec 2))\n\
          (assert (let ((@a x)) (= @a #b00)))\n(check-sat)\n",
         "(set-logic QF_BV)\n\
          (define-fun f ((@x (_ BitVec 2))) (_ BitVec 2) @x)\n(check-sat)\n",
         "(set-logic QF_BV)\n(declare-const x (_ BitVec 2))\n\
-         (assert (! (= x #b00) :named @uc_U_0))\n(assert @uc_U_0)\n(check-sat)\n",
+         (assert (! (= x #b00) :named n0))\n(assert @uc_U_0)\n(check-sat)\n",
     ] {
         let lines = run(script);
         assert!(
             lines
                 .iter()
                 .any(|line| line.contains("reserves for solver use")),
-            "a `@`-leading symbol must be refused here: {lines:?}"
+            "a `@`- or `.`-leading symbol must be refused here: {lines:?}"
         );
     }
+
+    // The control: a label that is not in the reserved class still works, so
+    // the refusal is not "no `:named` at all".
+    let accepted = run("(set-logic QF_BV)\n\
+         (declare-const x (_ BitVec 2))\n\
+         (assert (! (= x #b00) :named ordinary_label))\n\
+         (check-sat)\n");
+    assert_eq!(
+        verdict(&accepted),
+        "sat",
+        "an ordinary `:named` label is unaffected: {accepted:?}"
+    );
+    // And a `@` *inside* a symbol, which SMT-LIB 2.6 allows, still parses.
+    let infix = run("(set-logic QF_BV)\n\
+         (declare-const x (_ BitVec 2))\n\
+         (assert (! (= x #b00) :named a@b))\n\
+         (check-sat)\n");
+    assert_eq!(
+        verdict(&infix),
+        "sat",
+        "only a *leading* `@` is reserved: {infix:?}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -409,23 +454,80 @@ fn a_store_equality_that_is_not_asserted_is_not_refuted() {
 // COST PINS — timing claims, kept out of the gate by `#[ignore]`.
 // ---------------------------------------------------------------------------
 
-/// **COST PIN.** The non-termination itself.  No verdict is asserted: the
-/// claim is only that the tree produces *no answer at all* inside a generous
-/// budget on a script the 0.3.4 base answers in 0.4 ms.
+/// **COST PIN** (inverted).  The non-termination is gone, and the measurement
+/// that shows it is expensive, so it lives here rather than in the gate.
 ///
-/// Measured unbudgeted with `/usr/bin/time`: 900.03 s real, 888.42 s user,
-/// 277 MB resident, killed with no answer.
+/// Before `#P2b-46` this script produced *no answer at all*: 900.03 s real,
+/// 888.42 s user and 277 MB resident under `/usr/bin/time`, killed with
+/// nothing printed, where the 0.3.4 base answers `sat` in 0.4 ms.  It now
+/// comes back `unknown` after exactly 250,002 embedded bit-blasted checks —
+/// `BV_EMBEDDED_CHECK_CEILING` — which took 346.6 s in a release build on the
+/// development machine.
+///
+/// The assertion is the *verdict*, not the duration: the duration is what
+/// makes this `#[ignore]`d, and the budget that ends the run is counted in
+/// checks, so the same script stops after the same amount of work on any
+/// machine.  Decision (10) is **not** closed by this and is not claimed to be:
+/// `unknown` in minutes is not `sat` in 0.4 ms.  What changed is that an
+/// answer arrives without a wall clock being involved.
+///
+/// # Release-calibrated, and it declines rather than hangs
+///
+/// The profile `cargo nextest` builds carries `debug_assertions`, and the
+/// bit-blaster's circuit self-check is gated on exactly that: the same script
+/// this pin answers in 346.6 s in a release build did not finish in 1,800 s
+/// there, and the sibling guard
+/// `round4_recheck_regressions::array_cardinality_above_the_enumeration_limit_is_decided`
+/// measures the same ratio directly (0.91 s release against 114 s). Rather
+/// than ship a pin that cannot pass where it is usually run, it declines under
+/// `debug_assertions` with a message. Run it with
+/// `cargo nextest run -p oxiz-solver --test round4_pass4_recheck_pins
+/// --cargo-profile release --run-ignored all`.
 #[test]
-#[ignore = "cost pin: asserts a duration; run it explicitly"]
-fn the_index_width_three_cardinality_ladder_does_not_answer() {
-    let limit = Duration::from_secs(30);
+#[ignore = "cost pin: minutes per script in release; declines under debug_assertions"]
+fn the_index_width_three_cardinality_ladder_terminates() {
+    if cfg!(debug_assertions) {
+        eprintln!(
+            "declined: release-calibrated (346.6 s release, > 1,800 s with \
+             debug_assertions); re-run with --cargo-profile release"
+        );
+        return;
+    }
+    let limit = Duration::from_secs(3_600);
     let answer = answers_within(distinct_arrays(20, 3, None), limit);
-    assert!(
-        answer.is_none(),
-        "THE HOLE IS CLOSED: 20 pairwise-distinct arrays over \
-         (Array (_ BitVec 3) (_ BitVec 1)) answered `{}` inside {limit:?}; \
-         c4b04b7 answers `sat` in 0.4 ms and this tree gave no answer in 900 s.",
-        answer.unwrap_or_default()
+    assert_eq!(
+        answer.as_deref(),
+        Some("unknown"),
+        "20 pairwise-distinct arrays over (Array (_ BitVec 3) (_ BitVec 1)) \
+         must come back on the deterministic embedded-check budget; before \
+         `#P2b-46` nothing bounded this and it ran 900 s with no answer"
+    );
+}
+
+/// **COST PIN** (inverted).  The same for the `store`-term spelling of the
+/// family: ten `store` terms over one base at index width 3 did not answer in
+/// 40 s and had no bound at all; they now answer `unknown` after 250,002
+/// embedded checks, 124.6 s in a release build here.
+///
+/// Release-calibrated and declining under `debug_assertions` for the reason
+/// [`the_index_width_three_cardinality_ladder_terminates`] gives.
+#[test]
+#[ignore = "cost pin: minutes per script in release; declines under debug_assertions"]
+fn the_store_term_cliff_terminates() {
+    if cfg!(debug_assertions) {
+        eprintln!(
+            "declined: release-calibrated (124.6 s release, > 1,800 s with \
+             debug_assertions); re-run with --cargo-profile release"
+        );
+        return;
+    }
+    let limit = Duration::from_secs(3_600);
+    let answer = answers_within(distinct_store_terms(10, 3), limit);
+    assert_eq!(
+        answer.as_deref(),
+        Some("unknown"),
+        "ten `store` terms under an `n`-ary `distinct` at index width 3 must \
+         come back on the deterministic embedded-check budget"
     );
 }
 

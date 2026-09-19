@@ -17,46 +17,7 @@ use super::types::{
 };
 
 mod bv_bridge;
-
-/// Complete checks of the embedded bit-blasted solver one `check` may run
-/// before it answers `Unknown` (`#P2b-38` strand (b), `#P2b-46`; third
-/// deterministic currency).
-///
-/// # Why a third counter
-///
-/// [`ARRAY_REFINEMENT_RESOLVE_CONFLICTS`] bounds a refinement loop that
-/// *searches*; [`ARRAY_REFINEMENT_LEMMA_BUDGET`] bounds one that only
-/// *builds*.  Neither sees a loop that does **one** round whose re-solve is
-/// enormous, and that is the shape the enumerated extensionality family
-/// produces: `C(n,2) · |D|` bit-vector equality atoms asserted in a single
-/// round, after which the outer search runs one complete embedded
-/// `BvSolver::check` per bit-vector atom propagation.  Measured on twelve
-/// pairwise-distinct arrays over `(Array (_ BitVec 3) (_ BitVec 1))`: 75,740
-/// embedded checks and 22 s of wall clock, in **one** refinement round with 66
-/// lemma instances and 1,444 conflicts — three orders of magnitude below both
-/// ceilings above, so neither fires.  At twenty arrays the same script ran
-/// 900.03 s under `/usr/bin/time` with no answer at all and no budget stopping
-/// it; only an explicit `:timeout` did, which is precisely the
-/// machine-dependence decision (9) exists to remove.
-///
-/// Counted in [`crate::solver::Statistics::bv_embedded_checks`], advanced by
-/// `TheoryManager` once per embedded check and reset at the entry of every
-/// `check`.  Exhaustion sets the theory manager's `resource_exhausted` flag,
-/// so the verdict is `Unknown` and never a fabricated `sat`/`unsat`.
-///
-/// # Calibration
-///
-/// Measured on this tree (2026-09-19), peak embedded checks per script: the
-/// 217-script `bench/` corpus 12,969 (`regression/benchmarks/bv_arith.smt2`);
-/// the four in-tree `n`-ary-`distinct` scripts 1,441; the cardinality ladder
-/// at index width 2 up to n = 16, which this round's guards require to answer,
-/// 1,194,455 at n = 15; index width 4 at n = 11, which finding 3 requires to
-/// answer `sat`, 174,377.  Sixteen million is thirteen times the largest of
-/// those, so every script that decides today keeps deciding, while the shapes
-/// that used to run for fifteen minutes with no answer cross it in tens of
-/// seconds and answer `Unknown` — deterministically, byte for byte on an idle
-/// and on a loaded machine.
-const BV_EMBEDDED_CHECK_CEILING: u64 = 1_000_000;
+mod bv_budget;
 
 mod conflict_clause;
 mod derived_reasons;
@@ -479,22 +440,6 @@ impl<'a> TheoryManager<'a> {
     /// frozen (`wasm32-unknown-unknown` / `no_std`), where `Instant::now()` is
     /// a constant t = 0 and can never reach a deadline built from it.
     #[inline]
-    /// Charge one embedded bit-blasted check to this `check`'s deterministic
-    /// budget and report whether the budget is now spent.
-    ///
-    /// See [`BV_EMBEDDED_CHECK_CEILING`] for what this bounds and why the two
-    /// refinement counters cannot see it.
-    pub(super) fn charge_bv_embedded_check(&mut self) -> bool {
-        self.statistics.bv_embedded_checks = self.statistics.bv_embedded_checks.saturating_add(1);
-        self.statistics.bv_embedded_checks > BV_EMBEDDED_CHECK_CEILING
-    }
-
-    /// Whether the embedded-check budget is already spent, without charging
-    /// for another one.
-    fn bv_embedded_budget_spent(&self) -> bool {
-        self.statistics.bv_embedded_checks > BV_EMBEDDED_CHECK_CEILING
-    }
-
     fn timed_out(&self) -> bool {
         match self.deadline {
             Some(d) => oxiz_time::Instant::now() >= d,

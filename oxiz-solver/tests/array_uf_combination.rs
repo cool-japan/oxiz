@@ -974,6 +974,8 @@ fn array_ext_shapes_bounded() {
         &[(1, 1, false), (1, 1, true), (1, 2, false), (2, 1, false)],
         &mut tally,
         &mut first_failure,
+        // No clock: this is the gate (decision (16)).
+        None,
     );
     eprintln!("[ext-shapes] {tally:?}");
     assert_eq!(
@@ -987,15 +989,21 @@ fn array_ext_shapes_bounded() {
         tally.sat + tally.unsat > 0,
         "nothing was decided: {tally:?}"
     );
-    // The published-model residue, pinned rather than demanded to be zero.
-    // One script in 480 still prints an array whose entries contradict the
-    // equality that constrains it — `(= (store a0 #b01 #b1) ((as const A)
-    // #b1))` with a published read of `a0` the refinement loop never
-    // corrected.  The 0.3.4 base falsifies this shape too (and many more), so
-    // the pin catches a regression without claiming the class is closed.
-    assert!(
-        tally.bad_model <= 1,
-        "published-model residue grew: {tally:?}"
+    // The published-model residue is **zero**, and this is now a bound that
+    // means something.  While the generator rendered every script with
+    // `(set-option :timeout 1000)` it did not: `score` replays a published
+    // model only on the `sat` branch, so a script that ran out of clock was
+    // never model-checked, and the count therefore moved with how many
+    // scripts got past the clock — on a *faster* machine more scripts reach
+    // `sat`, more models are replayed, and the tally can rise above whatever
+    // bound is written here.  That is the inverse of ordinary load flakiness,
+    // which is why no pass ever saw it go red (`#P2b-46`).  The clock is gone
+    // and `:max-conflicts` decides instead, so which scripts answer `sat` is
+    // a property of the formula: 480 scripts, 163 `sat`, 316 `unsat`, 1
+    // `unknown`, 0 falsifying models.
+    assert_eq!(
+        tally.bad_model, 0,
+        "a published model falsifies its own script: {tally:?}"
     );
 }
 
@@ -1021,6 +1029,12 @@ fn array_ext_shapes_campaign() {
         ],
         &mut tally,
         &mut first_failure,
+        // A *harness* budget, not a verdict gate: every bound this test asserts
+        // is zero, and a zero bound is monotone in coverage, so a machine fast
+        // enough to score more scripts can only find more defects. Without it
+        // the run does not finish — one generated script can spend the whole
+        // `BV_EMBEDDED_CHECK_CEILING`, which is minutes (`#P2b-46`).
+        Some(1000),
     );
     eprintln!("[ext-campaign] {tally:?}");
     assert_eq!(
@@ -1028,6 +1042,18 @@ fn array_ext_shapes_campaign() {
         0,
         "{} failures; first of each kind:\n{}",
         tally.failures(),
+        ext_shapes::summarise(&first_failure)
+    );
+    // The published-model residue, asserted here too and not only in the
+    // bounded gate: `ExtTally::failures` does not count it, so until
+    // `#P2b-46` a falsifying model in the long run was printed and passed.
+    // Zero-valued like every other bound this test carries, which is what
+    // makes the harness clock above sound — see the comment on `Some(1000)`.
+    // Measured on the 6,000-script default: 0, where the round-3 record was 23.
+    assert_eq!(
+        tally.bad_model,
+        0,
+        "a published model falsifies its own script: {tally:?}\n{}",
         ext_shapes::summarise(&first_failure)
     );
 }

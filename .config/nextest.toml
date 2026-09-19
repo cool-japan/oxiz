@@ -83,3 +83,50 @@ slow-timeout = { period = "60s", terminate-after = 15 }
 [[profile.ci.overrides]]
 filter = 'package(oxiz-solver) and test(array_uf_campaign)'
 slow-timeout = { period = "60s", terminate-after = 15 }
+
+# `array_ext_shapes_campaign` is the 6,000-script sibling. It fitted inside the
+# default 180 s while its generator rendered every script with
+# `(set-option :timeout 1000)`; `#P2b-46` took that clock out (it decided the
+# gate's `bad_model` tally, not only its duration — see
+# `array_uf_combination.rs`), and the campaign now needs the same headroom its
+# sibling does.
+[[profile.default.overrides]]
+filter = 'package(oxiz-solver) and test(array_ext_shapes_campaign)'
+slow-timeout = { period = "60s", terminate-after = 15 }
+
+[[profile.ci.overrides]]
+filter = 'package(oxiz-solver) and test(array_ext_shapes_campaign)'
+slow-timeout = { period = "60s", terminate-after = 15 }
+
+# `round4_recheck_regressions::array_cardinality_above_the_enumeration_limit_is_decided`
+# is `#P2b-46`'s correctness guard for the Skolem cascade above
+# `ARRAY_INDEX_ENUMERATION_LIMIT`: eleven pairwise-distinct arrays over
+# `(Array (_ BitVec 4) (_ BitVec 1))`, which answered `unknown` before the fix
+# and `sat` after it. It carries a verdict, not a timing claim, so decision (16)
+# keeps it in the gate rather than behind `#[ignore]` — but it costs 0.91 s in
+# release and 113.9 s in the profile `cargo nextest` builds, which is over the
+# shared 180 s ceiling once the machine is loaded.
+#
+# Same treatment as the two overrides above: a kill ceiling well clear of the
+# measurement, with SLOW still reported at 60 s.
+[[profile.default.overrides]]
+filter = 'package(oxiz-solver) and test(array_cardinality_above_the_enumeration_limit_is_decided)'
+slow-timeout = { period = "60s", terminate-after = 10 }
+
+[[profile.ci.overrides]]
+filter = 'package(oxiz-solver) and test(array_cardinality_above_the_enumeration_limit_is_decided)'
+slow-timeout = { period = "60s", terminate-after = 10 }
+
+# The two `#[ignore]`d cost pins of `#P2b-46` assert that the shapes which used
+# to produce *no answer at all* now come back on the deterministic
+# embedded-check budget. That budget is 250,000 checks, which is minutes by
+# construction — 346.6 s and 124.6 s in a release build — so they need a
+# ceiling of their own for `--run-ignored all` not to report a spurious
+# TIMEOUT. They are opt-in and carry no gate.
+[[profile.default.overrides]]
+filter = 'package(oxiz-solver) and (test(the_index_width_three_cardinality_ladder_terminates) or test(the_store_term_cliff_terminates) or test(the_cardinality_cliff_table) or test(the_whole_array_cardinality_ladder_is_decided))'
+slow-timeout = { period = "60s", terminate-after = 40 }
+
+[[profile.ci.overrides]]
+filter = 'package(oxiz-solver) and (test(the_index_width_three_cardinality_ladder_terminates) or test(the_store_term_cliff_terminates) or test(the_cardinality_cliff_table) or test(the_whole_array_cardinality_ladder_is_decided))'
+slow-timeout = { period = "60s", terminate-after = 40 }
