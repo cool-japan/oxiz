@@ -134,56 +134,59 @@ fn the_quantifier_is_unsatisfiable_at_a_ground_index() {
 }
 
 // ---------------------------------------------------------------------------
-// 1. THE HOLE — A QUANTIFIER OUTSIDE A CONJUNCTIVE POSITION IS A FREE BOOLEAN
+// 1. THE CLOSED HOLE — A QUANTIFIER OUTSIDE A CONJUNCTIVE POSITION
 //
-//    Every test in this section is a HOLE pin: it asserts the wrong answer
-//    this tree gives today.  The controls that make each one a statement
-//    about the Boolean *context* are in section 2.
+//    Every test in this section was a HOLE pin asserting the wrong `sat` this
+//    tree used to give.  `encode::quant_guard` (re-fix pass 8, `#P2b-54`)
+//    closed them and they are inverted here: each now asserts the CORRECT
+//    `unsat`, and each is a regression guard for one Boolean position.  The
+//    controls that make them statements about the *context* are in section 2.
 // ---------------------------------------------------------------------------
 
-/// The negation of a tautology answers `sat` (`#P2b-54`).
+/// The negation of a tautology is refuted (`#P2b-54`, closed).
 ///
 /// `(forall ((x U)) (= (f x) (f x)))` is valid in every structure, so its
 /// negation is unsatisfiable in every structure — no theory reasoning, no
-/// array, no bit-vector, no cardinality argument.  The tree answers `sat`,
-/// and so do `c4b04b7` and crates.io 0.3.3.
+/// array, no bit-vector, no cardinality argument.  This tree, `c4b04b7` and
+/// crates.io 0.3.3 all answered `sat`: the quantifier occurs only under a
+/// `not`, so its Tseitin literal meant nothing and the SAT solver set it
+/// false.
 ///
-/// This is the whole defect in three lines: the quantifier occurs only under a
-/// `not`, so its Tseitin literal is never made to mean anything, and the SAT
-/// solver is free to set it false.
-///
-/// **THE HOLE IS CLOSED** when this answers `unsat` — invert it then.
+/// `encode::quant_guard` now reads the occurrence as the existential
+/// obligation it is and discharges it with a Skolem constant, so the body
+/// becomes the ground `(= (f sk) (f sk))` and EUF refutes its negation.
 #[test]
-fn a_negated_valid_quantifier_is_a_wrong_sat() {
+fn a_negated_valid_quantifier_is_refuted() {
     assert_verdict(
         "(set-logic ALL)\n\
          (declare-sort U 0)\n\
          (declare-fun f (U) U)\n\
          (assert (not (forall ((x U)) (= (f x) (f x)))))\n\
          (check-sat)\n",
-        "sat",
-        "PIN (#P2b-54): the negation of a tautology is unsatisfiable; this \
-         tree answers `sat` because a quantifier in a negative position is an \
-         unconstrained Boolean",
+        "unsat",
+        "REGRESSION GUARD (#P2b-54): the negation of a tautology has no model; \
+         a `sat` here means a quantifier in a negative position is an \
+         unconstrained Boolean again",
     );
 }
 
-/// The same hole with `Int` and an uninterpreted function (`#P2b-54`).
+/// The same shape with `Int` and an uninterpreted function (`#P2b-54`,
+/// closed).
 ///
 /// Included so the family is not read as a bit-vector or an array defect: it
-/// is the Boolean position, and nothing else.
-///
-/// **THE HOLE IS CLOSED** when this answers `unsat`.
+/// is the Boolean position, and nothing else.  `Int` has no finite expansion,
+/// so this member had no width above which it started and none below which it
+/// stopped.
 #[test]
-fn a_negated_valid_quantifier_over_int_is_a_wrong_sat() {
+fn a_negated_valid_quantifier_over_int_is_refuted() {
     assert_verdict(
         "(set-logic ALL)\n\
          (declare-fun f (Int) Int)\n\
          (assert (not (forall ((x Int)) (= (f x) (f x)))))\n\
          (check-sat)\n",
-        "sat",
-        "PIN (#P2b-54): `∀x:Int. f(x) = f(x)` is valid, so its negation has no \
-         model",
+        "unsat",
+        "REGRESSION GUARD (#P2b-54): `∀x:Int. f(x) = f(x)` is valid, so its \
+         negation has no model",
     );
 }
 
@@ -196,9 +199,11 @@ fn a_negated_valid_quantifier_over_int_is_a_wrong_sat() {
 /// [`the_same_quantifier_asserted_at_the_top_level_is_refuted`] — so this test
 /// and that one differ in nothing but the Boolean context.
 ///
-/// **THE HOLE IS CLOSED** when this answers `unsat`.
+/// `quant_guard` gives it the universal obligation `∀i. (g → φ)`, so `g` — the
+/// literal the implication forces true — can only be true where every instance
+/// holds.
 #[test]
-fn a_quantifier_under_an_implication_is_a_wrong_sat() {
+fn a_quantifier_under_an_implication_is_refuted() {
     assert_verdict(
         &format!(
             "{PINNED_ARRAY}\
@@ -207,25 +212,29 @@ fn a_quantifier_under_an_implication_is_a_wrong_sat() {
              (assert (=> p {ROW_FORALL}))\n\
              (check-sat)\n"
         ),
-        "sat",
-        "PIN (#P2b-54): `p` is true, so the implication forces the quantifier, \
-         which has no model",
+        "unsat",
+        "REGRESSION GUARD (#P2b-54): `p` is true, so the implication forces \
+         the quantifier, which has no model",
     );
 }
 
-/// The wrong `sat` serves a model that contradicts itself inside one response
-/// (`#P2b-54`).
+/// The response is self-consistent: no model is published at all, because the
+/// script has none (`#P2b-54`, closed).
 ///
-/// This is what makes the finding a soundness claim rather than an
-/// incompleteness one: the solver answers `sat`, publishes `p = true` — so the
-/// implication's antecedent holds and the quantifier is asserted — and then
-/// answers `#b0000000` for `(select (store a #b0000000 #b0000101) #b0000001)`,
-/// which is the quantified body's own instance at `i = #b0000000` evaluating
-/// to `false`.  No oracle is involved; the response refutes itself.
+/// This is the test that made the finding a soundness claim rather than an
+/// incompleteness one.  The solver used to answer `sat`, publish `p = true` —
+/// so the implication's antecedent holds and the quantifier is asserted — and
+/// then answer `#b0000000` for
+/// `(select (store a #b0000000 #b0000101) #b0000001)`, which is the quantified
+/// body's own instance at `i = #b0000000` evaluating to `false`.  No oracle
+/// was involved; the response refuted itself.
 ///
-/// **THE HOLE IS CLOSED** when the verdict becomes `unsat` — invert this then.
+/// Inverted: the verdict is `unsat`, and a `(get-value)` after an `unsat` is
+/// an error rather than a contradiction.  The two `assert!`s below are what
+/// stop a future regression from passing by answering `sat` with a *different*
+/// contradictory model.
 #[test]
-fn the_wrong_sat_publishes_a_model_that_refutes_its_own_assertion() {
+fn the_refutation_publishes_no_self_contradicting_model() {
     let script = format!(
         "{PINNED_ARRAY}\
          (set-option :produce-models true)\n\
@@ -239,28 +248,26 @@ fn the_wrong_sat_publishes_a_model_that_refutes_its_own_assertion() {
     let text = joined(&lines);
     assert_eq!(
         verdict(&lines),
-        "sat",
-        "PIN (#P2b-54): the verdict is the wrong `sat`\n{text}"
+        "unsat",
+        "REGRESSION GUARD (#P2b-54): the implication forces a quantifier with \
+         no model\n{text}"
     );
     assert!(
-        text.contains("(p true)"),
-        "PIN (#P2b-54): the published model makes the antecedent true, so the \
-         quantifier is asserted in it\n{text}"
+        !text.contains("(p true)"),
+        "REGRESSION GUARD (#P2b-54): an `unsat` must publish no model at all; \
+         a `(p true)` here means the wrong `sat` is back\n{text}"
     );
     assert!(
-        text.contains("((select (store a (_ bv0 7) (_ bv5 7)) (_ bv1 7)) #b0000000)"),
-        "PIN (#P2b-54): and the same model reads `#b0000000` where the \
-         quantifier demands `#b0000101`, so it falsifies the very assertion it \
-         was published for\n{text}"
+        !text.contains("((select (store a (_ bv0 7) (_ bv5 7)) (_ bv1 7)) #b0000000)"),
+        "REGRESSION GUARD (#P2b-54): and no response may read `#b0000000` \
+         where the quantifier it just accepted demands `#b0000101`\n{text}"
     );
 }
 
 /// A quantifier under a disjunction whose other arm is asserted false
-/// (`#P2b-54`).
-///
-/// **THE HOLE IS CLOSED** when this answers `unsat`.
+/// (`#P2b-54`, closed).
 #[test]
-fn a_quantifier_under_a_disjunction_is_a_wrong_sat() {
+fn a_quantifier_under_a_disjunction_is_refuted() {
     assert_verdict(
         &format!(
             "{PINNED_ARRAY}\
@@ -269,19 +276,19 @@ fn a_quantifier_under_a_disjunction_is_a_wrong_sat() {
              (assert (or p {ROW_FORALL}))\n\
              (check-sat)\n"
         ),
-        "sat",
-        "PIN (#P2b-54): `p` is false, so the disjunction forces the quantifier",
+        "unsat",
+        "REGRESSION GUARD (#P2b-54): `p` is false, so the disjunction forces \
+         the quantifier",
     );
 }
 
-/// A quantifier under an `ite`, and under a Boolean `=` (`#P2b-54`).
+/// A quantifier under an `ite`, and under a Boolean `=` (`#P2b-54`, closed).
 ///
-/// Two more spellings in one test so the family cannot be closed one operator
-/// at a time and still look finished.
-///
-/// **THE HOLE IS CLOSED** when either answers `unsat`.
+/// Two spellings in one test so the family cannot be closed one operator at a
+/// time and still look finished.  Both are polarity boundaries, so
+/// `quant_guard` gives each guard constant the *full* definition `g ↔ Q`.
 #[test]
-fn a_quantifier_under_an_ite_or_a_boolean_equality_is_a_wrong_sat() {
+fn a_quantifier_under_an_ite_or_a_boolean_equality_is_refuted() {
     assert_verdict(
         &format!(
             "{PINNED_ARRAY}\
@@ -290,8 +297,8 @@ fn a_quantifier_under_an_ite_or_a_boolean_equality_is_a_wrong_sat() {
              (assert (ite p {ROW_FORALL} false))\n\
              (check-sat)\n"
         ),
-        "sat",
-        "PIN (#P2b-54): the `ite` spelling",
+        "unsat",
+        "REGRESSION GUARD (#P2b-54): the `ite` spelling",
     );
     assert_verdict(
         &format!(
@@ -301,8 +308,8 @@ fn a_quantifier_under_an_ite_or_a_boolean_equality_is_a_wrong_sat() {
              (assert (= p {ROW_FORALL}))\n\
              (check-sat)\n"
         ),
-        "sat",
-        "PIN (#P2b-54): the Boolean-equality spelling",
+        "unsat",
+        "REGRESSION GUARD (#P2b-54): the Boolean-equality spelling",
     );
 }
 
@@ -315,9 +322,11 @@ fn a_quantifier_under_an_ite_or_a_boolean_equality_is_a_wrong_sat() {
 /// correctly, which is what places the defect in the negation and not in the
 /// existential.
 ///
-/// **THE HOLE IS CLOSED** when this answers `unsat`.
+/// Closed by the dual half of the same rule: an `exists` at negative polarity
+/// is a universal obligation, so it is registered with a guarded body rather
+/// than Skolemised.
 #[test]
-fn a_negated_existential_is_a_wrong_sat() {
+fn a_negated_existential_is_refuted() {
     assert_verdict(
         &format!(
             "{PINNED_ARRAY}\
@@ -325,8 +334,8 @@ fn a_negated_existential_is_a_wrong_sat() {
              (distinct (select (store a i (_ bv5 7)) (_ bv1 7)) (_ bv5 7)))))\n\
              (check-sat)\n"
         ),
-        "sat",
-        "PIN (#P2b-54): `¬∃` is `∀¬`, which has no model here",
+        "unsat",
+        "REGRESSION GUARD (#P2b-54): `¬∃` is `∀¬`, which has no model here",
     );
 }
 
@@ -335,9 +344,11 @@ fn a_negated_existential_is_a_wrong_sat() {
 /// `encode::finite_expand` can never enumerate `Int`, so this spelling has no
 /// width above which it starts: it is the family's permanent member.
 ///
-/// **THE HOLE IS CLOSED** when this answers `unsat`.
+/// It is closed by the guarded universal, not by an expansion: `∀i. (g → φ)`
+/// keeps its MBQI path and the read-over-write expansion under the binder
+/// refutes it at the ground index the assertion already names.
 #[test]
-fn an_int_index_sort_under_an_implication_is_a_wrong_sat() {
+fn an_int_index_sort_under_an_implication_is_refuted() {
     assert_verdict(
         "(set-logic ALL)\n\
          (declare-const a (Array Int Int))\n\
@@ -346,17 +357,21 @@ fn an_int_index_sort_under_an_implication_is_a_wrong_sat() {
          (assert p)\n\
          (assert (=> p (forall ((i Int)) (= (select (store a i 5) 1) 5))))\n\
          (check-sat)\n",
-        "sat",
-        "PIN (#P2b-54): the `Int` member of the family",
+        "unsat",
+        "REGRESSION GUARD (#P2b-54): the `Int` member of the family",
     );
 }
 
 // ---------------------------------------------------------------------------
-// 1b. TWO SHAPES THAT EVADE `encode::binder_row`'s OWN GUARDS
+// 1b. TWO SHAPES THAT USED TO EVADE `encode::binder_row`'s OWN GUARDS
 //
 //     These are conjunctive — the position re-fix pass 6 fixed — so they are
-//     not section 1's defect.  They are the two guards `binder_row` declines
-//     on, and declining leaves the pass-5 wrong `sat` exactly as it was.
+//     not section 1's defect.  They were the two guards `binder_row` declined
+//     on, and declining left the pass-5 wrong `sat` exactly as it was.  Both
+//     are closed by re-fix pass 8 (`#P2b-55`): the whole-assertion capture
+//     filter became a per-occurrence one, and nested quantifiers are rewritten
+//     innermost-first with the enclosing binder rebuilt from the rewritten
+//     body.  Inverted here.
 // ---------------------------------------------------------------------------
 
 /// A dead quantifier that merely *binds the name* of a free constant elsewhere
@@ -371,22 +386,24 @@ fn an_int_index_sort_under_an_implication_is_a_wrong_sat() {
 /// two separate assertions are refuted, which is
 /// [`the_same_two_quantifiers_as_two_assertions_are_refuted`].
 ///
-/// `c4b04b7` and 0.3.3 answer `unknown` here, so this spelling is a wrong
+/// `c4b04b7` and 0.3.3 answer `unknown` here, so this spelling was a wrong
 /// answer the round introduced where the base had an honest one.
 ///
-/// **THE HOLE IS CLOSED** when this answers `unsat`.
+/// The filter now runs per occurrence and stops at the nearest enclosing
+/// candidate quantifier, so a *sibling* binder's names are none of its
+/// business.
 #[test]
-fn a_binder_name_collision_inside_one_assertion_is_a_wrong_sat() {
+fn a_binder_name_collision_inside_one_assertion_is_refuted() {
     assert_verdict(
         &format!(
             "{PINNED_ARRAY}\
              (assert (and (forall ((a (_ BitVec 7))) (= a a)) {ROW_FORALL}))\n\
              (check-sat)\n"
         ),
-        "sat",
-        "PIN (#P2b-55): a valid, contentless quantifier that happens to bind \
-         the name `a` disables the read-over-write expansion for the \
-         quantifier beside it",
+        "unsat",
+        "REGRESSION GUARD (#P2b-55): a valid, contentless quantifier that \
+         happens to bind the name `a` must not disable the read-over-write \
+         expansion for the quantifier beside it",
     );
 }
 
@@ -403,18 +420,21 @@ fn a_binder_name_collision_inside_one_assertion_is_a_wrong_sat() {
 ///
 /// `c4b04b7` answers `unknown`.
 ///
-/// **THE HOLE IS CLOSED** when this answers `unsat`.
+/// Closed twice over: `binder_row` now rewrites innermost-first and rebuilds
+/// the outer binder from the rewritten body, and any quantifier that is still
+/// nested when an instance grounds it is guarded by `quant_guard` at that
+/// point (`Solver::prepare_ground_instance`).
 #[test]
-fn a_quantifier_nested_directly_inside_another_is_a_wrong_sat() {
+fn a_quantifier_nested_directly_inside_another_is_refuted() {
     assert_verdict(
         &format!(
             "{PINNED_ARRAY}\
              (assert (forall ((j (_ BitVec 7))) {ROW_FORALL}))\n\
              (check-sat)\n"
         ),
-        "sat",
-        "PIN (#P2b-55): an unused outer binder makes the inner quantifier \
-         unreachable for the rewrite",
+        "unsat",
+        "REGRESSION GUARD (#P2b-55): an unused outer binder must not make the \
+         inner quantifier unreachable for the rewrite",
     );
 }
 
@@ -589,29 +609,28 @@ fn the_satisfiable_existential_over_the_same_body_is_still_sat() {
 //    the correct `unsat` here.
 // ---------------------------------------------------------------------------
 
-/// A read of a constant array under a binder, above the expansion budget —
-/// and the unrelated declaration that decides whether it is refuted
-/// (`#P2b-56`).
+/// A read of a constant array under a binder, above the expansion budget, with
+/// and without an unrelated declaration — the SAME verdict either way
+/// (`#P2b-56`, closed).
 ///
 /// `((as const …) #b0000000)` reads `#b0000000` at every index, so `distinct`
 /// from `#b0000000` has no model.  There is no `store`, so `binder_row` cannot
 /// reach this one: it is the seam (`Solver::prepare_ground_instance`) doing the
 /// work, and it is the width-7 spelling of the pass-5 minimal repro.
 ///
-/// The seam refutes it — but only when the script *also* declares a constant
-/// of the index sort that occurs in no assertion at all.  Delete
-/// `(declare-const d (_ BitVec 7))` and the same formula answers `unknown`.
-/// The refutation therefore depends on a ground term of the index sort
-/// existing somewhere in the script for the instantiation to seed itself
-/// from, which is a property of the *spelling* and not of the formula.
-/// `c4b04b7` answers `unknown` to both, so neither half is a lost verdict; the
-/// finding is that the closure of the pass-5 family is narrower than the
-/// family.
+/// The seam used to refute it only when the script *also* declared a constant
+/// of the index sort that occurs in no assertion at all: deleting
+/// `(declare-const d (_ BitVec 7))` turned the identical formula into
+/// `unknown`, because MBQI seeds its instantiation from the ground terms the
+/// script spells out and a `forall` whose index sort has no inhabitant
+/// anywhere gets no instance.  `Solver::seed_binder_sort_witnesses` now mints
+/// one reserved witness per binder sort that has none, so the verdict is a
+/// property of the formula rather than of the spelling.
 ///
-/// **THE HOLE IS CLOSED** when the second half below answers `unsat` too —
-/// replace this test with a plain guard then.
+/// Both halves are asserted, so a regression that re-introduces the
+/// dependence in either direction reddens this test.
 #[test]
-fn a_constant_array_read_under_a_binder_needs_an_unrelated_declaration() {
+fn a_constant_array_read_under_a_binder_needs_no_unrelated_declaration() {
     const BODY: &str = "(assert (forall ((i (_ BitVec 7))) \
          (distinct (_ bv0 7) \
          (select ((as const (Array (_ BitVec 7) (_ BitVec 7))) (_ bv0 7)) i))))\n\
@@ -623,9 +642,9 @@ fn a_constant_array_read_under_a_binder_needs_an_unrelated_declaration() {
     );
     assert_verdict(
         &format!("(set-logic ALL)\n{BODY}"),
-        "unknown",
-        "PIN (#P2b-56): and without that unused declaration the identical \
-         formula is undecided",
+        "unsat",
+        "REGRESSION GUARD (#P2b-56): and without that unused declaration the \
+         identical formula must get the identical verdict",
     );
 }
 

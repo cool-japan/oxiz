@@ -138,3 +138,24 @@ slow-timeout = { period = "60s", terminate-after = 40 }
 [[profile.ci.overrides]]
 filter = 'package(oxiz-solver) and (test(the_index_width_three_cardinality_ladder_terminates) or test(the_store_term_cliff_terminates) or test(the_cardinality_cliff_table) or test(the_whole_array_cardinality_ladder_is_decided))'
 slow-timeout = { period = "60s", terminate-after = 40 }
+
+# `round4_pass8_budget_losses::widening_the_budget_buys_back_a_named_loss` is
+# decision (31)'s attribution pin, on one of the five losses TODO.md
+# `#P2b-38` (b) names rather than on a proxy: `det_w4_n11` answers `unknown` at
+# `:max-conflicts 200` and `sat` at 20000, which is what makes the loss the
+# budget's. The wide half costs 147.1 s in the profile `cargo nextest` builds
+# (5.1 s for the tight half), measured one script per process on this machine,
+# so it needs the same treatment as
+# `array_cardinality_above_the_enumeration_limit_is_decided` above: a kill
+# ceiling well clear of the measurement, SLOW still reported at 60 s.
+#
+# It carries a verdict, not a timing claim. Lowering `:max-conflicts` to fit a
+# clock would delete the pin: the whole content of the test is that THIS budget
+# buys THIS verdict back.
+[[profile.default.overrides]]
+filter = 'package(oxiz-solver) and test(widening_the_budget_buys_back_a_named_loss)'
+slow-timeout = { period = "60s", terminate-after = 10 }
+
+[[profile.ci.overrides]]
+filter = 'package(oxiz-solver) and test(widening_the_budget_buys_back_a_named_loss)'
+slow-timeout = { period = "60s", terminate-after = 10 }

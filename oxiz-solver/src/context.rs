@@ -875,7 +875,7 @@ impl Context {
     pub fn get_statistics(&self) -> String {
         let stats = self.solver.get_statistics();
         format!(
-            "(:decisions {} :conflicts {} :propagations {} :restarts {} :learned-clauses {} :theory-propagations {} :theory-conflicts {} :array-refinement-rounds {} :array-lemma-instances {} :bv-embedded-checks {})",
+            "(:decisions {} :conflicts {} :propagations {} :restarts {} :learned-clauses {} :theory-propagations {} :theory-conflicts {} :array-refinement-rounds {} :array-lemma-instances {} :bv-embedded-checks {} :bv-embedded-conflicts {})",
             stats.decisions,
             stats.conflicts,
             stats.propagations,
@@ -885,7 +885,16 @@ impl Context {
             stats.theory_conflicts,
             stats.array_refinement_rounds,
             stats.array_lemma_instances,
-            stats.bv_embedded_checks
+            stats.bv_embedded_checks,
+            // `:conflicts` above is the OUTER Boolean search only.  A script
+            // decided inside the embedded bit-blasted solver moves neither it
+            // nor `:theory-conflicts`, so "the `(set-option :max-conflicts N)`
+            // budget ran out" used to be unreadable from this line: four of
+            // the five losses `#P2b-38` (b) names answer `unknown` at
+            // `:conflicts 0`, and widening `:max-conflicts` to 20000 decides
+            // them — still at `:conflicts 0`.  This is the currency that
+            // moved.  See `Solver::bv_conflicts_spent`.
+            self.solver.bv_conflicts_spent()
         )
     }
 

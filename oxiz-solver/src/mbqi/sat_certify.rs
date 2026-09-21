@@ -258,6 +258,57 @@ fn collect_relevant_terms(
     per_sort
 }
 
+/// Strip a chain of leading `Implies` premises that mention none of `vars`.
+///
+/// # Why the fragment analysis needs this
+///
+/// [`encode::quant_guard`](crate::solver::Solver) ties a conditionally placed
+/// quantifier to a fresh Boolean constant `g` by rewriting `∀x. φ` into the
+/// plain universal `∀x. (g → φ)`.  `g` is *closed* — it mentions no bound
+/// variable and restricts no domain — so it is not a guard in the
+/// almost-uninterpreted sense at all; it is bookkeeping wrapped around a body
+/// that may well be in the fragment.  Every analysis below that reads "the
+/// premise of a top-level `Implies`" would otherwise read `g` and stop there:
+///
+/// * [`augment_guard_grounds`] would miss the real guard's ground constants,
+///   so a body `(=> (= i c) atom)` would contribute no `c` to the relevant
+///   set and could not be certified;
+/// * [`extract_int_bounds`] would find no `And` of comparisons and give up the
+///   exhaustive integer box;
+/// * [`is_eu_eligible`] would hand the inner `(= i c)` to [`strict_eu`] rather
+///   than to [`premise_safe`], and a bound variable under `=` fails `strict_eu`
+///   by design.
+///
+/// Peeling is sound for all three because it is an *equivalence-preserving*
+/// re-reading of the same body: `g → ψ` and `ψ` agree wherever `g` holds, and
+/// where `g` fails the body is true for **every** point of the domain at once,
+/// so no instantiation point the analyses choose can ever be wrong about it.
+/// The peeled body is used only to choose instantiation points and bounds;
+/// every lemma emitted is still built from the *original* body
+/// ([`substitute_tuple`] takes `quantifier.body`), so a guard that must be
+/// carried is carried.
+fn peel_ground_premises(body: TermId, vars: &FxHashSet<Spur>, manager: &TermManager) -> TermId {
+    let mut current = body;
+    // A hash-consed body is a DAG of bounded depth here, but the loop is
+    // bounded anyway: each round strips one `Implies` node.
+    for _ in 0..MAX_PEELED_PREMISES {
+        let Some(TermKind::Implies(premise, consequent)) =
+            manager.get(current).map(|t| t.kind.clone())
+        else {
+            return current;
+        };
+        if mentions_bound_var(premise, vars, manager) {
+            return current;
+        }
+        current = consequent;
+    }
+    current
+}
+
+/// Bound on [`peel_ground_premises`]' loop.  `quant_guard` adds one premise per
+/// polarity boundary it crosses and its own cap is far below this.
+const MAX_PEELED_PREMISES: usize = 16;
+
 /// Add, to the per-sort relevant set, every ground term that one of the
 /// quantifier's bound variables is compared against in its guard.
 ///
@@ -276,9 +327,10 @@ fn augment_guard_grounds(
         return;
     }
 
-    let guard = match manager.get(quantifier.body).map(|t| t.kind.clone()) {
+    let body = peel_ground_premises(quantifier.body, &var_names, manager);
+    let guard = match manager.get(body).map(|t| t.kind.clone()) {
         Some(TermKind::Implies(g, _)) => g,
-        Some(_) => quantifier.body,
+        Some(_) => body,
         None => return,
     };
 
@@ -425,7 +477,8 @@ fn eu_domains(
     cap: usize,
 ) -> Option<Vec<Vec<TermId>>> {
     let var_names: FxHashSet<Spur> = quantifier.bound_vars.iter().map(|(n, _)| *n).collect();
-    if !is_eu_eligible(quantifier.body, &var_names, manager) {
+    let body = peel_ground_premises(quantifier.body, &var_names, manager);
+    if !is_eu_eligible(body, &var_names, manager) {
         return None;
     }
 
@@ -689,12 +742,12 @@ fn extract_int_bounds(
     model: &CompletedModel,
     manager: &TermManager,
 ) -> Option<FxHashMap<Spur, (BigInt, BigInt)>> {
+    let var_names: FxHashSet<Spur> = bound_vars.iter().map(|(n, _)| *n).collect();
+    let body = peel_ground_premises(body, &var_names, manager);
     let guard = match manager.get(body).map(|t| t.kind.clone())? {
         TermKind::Implies(g, _) => g,
         _ => return None,
     };
-
-    let var_names: FxHashSet<Spur> = bound_vars.iter().map(|(n, _)| *n).collect();
 
     let conjuncts: Vec<TermId> = match manager.get(guard).map(|t| t.kind.clone())? {
         TermKind::And(args) => args.to_vec(),

@@ -59,6 +59,10 @@ pub(crate) enum TrailOp {
     EqTransitivityTriangleAdded { triangle: [TermId; 3] },
     /// A ground array-axiom instance was asserted to the SAT core
     ArrayAxiomInstanceAdded { term: TermId },
+    /// A quantifier's Boolean literal was tied to its meaning — registered as
+    /// an unconditional fact, or guarded by a
+    /// [`super::encode::quant_guard`] obligation — inside this scope.
+    JustifiedQuantifierAdded { term: TermId },
     /// A ground *instance* (MBQI, blind, finite-domain, e-matching) was
     /// registered as a root for the next `collect_array_structure` round by
     /// [`super::Solver::prepare_ground_instance`].
@@ -113,6 +117,8 @@ pub(crate) struct ContextState {
     pub(crate) dt_axioms_incomplete: bool,
     /// `array_axioms_incomplete` flag at the time of push
     pub(crate) array_axioms_incomplete: bool,
+    /// `quantifier_literal_unconstrained` flag at the time of push
+    pub(crate) quantifier_literal_unconstrained: bool,
     /// Number of live model-blocking clauses at the time of push (see
     /// [`super::model_blocking`]).
     ///
@@ -187,17 +193,17 @@ impl super::Solver {
             theory_aware_branching: _, // INVARIANT: user option
             proof: _,                  // RESULT: emptied in place by `invalidate_results` (the
             // `Option` carries the `:produce-proofs` setting, so it is not taken)
-            simplifier: _,               // INVARIANT: term -> simplified term
-            statistics: _,               // INVARIANT: cumulative counters
-            bv_terms: _,                 // TRAIL: BvTermAdded
-            has_bv_arith_ops: _,         // SNAPSHOT
-            arith_terms: _,              // TRAIL: ArithTermAdded
-            dt_var_constructors: _,      // TRAIL: DtVarConstructorAdded
-            arith_parse_cache: _,        // INVARIANT: keyed by term structure
-            tracked_compound_terms: _,   // TRAIL: TrackedCompoundAdded
-            bool_uf_arg_terms: _,        // TRAIL: BoolUfArgAdded
-            numeric_uf_arg_terms: _,     // TRAIL: NumericUfArgAdded
-            numeric_purify_aliases: _,   // TRAIL: NumericPurifyAliasAdded
+            simplifier: _,                       // INVARIANT: term -> simplified term
+            statistics: _,                       // INVARIANT: cumulative counters
+            bv_terms: _,                         // TRAIL: BvTermAdded
+            has_bv_arith_ops: _,                 // SNAPSHOT
+            arith_terms: _,                      // TRAIL: ArithTermAdded
+            dt_var_constructors: _,              // TRAIL: DtVarConstructorAdded
+            arith_parse_cache: _,                // INVARIANT: keyed by term structure
+            tracked_compound_terms: _,           // TRAIL: TrackedCompoundAdded
+            bool_uf_arg_terms: _,                // TRAIL: BoolUfArgAdded
+            numeric_uf_arg_terms: _,             // TRAIL: NumericUfArgAdded
+            numeric_purify_aliases: _,           // TRAIL: NumericPurifyAliasAdded
             encoded_terms: _, // TRAIL: EncodedTermAdded (carries the displaced entry, so a polarity widened inside the scope is restored rather than dropped)
             fp_constraint_cache: _, // INVARIANT: keyed by assertion term
             encode_depth_exceeded: _, // SNAPSHOT
@@ -209,6 +215,8 @@ impl super::Solver {
             dt_axiom_instances: _, // TRAIL: DtAxiomInstanceAdded
             dt_axioms_incomplete: _, // SNAPSHOT
             array_axioms_incomplete: _, // SNAPSHOT
+            quantifier_literal_unconstrained: _, // SNAPSHOT
+            justified_quantifiers: _, // TRAIL: JustifiedQuantifierAdded
             entailed_int_consts: _, // cleared wholesale by `pop` (see the field doc); empty = re-fold, never stale
             entailed_int_consts_upto: _, // reset to 0 with the map above
             #[cfg(test)]
@@ -273,6 +281,10 @@ impl super::Solver {
         debug_assert_eq!(self.encode_depth_exceeded, state.encode_depth_exceeded);
         debug_assert_eq!(self.dt_axioms_incomplete, state.dt_axioms_incomplete);
         debug_assert_eq!(self.array_axioms_incomplete, state.array_axioms_incomplete);
+        debug_assert_eq!(
+            self.quantifier_literal_unconstrained,
+            state.quantifier_literal_unconstrained
+        );
         debug_assert_eq!(self.model_blocking_active, state.model_blocking_active);
     }
 }

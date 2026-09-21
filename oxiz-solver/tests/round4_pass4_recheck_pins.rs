@@ -192,8 +192,13 @@ fn the_enumerated_index_domain_is_bounded_by_a_deterministic_budget() {
             .nth(1)
             .unwrap_or_default()
             .to_string();
-        tail.trim_end_matches(')')
-            .trim()
+        // The first token only: `(get-info :all-statistics)` gained
+        // `:bv-embedded-conflicts` after this pin was written, so the tail is
+        // `2640 :bv-embedded-conflicts 200)` rather than `2640)`.
+        tail.split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .trim_end_matches(')')
             .parse()
             .unwrap_or_else(|_| panic!("a numeric :bv-embedded-checks count: {line}"))
     };

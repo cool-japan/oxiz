@@ -48,13 +48,30 @@
 //!    (`TrailOp::GroundArrayRootAdded`), so a `pop` retracts it together
 //!    with the clauses the instance contributed.
 //!
+//! A third thing was added by re-fix pass 8 (`#P2b-54`), and unlike the two
+//! above it is about the instance's own *quantifiers* rather than its array
+//! terms.  An instance is asserted as a hard unit clause, so a quantifier on
+//! its asserted spine is an unconditional fact and must be registered, and a
+//! quantifier anywhere else in it is a conditional occurrence and must be
+//! guarded (`encode::quant_guard`).  Neither happened before, so
+//! `(forall ((j …)) (forall ((i …)) φ))` — whose instance is
+//! `(forall ((i …)) φ[j := c])` — reached `encode` with a free Boolean
+//! literal, which is `#P2b-54`'s wrong `sat` one binder in.  Both are gated on
+//! one `finite_expand::contains_quantifier` walk, so an instance with no
+//! quantifier (the overwhelming majority) pays a single early-exit traversal
+//! and nothing else.
+//!
 //! The other four pre-passes `Solver::assert` runs (`flatten_lookup_spines`,
 //! `abstract_compound_bool_args`, `purify_numeric_uf_args`,
 //! `collect_polarities`) are deliberately **not** run here.  They are
 //! encoding-shape optimisations and non-array purifications whose cost is paid
 //! per instance rather than per assertion, and none of them is implicated in
 //! the defect above; adding them would change the cost model of every
-//! quantified benchmark for no soundness gain.
+//! quantified benchmark for no soundness gain.  The binder-sort witness
+//! `register_asserted_quantifiers` mints at assert time is likewise **not**
+//! minted here: the candidate pool is search state that
+//! `MBQIIntegration::restore_search_state` rolls back, so a witness minted
+//! mid-`check` would be re-minted on every `check-sat` and kept by none.
 //!
 //! # The half that is not here
 //!
@@ -70,6 +87,7 @@ use rustc_hash::FxHashSet;
 
 use super::Solver;
 use super::array_axioms::ground_children;
+use super::encode::finite_expand;
 use super::trail::TrailOp;
 
 impl Solver {
@@ -103,6 +121,35 @@ impl Solver {
         manager: &mut TermManager,
     ) -> TermId {
         let rewritten = self.eliminate_nonbool_ite(term, manager);
+        // An instance is asserted as a hard unit clause, so every quantifier
+        // on its own asserted spine is an unconditional fact and every other
+        // quantifier position in it is exactly the conditional position
+        // `encode::quant_guard` exists for.  Before this, a quantifier that
+        // was nested inside the instantiated binder — `(forall ((j …))
+        // (forall ((i …)) φ))`, whose instance is `(forall ((i …)) φ[j:=c])`
+        // — reached `encode` with a free Boolean literal and no registration
+        // at all, which is the same wrong `sat` as `#P2b-54` one binder in.
+        //
+        // Gated on one cheap early-exit walk, because the overwhelming
+        // majority of instances carry no quantifier at all and this function
+        // runs once per instance per MBQI round: with no quantifier in the
+        // term, `quant_guard` returns `None` and the registration registers
+        // nothing, so skipping both is exactly equivalent.  The `false` below
+        // is what keeps `seed_binder_sort_witnesses` out of the search: a pool
+        // entry minted mid-`check` is truncated away by
+        // `MBQIIntegration::restore_search_state` on exit, so seeding here
+        // would re-mint a fresh symbol on every `check-sat` of an incremental
+        // script and never keep one.
+        let rewritten = if finite_expand::contains_quantifier(rewritten, manager) {
+            let (rewritten, obligations) = self.guard_conditional_quantifiers(rewritten, manager);
+            self.register_asserted_quantifiers_with(rewritten, manager, false);
+            for obligation in obligations {
+                self.assert_quantifier_obligation(obligation, term, manager, 0);
+            }
+            rewritten
+        } else {
+            rewritten
+        };
         self.register_ground_array_root(rewritten, manager);
         rewritten
     }

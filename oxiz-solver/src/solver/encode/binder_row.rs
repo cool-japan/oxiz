@@ -59,17 +59,28 @@
 //!
 //! # The guards, and what each of them costs
 //!
-//! * A quantifier is a candidate only when its free variables are disjoint
-//!   from every name bound anywhere in the assertion, which is
-//!   [`finite_expand::binder_names`]'s over-approximation and what makes
-//!   splicing the rewritten quantifier back with
+//! * A quantifier is a candidate only when, **at each of its own
+//!   occurrences**, the binders it would be spliced across bind no name that
+//!   occurs free in it — which is what makes
 //!   [`TermManager::substitute`](oxiz_core::ast::TermManager::substitute)
-//!   incapable of alpha-renaming anything.
-//! * Inside one quantifier's body the walk stops at a *deeper* binder: a
-//!   replacement that mentions the inner binder's variable would make
-//!   `substitute` alpha-rename that binder and silently drop the rewrite.
-//!   The inner quantifier gets its own turn on a later sweep, once the outer
-//!   one has been expanded or instantiated away.
+//!   incapable of alpha-renaming anything.  The chain checked runs from the
+//!   occurrence outward and *stops at the nearest enclosing candidate
+//!   quantifier*, because the rewrite is spliced into that quantifier's body
+//!   and therefore never crosses its binder.  This replaced
+//!   [`finite_expand::binder_names`]'s whole-assertion over-approximation,
+//!   which a script could *evade*: adding the valid, contentless conjunct
+//!   `(forall ((a (_ BitVec 7))) (= a a))` beside a real quantifier whose
+//!   only free variable is the array `a` put the name `a` in the bound set
+//!   and declined the real quantifier — a wrong `sat` where the same two
+//!   quantifiers as two assertions are `unsat` (`#P2b-55` (a)).
+//! * Nested quantifiers are rewritten **innermost-first**, and the enclosing
+//!   binder is rebuilt from its rewritten body rather than spliced across:
+//!   `(forall ((j …)) (forall ((i …)) φ))` used to yield no rewrite at all,
+//!   because the outer walk stops at the inner binder and splicing the inner
+//!   one back would cross the outer binder (`#P2b-55` (b)).  Inside one
+//!   quantifier's body the read-over-write walk still stops at a deeper
+//!   binder: the reads in that scope belong to the inner quantifier's own
+//!   turn, which has already happened.
 //! * A quantifier carrying a trigger (`:pattern`) that mentions a term this
 //!   pass would rewrite is declined outright.  Rewriting the body while
 //!   leaving the trigger alone would disable that trigger, and rewriting the
@@ -92,7 +103,7 @@ use smallvec::SmallVec;
 #[allow(unused_imports)]
 use crate::prelude::*;
 
-use super::finite_expand::binder_names;
+use oxiz_core::interner::Spur;
 
 /// Maximum number of `store`s one read is peeled through.
 ///
@@ -130,67 +141,239 @@ pub(crate) fn expand_reads_over_writes_under_binders(
         return None;
     }
 
-    let mut current = term;
+    // Innermost-first, so that an enclosing quantifier is rebuilt from a body
+    // whose own binders have already been rewritten.  `splice` accumulates the
+    // rewrites; applying it to a *body* never crosses that body's own binder,
+    // which is what makes the nested case expressible at all.
+    let mut splice: FxHashMap<TermId, TermId> = FxHashMap::default();
     for quantifier in quantifiers {
-        let Some(rewritten) = rewrite_quantifier(quantifier, manager) else {
+        let Some(rewritten) = rewrite_quantifier(quantifier, &splice, manager) else {
             continue;
         };
-        let mut splice: FxHashMap<TermId, TermId> = FxHashMap::default();
         splice.insert(quantifier, rewritten);
-        current = manager.substitute(current, &splice);
+    }
+    if splice.is_empty() {
+        return None;
     }
 
+    let current = manager.substitute(term, &splice);
     (current != term).then_some(current)
 }
 
-/// The quantifiers of `term` this pass may rewrite.
+/// The quantifiers of `term` this pass may rewrite, innermost-first.
 ///
-/// The filter is [`finite_expand::expandable_quantifiers`]'s: a quantifier
-/// qualifies only when none of its free variables shares a name with a binder
-/// anywhere in `term`.  That is what makes splicing the rewritten quantifier
-/// back in safe — the rewritten quantifier has exactly the original's free
-/// variables, so a `substitute` that cannot capture the original cannot
-/// capture the replacement either.
+/// A quantifier qualifies when, at every one of its occurrences, the binders
+/// its rewrite would be *spliced across* bind no name that occurs free in it.
+/// The chain of such binders runs from the occurrence outward and stops at the
+/// nearest enclosing quantifier that is itself a candidate, because the
+/// rewrite is spliced into that quantifier's body and so never crosses its
+/// binder.  Since "is a candidate" appears on both sides, the filter is a
+/// downward fixpoint: everything starts as a candidate and a decline can only
+/// lengthen someone else's chain, so at most one pass per quantifier is needed
+/// and the iteration terminates.
+///
+/// The rewritten quantifier has exactly the original's free variables, so a
+/// splice that cannot capture the original cannot capture the replacement
+/// either — which is the property the whole filter exists to establish.
 fn rewritable_quantifiers(term: TermId, manager: &TermManager) -> Vec<TermId> {
-    let mut stack: Vec<TermId> = vec![term];
-    let mut visited: FxHashSet<TermId> = FxHashSet::default();
-    let mut quantifiers: Vec<TermId> = Vec::new();
+    let occurrences = quantifier_occurrences(term, manager);
+    if occurrences.is_empty() || occurrences.len() > MAX_CANDIDATE_QUANTIFIERS {
+        return Vec::new();
+    }
 
-    while let Some(current) = stack.pop() {
-        if !visited.insert(current) {
+    let mut free_names: FxHashMap<TermId, FxHashSet<Spur>> = FxHashMap::default();
+    for occurrence in &occurrences {
+        let names: FxHashSet<Spur> =
+            collect_free_vars_including_patterns(occurrence.quantifier, manager)
+                .iter()
+                .filter_map(|&free| match manager.get(free).map(|t| &t.kind) {
+                    Some(TermKind::Var(name)) => Some(*name),
+                    _ => None,
+                })
+                .collect();
+        free_names.insert(occurrence.quantifier, names);
+    }
+
+    let mut declined: FxHashSet<TermId> = FxHashSet::default();
+    loop {
+        let mut changed = false;
+        for occurrence in &occurrences {
+            if declined.contains(&occurrence.quantifier) {
+                continue;
+            }
+            let Some(free) = free_names.get(&occurrence.quantifier) else {
+                continue;
+            };
+            if occurrence
+                .chains
+                .iter()
+                .any(|chain| crosses_a_capturing_binder(chain, free, &declined))
+            {
+                declined.insert(occurrence.quantifier);
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+
+    occurrences
+        .iter()
+        .filter(|occurrence| !declined.contains(&occurrence.quantifier))
+        .map(|occurrence| occurrence.quantifier)
+        .collect()
+}
+
+/// Does splicing a replacement whose free names are `free` into this
+/// occurrence cross a binder that would capture it?
+///
+/// `chain` runs from the occurrence outward.  The scan stops at the first
+/// enclosing quantifier that is still a candidate: the rewrite is spliced into
+/// *that* quantifier's body, so its own binder is never crossed.
+fn crosses_a_capturing_binder(
+    chain: &[EnclosingBinder],
+    free: &FxHashSet<Spur>,
+    declined: &FxHashSet<TermId>,
+) -> bool {
+    for binder in chain {
+        if let Some(quantifier) = binder.quantifier
+            && !declined.contains(&quantifier)
+        {
+            return false;
+        }
+        if binder.names.iter().any(|name| free.contains(name)) {
+            return true;
+        }
+    }
+    false
+}
+
+/// One binder enclosing an occurrence: the names it binds, and its term when
+/// it is a quantifier (a `Let` or a `Match` is never a splice target, so it is
+/// recorded with `None` and its names always count).
+#[derive(Clone)]
+struct EnclosingBinder {
+    quantifier: Option<TermId>,
+    names: SmallVec<[Spur; 2]>,
+}
+
+/// One quantifier sub-term of the assertion, with the enclosing-binder chain
+/// of each of its occurrences (innermost binder first).
+struct QuantifierOccurrence {
+    quantifier: TermId,
+    chains: Vec<Vec<EnclosingBinder>>,
+}
+
+/// Every quantifier sub-term of `term`, innermost-first, each with the
+/// enclosing-binder chain of every position it occurs at.
+///
+/// Iterative with an explicit stack over a *tree* walk rather than a DAG walk:
+/// the same hash-consed quantifier can sit in two different binder scopes, and
+/// the chain is exactly what distinguishes them, so a `visited` set keyed by
+/// term alone would throw away the question being asked.  The cap on the
+/// number of distinct quantifiers (checked by the caller) bounds the work.
+fn quantifier_occurrences(term: TermId, manager: &TermManager) -> Vec<QuantifierOccurrence> {
+    let mut found: FxHashMap<TermId, Vec<Vec<EnclosingBinder>>> = FxHashMap::default();
+    let mut order: Vec<TermId> = Vec::new();
+    let mut depths: FxHashMap<TermId, usize> = FxHashMap::default();
+    let mut stack: Vec<(TermId, usize)> = vec![(term, 0)];
+    let mut chain: Vec<EnclosingBinder> = Vec::new();
+    let mut visited: FxHashSet<(TermId, usize)> = FxHashSet::default();
+
+    while let Some((current, depth)) = stack.pop() {
+        chain.truncate(depth);
+        if !visited.insert((current, depth)) {
             continue;
         }
         let Some(kind) = manager.get(current).map(|t| t.kind.clone()) else {
             continue;
         };
+        let binder = binder_bound_names(current, &kind, manager);
         if matches!(kind, TermKind::Forall { .. } | TermKind::Exists { .. }) {
-            quantifiers.push(current);
-            if quantifiers.len() > MAX_CANDIDATE_QUANTIFIERS {
+            let mut outward = chain.clone();
+            outward.reverse();
+            if !found.contains_key(&current) {
+                order.push(current);
+            }
+            let entry = found.entry(current).or_default();
+            entry.push(outward);
+            let seen = depths.entry(current).or_insert(depth);
+            *seen = (*seen).max(depth);
+            if order.len() > MAX_CANDIDATE_QUANTIFIERS {
                 return Vec::new();
             }
         }
-        stack.extend(get_children(&kind));
-    }
-    if quantifiers.is_empty() {
-        return quantifiers;
+        let child_depth = match binder {
+            Some(binder) => {
+                chain.truncate(depth);
+                chain.push(binder);
+                depth + 1
+            }
+            None => depth,
+        };
+        for child in get_children(&kind) {
+            stack.push((child, child_depth));
+        }
     }
 
-    let bound_anywhere = binder_names(term, manager);
-    quantifiers.retain(|&quantifier| {
-        !collect_free_vars_including_patterns(quantifier, manager)
-            .iter()
-            .filter_map(|&free| match manager.get(free).map(|t| &t.kind) {
-                Some(TermKind::Var(name)) => Some(*name),
-                _ => None,
+    // Innermost-first: a quantifier that *contains* another occurs at a
+    // strictly smaller binder depth than the one it contains, so ordering by
+    // deepest occurrence descending rewrites the inner one first.
+    order.sort_by_key(|q| core::cmp::Reverse(depths.get(q).copied().unwrap_or(0)));
+    order
+        .into_iter()
+        .filter_map(|quantifier| {
+            found
+                .remove(&quantifier)
+                .map(|chains| QuantifierOccurrence { quantifier, chains })
+        })
+        .collect()
+}
+
+/// The names `term` binds over its children, or `None` when it binds nothing.
+fn binder_bound_names(
+    term: TermId,
+    kind: &TermKind,
+    manager: &TermManager,
+) -> Option<EnclosingBinder> {
+    match kind {
+        TermKind::Forall { vars, .. } | TermKind::Exists { vars, .. } => Some(EnclosingBinder {
+            quantifier: Some(term),
+            names: vars.iter().map(|&(name, _)| name).collect(),
+        }),
+        TermKind::Let { bindings, .. } => Some(EnclosingBinder {
+            quantifier: None,
+            names: bindings.iter().map(|&(name, _)| name).collect(),
+        }),
+        TermKind::Match { cases, .. } => {
+            let names: SmallVec<[Spur; 2]> = cases
+                .iter()
+                .flat_map(|case| case.bindings.iter().copied())
+                .collect();
+            let _ = manager;
+            Some(EnclosingBinder {
+                quantifier: None,
+                names,
             })
-            .any(|name| bound_anywhere.contains(&name))
-    });
-    quantifiers
+        }
+        _ => None,
+    }
 }
 
 /// One quantifier with every read-over-write in its own scope expanded, or
 /// `None` when it carries none or a guard declined it.
-fn rewrite_quantifier(quantifier: TermId, manager: &mut TermManager) -> Option<TermId> {
+///
+/// `inner` carries the rewrites of the quantifiers nested inside this one,
+/// already built (the sweep is innermost-first).  Applying it to the **body**
+/// rather than to the quantifier is what keeps the nested case sound: the
+/// substitution starts inside this binder, so this binder is never crossed and
+/// `substitute` has no reason to alpha-rename it.
+fn rewrite_quantifier(
+    quantifier: TermId,
+    inner: &FxHashMap<TermId, TermId>,
+    manager: &mut TermManager,
+) -> Option<TermId> {
     let (vars, body, patterns, is_exists) = match manager.get(quantifier).map(|t| t.kind.clone())? {
         TermKind::Forall {
             vars,
@@ -205,26 +388,34 @@ fn rewrite_quantifier(quantifier: TermId, manager: &mut TermManager) -> Option<T
         _ => return None,
     };
 
-    let map = read_over_write_map(body, manager)?;
+    let body = if inner.is_empty() {
+        body
+    } else {
+        manager.substitute(body, inner)
+    };
 
-    // A trigger mentioning a term this pass rewrites would be left pointing at
-    // a term the body no longer contains.  Decline the whole quantifier rather
-    // than disable its trigger.
-    for pattern in &patterns {
-        for &pattern_term in pattern {
-            if map
-                .keys()
-                .any(|&key| contains_term(pattern_term, key, manager))
-            {
-                return None;
+    let new_body = match read_over_write_map(body, manager) {
+        Some(map) => {
+            // A trigger mentioning a term this pass rewrites would be left
+            // pointing at a term the body no longer contains.  Decline the
+            // whole quantifier rather than disable its trigger.
+            for pattern in &patterns {
+                for &pattern_term in pattern {
+                    if map
+                        .keys()
+                        .any(|&key| contains_term(pattern_term, key, manager))
+                    {
+                        return None;
+                    }
+                }
             }
+            manager.substitute(body, &map)
         }
-    }
-
-    let new_body = manager.substitute(body, &map);
-    if new_body == body {
-        return None;
-    }
+        // No read-over-write of this quantifier's own, but an inner one was
+        // rewritten: rebuilding the binder around the new body is the whole
+        // point of the innermost-first sweep.
+        None => body,
+    };
 
     let names: Vec<(String, SortId)> = vars
         .iter()

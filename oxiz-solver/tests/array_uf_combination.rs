@@ -1140,10 +1140,11 @@ fn array_ext_shapes_bounded() {
         tally.failures(),
         ext_shapes::summarise(&first_failure)
     );
-    assert!(
-        tally.sat + tally.unsat > 0,
-        "nothing was decided: {tally:?}"
-    );
+    // `tally.sat + tally.unsat > 0` stood here, and decision (27) named it.
+    // It is gone rather than replaced: `tally.sat + tally.unsat >= 479` four
+    // assertions below is the same claim with a real floor, and a weak
+    // assertion beside a strong one about the same quantity is a place a later
+    // pass can weaken the strong one and still see green.
     // The published-model residue is **zero**, and this is now a bound that
     // means something.  While the generator rendered every script with
     // `(set-option :timeout 1000)` it did not: `score` replays a published

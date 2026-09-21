@@ -712,7 +712,32 @@ fn bv_literal(value: u64, width: u32) -> String {
     out
 }
 
-fn array_term(rng: &mut Rng, sort: &str, index_width: u32, elem_width: u32, depth: u32) -> String {
+/// An array term.
+///
+/// `flat` bounds the shape to one level — a declared array or a constant array,
+/// never a nested `store` / `ite` chain.  It exists for the width-7 draw, where
+/// the ground twin spells the body out 128 times and a nested chain makes the
+/// twin, which is the oracle, the most expensive thing in the corpus.  Every
+/// non-flat draw takes exactly the branches and exactly the random numbers it
+/// took before `flat` existed, so the widths 1–2 corpus is byte-identical.
+fn array_term(
+    rng: &mut Rng,
+    sort: &str,
+    index_width: u32,
+    elem_width: u32,
+    depth: u32,
+    flat: bool,
+) -> String {
+    if flat {
+        return if rng.below(3) == 0 {
+            format!(
+                "((as const {sort}) {})",
+                bv_literal(rng.below(1 << elem_width), elem_width)
+            )
+        } else {
+            format!("a{}", rng.below(2))
+        };
+    }
     let pick = rng.below(100);
     if depth >= 2 || pick < 40 {
         return format!("a{}", rng.below(2));
@@ -720,7 +745,7 @@ fn array_term(rng: &mut Rng, sort: &str, index_width: u32, elem_width: u32, dept
     if pick < 60 {
         return format!(
             "(store {} {} {})",
-            array_term(rng, sort, index_width, elem_width, depth + 1),
+            array_term(rng, sort, index_width, elem_width, depth + 1, flat),
             bv_literal(rng.below(1 << index_width), index_width),
             bv_literal(rng.below(1 << elem_width), elem_width)
         );
@@ -736,8 +761,8 @@ fn array_term(rng: &mut Rng, sort: &str, index_width: u32, elem_width: u32, dept
     format!(
         "(ite {} {} {})",
         if rng.below(2) == 0 { "p" } else { "q" },
-        array_term(rng, sort, index_width, elem_width, depth + 1),
-        array_term(rng, sort, index_width, elem_width, depth + 1)
+        array_term(rng, sort, index_width, elem_width, depth + 1, flat),
+        array_term(rng, sort, index_width, elem_width, depth + 1, flat)
     )
 }
 
@@ -748,7 +773,40 @@ fn elem_term(
     elem_width: u32,
     bound: &str,
     depth: u32,
+    flat: bool,
 ) -> String {
+    if flat {
+        return match rng.below(4) {
+            0 => bv_literal(rng.below(1 << elem_width), elem_width),
+            // A read-over-write whose written index is the BOUND variable: the
+            // shape `encode::binder_row` exists for, and the one that makes
+            // this corpus able to see the lemma stop being asserted.  Without
+            // it the draw is all plain reads and the whole MBQI band is blind
+            // to `binder_row`.
+            1 => format!(
+                "(select (store a{} {} {}) {})",
+                rng.below(2),
+                if rng.below(3) == 0 {
+                    bv_literal(rng.below(1 << index_width), index_width)
+                } else {
+                    bound.to_string()
+                },
+                bv_literal(rng.below(1 << elem_width), elem_width),
+                bv_literal(rng.below(1 << index_width), index_width)
+            ),
+            _ => {
+                let index = if rng.below(2) == 0 {
+                    bound.to_string()
+                } else {
+                    bv_literal(rng.below(1 << index_width), index_width)
+                };
+                format!(
+                    "(select {} {index})",
+                    array_term(rng, sort, index_width, elem_width, 2, true)
+                )
+            }
+        };
+    }
     let pick = rng.below(100);
     if depth >= 1 || pick < 55 {
         let index = if rng.below(2) == 0 {
@@ -758,7 +816,7 @@ fn elem_term(
         };
         return format!(
             "(select {} {index})",
-            array_term(rng, sort, index_width, elem_width, 0)
+            array_term(rng, sort, index_width, elem_width, 0, false)
         );
     }
     if pick < 75 {
@@ -766,14 +824,21 @@ fn elem_term(
     }
     format!(
         "(bvxor {} {})",
-        elem_term(rng, sort, index_width, elem_width, bound, depth + 1),
+        elem_term(rng, sort, index_width, elem_width, bound, depth + 1, false),
         bv_literal(rng.below(1 << elem_width), elem_width)
     )
 }
 
-fn atom(rng: &mut Rng, sort: &str, index_width: u32, elem_width: u32, bound: &str) -> String {
-    let left = elem_term(rng, sort, index_width, elem_width, bound, 0);
-    let right = elem_term(rng, sort, index_width, elem_width, bound, 0);
+fn atom(
+    rng: &mut Rng,
+    sort: &str,
+    index_width: u32,
+    elem_width: u32,
+    bound: &str,
+    flat: bool,
+) -> String {
+    let left = elem_term(rng, sort, index_width, elem_width, bound, 0, flat);
+    let right = elem_term(rng, sort, index_width, elem_width, bound, 0, flat);
     match rng.below(4) {
         0 => format!("(distinct {left} {right})"),
         1 => format!("(not (= {left} {right}))"),
@@ -791,19 +856,39 @@ fn generate_pair(rng: &mut Rng) -> Pair {
     // before the encoder runs and NONE of them reaches MBQI.  What this corpus
     // measures is therefore the *expansion* — that a quantifier and its own
     // ground expansion get the same answer — and that is what its guard
-    // asserts.
-    //
-    // The smallest draw that would reach MBQI is width 7 (128 points), and it
-    // is deliberately not taken: the ground twin then carries 128 conjuncts and
-    // a fifth of those twins do not finish inside any budget a default gate can
-    // carry (measured: 61 of 300 undecided at an 8 s cap on `rk6/corpus/qmbqi`,
-    // one of them 38.9 s even at `(set-option :max-conflicts 5000)`).  The MBQI
-    // side of the seam is covered instead by the fixed width-7/8/`Int`/`Real`/
-    // declared-sort guards in `round4_pass6_recheck_pins`, which assert
-    // hand-verified answers and cost milliseconds, and by
-    // `an_array_term_first_ground_in_an_mbqi_instance_is_refuted` below.
+    // asserts.  The MBQI side of the seam is a separate corpus:
+    // [`quantified_array_scripts_above_the_budget_agree_with_their_own_ground_expansions`]
+    // below, at width 7.
     let index_width = if rng.below(3) == 0 { 2 } else { 1 };
     let elem_width = if rng.below(3) == 0 { 2 } else { 1 };
+    generate_pair_at(rng, index_width, elem_width, false, false)
+}
+
+/// One pair at a caller-chosen index and element width.
+///
+/// Split out of [`generate_pair`] so the same generator can be drawn above the
+/// finite-expansion budget, where the quantifier survives to MBQI and the
+/// ground twin is the only independent oracle there is.
+///
+/// `boolean_context` draws the quantifier into a **non-conjunctive Boolean
+/// position** — `=>`, `or`, `ite`, a Boolean `=`, `not` — instead of leaving
+/// it on the asserted spine, and puts the ground twin in the *same* position.
+/// The two files stay the same formula (the expansion is an equivalence, and
+/// an equivalence substituted into any context preserves the context's value),
+/// so the twin remains an oracle; what changes is that the quantified file now
+/// goes through `encode::quant_guard` rather than straight to
+/// `register_asserted_quantifiers`.  Decision (33) asked for exactly that: the
+/// corpus that measures the MBQI seam must also redden under the guarding
+/// pass's mutations.  Every context comes with the ground assertion that makes
+/// the quantifier *matter* (`(assert p)` / `(assert (not p))`), so a draw is
+/// never satisfied by the context alone.
+fn generate_pair_at(
+    rng: &mut Rng,
+    index_width: u32,
+    elem_width: u32,
+    flat: bool,
+    boolean_context: bool,
+) -> Pair {
     let sort = format!("(Array (_ BitVec {index_width}) (_ BitVec {elem_width}))");
     let mut header = String::from("(set-logic ALL)\n");
     for k in 0..2 {
@@ -813,27 +898,65 @@ fn generate_pair(rng: &mut Rng) -> Pair {
     header.push_str(&format!("(declare-const d (_ BitVec {elem_width}))\n"));
     for _ in 0..=rng.below(3) {
         let index = bv_literal(rng.below(1 << index_width), index_width);
-        let ground = atom(rng, &sort, index_width, elem_width, &index);
+        let ground = atom(rng, &sort, index_width, elem_width, &index, flat);
         header.push_str(&format!("(assert {ground})\n"));
     }
     let universal = rng.below(10) < 7;
-    let body = atom(rng, &sort, index_width, elem_width, "i!q");
+    let body = atom(rng, &sort, index_width, elem_width, "i!q", flat);
+    // Half the universal draws above the budget carry a guard on the bound
+    // variable: `(=> (= i!q c) atom)`.  That is the shape
+    // `Solver::assert_binder_row_lemma`'s doc measures — the one where the
+    // rewritten form alone answers `unknown` and the original alone answers
+    // `unsat` — so a corpus without it cannot tell "assert the lemma beside
+    // the assertion" from "assert it instead of the assertion".
+    let body = if flat && universal && rng.below(2) == 0 {
+        format!(
+            "(=> (= i!q {}) {body})",
+            bv_literal(rng.below(1 << index_width), index_width)
+        )
+    } else {
+        body
+    };
     let quantifier = if universal { "forall" } else { "exists" };
-    let quantified = format!(
-        "{header}(assert ({quantifier} ((i!q (_ BitVec {index_width}))) {body}))\n(check-sat)\n"
-    );
+    let quantified_form = format!("({quantifier} ((i!q (_ BitVec {index_width}))) {body})");
     let mut expansion = String::new();
     for value in 0..(1u64 << index_width) {
         expansion.push(' ');
         expansion.push_str(&body.replace("i!q", &bv_literal(value, index_width)));
     }
     let joiner = if universal { "and" } else { "or" };
-    let ground = format!("{header}(assert ({joiner}{expansion}))\n(check-sat)\n");
+    let ground_form = format!("({joiner}{expansion})");
+
+    // The Boolean context, applied identically to both files.  `extra` is the
+    // ground assertion that forces the context to hand the formula through, so
+    // that a pair is decided by the formula and not by the wrapper.
+    let (extra, prefix, suffix): (&str, String, String) = if !boolean_context {
+        ("", String::new(), String::new())
+    } else {
+        match rng.below(6) {
+            0 => ("(assert p)\n", "(=> p ".to_string(), ")".to_string()),
+            1 => ("(assert p)\n", "(or (not p) ".to_string(), ")".to_string()),
+            2 => ("(assert p)\n", "(ite p ".to_string(), " q)".to_string()),
+            3 => ("(assert p)\n", "(= p ".to_string(), ")".to_string()),
+            4 => ("(assert (not p))\n", "(or p ".to_string(), ")".to_string()),
+            _ => ("(assert q)\n", "(not (not ".to_string(), "))".to_string()),
+        }
+    };
+    let quantified =
+        format!("{header}{extra}(assert {prefix}{quantified_form}{suffix})\n(check-sat)\n");
+    let ground = format!("{header}{extra}(assert {prefix}{ground_form}{suffix})\n(check-sat)\n");
     Pair { quantified, ground }
 }
 
-/// **GUARD.**  The quantified form of a formula and its own ground expansion
-/// get the same answer.
+/// **GUARD (the EXPANSION corpus).**  The quantified form of a formula and its
+/// own ground expansion get the same answer, at index widths 1–2.
+///
+/// The name matters: at these widths `encode::finite_expand` rewrites the
+/// quantified file into the conjunction the ground file spells out *before* any
+/// instantiation runs, so what this corpus pins is that the expansion is an
+/// equivalence — not that MBQI agrees with anything.  The MBQI seam is
+/// [`quantified_array_scripts_above_the_budget_agree_with_their_own_ground_expansions`],
+/// which draws the same generator one bit above the budget.
 ///
 /// This is the campaign of the module doc, shrunk to 300 fixed scripts so it
 /// costs milliseconds and carried here as the generator the fix is measured
@@ -893,6 +1016,119 @@ fn quantified_array_scripts_agree_with_their_own_ground_expansions() {
         "a quantified `sat` against a ground `unsat` is the blocker this \
          module was written for ({agree} agree, {other} undecided on one \
          side).  First offender:\n{first}"
+    );
+}
+
+/// **GUARD (the MBQI corpus).**  The same generator one index bit above the
+/// finite-expansion budget, where the quantifier survives to MBQI.
+///
+/// Decision (23) asked for a paired corpus that can witness the *seam*.  The
+/// widths 1–2 corpus above cannot: `#P2b-47`'s whole-sort expansion consumes
+/// both files of every pair it draws, so it compares a formula with itself and
+/// its two zeros are true by construction.  At width 7 — 128 index points
+/// against the 64-point `DEFAULT_FINITE_EXPANSION_BUDGET` — the quantified
+/// file keeps its binder and is decided by `encode::binder_row`,
+/// `encode::quant_guard` and the MBQI instantiation fixpoint, while the ground
+/// twin is 128 conjuncts the ground solver decides directly.  So the twin is
+/// an independent oracle again.
+///
+/// Deliberately small and fixed: 24 pairs from one pinned seed, because each
+/// twin is 128 conjuncts.  The draw is *flat* (no nested `store`/`ite` chains)
+/// so that the twin — the oracle — decides, and half the universal draws carry
+/// the guarded body `(=> (= i!q c) atom)`, which is the shape
+/// `Solver::assert_binder_row_lemma` measures and the one that can tell
+/// "assert the lemma beside the assertion" from "assert it instead".
+///
+/// Decision (33) also asked this corpus to exercise `encode::quant_guard`, and
+/// it now does: `generate_pair_at`'s `boolean_context` draws the quantifier
+/// into `=>`, `or (not …)`, `ite`, a Boolean `=`, a plain `or` and a double
+/// `not`, with the ground twin substituted in the *same* position and the
+/// ground assertion (`(assert p)` / `(assert (not p))`) that makes the
+/// quantifier matter.  So every draw here goes through the guarding pass, and
+/// the corpus reddens under its mutations as well as under `binder_row`'s.
+///
+/// Measured on this tree: 24 pairs, **22 decided on both sides**, 2 undecided
+/// on one (an `ite` context and a Boolean `=` context, both over a `store`
+/// indexed by the bound variable), 0 wrong in either direction.  Under the M4
+/// mutation ("replace the assertion with the `binder_row` lemma") the count
+/// falls and the floor below reddens; so does removing
+/// `sat_certify::peel_ground_premises`, which is what lets the fragment
+/// analysis read the real guard `(= i!q c)` through `quant_guard`'s closed
+/// premise (without it: 19 decided).
+///
+/// # The other corpus
+///
+/// `round4_pass8_quantifier_position::a_quantifier_in_any_boolean_position_agrees_with_its_expansion_above_the_budget`
+/// draws ten Boolean contexts over a *propositional* body at widths 1-2 and 7
+/// and scores both directions; this one draws six contexts over an *array*
+/// body at width 7 only, with a ground twin as the oracle.  They overlap on
+/// purpose: an implementation that satisfied one by construction would have to
+/// satisfy the other for a different reason.
+#[test]
+fn quantified_array_scripts_above_the_budget_agree_with_their_own_ground_expansions() {
+    // The same DETERMINISTIC budget on both files of every pair, so the two
+    // sides are compared under identical resources and the test costs the same
+    // number of conflicts on every machine.  A wall clock here would make the
+    // corpus' answer depend on load, which is what decision (16) removed from
+    // every other gate in this round.
+    const BUDGET: &str = "(set-logic ALL)\n\
+         (set-option :max-conflicts 1200)\n\
+         (set-option :max-bv-embedded-checks 4000)\n";
+    let mut rng = Rng(0x0521_2026_0921_0023);
+    let (mut wrong_sat, mut wrong_unsat, mut agree, mut other) = (0u32, 0u32, 0u32, 0u32);
+    let mut first = String::new();
+    for _ in 0..24 {
+        let mut pair = generate_pair_at(&mut rng, 7, 1, true, true);
+        pair.quantified = pair.quantified.replace("(set-logic ALL)\n", BUDGET);
+        pair.ground = pair.ground.replace("(set-logic ALL)\n", BUDGET);
+        let quantified = verdict(&run(&pair.quantified));
+        let ground = verdict(&run(&pair.ground));
+        match (quantified.as_str(), ground.as_str()) {
+            ("sat", "unsat") => {
+                wrong_sat += 1;
+                if first.is_empty() {
+                    first = pair.quantified.clone();
+                }
+            }
+            ("unsat", "sat") => {
+                wrong_unsat += 1;
+                if first.is_empty() {
+                    first = pair.quantified.clone();
+                }
+            }
+            (a, b) if a == b => agree += 1,
+            _ => other += 1,
+        }
+    }
+    eprintln!(
+        "[quantified-vs-ground width 7] wrong_sat {wrong_sat} wrong_unsat \
+         {wrong_unsat} agree {agree} other {other}"
+    );
+    assert_eq!(
+        wrong_unsat, 0,
+        "a quantified `unsat` against a ground `sat` above the expansion \
+         budget is a wrong `unsat`.  First offender:\n{first}"
+    );
+    assert_eq!(
+        wrong_sat, 0,
+        "a quantified `sat` against a ground `unsat` above the expansion \
+         budget is the MBQI seam failing — the direction the widths 1-2 \
+         corpus cannot see ({agree} agree, {other} undecided on one side).  \
+         First offender:\n{first}"
+    );
+    // The strength floor, and the thing that makes this corpus a *test* of
+    // the seam rather than a report on it.  Every budget here is
+    // deterministic, so the partition is a property of the tree: measured on
+    // this tree, 22 of the 24 pairs are decided on both sides and 2 are not.
+    // A change that costs even one of them — asserting the `binder_row` lemma
+    // *instead of* beside the assertion costs exactly one, measured — drops
+    // the count below this line and reddens the test.
+    assert!(
+        agree >= 22,
+        "only {agree} of 24 width-7 pairs were decided on both sides, against \
+         22 on the tree this floor was measured on.  Either the seam lost a \
+         verdict or the corpus has stopped measuring it; both are this test's \
+         business ({other} undecided on one side)."
     );
 }
 

@@ -355,6 +355,37 @@ pub struct Solver {
     /// of the axioms is still `Unsat`; a `Sat` is a guess and is reported as
     /// `Unknown`.
     pub(super) array_axioms_incomplete: bool,
+    /// Set to `true` when a quantifier reached the Tseitin encoder without its
+    /// Boolean literal having been tied to its meaning.
+    ///
+    /// [`Solver::encode`] gives a `Forall` / `Exists` sub-term a fresh Boolean
+    /// variable and *no* defining clause: the quantifier's truth is supposed to
+    /// be established outside the SAT core, by the registration
+    /// [`Solver::register_asserted_quantifiers`] performs or by the guarded
+    /// obligations [`encode::quant_guard`] emits.  A quantifier that reaches
+    /// the encoder without either is an **unconstrained Boolean**: the search
+    /// may set it to whichever value closes the branch, which is how
+    /// `(assert (not (forall ((x U)) (= (f x) (f x)))))` — unsatisfiable in
+    /// every structure — answered `sat` (`#P2b-54`).
+    ///
+    /// A free literal can only ever *weaken* the encoding, so an `Unsat` stays
+    /// sound; a `Sat` may rest on a quantifier nothing checked and is reported
+    /// as `Unknown`, exactly like [`Solver::array_axioms_incomplete`].  The
+    /// flag is the safety net *under* the guarding pass, not a substitute for
+    /// it: every shape the pass handles keeps its verdict.
+    pub(super) quantifier_literal_unconstrained: bool,
+    /// The quantifier sub-terms whose Boolean literal is justified: either
+    /// registered as an unconditional fact with MBQI / e-matching, or tied to
+    /// its meaning by a [`encode::quant_guard`] obligation.
+    ///
+    /// Read by [`Solver::encode`] to decide whether a quantifier it is about to
+    /// give a free Boolean variable needs
+    /// [`Solver::quantifier_literal_unconstrained`] set.  Journalled with
+    /// `TrailOp::JustifiedQuantifierAdded`, because the clauses that justify an
+    /// entry are retracted by the same `pop` that retracts the assertion which
+    /// introduced them — a surviving entry would let the encoder trust a
+    /// literal whose meaning has just been dropped.
+    pub(super) justified_quantifiers: FxHashSet<TermId>,
     /// Terms that the *current* assertion stack pins to a concrete integer,
     /// i.e. `t` appears in some top-level `(assert (= t <literal>))`.
     ///
@@ -694,6 +725,8 @@ impl Solver {
             dt_axiom_instances: FxHashSet::default(),
             dt_axioms_incomplete: false,
             array_axioms_incomplete: false,
+            quantifier_literal_unconstrained: false,
+            justified_quantifiers: FxHashSet::default(),
             entailed_int_consts: FxHashMap::default(),
             entailed_int_consts_upto: 0,
             #[cfg(test)]
@@ -853,6 +886,17 @@ impl Solver {
         // about the budget, not about the model, and `check_core` reads that as
         // permission to answer `Sat`.
         if result == SolverResult::Sat && self.array_axioms_incomplete {
+            self.model = None;
+            self.unsat_core = None;
+            return SolverResult::Unknown;
+        }
+        // Same honesty gate for the quantifier literals: a `Forall` /
+        // `Exists` sub-term the encoder gave a free Boolean variable is a
+        // quantifier nothing in the system checks, so a `Sat` that may have set
+        // it by fiat is reported as `Unknown`.  `Unsat` is untouched: a free
+        // literal only ever drops constraints.  See
+        // [`Solver::quantifier_literal_unconstrained`].
+        if result == SolverResult::Sat && self.quantifier_literal_unconstrained {
             self.model = None;
             self.unsat_core = None;
             return SolverResult::Unknown;
@@ -1414,6 +1458,7 @@ impl Solver {
             encode_depth_exceeded: self.encode_depth_exceeded,
             dt_axioms_incomplete: self.dt_axioms_incomplete,
             array_axioms_incomplete: self.array_axioms_incomplete,
+            quantifier_literal_unconstrained: self.quantifier_literal_unconstrained,
             model_blocking_active: self.model_blocking_active,
         });
         self.sat.push();
@@ -1563,6 +1608,16 @@ impl Solver {
                             // are lemmas about nothing.
                             self.ground_array_roots.remove(&term);
                         }
+                        TrailOp::JustifiedQuantifierAdded { term } => {
+                            // The clauses that justify this quantifier's
+                            // literal — the MBQI registration, or the guarded
+                            // obligation asserted beside it — are retracted
+                            // with the scope.  A surviving entry would tell
+                            // `encode` that a literal is tied to its meaning
+                            // when nothing ties it any more, which is the
+                            // free-literal defect `#P2b-54` names.
+                            self.justified_quantifiers.remove(&term);
+                        }
                         TrailOp::ArithDefinedTermAdded { term } => {
                             // The defining lemmas for this `div`/`mod`/`ite`
                             // term are retracted with the scope's clauses, so
@@ -1640,6 +1695,7 @@ impl Solver {
             self.encode_depth_exceeded = state.encode_depth_exceeded;
             self.dt_axioms_incomplete = state.dt_axioms_incomplete;
             self.array_axioms_incomplete = state.array_axioms_incomplete;
+            self.quantifier_literal_unconstrained = state.quantifier_literal_unconstrained;
 
             // Model-blocking clauses added inside the retracted scope go away
             // with the `self.sat.pop()` below, so the count of live ones has to
@@ -1762,6 +1818,8 @@ impl Solver {
         self.array_axiom_instances.clear();
         self.ground_array_roots.clear();
         self.array_axioms_incomplete = false;
+        self.quantifier_literal_unconstrained = false;
+        self.justified_quantifiers.clear();
         self.arith_defined_terms.clear();
         self.numeric_trichotomy_atoms.clear();
         // The assertions that entailed these constants are gone; a survivor
