@@ -11,6 +11,7 @@ use super::trail::TrailOp;
 use super::types::{ArithConstraintType, Constraint, NamedAssertion, Polarity, UnsatCore};
 
 mod arith_atom_parse;
+mod binder_row;
 pub(super) mod bool_euf_encoding;
 mod exists_skolem;
 pub(crate) mod finite_expand;
@@ -204,6 +205,12 @@ impl Solver {
             term
         };
 
+        // The read-over-write expansion under a binder (`binder_row`) is
+        // computed here, from the simplified assertion, and asserted as a
+        // separate lemma at the very end of this method — never in place of
+        // the assertion.  See `Solver::assert_binder_row_lemma`.
+        let binder_row_lemma = self.binder_row_lemma(simplified, manager);
+
         // Replace bounded-integer quantifiers by their exactly equivalent
         // ground expansion so the ground solver decides them directly.
         let expanded = self
@@ -312,6 +319,10 @@ impl Solver {
         let lit = self.encode(term_to_encode, manager);
         self.sat.add_clause([lit]);
 
+        if let Some(lemma) = binder_row_lemma {
+            self.assert_binder_row_lemma(lemma, term, manager);
+        }
+
         self.record_assertion_identity(term, None, index);
     }
 
@@ -354,6 +365,13 @@ impl Solver {
             self.record_assertion_identity(term, Some(name.to_string()), index);
             return;
         }
+
+        // See `Solver::assert`: a named assertion earns the same
+        // under-a-binder read-over-write lemma.  It is *not* tracked under the
+        // name — the lemma is a consequence of the named assertion, not part
+        // of it, so an unsat core naming it would name a term the user never
+        // wrote.
+        let binder_row_lemma = self.binder_row_lemma(term, manager);
 
         // Replace bounded-integer quantifiers by their exactly equivalent
         // ground expansion so the ground solver decides them directly.
@@ -398,6 +416,10 @@ impl Solver {
         let lit = self.encode(term_to_encode, manager);
         self.sat.add_clause([lit]);
 
+        if let Some(lemma) = binder_row_lemma {
+            self.assert_binder_row_lemma(lemma, term, manager);
+        }
+
         self.record_assertion_identity(term, Some(name.to_string()), index);
     }
 
@@ -439,6 +461,90 @@ impl Solver {
         let rewritten = exists_skolem::skolemize_asserted_existentials(term, manager, &mut next_id);
         self.next_skolem_id = next_id;
         rewritten.unwrap_or(term)
+    }
+
+    /// `term` with every read-over-write under a binder expanded into the `ite`
+    /// case split the array axiom defines, or `None` when it carries none.
+    ///
+    /// The rewrite is the array axiom itself, so the result is an equivalence
+    /// at every polarity; [`binder_row`] documents why it is confined to binder
+    /// bodies and what each of its guards costs.  Without it an array read that
+    /// is first ground inside a quantifier instance is a free value of the
+    /// element sort and the MBQI fixpoint reports `Satisfied` for an
+    /// unsatisfiable assertion.
+    fn binder_row_lemma(&mut self, term: TermId, manager: &mut TermManager) -> Option<TermId> {
+        if !finite_expand::contains_quantifier(term, manager) {
+            return None;
+        }
+        binder_row::expand_reads_over_writes_under_binders(term, manager)
+    }
+
+    /// Encode `lemma` — the read-over-write expansion of `asserted` — as a
+    /// second, derived assertion.
+    ///
+    /// # Why beside the assertion and not in place of it
+    ///
+    /// The rewritten form is equivalent, so replacing the assertion with it
+    /// would be sound.  It is not *complete*: the two shapes reach MBQI with
+    /// different instantiation candidates, and measured on
+    ///
+    /// ```text
+    /// (assert (= (select a (_ bv1 7)) (_ bv0 7)))
+    /// (assert (forall ((i (_ BitVec 7)))
+    ///           (=> (= i (_ bv2 7))
+    ///               (= (select (store a i (_ bv5 7)) (_ bv1 7)) (_ bv5 7)))))
+    /// ```
+    ///
+    /// the original shape answers `unsat` and the rewritten shape alone answers
+    /// `unknown`.  Conjoining the two inside one assertion — `(and Q Q')` —
+    /// answers `unknown` as well, on this tree *and* on `c4b04b7`; the same two
+    /// quantifiers as two separate assertions answer `unsat`.  So the lemma is
+    /// asserted separately, which is the only one of the three shapes that
+    /// loses nothing.
+    ///
+    /// # What it does and does not touch
+    ///
+    /// It runs the pre-pass chain [`Solver::assert`] runs and registers the
+    /// lemma with the array-root collector, the polarity map and MBQI, so the
+    /// lemma behaves exactly like an assertion for the search.  It is
+    /// deliberately **not** pushed onto [`Solver::assertions`]: that vector is
+    /// what `get-assertions` prints and what an unsat core names, and a derived
+    /// lemma is neither something the user asserted nor something a core should
+    /// blame.
+    fn assert_binder_row_lemma(
+        &mut self,
+        lemma: TermId,
+        asserted: TermId,
+        manager: &mut TermManager,
+    ) {
+        if self.term_exceeds_encode_depth(lemma, manager) {
+            // The assertion itself was encoded; declining the lemma costs
+            // completeness only.
+            return;
+        }
+        let expanded = self
+            .finite_expand_assertion(lemma, manager)
+            .unwrap_or(lemma);
+        let lemma = self.skolemize_asserted_existentials(expanded, manager);
+        if matches!(
+            manager.get(lemma).map(|t| &t.kind),
+            Some(TermKind::True) | Some(TermKind::False)
+        ) {
+            // The lemma is equivalent to an assertion that was just encoded, so
+            // a constant here says nothing the SAT core does not already know.
+            return;
+        }
+        let lemma = self.flatten_lookup_spines(lemma, manager);
+        let lemma = self.eliminate_nonbool_ite(lemma, manager);
+        let lemma = self.abstract_compound_bool_args(lemma, manager);
+        let lemma = self.purify_numeric_uf_args(lemma, manager);
+        self.register_encoded_assertion_root(lemma, asserted, manager);
+        if self.polarity_aware {
+            self.collect_polarities(lemma, Polarity::Positive, manager);
+        }
+        self.register_asserted_quantifiers(lemma, manager);
+        let lit = self.encode(lemma, manager);
+        self.sat.add_clause([lit]);
     }
 
     fn finite_expand_assertion(

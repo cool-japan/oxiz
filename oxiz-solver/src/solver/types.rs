@@ -252,6 +252,24 @@ pub struct SolverConfig {
     pub max_conflicts: u64,
     /// Maximum number of decisions before giving up (0 = unlimited)
     pub max_decisions: u64,
+    /// Deterministic ceiling on the *embedded* bit-blasted checks one
+    /// `check-sat` may run (`0` = leave the calibrated default in place).
+    ///
+    /// The third deterministic currency beside `max_conflicts` and
+    /// `max_decisions`, published as `:bv-embedded-checks`.  The bit-vector
+    /// bridge runs one complete embedded `BvSolver::check` per bit-vector atom
+    /// propagation, which neither of the other two counters can see — a search
+    /// that never conflicts can still spend minutes there — so a caller that
+    /// wants a *bounded* `check-sat` needs this knob and not only those.
+    ///
+    /// It can only ever make the budget **smaller**: the value actually spent
+    /// is the minimum of this and the calibrated default, so setting it cannot
+    /// buy a verdict the default would not have reached (see
+    /// `theory_manager::bv_budget`).  Being a count rather than a clock, it
+    /// bounds the search identically on every machine, which is what lets a
+    /// test harness use it where `(set-option :timeout N)` would make the
+    /// test's strength a property of the host (decision (16)).
+    pub max_bv_embedded_checks: u64,
     /// Restart strategy for SAT solver
     pub restart_strategy: RestartStrategy,
     /// Enable clause minimization (recursive minimization of learned clauses)
@@ -437,6 +455,7 @@ impl SolverConfig {
             simplify: true, // Keep basic simplification
             max_conflicts: 0,
             max_decisions: 0,
+            max_bv_embedded_checks: 0,
             restart_strategy: RestartStrategy::Geometric, // Faster than Glucose
             enable_clause_minimization: true,             // Keep this, it's fast
             enable_clause_subsumption: false,             // Skip for speed
@@ -471,6 +490,7 @@ impl SolverConfig {
             simplify: true,
             max_conflicts: 0,
             max_decisions: 0,
+            max_bv_embedded_checks: 0,
             restart_strategy: RestartStrategy::Glucose, // Adaptive restarts
             enable_clause_minimization: true,
             enable_clause_subsumption: true,
@@ -509,6 +529,7 @@ impl SolverConfig {
             simplify: true,
             max_conflicts: 0,
             max_decisions: 0,
+            max_bv_embedded_checks: 0,
             restart_strategy: RestartStrategy::Glucose,
             enable_clause_minimization: true,
             enable_clause_subsumption: true,
@@ -546,6 +567,7 @@ impl SolverConfig {
             simplify: false,
             max_conflicts: 0,
             max_decisions: 0,
+            max_bv_embedded_checks: 0,
             restart_strategy: RestartStrategy::Geometric,
             enable_clause_minimization: false,
             enable_clause_subsumption: false,

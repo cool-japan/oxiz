@@ -98,6 +98,9 @@ pub(crate) struct TheoryManager<'a> {
     statistics: &'a mut Statistics,
     /// Maximum conflicts allowed (0 = unlimited)
     max_conflicts: u64,
+    /// The embedded-check ceiling this `check` spends; see
+    /// [`bv_budget::effective_bv_embedded_check_ceiling`].
+    bv_embedded_check_ceiling: u64,
     /// Maximum decisions allowed (0 = unlimited)
     #[allow(dead_code)]
     max_decisions: u64,
@@ -360,6 +363,7 @@ impl<'a> TheoryManager<'a> {
         statistics: &'a mut Statistics,
         max_conflicts: u64,
         max_decisions: u64,
+        max_bv_embedded_checks: u64,
         has_bv_arith_ops: bool,
         has_quantifiers: bool,
         quantifier_uf_funcs: &'a FxHashSet<oxiz_core::interner::Spur>,
@@ -384,6 +388,9 @@ impl<'a> TheoryManager<'a> {
             processed_equalities: FxHashMap::default(),
             statistics,
             max_conflicts,
+            bv_embedded_check_ceiling: bv_budget::effective_bv_embedded_check_ceiling(
+                max_bv_embedded_checks,
+            ),
             max_decisions,
             has_bv_arith_ops,
             has_quantifiers,

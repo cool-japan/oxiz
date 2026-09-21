@@ -374,13 +374,30 @@ mod tests {
         assert!(plugin.datatypes.contains_key("Color"));
     }
 
+    /// The mint is in the reserved class, and the counter still distinguishes
+    /// two fresh variables.
+    ///
+    /// The literal `!dtqe0` used to stand here.  `!` is in SMT-LIB 2.6's
+    /// simple-symbol character set and this parser accepts it, so that name
+    /// was an ordinary user symbol and the doc's "cannot collide" claim was
+    /// false (finding R5-3).  [`reserved_name`] carries
+    /// [`crate::smtlib::RESERVED_PREFIX`], whose backslash is in neither
+    /// SMT-LIB symbol form, so a script cannot spell it at all.
     #[test]
     fn test_fresh_name() {
         let mut plugin = DatatypeQePlugin::default_config();
         let v1 = plugin.fresh_name();
         let v2 = plugin.fresh_name();
-        assert_eq!(v1, "!dtqe0");
-        assert_eq!(v2, "!dtqe1");
+        assert!(
+            v1.starts_with(crate::smtlib::RESERVED_PREFIX),
+            "fresh mints must be reserved, got {v1}"
+        );
+        assert!(
+            v1.ends_with("dtqe!0"),
+            "the counter must be in the name: {v1}"
+        );
+        assert!(v2.ends_with("dtqe!1"), "the counter must advance: {v2}");
+        assert_ne!(v1, v2);
         assert_eq!(plugin.stats().fresh_vars, 2);
     }
 

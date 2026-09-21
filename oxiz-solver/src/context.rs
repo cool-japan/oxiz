@@ -623,6 +623,10 @@ impl Context {
     /// - `timeout` (milliseconds) — wall-clock budget for the search; `0`
     ///   disables it.  Maps to [`crate::SolverConfig::timeout_ms`], enforced between
     ///   MBQI rounds and inside the theory callbacks.
+    /// - `max-bv-embedded-checks` (non-negative integer) — the third
+    ///   deterministic currency, a ceiling on the embedded bit-blasted checks
+    ///   one `check-sat` may run (`:bv-embedded-checks` reports the count).
+    ///   It can only lower the calibrated default, never raise it.
     /// - `max-conflicts` / `max-decisions` (non-negative integer) — resource
     ///   limits; `0` means unlimited.
     /// - `theory-mode` (`eager`/`lazy`) — theory propagation eagerness.
@@ -665,6 +669,13 @@ impl Context {
                 if let Ok(n) = value.trim().parse::<u64>() {
                     let mut config = self.solver.config().clone();
                     config.max_conflicts = n;
+                    self.solver.set_config(config);
+                }
+            }
+            "max-bv-embedded-checks" | "max_bv_embedded_checks" => {
+                if let Ok(n) = value.trim().parse::<u64>() {
+                    let mut config = self.solver.config().clone();
+                    config.max_bv_embedded_checks = n;
                     self.solver.set_config(config);
                 }
             }

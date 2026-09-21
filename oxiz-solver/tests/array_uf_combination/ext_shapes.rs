@@ -539,7 +539,7 @@ fn print_formula(formula: &Formula, problem: &Problem, out: &mut String) {
 }
 
 /// The SMT-LIB script for `problem`, declaring only the symbols it mentions.
-fn render(problem: &Problem, with_model: bool, harness_clock_ms: Option<u64>) -> String {
+fn render(problem: &Problem, with_model: bool) -> String {
     let mut body = String::new();
     for assertion in &problem.asserts {
         body.push_str("(assert ");
@@ -551,31 +551,28 @@ fn render(problem: &Problem, with_model: bool, harness_clock_ms: Option<u64>) ->
     // failure, so one expensive circuit cannot stall the suite while every
     // decided verdict is still checked against the oracle.
     //
-    // `harness_clock_ms` is a **harness** budget and is `None` for every gate
-    // test (`#P2b-46`, decision (16)).  A `(set-option :timeout N)` here did
-    // not only put a verdict behind the machine's speed — it put the *tally*
-    // there, because `score` replays a published model on the `sat` branch
-    // only, so a script that ran out of clock was never model-checked and the
-    // gate's `bad_model` bound moved with how many scripts got past it: a gate
-    // that can go red on a *faster* machine, which is why no pass ever saw it.
-    // With `:max-conflicts` as the only budget, which scripts answer `sat` is a
-    // property of the formula and not of the host.
+    // **No wall clock anywhere** (`#P2b-46`/`#P2b-47`, decision (16)).  A
+    // `(set-option :timeout N)` here did not only put a verdict behind the
+    // machine's speed — it put the *tally* there, because `score` replays a
+    // published model on the `sat` branch only, so a script that ran out of
+    // clock was never model-checked and the gate's `bad_model` bound moved with
+    // how many scripts got past it: a gate that can go red on a *faster*
+    // machine, which is why no pass ever saw it.
     //
-    // The `#[ignore]`d 6,000-script campaign passes `Some(1000)` all the same,
-    // and that is sound rather than a loophole: every bound it asserts is
-    // *zero* (`wrong_sat`, `wrong_unsat`, `errors`, `panics`, `bad_model`), and
-    // a zero bound is monotone in coverage — a machine fast enough to score
-    // more scripts can only find more defects, never manufacture one.  Without
-    // it the campaign does not finish: since this round's array work a single
-    // generated script can spend the whole `BV_EMBEDDED_CHECK_CEILING` of
-    // 250,000 embedded checks, which is minutes, and the 6,000-script run
-    // passed nextest's 900 s ceiling without completing.
+    // What replaces it is a second deterministic currency.  `:max-conflicts`
+    // alone was not enough — since this round's array work a single generated
+    // script can spend the whole calibrated 250,000-check embedded budget,
+    // which is minutes, and the 6,000-script campaign passed nextest's 900 s
+    // ceiling without completing.  `:max-bv-embedded-checks` bounds exactly
+    // that currency and, being a count, bounds it identically on every machine.
     let mut out = String::from(
-        "(set-logic QF_AUFBV)\n         (set-option :produce-models true)\n         (set-option :max-conflicts 20000)\n",
+        "(set-logic QF_AUFBV)\n         (set-option :produce-models true)\n         (set-option :max-conflicts 20000)\n         ",
     );
-    if let Some(ms) = harness_clock_ms {
-        let _ = writeln!(out, "(set-option :timeout {ms})");
-    }
+    let _ = writeln!(
+        out,
+        "(set-option :max-bv-embedded-checks {})",
+        super::HARNESS_EMBEDDED_CHECK_BUDGET
+    );
     for k in 0..ARRAYS {
         if body.contains(&format!("a{k}")) {
             let _ = writeln!(out, "(declare-const a{k} {})", array_sort(problem));
@@ -638,7 +635,7 @@ struct Used {
 }
 
 fn used_symbols(problem: &Problem) -> Used {
-    let script = render(problem, false, None);
+    let script = render(problem, false);
     Used {
         arrays: (0..ARRAYS)
             .filter(|k| script.contains(&format!("(declare-const a{k} ")))
@@ -1201,14 +1198,9 @@ impl ExtTally {
     }
 }
 
-fn score(
-    problem: &Problem,
-    tally: &mut ExtTally,
-    first_failure: &mut Vec<String>,
-    harness_clock_ms: Option<u64>,
-) {
+fn score(problem: &Problem, tally: &mut ExtTally, first_failure: &mut Vec<String>) {
     let truth = exhaustive(problem);
-    let script = render(problem, true, harness_clock_ms);
+    let script = render(problem, true);
     tally.scripts += 1;
     let lines = match run_script(&script) {
         Run::Panic(message) => {
@@ -1286,14 +1278,13 @@ pub(super) fn campaign(
     widths: &[(u32, u32, bool)],
     tally: &mut ExtTally,
     first_failure: &mut Vec<String>,
-    harness_clock_ms: Option<u64>,
 ) {
     for seed in seeds {
         let mut rng = Rng::new(seed ^ 0x00E4_7000_0000_0000);
         for _ in 0..trials {
             let (index_width, elem_width, nested) = widths[rng.below(widths.len() as u64) as usize];
             let problem = gen_problem(&mut rng, index_width, elem_width, nested);
-            score(&problem, tally, first_failure, harness_clock_ms);
+            score(&problem, tally, first_failure);
         }
     }
 }

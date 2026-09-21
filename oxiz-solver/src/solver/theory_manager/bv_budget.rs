@@ -84,14 +84,35 @@ pub(crate) fn bv_embedded_check_ceiling() -> u64 {
     BV_EMBEDDED_CHECK_CEILING
 }
 
-/// Whether `checks` embedded checks have exhausted the budget.
+/// Whether `checks` embedded checks have exhausted a budget of `ceiling`.
 ///
-/// The single predicate both accessors below use, so the value
-/// [`bv_embedded_check_ceiling`] reports and the point at which the budget
-/// actually fires cannot drift apart — which is the one way an accessor-based
-/// guard could be satisfied while the solver behaved differently.
-pub(crate) fn bv_embedded_budget_is_spent(checks: u64) -> bool {
-    checks > bv_embedded_check_ceiling()
+/// The single predicate the charge path uses, so the value
+/// [`effective_bv_embedded_check_ceiling`] computes and the point at which the
+/// budget actually fires cannot drift apart — which is the one way an
+/// accessor-based guard could be satisfied while the solver behaved
+/// differently.
+pub(crate) fn bv_embedded_budget_is_spent(checks: u64, ceiling: u64) -> bool {
+    checks > ceiling
+}
+
+/// The ceiling one `check` actually spends, given the caller's
+/// `(set-option :max-bv-embedded-checks N)` (`0` when it set none).
+///
+/// A user value can only ever make the budget **smaller**.  Widening it from a
+/// script would be a way to buy a verdict the calibration says this build does
+/// not reach — the calibration is against the base `c4b04b7`, not against what
+/// a caller would like — and it would silently defeat
+/// `the_embedded_check_ceiling_is_the_calibrated_value`, the only guard on
+/// this number that runs in the default profile (decision (26)).  Lowering it
+/// is the useful direction and the one a deterministic test harness needs: a
+/// count bounds a runaway identically on every machine where
+/// `(set-option :timeout N)` makes the bound a property of the host.
+pub(crate) fn effective_bv_embedded_check_ceiling(user: u64) -> u64 {
+    if user == 0 {
+        bv_embedded_check_ceiling()
+    } else {
+        user.min(bv_embedded_check_ceiling())
+    }
 }
 
 impl TheoryManager<'_> {
@@ -102,13 +123,16 @@ impl TheoryManager<'_> {
     /// refinement counters cannot see it.
     pub(super) fn charge_bv_embedded_check(&mut self) -> bool {
         self.statistics.bv_embedded_checks = self.statistics.bv_embedded_checks.saturating_add(1);
-        bv_embedded_budget_is_spent(self.statistics.bv_embedded_checks)
+        self.bv_embedded_budget_spent()
     }
 
     /// Whether the embedded-check budget is already spent, without charging
     /// for another one.
     pub(super) fn bv_embedded_budget_spent(&self) -> bool {
-        bv_embedded_budget_is_spent(self.statistics.bv_embedded_checks)
+        bv_embedded_budget_is_spent(
+            self.statistics.bv_embedded_checks,
+            self.bv_embedded_check_ceiling,
+        )
     }
 }
 
@@ -153,17 +177,37 @@ mod tests {
     }
 
     /// The accessor and the budget fire at the same count.
+    /// `(set-option :max-bv-embedded-checks N)` lowers the ceiling and cannot
+    /// raise it.
+    #[test]
+    fn a_user_embedded_check_budget_only_ever_narrows() {
+        use super::effective_bv_embedded_check_ceiling;
+        let calibrated = bv_embedded_check_ceiling();
+        assert_eq!(
+            effective_bv_embedded_check_ceiling(0),
+            calibrated,
+            "no user option leaves the calibrated default in place"
+        );
+        assert_eq!(effective_bv_embedded_check_ceiling(20_000), 20_000);
+        assert_eq!(
+            effective_bv_embedded_check_ceiling(calibrated.saturating_mul(4)),
+            calibrated,
+            "a script must not be able to buy itself a wider budget than the \
+             calibration allows"
+        );
+    }
+
     #[test]
     fn the_budget_fires_exactly_one_check_past_the_ceiling() {
         let ceiling = bv_embedded_check_ceiling();
         assert!(
-            !bv_embedded_budget_is_spent(ceiling),
+            !bv_embedded_budget_is_spent(ceiling, ceiling),
             "the ceiling itself is affordable; the budget is `checks > ceiling`"
         );
         assert!(
-            bv_embedded_budget_is_spent(ceiling + 1),
+            bv_embedded_budget_is_spent(ceiling + 1, ceiling),
             "one check past the ceiling must exhaust the budget"
         );
-        assert!(!bv_embedded_budget_is_spent(0));
+        assert!(!bv_embedded_budget_is_spent(0, ceiling));
     }
 }

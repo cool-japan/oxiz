@@ -409,22 +409,54 @@ fn print_atom(a: &Atom, p: &Problem, out: &mut String) {
     }
 }
 
+/// The harness's deterministic embedded-check budget.
+///
+/// 500 is more than twice the largest count any script in `bench/` needs (207,
+/// `extended_theories/QF_ABV/02_bv_array_overwrite.smt2`), so an ordinary
+/// generated problem is decided well inside it and only a runaway is cut off.
+/// Measured on the widths-1-and-2 gate below, in the **test** profile these
+/// tests actually run in (the bit-blaster's circuit self-check is gated on
+/// `debug_assertions` and makes this shape about 100x slower than release):
+/// 72 scripts in 5 s at 500 with 4 `unknown_decided`, 52 s at 1,000 with 2,
+/// and no completion inside 400 s at 2,000 — the cost per budget unit grows
+/// with the budget, because each embedded check is `O(num_vars)` over a
+/// variable table that grows with the search (`TODO.md` `#P2b-46` (f)).
+/// A cut-off script is scored `unknown_decided` and is never a failure, and
+/// every *other* bound these tests assert is **zero** (`wrong_sat`,
+/// `wrong_unsat`, `bad_model`, panics, errors), so shrinking the budget can
+/// only check less, never manufacture a pass over a real defect.
+///
+/// "Check less" is itself bounded: [`report`] asserts a **floor** on
+/// `unknown_decided` for each gate — 4 of 72 for the exhaustive one, 0 of 40
+/// for the sampled one, 1 of 480 for `ext_shapes` — so lowering this constant
+/// makes those gates RED rather than fast.  Without that floor, setting this
+/// constant to `1` passed both gates in 0.652 s and 0.021 s.
+///
+/// It cannot raise the solver's calibrated ceiling — see
+/// `theory_manager::bv_budget`.
+const HARNESS_EMBEDDED_CHECK_BUDGET: u64 = 500;
+
 /// Render `p` as a script.
 ///
-/// `harness_clock_ms` is `None` for every **gate** and `Some(…)` only for the
-/// `#[ignore]`d campaign (decision (16), finding R5-5).  A gate that renders
-/// `(set-option :timeout N)` asserts its verdicts behind a wall clock: on a
-/// slower machine fewer scripts are decided, so every bound the gate checks
-/// gets weaker, and the gate's strength becomes a property of the host rather
-/// than of the solver.  `(set-option :max-conflicts 20000)` stays, because it
-/// is a deterministic budget and bounds the same runaway identically on every
-/// machine — that is the whole point of decision (9).
-fn render(
-    p: &Problem,
-    named: bool,
-    pins: Option<&[u128]>,
-    harness_clock_ms: Option<u64>,
-) -> String {
+/// **No wall clock anywhere** (decision (16), finding R5-5).  A script that
+/// renders `(set-option :timeout N)` asserts its verdicts behind a wall clock:
+/// on a slower machine fewer scripts are decided, so every bound the test
+/// checks gets weaker, and the test's strength becomes a property of the host
+/// rather than of the solver.
+///
+/// Two *deterministic* budgets stand in its place, and they bound the same
+/// runaways identically on every machine — that is the whole point of decision
+/// (9).  `(set-option :max-conflicts 20000)` bounds the Boolean search, and
+/// `(set-option :max-bv-embedded-checks …)` bounds the third currency neither
+/// of the other two can see: the bit-vector bridge runs one complete embedded
+/// `BvSolver::check` per bit-vector atom propagation, and a generated script
+/// that never conflicts can still spend the whole calibrated ceiling there.
+/// Measured on this file's own worst generated script (a width-2 problem with
+/// a deeply nested `store`/`select` spine, `rf7/slow59.smt2`): `unknown` in
+/// 384 ms at 2,000 embedded checks, 58.2 s at 20,000, 362.9 s at 100,000, and
+/// no answer in 900 s at the 250,000 default.  Before this budget existed the
+/// two gates below exceeded nextest's ceiling without finishing.
+fn render(p: &Problem, named: bool, pins: Option<&[u128]>) -> String {
     let mut out = String::new();
     out.push_str("(set-logic QF_AUFBV)\n");
     if named {
@@ -435,9 +467,10 @@ fn render(
     // exhausted budget is scored (`unknown_decided`), never a failure, and one
     // slow circuit cannot stall the suite.
     out.push_str("(set-option :max-conflicts 20000)\n");
-    if let Some(ms) = harness_clock_ms {
-        let _ = writeln!(out, "(set-option :timeout {ms})");
-    }
+    let _ = writeln!(
+        out,
+        "(set-option :max-bv-embedded-checks {HARNESS_EMBEDDED_CHECK_BUDGET})"
+    );
     let w = p.width;
     for i in 0..p.num_vars {
         let _ = writeln!(out, "(declare-const v{i} (_ BitVec {w}))");
@@ -748,13 +781,7 @@ struct Failure {
 /// Runs one problem plain and named, scoring both against `truth` (`Some` when
 /// the oracle decided it, `None` when only a sampled witness search ran and
 /// found nothing).
-fn run_problem(
-    rng: &mut Rng,
-    p: &Problem,
-    tally: &mut Tally,
-    failures: &mut Vec<Failure>,
-    harness_clock_ms: Option<u64>,
-) {
+fn run_problem(rng: &mut Rng, p: &Problem, tally: &mut Tally, failures: &mut Vec<Failure>) {
     let decided_truth = exhaustive(p);
     let truth = match decided_truth {
         Some(t) => Some(t),
@@ -762,7 +789,7 @@ fn run_problem(
     };
     let decided = decided_truth.is_some();
     for named in [false, true] {
-        let script = render(p, named, None, harness_clock_ms);
+        let script = render(p, named, None);
         tally.scripts += 1;
         let lines = match run_script(&script) {
             Run::Panic(msg) => {
@@ -815,7 +842,7 @@ fn run_problem(
                     }
                 }
                 if values.len() == p.num_vars {
-                    let pinned = render(p, false, Some(&values), harness_clock_ms);
+                    let pinned = render(p, false, Some(&values));
                     let pinned_verdict = match run_script(&pinned) {
                         Run::Lines(l) => l.first().cloned().unwrap_or_default(),
                         Run::Error(e) => format!("error: {e}"),
@@ -903,17 +930,47 @@ fn campaign(
     widths: &[u32],
     tally: &mut Tally,
     failures: &mut Vec<Failure>,
-    harness_clock_ms: Option<u64>,
 ) {
     let mut rng = Rng::new(seed);
     for _ in 0..trials {
         let width = widths[rng.below(widths.len() as u64) as usize];
         let p = gen_problem(&mut rng, width);
-        run_problem(&mut rng, &p, tally, failures, harness_clock_ms);
+        run_problem(&mut rng, &p, tally, failures);
     }
 }
 
-fn report(tag: &str, tally: &Tally, failures: &[Failure]) {
+/// Print the tally, dump the failing scripts, and assert the gate's bounds.
+///
+/// `max_unknown_decided` is the **floor on the gate's strength**, and it is
+/// what keeps [`HARNESS_EMBEDDED_CHECK_BUDGET`] honest.  Every other bound this
+/// function checks is zero (`wrong_sat`, `wrong_unsat`, `bad_core`,
+/// `bad_model`, errors, panics), so a budget small enough to cut every script
+/// off would satisfy all of them vacuously: measured, with the budget set to
+/// `1` both gates PASS, in 0.652 s and 0.021 s against 4.2 s and 17.2 s at the
+/// live 500.  `unknown_decided` counts exactly those cut-offs — an `unknown` on
+/// a formula the oracle DECIDED — so bounding it above turns "the gate checked
+/// nothing" into a red gate.
+///
+/// `min_decided` is the same floor in the other currency, and the sampled gate
+/// needs it: that gate's oracle *samples* witnesses, so a script it cannot
+/// decide is scored plain `unknown` rather than `unknown_decided` and the
+/// count above stays 0 however little the gate does.  Measured, with the
+/// budget set to `1`: the exhaustive and `ext_shapes` gates go red on
+/// `unknown_decided` and the sampled gate still PASSED, in 0.022 s with 0 of
+/// 40 scripts decided.
+///
+/// **Lowering `HARNESS_EMBEDDED_CHECK_BUDGET` must move these numbers**, and a
+/// number that has to be raised to make a gate pass is a defect report, not a
+/// maintenance chore.  `None` is for the `#[ignore]`d campaign, whose script
+/// count is set from the environment and whose counts therefore are not fixed
+/// properties of the tree.
+fn report(
+    tag: &str,
+    tally: &Tally,
+    failures: &[Failure],
+    max_unknown_decided: Option<usize>,
+    min_decided: Option<usize>,
+) {
     eprintln!("[{tag}] {tally:?}");
     let dir = std::env::temp_dir().join("oxiz-array-uf-combination");
     let _ = std::fs::create_dir_all(&dir);
@@ -934,6 +991,28 @@ fn report(tag: &str, tally: &Tally, failures: &[Failure]) {
         real.first().map(|f| f.detail.as_str()).unwrap_or(""),
         real.first().map(|f| f.script.as_str()).unwrap_or("")
     );
+    if let Some(floor) = min_decided {
+        let decided = tally.sat + tally.unsat;
+        assert!(
+            decided >= floor,
+            "[{tag}] only {decided} of {} scripts got a verdict, against a floor \
+             of {floor}.  `unknown_decided` is the wrong currency for a gate \
+             whose oracle samples witnesses — it stays 0 however little the \
+             gate decides — so the floor is on the verdicts themselves.  \
+             {tally:?}",
+            tally.scripts
+        );
+    }
+    if let Some(ceiling) = max_unknown_decided {
+        assert!(
+            tally.unknown_decided <= ceiling,
+            "[{tag}] {} scripts the oracle decided were cut off by \
+             `HARNESS_EMBEDDED_CHECK_BUDGET` ({HARNESS_EMBEDDED_CHECK_BUDGET}), \
+             against a floor of {ceiling}.  This gate's strength is the number \
+             of scripts it actually decides; see `report`'s doc.  {tally:?}",
+            tally.unknown_decided
+        );
+    }
 }
 
 fn env_u64(name: &str, default: u64) -> u64 {
@@ -1007,10 +1086,11 @@ fn array_uf_exhaustive_small_widths() {
     let mut tally = Tally::default();
     let mut failures = Vec::new();
     for seed in 0..3 {
-        // No harness clock: this is a gate (decision (16)).
-        campaign(seed, 12, &[1, 2], &mut tally, &mut failures, None);
+        campaign(seed, 12, &[1, 2], &mut tally, &mut failures);
     }
-    report("exhaustive", &tally, &failures);
+    // Measured on this tree at the live budget: 72 scripts, 68 decided, 4 cut
+    // off.
+    report("exhaustive", &tally, &failures, Some(4), Some(68));
     the_harness_decides_a_fixed_script();
 }
 
@@ -1021,10 +1101,11 @@ fn array_uf_sampled_wider_widths() {
     let mut tally = Tally::default();
     let mut failures = Vec::new();
     for seed in 10..12 {
-        // No harness clock: this is a gate (decision (16)).
-        campaign(seed, 10, &[3, 4], &mut tally, &mut failures, None);
+        campaign(seed, 10, &[3, 4], &mut tally, &mut failures);
     }
-    report("sampled", &tally, &failures);
+    // Measured on this tree at the live budget: 40 scripts, 38 decided, 0 cut
+    // off.
+    report("sampled", &tally, &failures, Some(0), Some(38));
     the_harness_decides_a_fixed_script();
 }
 
@@ -1050,8 +1131,6 @@ fn array_ext_shapes_bounded() {
         &[(1, 1, false), (1, 1, true), (1, 2, false), (2, 1, false)],
         &mut tally,
         &mut first_failure,
-        // No clock: this is the gate (decision (16)).
-        None,
     );
     eprintln!("[ext-shapes] {tally:?}");
     assert_eq!(
@@ -1081,6 +1160,20 @@ fn array_ext_shapes_bounded() {
         tally.bad_model, 0,
         "a published model falsifies its own script: {tally:?}"
     );
+    // The same floor `report` asserts for the two `array_uf` gates, and for
+    // the same reason: every other bound here is zero, so without it a budget
+    // small enough to cut every script off would pass vacuously.  Measured on
+    // this tree at the live budget: 480 scripts, 1 cut off.
+    assert!(
+        tally.sat + tally.unsat >= 479,
+        "the gate's strength is the number of scripts it decides: {tally:?}"
+    );
+    assert!(
+        tally.unknown_decided <= 1,
+        "scripts the oracle decided were cut off by \
+         `HARNESS_EMBEDDED_CHECK_BUDGET` ({HARNESS_EMBEDDED_CHECK_BUDGET}); \
+         this gate's strength is the number of scripts it decides: {tally:?}"
+    );
 }
 
 /// The long extensionality campaign: `OXIZ_EXT_SEED_LO/HI` (default 0..120),
@@ -1105,12 +1198,6 @@ fn array_ext_shapes_campaign() {
         ],
         &mut tally,
         &mut first_failure,
-        // A *harness* budget, not a verdict gate: every bound this test asserts
-        // is zero, and a zero bound is monotone in coverage, so a machine fast
-        // enough to score more scripts can only find more defects. Without it
-        // the run does not finish — one generated script can spend the whole
-        // `BV_EMBEDDED_CHECK_CEILING`, which is minutes (`#P2b-46`).
-        Some(1000),
     );
     eprintln!("[ext-campaign] {tally:?}");
     assert_eq!(
@@ -1123,9 +1210,17 @@ fn array_ext_shapes_campaign() {
     // The published-model residue, asserted here too and not only in the
     // bounded gate: `ExtTally::failures` does not count it, so until
     // `#P2b-46` a falsifying model in the long run was printed and passed.
-    // Zero-valued like every other bound this test carries, which is what
-    // makes the harness clock above sound — see the comment on `Some(1000)`.
-    // Measured on the 6,000-script default: 0, where the round-3 record was 23.
+    //
+    // **THIS ASSERTION IS CURRENTLY RED, and deliberately so (`#P2b-49`).**
+    // The 6,000-script default reports `bad_model: 1`. It read 0 only while
+    // `ext_shapes::render` still emitted `(set-option :timeout 1000)`, because
+    // `score` replays a published model on the `sat` branch alone and the one
+    // offending script never got that far — which is exactly the defect
+    // decision (16) describes, found by its own fix. The script is two nested
+    // arrays asserted `distinct` that print as the *same* constant array;
+    // `c4b04b7` prints byte-identical output, so the defect is pre-existing and
+    // outside this round's findings. The bound stays at zero and is **not**
+    // narrowed: see `TODO.md` `#P2b-49` for the repro and the analysis.
     assert_eq!(
         tally.bad_model,
         0,
@@ -1145,19 +1240,18 @@ fn array_uf_campaign() {
     let mut tally = Tally::default();
     let mut failures = Vec::new();
     for seed in lo..hi {
-        // The one caller that may carry a harness clock: this test is
-        // `#[ignore]`d, asserts nothing behind the clock that a slower machine
-        // could weaken, and would otherwise let a single pathological circuit
-        // stall a long campaign (decision (16)).
-        campaign(
-            seed,
-            trials,
-            &[1, 2, 3, 4],
-            &mut tally,
-            &mut failures,
-            Some(5_000),
-        );
+        // No clock here either: the deterministic embedded-check budget
+        // `render` emits is what keeps one pathological circuit from stalling
+        // the campaign, and it does so identically on every machine
+        // (decision (16)).
+        campaign(seed, trials, &[1, 2, 3, 4], &mut tally, &mut failures);
         eprintln!("[campaign] seed {seed}: {tally:?}");
     }
-    report(&format!("campaign-{lo}-{hi}"), &tally, &failures);
+    report(
+        &format!("campaign-{lo}-{hi}"),
+        &tally,
+        &failures,
+        None,
+        None,
+    );
 }

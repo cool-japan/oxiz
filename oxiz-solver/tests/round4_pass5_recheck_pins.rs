@@ -71,6 +71,20 @@
 //! No test here sets a wall-clock `(set-option :timeout)`, and none asserts a
 //! verdict behind one (decision (16)).  Every script is decided in
 //! milliseconds by the deterministic budgets.
+//!
+//! # The model half (`#P2b-47`)
+//!
+//! Closing the seam fixed the *verdicts* and left a second defect standing:
+//! 14 of the 800 paired scripts still answered a **correct** `sat` and then
+//! printed a model that falsifies the very `forall` it satisfies, because MBQI
+//! stops as soon as no instance *it chose to build* is violated and
+//! `(get-model)` renders every index it did not choose from the sort default.
+//! `encode::finite_expand` now expands a binder over a **finite sort** into
+//! the conjunction (or disjunction) over that sort's own elements, so such a
+//! script *is* its ground expansion and the model is built from the whole
+//! domain.  `a_quantified_model_does_not_falsify_its_own_script` pins it by
+//! re-asserting the published arrays back into the script: a real model stays
+//! `sat`, a falsifying one turns the same script `unsat`.
 
 use oxiz_solver::Context;
 
@@ -772,6 +786,22 @@ fn atom(rng: &mut Rng, sort: &str, index_width: u32, elem_width: u32, bound: &st
 /// its `2 ^ index_width` elements and `(exists …)` is the disjunction: the two
 /// scripts are the same formula, written two ways.
 fn generate_pair(rng: &mut Rng) -> Pair {
+    // Widths 1 and 2 are 2 and 4 points, both inside `encode::finite_expand`'s
+    // 64-point budget, so every pair drawn here is consumed by the expansion
+    // before the encoder runs and NONE of them reaches MBQI.  What this corpus
+    // measures is therefore the *expansion* — that a quantifier and its own
+    // ground expansion get the same answer — and that is what its guard
+    // asserts.
+    //
+    // The smallest draw that would reach MBQI is width 7 (128 points), and it
+    // is deliberately not taken: the ground twin then carries 128 conjuncts and
+    // a fifth of those twins do not finish inside any budget a default gate can
+    // carry (measured: 61 of 300 undecided at an 8 s cap on `rk6/corpus/qmbqi`,
+    // one of them 38.9 s even at `(set-option :max-conflicts 5000)`).  The MBQI
+    // side of the seam is covered instead by the fixed width-7/8/`Int`/`Real`/
+    // declared-sort guards in `round4_pass6_recheck_pins`, which assert
+    // hand-verified answers and cost milliseconds, and by
+    // `an_array_term_first_ground_in_an_mbqi_instance_is_refuted` below.
     let index_width = if rng.below(3) == 0 { 2 } else { 1 };
     let elem_width = if rng.below(3) == 0 { 2 } else { 1 };
     let sort = format!("(Array (_ BitVec {index_width}) (_ BitVec {elem_width}))");
@@ -863,5 +893,251 @@ fn quantified_array_scripts_agree_with_their_own_ground_expansions() {
         "a quantified `sat` against a ground `unsat` is the blocker this \
          module was written for ({agree} agree, {other} undecided on one \
          side).  First offender:\n{first}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 7. GUARD — the published model of a quantified script satisfies that
+//    script.  `#P2b-47`, the second half of the blocker: the verdicts were
+//    right before this and the *models* were not.
+// ---------------------------------------------------------------------------
+
+/// Split the body out of a `(define-fun NAME () SORT BODY)` line.
+///
+/// The sort is itself an s-expression (`(Array (_ BitVec 1) (_ BitVec 1))`),
+/// so the body cannot be found by counting spaces; this skips three balanced
+/// tokens after `define-fun` and returns the rest with the closing paren of
+/// the `define-fun` removed.
+fn define_fun_body(line: &str) -> Option<(String, String)> {
+    let text = line.trim();
+    let inner = text.strip_prefix('(')?.strip_suffix(')')?.trim();
+    let rest = inner.strip_prefix("define-fun")?.trim();
+    let mut tokens: Vec<String> = Vec::new();
+    let mut cursor = rest;
+    for _ in 0..3 {
+        let cursor_trimmed = cursor.trim_start();
+        let mut depth = 0usize;
+        let mut end = None;
+        for (offset, ch) in cursor_trimmed.char_indices() {
+            match ch {
+                '(' => depth += 1,
+                ')' => depth = depth.checked_sub(1)?,
+                c if c.is_whitespace() && depth == 0 => {
+                    end = Some(offset);
+                    break;
+                }
+                _ => {}
+            }
+            if depth == 0 && ch == ')' {
+                end = Some(offset + ch.len_utf8());
+                break;
+            }
+        }
+        let cut = end.unwrap_or(cursor_trimmed.len());
+        tokens.push(cursor_trimmed.get(..cut)?.to_string());
+        cursor = cursor_trimmed.get(cut..)?;
+    }
+    let name = tokens.first()?.clone();
+    Some((name, cursor.trim().to_string()))
+}
+
+/// Re-run `script` with every array constant the model published pinned to the
+/// value it published, and return the verdict.
+///
+/// This is the model-replay of the `rc5` oracle written as a solver query: a
+/// published model that satisfies the script stays `sat` when it is pinned; one
+/// that falsifies the script turns `unsat`, which is the solver contradicting
+/// itself inside one session.
+fn verdict_with_model_pinned(script: &str) -> String {
+    let lines = run(script);
+    assert_eq!(verdict(&lines), "sat", "{}", joined(&lines));
+    let mut pins = String::new();
+    // A `(get-model)` response arrives as one element carrying embedded
+    // newlines, so the physical lines have to be split out of it.
+    for line in lines.iter().flat_map(|block| block.lines()) {
+        if !line.trim_start().starts_with("(define-fun ") {
+            continue;
+        }
+        let Some((name, body)) = define_fun_body(line) else {
+            continue;
+        };
+        // Only the array constants matter here: a bit-vector or Bool constant
+        // is published as a literal and pinning it adds nothing, while an
+        // array is the value the renderer had to *construct*.
+        if !body.contains("as const") && !body.starts_with("(store") {
+            continue;
+        }
+        pins.push_str(&format!("(assert (= {name} {body}))\n"));
+    }
+    assert!(
+        !pins.is_empty(),
+        "no array value was published, so nothing was checked:\n{}",
+        joined(&lines)
+    );
+    let pinned = script.replace("(check-sat)", &format!("{pins}(check-sat)"));
+    verdict(&run(&pinned))
+}
+
+/// **GUARD.**  Every shape that published a falsifying model.
+///
+/// These are the fourteen `rc5/corpus/{q,qnoite}` members that answered a
+/// *correct* `sat` and then printed a model whose array value falsifies the
+/// quantified assertion, reduced to their five distinct shapes.  Every one is
+/// a single `(forall ((i (_ BitVec w))) …)` over a two- or four-element index
+/// sort: MBQI answered `Satisfied` because no instance it chose to build was
+/// violated, which left every index it did not choose unconstrained, and
+/// `(get-model)` then rendered the array at those indices from the sort
+/// default.  `#P2b-47` expands such a quantifier over its own sort before the
+/// encoder runs, so the script *is* its ground expansion and the model is
+/// built from the whole domain.
+#[test]
+fn a_quantified_model_does_not_falsify_its_own_script() {
+    let cases: &[(&str, &str)] = &[
+        (
+            "read of one array equals a fixed read of another",
+            "(set-logic ALL)\n\
+             (declare-const a1 (Array (_ BitVec 1) (_ BitVec 1)))\n\
+             (declare-const a2 (Array (_ BitVec 1) (_ BitVec 1)))\n\
+             (assert (or (= #b0 (select a2 #b0)) (= (select a2 #b0) (select a2 #b0))))\n\
+             (assert (forall ((i (_ BitVec 1))) (= (select a1 i) (select a2 #b1))))\n\
+             (check-sat)\n(get-model)\n",
+        ),
+        (
+            "every entry equals a literal",
+            "(set-logic ALL)\n\
+             (declare-const a0 (Array (_ BitVec 2) (_ BitVec 1)))\n\
+             (assert (forall ((i (_ BitVec 2))) (= #b1 (select a0 i))))\n\
+             (check-sat)\n(get-model)\n",
+        ),
+        (
+            "every entry differs from a literal",
+            "(set-logic ALL)\n\
+             (declare-const a1 (Array (_ BitVec 1) (_ BitVec 1)))\n\
+             (assert (forall ((i (_ BitVec 1))) (distinct (select a1 i) #b0)))\n\
+             (check-sat)\n(get-model)\n",
+        ),
+        (
+            "every entry differs from a constant array's read",
+            "(set-logic ALL)\n\
+             (declare-const a1 (Array (_ BitVec 2) (_ BitVec 1)))\n\
+             (declare-const d (_ BitVec 1))\n\
+             (assert (forall ((i (_ BitVec 2))) \
+              (distinct (select ((as const (Array (_ BitVec 2) (_ BitVec 1))) d) #b11) \
+              (select a1 i))))\n\
+             (check-sat)\n(get-model)\n",
+        ),
+        (
+            "every entry of a store chain equals a fixed read",
+            "(set-logic ALL)\n\
+             (declare-const a0 (Array (_ BitVec 1) (_ BitVec 2)))\n\
+             (assert (forall ((i (_ BitVec 1))) \
+              (= (select (store a0 #b1 #b11) i) (select a0 #b1))))\n\
+             (check-sat)\n(get-model)\n",
+        ),
+    ];
+    for (label, script) in cases {
+        assert_eq!(
+            verdict_with_model_pinned(script),
+            "sat",
+            "[{label}] the published model falsifies its own script: pinning \
+             the arrays the model printed turns the same script `unsat`.  \
+             Script:\n{script}"
+        );
+    }
+}
+
+/// The control for the guard above: the *ground* twin of the first shape,
+/// which published a correct model throughout — so the guard cannot be
+/// satisfied by breaking array model rendering generally.
+#[test]
+fn the_ground_twin_publishes_a_model_that_satisfies_it_too() {
+    let script = "(set-logic ALL)\n\
+         (declare-const a1 (Array (_ BitVec 1) (_ BitVec 1)))\n\
+         (declare-const a2 (Array (_ BitVec 1) (_ BitVec 1)))\n\
+         (assert (and (= (select a1 #b0) (select a2 #b1)) \
+          (= (select a1 #b1) (select a2 #b1))))\n\
+         (check-sat)\n(get-model)\n";
+    assert_eq!(verdict_with_model_pinned(script), "sat");
+}
+
+/// **GUARD.**  An array term that is ground only *inside* an MBQI instance.
+///
+/// Every other guard in this module writes its `store` / `(as const …)` /
+/// array-`ite` with ground arguments, so the term exists — un-lemma'd, but it
+/// exists — before instantiation.  Here the `store`'s index **is** the bound
+/// variable: `(store a i 5)` is not a ground term anywhere in the input, and
+/// the only place it is ever ground is the instance built for `i = 2`.
+///
+/// ATTRIBUTION for the two `Int` spellings IS STILL NOT ESTABLISHED, and it is
+/// labelled rather than claimed.  `c4b04b7` answers `sat` to both and this tree
+/// answers `unsat` to both, so the round fixed them; but none of the six
+/// mutations in pass 6's table turns either red — not the MBQI-site
+/// `prepare_ground_instance`, not the quantified refinement round, not the
+/// encoded-assertion root, and not the finite expansion (whole-module `M6`
+/// leaves them green).  So those two pin a *behaviour* the round produced
+/// without pinning the mechanism that produces it, in the same words
+/// decision (7) rule (1c) carries.
+///
+/// The width-7 spelling added in re-fix pass 7 IS attributed: mutation M4 —
+/// `binder_row`'s lemma used to *replace* the assertion instead of being
+/// asserted beside it — turns it red, and nothing else in either pin file.
+/// It is therefore the guard on `Solver::assert_binder_row_lemma`'s central
+/// decision, not a smoke test.
+///
+/// `a[1] = 0` and the guarded instance demands `(select (store a 2 5) 1) = 5`;
+/// read-over-write rewrites the left side to `a[1]`, so the two are
+/// contradictory.  The second spelling reaches the same instance through a
+/// symbol the assertion stack pins (`k = 2`) rather than a literal, so a fix
+/// that only looked at literal instantiations would not satisfy it.
+#[test]
+fn an_array_term_first_ground_in_an_mbqi_instance_is_refuted() {
+    let literal = "(set-logic ALL)\n\
+         (declare-const a (Array Int Int))\n\
+         (assert (= (select a 1) 0))\n\
+         (assert (forall ((i Int)) (=> (= i 2) (= (select (store a i 5) 1) 5))))\n\
+         (check-sat)\n";
+    let lines = run(literal);
+    assert_eq!(
+        verdict(&lines),
+        "unsat",
+        "the instance at `i = 2` writes at an index the read does not touch, \
+         so it demands `a[1] = 5` against the asserted `a[1] = 0`.  \
+         Response:\n{}",
+        joined(&lines)
+    );
+
+    // The same shape over an index sort the finite expansion declines for a
+    // different reason: 128 points rather than an unenumerable `Int`.  This is
+    // the spelling recheck pass 6's blocker was built from, and it is here so
+    // the guard covers both sides of the expansion boundary.
+    let unenumerable_bitvec = "(set-logic ALL)\n\
+         (declare-const a (Array (_ BitVec 7) (_ BitVec 7)))\n\
+         (assert (= (select a (_ bv1 7)) (_ bv0 7)))\n\
+         (assert (forall ((i (_ BitVec 7)))\n\
+         \x20 (=> (= i (_ bv2 7))\n\
+         \x20   (= (select (store a i (_ bv5 7)) (_ bv1 7)) (_ bv5 7)))))\n\
+         (check-sat)\n";
+    let lines = run(unenumerable_bitvec);
+    assert_eq!(
+        verdict(&lines),
+        "unsat",
+        "128 points is past the expansion budget, so this is the MBQI path.  \
+         Response:\n{}",
+        joined(&lines)
+    );
+
+    let via_symbol = "(set-logic ALL)\n\
+         (declare-const a (Array Int Int))\n\
+         (declare-const k Int)\n\
+         (assert (= k 2))\n\
+         (assert (= (select a 1) 0))\n\
+         (assert (forall ((i Int)) (=> (= i k) (= (select (store a i 5) 1) 5))))\n\
+         (check-sat)\n";
+    let lines = run(via_symbol);
+    assert_eq!(
+        verdict(&lines),
+        "unsat",
+        "the same instance, reached through a pinned symbol.  Response:\n{}",
+        joined(&lines)
     );
 }

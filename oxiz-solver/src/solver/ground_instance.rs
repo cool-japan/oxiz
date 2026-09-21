@@ -107,18 +107,6 @@ impl Solver {
         rewritten
     }
 
-    /// Record `term` as a root for the next `collect_array_structure` round,
-    /// when it mentions any array structure at all.
-    ///
-    /// Also sets [`Solver::has_array_ops`], which is the flag `check_core`
-    /// tests before it calls the refinement at all.  Setting it here is not
-    /// redundant with `track_theory_vars`: that walk runs inside `encode` and
-    /// would set the flag in the same round, but this makes the seam's
-    /// precondition local to the seam rather than a property of another pass's
-    /// traversal order.  The flag is snapshot-restored by `pop` (see
-    /// `ContextState::has_array_ops`), so setting it mid-`check` is the
-    /// established pattern — `assert_const_array_witness_congruence` already
-    /// does it.
     /// Record the term an *assertion* is actually encoded as, when the
     /// pre-pass chain rewrote it into something `self.assertions` does not
     /// contain.
@@ -133,10 +121,15 @@ impl Solver {
     /// over a fresh Skolem constant, and that body is exactly the array
     /// structure the collector must see.  Walking the stored term instead
     /// reaches the `Exists` node, stops there (`ground_children`), and collects
-    /// nothing — six of the 300 paired scripts in
-    /// `round4_pass5_recheck_pins` were still wrong `sat` for this reason
-    /// after the instantiation paths had been closed, every one of them an
-    /// asserted `exists`.
+    /// nothing.  Measured on the final tree by removing exactly this call and
+    /// re-running the 300-script paired corpus in
+    /// `round4_pass5_recheck_pins`: **24 wrong `sat` of 300** (0 wrong
+    /// `unsat`, 276 agree), together with the `store` and constant-array
+    /// guards beside it — so this half of the seam is load-bearing on its own,
+    /// not a belt beside the instantiation paths' braces.  (An earlier draft
+    /// of this comment said "six of the 300"; that figure is withdrawn — it
+    /// does not reproduce and the mutation that produces 24 is recorded as M3
+    /// in `TODO.md` `#P2b-47`.)
     pub(super) fn register_encoded_assertion_root(
         &mut self,
         encoded: TermId,
@@ -149,6 +142,18 @@ impl Solver {
         self.register_ground_array_root(encoded, manager);
     }
 
+    /// Record `term` as a root for the next `collect_array_structure` round,
+    /// when it mentions any array structure at all.
+    ///
+    /// Also sets [`Solver::has_array_ops`], which is the flag `check_core`
+    /// tests before it calls the refinement at all.  Setting it here is not
+    /// redundant with `track_theory_vars`: that walk runs inside `encode` and
+    /// would set the flag in the same round, but this makes the seam's
+    /// precondition local to the seam rather than a property of another pass's
+    /// traversal order.  The flag is snapshot-restored by `pop` (see
+    /// `ContextState::has_array_ops`), so setting it mid-`check` is the
+    /// established pattern — `assert_const_array_witness_congruence` already
+    /// does it.
     fn register_ground_array_root(&mut self, term: TermId, manager: &TermManager) {
         if !mentions_array_structure(term, manager) {
             return;

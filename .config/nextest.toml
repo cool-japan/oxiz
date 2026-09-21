@@ -76,20 +76,28 @@ slow-timeout = { period = "60s", terminate-after = 10 }
 # `wide_sub_of_add_two_vars_is_identity_above_64_bits` override above: a kill
 # ceiling well clear of the measurement, with SLOW still reported at 60 s so a
 # real hang stays visible.
+#
+# Raised again by `#P2b-47`: the generator's `(set-option :timeout 5000)` is
+# gone and a deterministic `(set-option :max-bv-embedded-checks 500)` stands in
+# its place, so a script the clock used to abandon after 5 s is now solved to
+# its deterministic budget *and* model-replayed. That is strictly more
+# coverage and it costs wall time — 2,800 of its 3,200 scripts inside the old
+# 900 s ceiling, so it missed it by the last two seeds. 2,400 s is the new one.
 [[profile.default.overrides]]
 filter = 'package(oxiz-solver) and test(array_uf_campaign)'
-slow-timeout = { period = "60s", terminate-after = 15 }
+slow-timeout = { period = "60s", terminate-after = 40 }
 
 [[profile.ci.overrides]]
 filter = 'package(oxiz-solver) and test(array_uf_campaign)'
-slow-timeout = { period = "60s", terminate-after = 15 }
+slow-timeout = { period = "60s", terminate-after = 40 }
 
 # `array_ext_shapes_campaign` is the 6,000-script sibling. It fitted inside the
 # default 180 s while its generator rendered every script with
-# `(set-option :timeout 1000)`; `#P2b-46` took that clock out (it decided the
-# gate's `bad_model` tally, not only its duration — see
+# `(set-option :timeout 1000)`; `#P2b-47` took that clock out for good and put
+# `(set-option :max-bv-embedded-checks 500)` in its place (the clock decided the
+# campaign's `bad_model` tally, not only its duration — see
 # `array_uf_combination.rs`), and the campaign now needs the same headroom its
-# sibling does.
+# sibling does. It runs in 54.6 s with the deterministic budget.
 [[profile.default.overrides]]
 filter = 'package(oxiz-solver) and test(array_ext_shapes_campaign)'
 slow-timeout = { period = "60s", terminate-after = 15 }
