@@ -732,6 +732,43 @@ fn a_pop_retracts_the_derived_lemma_with_its_assertion() {
 }
 
 // ---------------------------------------------------------------------------
+// 3b. `#P2b-53`, CLOSED BY THIS PASS AS A SIDE EFFECT
+//
+//    Pinned by the gatekeeper on 2026-09-22, when the `TODO.md` entry — cut
+//    off mid-sentence at `00add07` and never re-measured — was completed.
+// ---------------------------------------------------------------------------
+
+/// **REGRESSION GUARD — a read-over-write at the binder's own index, at a
+/// width the finite expansion declines, is refuted.**
+///
+/// `(select (store a i #b1) i)` is `#b1` for every `i` by the read-over-write
+/// axiom, so `(distinct … #b1)` is false at every point of `(_ BitVec 7)` and
+/// the quantifier has no model: **the correct answer is `unsat`**, and it needs
+/// no enumeration of the 128-point index domain — only the rewrite
+/// `binder_row::read_over_write_map` performs under the binder.
+///
+/// | build | answer |
+/// |---|---|
+/// | `c4b04b7`, crates.io 0.3.3 | `unknown` |
+/// | `00add07` (the pass-6 checkpoint, where `#P2b-53` was opened) | `unknown` |
+/// | this tree (pass 7) | `unsat`, 32 ms through the release CLI |
+///
+/// This is `rk6/atk3/p4_bv7_two_stores.smt2` verbatim (the file name outlived
+/// its second `store`).  `TODO.md` `#P2b-53` records the closure.
+#[test]
+fn a_read_over_write_at_the_binder_index_is_refuted_above_the_expansion_budget() {
+    assert_verdict(
+        "(set-logic ALL)\n\
+         (declare-const a (Array (_ BitVec 7) (_ BitVec 1)))\n\
+         (assert (forall ((i (_ BitVec 7))) (distinct (select (store a i #b1) i) #b1)))\n\
+         (check-sat)\n",
+        "unsat",
+        "the read-over-write under the binder must be refuted without enumerating \
+         the 2^7 index domain; see `#P2b-53`",
+    );
+}
+
+// ---------------------------------------------------------------------------
 // 4. A NOTE ON WHAT IS NOT PINNED HERE
 //
 //    * `TODO.md` `#P2b-51` (a published model that falsifies its own
