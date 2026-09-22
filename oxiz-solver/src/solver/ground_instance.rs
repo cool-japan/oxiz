@@ -83,7 +83,7 @@
 
 use oxiz_core::ast::{TermId, TermKind, TermManager};
 use oxiz_core::sort::SortKind;
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::Solver;
 use super::array_axioms::ground_children;
@@ -154,6 +154,87 @@ impl Solver {
         rewritten
     }
 
+    /// The spelling an **assertion**'s encoded root must be registered under
+    /// so that [`Solver::instantiate_array_axioms`] collects one array term
+    /// per array: `term` with every non-Bool `ite` proxy
+    /// [`Solver::eliminate_nonbool_ite`] minted put back.
+    ///
+    /// # Why a root is not simply the term that was encoded
+    ///
+    /// The collector's root set is two halves that disagree about spelling.
+    /// `self.assertions` holds the **pre**-rewrite term, because a caller
+    /// reading its assertions back must see what it asserted; the roots this
+    /// module registers held the **post**-rewrite term, because the SAT
+    /// core's clauses describe that one.  Where the rewrite chain replaced an
+    /// array-sorted `(ite c a b)` with a proxy constant, the same array was
+    /// then reachable under two names — and the array theory has no rule that
+    /// says they are one object, so it treated them as two: two members of
+    /// every pair set, two extensionality witnesses per pair, and a
+    /// read-over-write cascade down each.  That is `#P2b-59`: on
+    /// `rk9/min/q33_a01.smt2` (two width-8 arrays, `ite`-selected bases, one
+    /// `store` each, **no quantifier**) — at index width 8, which is above
+    /// the enumeration limit this rule is restricted to — the collector saw
+    /// 19 array terms where 13 is the truth, and the refinement took 93
+    /// rounds to saturate: no answer in 90 s, against `sat` in 0.34 ms on
+    /// `c4b04b7` and on crates.io 0.3.3.
+    ///
+    /// # Why the `ite` spelling and not the proxy
+    ///
+    /// Because the `ite` is the spelling the *other* half of the root set
+    /// already uses, and because it carries strictly more structure: the
+    /// branches are visible, so `build_array_ite_reads` can relate a read
+    /// through the `ite` to the same read on each branch.  Nothing is lost on
+    /// the encoding side — every lemma this module's caller builds goes back
+    /// through `Solver::encode`, which runs `eliminate_nonbool_ite` over it
+    /// and so re-derives the proxy for the SAT core.
+    ///
+    /// # Why only an assertion, and not a ground instance
+    ///
+    /// Because only an assertion has the *same term* in the root set already.
+    /// A ground instance is a root of its own; re-spelling it does not remove
+    /// a duplicate, it only hands `build_array_ite_reads` every `ite` an
+    /// instantiation grounds, in every MBQI round.  Measured, on the round's
+    /// own width-7/8 corpus: registering instances under this spelling too
+    /// took `rk6/corpus/qmbqi120/q0075` from `unknown` in 18.4 ms to no answer
+    /// in 120 s, and `q0106` from 78.5 ms to 205.5 ms, while leaving
+    /// `rk9/min/q33_a01.smt2` — the script the fix is for, which has no
+    /// quantifier and so no instance — bit-identical at 66 rounds and 208
+    /// lemma instances.  Narrowed on that measurement rather than on taste.
+    pub(super) fn array_root_spelling(&self, term: TermId, manager: &mut TermManager) -> TermId {
+        if self.ite_elim_aliases.is_empty() {
+            return term;
+        }
+        // Only the proxies whose duplication is expensive: an array whose
+        // index sort the extensionality family *enumerates*
+        // (`ARRAY_INDEX_ENUMERATION_LIMIT`) mints no Skolem witness, so the
+        // second spelling costs at most a constant factor of lemmas over the
+        // one shared index set, and putting the `ite` back there instead
+        // hands `build_array_ite_reads` a conditional read pair at every
+        // element of the domain for every read the enumerated family creates.
+        // That is a *loss*, and it was measured rather than guessed: over the
+        // 300-pair width-1/2 corpus of `round4_pass5_recheck_pins`, one pair
+        // (a `forall` over `(_ BitVec 2)` beside a ground `ite` over two
+        // `store`s) went from `sat` in 8.5 ms to `sat` in 2,702 ms, with the
+        // verdict unchanged, and the gate's 180 s ceiling turned into a
+        // TIMEOUT. Above the enumeration limit — which is where `#P2b-59`
+        // lives, at index width 8 — the duplicate is a whole second pair set
+        // with its own Skolem witness per pair, and putting the `ite` back is
+        // worth 93 refinement rounds.
+        let filtered: FxHashMap<TermId, TermId> = self
+            .ite_elim_aliases
+            .iter()
+            .filter(|(proxy, _)| {
+                super::array_axioms::array_domain(**proxy, manager).is_some()
+                    && !super::array_axioms::pair_is_enumerated(**proxy, manager)
+            })
+            .map(|(proxy, ite)| (*proxy, *ite))
+            .collect();
+        if filtered.is_empty() {
+            return term;
+        }
+        manager.substitute(term, &filtered)
+    }
+
     /// Record the term an *assertion* is actually encoded as, when the
     /// pre-pass chain rewrote it into something `self.assertions` does not
     /// contain.
@@ -181,8 +262,29 @@ impl Solver {
         &mut self,
         encoded: TermId,
         asserted: TermId,
-        manager: &TermManager,
+        manager: &mut TermManager,
     ) {
+        // `array_root_spelling` substitutes every above-the-enumeration-limit
+        // proxy back to the `ite` it names, so the root the collector sees is
+        // spelled the way `self.assertions` spells it.  That — and not the
+        // early return below — is `#P2b-59`'s fix: registering the proxy
+        // spelling beside the stored assertion is what gave the array theory
+        // two names for one array.
+        //
+        // The `encoded == asserted` guard is the pre-existing cheap exit for a
+        // chain that rewrote *nothing*, and it does **not** fire for an
+        // assertion whose chain only eliminated `ite`s.
+        // `Solver::eliminate_nonbool_ite` returns
+        // `(and <rewritten> (=> c (= v t)) (=> (not c) (= v e)) …)` — the two
+        // side conditions per eliminated `ite` are conjoined onto the term it
+        // returns — so after re-spelling every proxy the root is
+        // `(and <the original assertion> (=> c (= (ite c t e) t)) …)`, which
+        // is not the stored assertion.  An earlier draft of this comment said
+        // the equality was "the point of the fix"; that rationale is
+        // **withdrawn** (adversarial recheck pass 10), it cannot hold, and the
+        // outcome is unchanged either way because the duplicate spelling is
+        // removed by the substitution above and not by this exit.
+        let encoded = self.array_root_spelling(encoded, manager);
         if encoded == asserted {
             return;
         }

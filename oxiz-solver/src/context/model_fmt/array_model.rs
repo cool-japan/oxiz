@@ -79,6 +79,20 @@ impl Context {
         model: &crate::solver::Model,
         class_values: &super::class_values::ClassValues,
     ) -> Option<String> {
+        // An array the model pins *explicitly* to an array constant is the one
+        // case where the class is not the better source: the value did not
+        // come out of the congruence closure at all.  It is installed by
+        // `solver::array_completion_certify`, whose `sat` was discharged over
+        // exactly this term — the completed total interpretation
+        // `((as const A) d)` — so printing anything else would publish a model
+        // the certificate did not verify.  Every other array keeps the
+        // class-based rendering below, which is what `#P2b-37` needs.
+        if let Some(value) = model.get(array) {
+            if crate::solver::array_completion_certify::is_const_array(value, &self.terms) {
+                let printer = oxiz_core::smtlib::Printer::new(&self.terms);
+                return Some(printer.print_term(value));
+            }
+        }
         self.array_class_value(array, sort, model, class_values, 0)
     }
 

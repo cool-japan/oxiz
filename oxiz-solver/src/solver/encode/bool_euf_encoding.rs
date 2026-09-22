@@ -227,6 +227,12 @@ impl Solver {
                     t.sort,
                 );
                 fresh_of.insert(st, v);
+                // The reverse direction, for every theory that must not see
+                // the proxy and the `ite` as two objects (see
+                // `Solver::ite_elim_aliases`).  Keyed by the proxy, whose
+                // name already encodes `st`, so re-minting re-learns the
+                // identical entry and the map never needs a trail op.
+                self.ite_elim_aliases.insert(v, st);
                 ite_terms.push(st);
             }
         }

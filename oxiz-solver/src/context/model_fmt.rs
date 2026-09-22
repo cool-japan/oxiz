@@ -891,6 +891,20 @@ impl Context {
                 let printer = oxiz_core::smtlib::Printer::new(&self.terms);
                 printer.print_term(term)
             }
+            // The array constant `((as const A) d)` is an ordinary `Apply`
+            // under a reserved function symbol, so it has no `TermKind` of its
+            // own and would otherwise fall through to the `?` placeholder.
+            // It reaches a model entry from exactly one place —
+            // `solver::array_completion_certify`, which installs the *total*
+            // interpretation its certificate was discharged over — and
+            // printing it is what makes the published model the one that was
+            // verified (`#P2b-58`, decision (36)).
+            Some(TermKind::Apply { .. })
+                if crate::solver::array_completion_certify::is_const_array(term, &self.terms) =>
+            {
+                let printer = oxiz_core::smtlib::Printer::new(&self.terms);
+                printer.print_term(term)
+            }
             // A rounding mode is a nullary `Var` interned at the reserved
             // `RoundingMode` sort under its canonical long name, so the name
             // *is* the value.  Without this arm every solved rounding mode

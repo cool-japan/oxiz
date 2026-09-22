@@ -2,6 +2,7 @@
 
 pub(super) mod arith_axioms;
 pub(crate) mod array_axioms;
+pub(crate) mod array_completion_certify;
 pub(super) mod array_refinement;
 pub(super) mod branch_priority;
 pub(super) mod candidates;
@@ -253,6 +254,29 @@ pub struct Solver {
     /// evaluation rule), so without this alias a satisfiable model could
     /// never report a value for the original, unpurified application shape.
     pub(super) numeric_purify_aliases: FxHashMap<TermId, TermId>,
+    /// Alias map from the fresh proxy constant `eliminate_nonbool_ite` mints
+    /// for a non-Bool `(ite c t e)` back to **that `ite` term**.
+    ///
+    /// The proxy is an encoding-time device: the SAT core's clauses name it,
+    /// and two side conditions pin it to whichever branch `c` selects.  For
+    /// every *theory* that reasons structurally the proxy and the `ite` are
+    /// one object, and the array theory is the one where believing otherwise
+    /// costs a verdict (`#P2b-59`): `collect_array_structure` walks both
+    /// `self.assertions` (which stores the **pre**-rewrite term, so the `ite`
+    /// spelling) and `self.ground_array_roots` (which stored the **post**-
+    /// rewrite term, so the proxy spelling), and an array reachable under two
+    /// spellings is two array terms, two members of every pair set and two
+    /// copies of every rule instance — on `rk9/min/q33_a01.smt2`, 19 of 19
+    /// collected array terms where 13 is the truth, 21 extensionality
+    /// witnesses where 11 is, and 93 refinement rounds where 8 is.
+    ///
+    /// Not journalled, and that is a property of the key rather than an
+    /// omission: the proxy's name is `reserved_name("iteelim", ite.0)`, so a
+    /// proxy re-minted in a later scope is the *same* variable for the *same*
+    /// `ite` term.  The entry can therefore never go stale, only be
+    /// re-learned.  (`reset` clears it with everything else because the term
+    /// manager itself is the caller's to replace there.)
+    pub(super) ite_elim_aliases: FxHashMap<TermId, TermId>,
     /// Tseitin-encoding memo: term id -> (literal returned by `encode_depth`,
     /// polarity the term's clauses were emitted under).
     ///
@@ -714,6 +738,7 @@ impl Solver {
             bool_uf_arg_terms: FxHashSet::default(),
             numeric_uf_arg_terms: FxHashSet::default(),
             numeric_purify_aliases: FxHashMap::default(),
+            ite_elim_aliases: FxHashMap::default(),
             encoded_terms: FxHashMap::default(),
             fp_constraint_cache: FxHashMap::default(),
             encode_depth_exceeded: false,
@@ -854,6 +879,38 @@ impl Solver {
             }
             result = self.check_core(manager);
         }
+        // `#P2b-58` / decision (36): model completion for an array default
+        // under a binder, behind a quantifier-free certificate.
+        //
+        // This is the *last* thing tried before a verdict is given up, and
+        // only where one would be: either `check_core` already answered
+        // `Unknown`, or it answered `Sat` and one of the honesty gates below
+        // is about to take that `Sat` away.  A `Sat` that survives the gates
+        // needs nothing from here, and a `Unsat` is never revisited.
+        //
+        // Soundness rests entirely on
+        // [`Solver::certify_sat_by_array_completion`]: it publishes `Sat` only
+        // when a completed, total interpretation has been *verified* against
+        // every assertion by quantifier-free validity queries, which is a
+        // model in the ordinary semantic sense.  So the `Sat` returned here
+        // does not depend on the honesty gates it overtakes — it does not rest
+        // on the array axiomatisation, on the quantifier literals, or on the
+        // candidate model at all; the candidate only supplies the values the
+        // search starts from.  See `solver::array_completion_certify`.
+        let honesty_gate_pending = self.encode_depth_exceeded
+            || self.dt_axioms_incomplete
+            || self.array_axioms_incomplete
+            || self.quantifier_literal_unconstrained
+            || self.case_split_skipped_targets;
+        if (result == SolverResult::Unknown
+            || (result == SolverResult::Sat && honesty_gate_pending))
+            && self.certify_sat_by_array_completion(manager)
+        {
+            self.unsat_core = None;
+            self.debug_check_invariants("check: before returning sat (completed array model)");
+            return SolverResult::Sat;
+        }
+
         // Honesty gate (soundness): the Tseitin encoder can refuse a sub-term
         // *during* the search as well.  MBQI instantiation results and
         // E-matching lemmas are encoded mid-loop, never pass the assert-time
@@ -1811,6 +1868,7 @@ impl Solver {
         self.bool_uf_arg_terms.clear();
         self.numeric_uf_arg_terms.clear();
         self.numeric_purify_aliases.clear();
+        self.ite_elim_aliases.clear();
         self.encoded_terms.clear();
         self.fp_constraint_cache.clear();
         self.encode_depth_exceeded = false;

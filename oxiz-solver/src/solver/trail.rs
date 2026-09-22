@@ -204,6 +204,7 @@ impl super::Solver {
             bool_uf_arg_terms: _,                // TRAIL: BoolUfArgAdded
             numeric_uf_arg_terms: _,             // TRAIL: NumericUfArgAdded
             numeric_purify_aliases: _,           // TRAIL: NumericPurifyAliasAdded
+            ite_elim_aliases: _, // INVARIANT: keyed by the `ite` term's own id, so a re-mint re-learns the same entry
             encoded_terms: _, // TRAIL: EncodedTermAdded (carries the displaced entry, so a polarity widened inside the scope is restored rather than dropped)
             fp_constraint_cache: _, // INVARIANT: keyed by assertion term
             encode_depth_exceeded: _, // SNAPSHOT

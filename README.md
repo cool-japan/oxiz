@@ -426,6 +426,22 @@ Status reflects results on the `bench/z3_parity` suite against a real `z3` 4.15.
 - DER (Destructive Equality Resolution)
 - Model-Based Projection
 
+> **Scope of the array and quantifier entries above.** They name the machinery, not a completeness
+> claim. Above the finite expansion's 64-point budget — an index sort of `(_ BitVec 7)` or wider — a
+> *satisfiable* quantified array script is decided when the arrays the candidate model leaves partial
+> can be completed to **constant** arrays over a searched default and that completion passes a
+> quantifier-free certificate (`solver::array_completion_certify`, `#P2b-58`, closed in 0.3.4: the
+> `sat` is published only after a validity query per universal and one over the assertions has been
+> discharged, so a wrong completion is refused rather than published). Outside that shape — an
+> interpretation that is not constant anywhere, a goal carrying an uninterpreted function, an
+> `exists`, or a *declared* sort whose cardinality nothing pins — the completion declines and the
+> answer falls back to whatever the ordinary path reaches: often `sat` or `unsat`, and an honest
+> `unknown` when it reaches neither. A `sat` published without the completion may still come with a
+> model that falsifies its own assertion (`#P2b-51`).
+> Both remain open, with their repros, measured sizes and pins, as `#P2b-50` and `#P2b-51` in
+> [`TODO.md`](TODO.md). Neither is a wrong verdict: the paired corpora report 0 wrong `sat` and
+> 0 wrong `unsat`.
+
 ### Optimization
 - MaxSAT (Fu-Malik, RC2, LNS)
 - OMT with lexicographic/Pareto optimization

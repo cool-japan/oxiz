@@ -1664,13 +1664,18 @@ fn is_array_sorted(term: TermId, manager: &TermManager) -> bool {
 /// the eager family did not; for an enumerated pair the eager family reached
 /// *every* index there is, so all three have nothing left to say. See
 /// [`ARRAY_INDEX_ENUMERATION_LIMIT`].
-fn pair_is_enumerated(array: TermId, manager: &mut TermManager) -> bool {
+pub(super) fn pair_is_enumerated(array: TermId, manager: &mut TermManager) -> bool {
     array_domain(array, manager)
         .and_then(|domain| enumerable_index_values(manager, domain))
         .is_some_and(|values| !values.is_empty())
 }
 
-fn array_domain(term: TermId, manager: &TermManager) -> Option<SortId> {
+/// The index sort of `term`, when `term` is array-sorted.
+///
+/// `pub(super)` for the root-spelling filter in `ground_instance`, which has
+/// to know whether a proxy names an array at all before it asks
+/// [`pair_is_enumerated`] about that array's index sort.
+pub(super) fn array_domain(term: TermId, manager: &TermManager) -> Option<SortId> {
     let sort = manager.get(term)?.sort;
     match manager.sorts.get(sort)?.kind {
         SortKind::Array { domain, .. } => Some(domain),

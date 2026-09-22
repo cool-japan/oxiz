@@ -1,14 +1,21 @@
 //! Round-4 recheck pass 9 — pins for what re-fix pass 9 left open, and
-//! regression guards for what passes 8 and 9 closed.
+//! regression guards for what passes 8, 9 and 10 closed.
+//!
+//! Re-fix pass 10 closed one of the three holes (`#P2b-59`) and inverted its
+//! pin into `the_refinement_round_count_is_bounded_and_equal_inside_the_plateau`
+//! — a name re-fix pass 11 corrected, because the equality it asserts is a
+//! plateau inside a ramp and not the fixpoint the pass claimed (see that
+//! test's doc for the measured ladder). Re-fix pass 11 closed the other two
+//! (`#P2b-58`, model completion for an array default under a binder) with
+//! `solver::array_completion_certify`, so **this file now has no open hole**:
+//! every test in it asserts the answer the tree must give.
 //!
 //! # How to read this file
 //!
-//! * A test whose doc carries **THE HOLE IS CLOSED** asserts the answer this
-//!   tree gives **today**, which is the wrong or the weaker one. It is green
-//!   now and must go **red** when the defect is fixed; the doc says which
-//!   assertion to flip. Nothing here asserts a wrong `sat` or a wrong
-//!   `unsat` — every open hole in this file is an *honest* `unknown` that the
-//!   pre-round baseline (`c4b04b7`) and crates.io 0.3.3 answer with a verdict.
+//! * A test whose doc carried **THE HOLE IS CLOSED** asserted the answer this
+//!   tree gave **today**, which was the weaker one, and had to go red when the
+//!   defect was fixed. There are none left in this file: re-fix passes 10 and
+//!   11 closed all three, and every scaffold went with them.
 //! * Every other test asserts the CORRECT answer and is an ordinary
 //!   regression guard for the polarity-complete quantifier handling
 //!   (`encode::quant_guard`, `#P2b-54`), the per-quantifier capture guard
@@ -104,7 +111,9 @@ fn bv7(index: u32) -> String {
     out
 }
 
-/// **THE HOLE IS CLOSED** when this answers `sat`.
+/// `#P2b-58`'s hole, **closed** by decision (36)'s model completion (re-fix
+/// pass 11): this answers `sat`, and the model it publishes is checked here
+/// rather than taken on trust.
 ///
 /// `q0074` is satisfiable: the `store` writes `#b0` into a constant-`#b0`
 /// array, so the left-hand side of the `distinct` is `#b0` at every index and
@@ -113,33 +122,108 @@ fn bv7(index: u32) -> String {
 /// establishes that here, with no binder and no oracle, by expanding the
 /// quantifier over all 128 points of its index sort.
 ///
-/// `c4b04b7` answers `sat` in 8.6 ms and crates.io 0.3.3 answers `sat`; this
-/// tree answers `unknown` in ~32 ms, and its counters
-/// (`:bv-embedded-checks 1167`, `:bv-embedded-conflicts 0`,
-/// `:conflicts 38`) say **no budget was exhausted** — the 250,000-check
-/// ceiling is three orders of magnitude away. So this loss is neither
-/// mechanism (i) (`#P2b-46` (f)'s deterministic budget) nor mechanism (ii)
-/// (`#P2b-57`, closed), which are the only two decision (24a) names.
+/// It answered `unknown` here until re-fix pass 11, with counters
+/// (`:bv-embedded-checks 1167`, `:bv-embedded-conflicts 0`, `:conflicts 38`)
+/// that said **no budget was exhausted** — so the loss was neither mechanism
+/// (i) (`#P2b-46` (f)'s deterministic budget) nor mechanism (ii) (`#P2b-57`,
+/// closed). It was `#P2b-58`: MBQI could not certify a `sat` one bit above
+/// `finite_expand`'s 64-point budget, because the candidate model leaves
+/// `a1`'s **default** free. `solver::array_completion_certify` completes that
+/// default and certifies the completion with quantifier-free validity queries
+/// before any `sat` is published.
 ///
-/// It is not an isolated script: running `c4b04b7` and this tree over the
-/// round's own 120-pair width-7/8 corpus `rk6/corpus/qmbqi120` gives **seven**
-/// scripts the base decides and this tree does not (`q0033`, `q0047`, `q0074`,
-/// `q0075`, `q0103`, `q0106`, `q0107`), against 27 the tree gains and 8 whose
-/// base `sat` this tree correctly turns into `unsat`.
-///
-/// To close it, flip the expected verdict to `sat` and delete this paragraph.
+/// **Two assertions, not one.** The verdict alone would pass on a tree that
+/// guessed; the second half replays the *published model* against the
+/// quantifier written out at all 128 points of its index sort and requires it
+/// to be satisfiable — so a completion that is wrong anywhere reddens this
+/// test. [`the_same_formula_expanded_over_its_whole_index_sort_is_sat`] stays
+/// beside it as the oracle for the truth.
 #[test]
-fn a_satisfiable_width_seven_array_script_the_base_decides_is_undecided_here() {
+fn a_satisfiable_width_seven_array_script_is_decided_by_a_certified_completion() {
     let script = format!(
-        "{Q0074_PREFIX}(assert (forall ((i!q (_ BitVec 7))) {}))\n(check-sat)\n",
+        "{Q0074_PREFIX}(assert (forall ((i!q (_ BitVec 7))) {}))\n(check-sat)\n(get-model)\n",
         q0074_body_at("i!q")
     );
-    assert_verdict(
-        &script,
-        "unknown",
-        "HOLE (decision (24a)): `c4b04b7` and 0.3.3 answer `sat` here in \
-         milliseconds and no budget is exhausted when this tree gives up",
+    let lines = run(&script);
+    assert_eq!(
+        verdict(&lines),
+        "sat",
+        "#P2b-58 (decision (36)): the completed array model must certify this \
+         `sat`\n--- response ---\n{}",
+        lines.join("\n")
     );
+
+    // The published model, replayed against the whole index sort.
+    let pins = model_equalities(&lines);
+    assert!(
+        !pins.is_empty(),
+        "the `sat` published no model to replay:\n{}",
+        lines.join("\n")
+    );
+    let mut conjuncts = String::new();
+    for index in 0..128u32 {
+        conjuncts.push(' ');
+        conjuncts.push_str(&q0074_body_at(&bv7(index)));
+    }
+    let replay = format!("{Q0074_PREFIX}{pins}(assert (and{conjuncts}))\n(check-sat)\n");
+    assert_verdict(
+        &replay,
+        "sat",
+        "the published model must satisfy the quantifier at EVERY point of \
+         its index sort, not only where the search happened to look",
+    );
+}
+
+/// Every `(define-fun n () S v)` of a published model as `(assert (= n v))`.
+///
+/// An entry whose value is the `?` placeholder is skipped: it is not a value
+/// and asserting it would be a parse error rather than a check.
+fn model_equalities(lines: &[String]) -> String {
+    let mut out = String::new();
+    for line in lines {
+        for raw in line.lines() {
+            let trimmed = raw.trim();
+            let Some(rest) = trimmed.strip_prefix("(define-fun ") else {
+                continue;
+            };
+            let Some((name, rest)) = rest.split_once(" () ") else {
+                continue;
+            };
+            // Exactly ONE trailing `)` — the `define-fun`'s own.  Stripping
+            // every trailing paren would eat the value's, which for an array
+            // constant is `((as const …) #b1)`.
+            let Some(body) = rest.trim_end().strip_suffix(')') else {
+                continue;
+            };
+            // `SORT VALUE`, where SORT may itself be parenthesised.
+            let Some(value) = split_sort_and_value(body) else {
+                continue;
+            };
+            if value == "?" {
+                continue;
+            }
+            out.push_str(&format!("(assert (= {name} {value}))\n"));
+        }
+    }
+    out
+}
+
+/// Split `"<sort> <value>"` into its value half, honouring nesting in the
+/// sort.
+fn split_sort_and_value(body: &str) -> Option<&str> {
+    let bytes = body.as_bytes();
+    let mut depth = 0i32;
+    let mut index = 0usize;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'(' => depth += 1,
+            b')' => depth -= 1,
+            b' ' if depth == 0 && index > 0 => return Some(body[index + 1..].trim()),
+            _ => {}
+        }
+        index += 1;
+    }
+    None
 }
 
 /// The control that makes the pin above a statement about the *binder*: the
@@ -157,35 +241,85 @@ fn the_same_formula_expanded_over_its_whole_index_sort_is_sat() {
         &script,
         "sat",
         "the ground expansion of the same formula, so the truth of \
-         `a_satisfiable_width_seven_array_script_the_base_decides_is_undecided_here` \
+         `a_satisfiable_width_seven_array_script_is_decided_by_a_certified_completion` \
          rests on no oracle",
     );
 }
 
-/// **THE HOLE IS CLOSED** when this answers `sat`.
+/// The lazy array refinement's round count is **bounded and equal at two
+/// budgets inside the 10 / 76 plateau** on a quantifier-free `QF_ABV` script
+/// with `ite`-selected array bases (`#P2b-59`).
 ///
-/// A **quantifier-free** `QF_ABV` script — two assertions over two width-8
-/// arrays with `ite`-selected bases, taken verbatim from
+/// # This is not a fixpoint test, and the name it used to carry said it was
+///
+/// The name `a_quantifier_free_array_script_reaches_a_refinement_fixpoint`
+/// and the sentence "the counts are identical at two budgets — a fixpoint" are
+/// **withdrawn** (adversarial recheck pass 10, corrected here in re-fix pass
+/// 11). The equality at 2,000 and 5,000 is a *plateau inside a ramp*: the same
+/// method one rung higher gives 41 / 129 at 8,000. Measured ladder, release,
+/// `<scratchpad>/oxiz4/rk11/min/q33_b*.smt2`:
+///
+/// | budget | verdict | rounds / instances |
+/// |---|---|---|
+/// | 500 | `unknown` | 9 / 75 |
+/// | 2,000 | `unknown` | 10 / 76 |
+/// | 5,000 | `unknown` | 10 / 76 |
+/// | 8,000 | `unknown` | 41 / 129 |
+/// | 10,000 | `unknown` | 51 / 181 |
+/// | 12,000 | `unknown` | 57 / 197 |
+/// | 20,000 | `unknown` | 59 / 199 |
+/// | **50,000** | **`sat`** | **66 / 208**, 30,402 checks spent |
+///
+/// The refinement **does** reach a fixpoint — at 66 rounds / 208 instances,
+/// where it stops asking for budget (30,402 of the 50,002 checks offered) and
+/// publishes `sat`. Every rung below that is a *truncation* by the budget, not
+/// a fixpoint at a smaller place. The only assertion that could carry a real
+/// fixpoint claim is one taken at two budgets **above** 30,402 checks, and
+/// that costs the gate about a minute of release time (30.4 s at 50,000, and
+/// the dev profile is several times slower), which is why this test does not
+/// take it and says so instead of calling the plateau a fixpoint.
+///
+/// What this test is, then: a **bounded, equal** count at two budgets, which
+/// is still a working regression guard — the pass-9 tree reports 20 and 26 at
+/// exactly these two budgets and fails both halves. Its companion
+/// `round4_pass10_recheck_pins::the_array_refinement_round_count_still_grows_with_the_budget`
+/// pins the rung that breaks the plateau, so a tree whose plateau *moved*
+/// reddens there rather than passing silently here.
+///
+/// A **quantifier-free** script — two assertions over two width-8 arrays with
+/// `ite`-selected bases, taken verbatim from
 /// `<scratchpad>/oxiz4/rk6/corpus/qmbqi120/q0033.smt2` with its `forall`
-/// assertion dropped. It contains no binder at all, so none of the round's
-/// quantifier work can be the reason for what follows.
+/// assertion dropped. It contains no binder at all, which is what located the
+/// defect: no quantifier machinery can reach it.
 ///
-/// `c4b04b7` answers `sat` in 7.3 ms and crates.io 0.3.3 in 8.4 ms. This tree
-/// does not answer inside 90 s, and neither does the round's own pass-6
-/// checkpoint `00add07`, so the regression was already in the committed work.
-/// The counters name the shape: at `:max-bv-embedded-checks 500` the script is
-/// `unknown` after 7 array-refinement rounds and 68 lemma instances, at 5,000
-/// after **26** rounds and 104 instances — the lazy array refinement is not
-/// converging and each round pays the `O(num_vars)` embedded-check price of
-/// `#P2b-46` (f).
+/// # What went wrong, and what this now guards
 ///
-/// The budget below is what makes the test terminate, and it is the
-/// **deterministic** one, so the answer is a property of the tree. The claim
-/// is the `unknown` plus the refinement count that grows with the budget
-/// instead of converging. To close the hole, flip both expected verdicts to
-/// `sat`.
+/// `Solver::assert` stores the pre-rewrite term in `Solver::assertions` and
+/// registered the **encoded** term as a ground array root. Where the encoding
+/// chain replaced an array-sorted `(ite c a b)` with the proxy constant
+/// `eliminate_nonbool_ite` mints, the array collector walked both and counted
+/// one array as two — two members of every pair set, two extensionality
+/// witnesses per pair, a read-over-write cascade down each. The refinement
+/// then kept finding new instances for as long as it was given budget:
+/// `:array-refinement-rounds` 7 at `:max-bv-embedded-checks 500`, **20** at
+/// 2,000, **26** at 5,000, 91 at 20,000, and `c4b04b7` answers `sat` in 7.3 ms
+/// while this tree and the pass-6 checkpoint `00add07` answered nothing in
+/// 120 s.
+///
+/// `Solver::array_root_spelling` puts the proxies back before the root is
+/// registered, so one array is one array term, and the script answers `sat` in
+/// 30.4 s unbudgeted (release, 66 rounds, 208 lemma instances, 30,402 embedded
+/// checks) where the pass-9 tree answered nothing in 400 s. The residual cost
+/// is `#P2b-46` (f)'s `O(num_vars)` embedded check, whose price is **not** a
+/// flat rate — 0.06 ms per check at 12,002 checks, 0.23 at 20,002 and 1.00 at
+/// 30,402, which is the `O(num_vars)` curve itself. The unbudgeted run is not
+/// asserted here because 30 s of release time is minutes of the gate's; it is
+/// recorded in `TODO.md` `#P2b-59` with its counters.
+///
+/// The bound beside the equality is load-bearing: a tree that regressed to a
+/// *stable* 93 rounds would satisfy equality alone.
 #[test]
-fn a_quantifier_free_array_script_the_base_decides_is_undecided_here() {
+fn the_refinement_round_count_is_bounded_and_equal_inside_the_plateau() {
     let body = "(declare-const a0 (Array (_ BitVec 8) (_ BitVec 1)))\n\
          (declare-const a1 (Array (_ BitVec 8) (_ BitVec 1)))\n\
          (declare-const p Bool)\n\
@@ -205,15 +339,19 @@ fn a_quantifier_free_array_script_the_base_decides_is_undecided_here() {
         "this pin's whole point is that the script carries no binder"
     );
     let mut rounds = Vec::new();
-    for budget in [500u32, 2000] {
+    let mut instances = Vec::new();
+    for budget in [2000u32, 5000] {
         let script =
             format!("(set-logic ALL)\n(set-option :max-bv-embedded-checks {budget})\n{body}");
         let lines = run(&script);
+        // The budget is the *deterministic* one and it is deliberately below
+        // what the script needs, so this says nothing about the verdict — the
+        // claim is entirely in the two counters below.
         assert_eq!(
             verdict(&lines),
             "unknown",
-            "HOLE (decision (24a)): a quantifier-free script `c4b04b7` decides \
-             in 7.3 ms that this tree does not decide at all, at any budget\n{}",
+            "at {budget} embedded checks the script is still short of a \
+             verdict; it is the refinement counters that this pin is about\n{}",
             lines.join("\n")
         );
         let stats = lines
@@ -221,37 +359,107 @@ fn a_quantifier_free_array_script_the_base_decides_is_undecided_here() {
             .find(|line| line.contains(":array-refinement-rounds"))
             .cloned()
             .unwrap_or_default();
-        let count: u32 = stats
-            .split(":array-refinement-rounds ")
-            .nth(1)
-            .and_then(|rest| rest.split_whitespace().next())
-            .and_then(|token| token.parse().ok())
-            .unwrap_or_default();
-        rounds.push(count);
+        let read = |key: &str| -> u32 {
+            stats
+                .split(key)
+                .nth(1)
+                .and_then(|rest| rest.split_whitespace().next())
+                .and_then(|token| token.parse().ok())
+                .unwrap_or_default()
+        };
+        rounds.push(read(":array-refinement-rounds "));
+        instances.push(read(":array-lemma-instances "));
     }
+    assert_eq!(
+        rounds.len(),
+        2,
+        "both budgets must publish `:array-refinement-rounds`"
+    );
+    assert_eq!(
+        rounds[0], rounds[1],
+        "the lazy array refinement must reach a fixpoint: it reported \
+         {rounds:?} rounds at budgets 2,000 and 5,000, so it is still finding \
+         new work for as long as it is given budget (`#P2b-59`; before the \
+         fix this was 20 and 26)",
+    );
+    assert_eq!(
+        instances[0], instances[1],
+        "the lemma set must reach a fixpoint too: {instances:?} instances at \
+         budgets 2,000 and 5,000 (before the fix, 91 and 104)",
+    );
     assert!(
-        rounds.len() == 2 && rounds[1] > rounds[0] && rounds[0] > 0,
-        "the lazy array refinement does not converge here: it spends every \
-         budget it is given ({rounds:?} rounds at budgets 500 and 2,000). A \
-         tree that decided this script would report the same count at both.",
+        rounds[0] > 0 && rounds[0] <= 12 && instances[0] <= 90,
+        "a fixpoint at {} rounds / {} instances is not the one measured (10 / \
+         76): equality across two budgets alone would also be satisfied by a \
+         tree stuck at the pre-fix 93 rounds",
+        rounds[0],
+        instances[0],
     );
 }
 
-/// **THE HOLE IS CLOSED** when this answers `sat`.
+/// The one base-decided verdict `#P2b-59`'s fix buys back.
+///
+/// `rk6/corpus/qmbqi120/q0107.smt2` verbatim, one of the four corpus members
+/// the recheck listed beside the quantifier-free repro above. `c4b04b7`
+/// answers `sat` in 11.4 ms; the pass-9 tree answered nothing inside a 20 s
+/// cap, so `rk9/pairverd.py` counted it as a lost verdict; here it is `sat`
+/// in 160.2 ms (release). The other three — `q0033`, `q0047`, `q0103` — are
+/// deliberately **not** pinned: they still do not finish in 130 s, their cost
+/// is `#P2b-46` (f)'s `O(num_vars)` embedded check, and a pin on a verdict
+/// they do not produce would be scaffolding.
+///
+/// The `(get-model)` is kept because it is what the corpus runs, and the
+/// model it prints is `#P2b-51`'s open item, not this test's claim: the
+/// assertion here is the **verdict**.
+#[test]
+fn the_corpus_member_the_root_spelling_buys_back_is_decided() {
+    assert_verdict(
+        "(set-logic ALL)\n\
+         (set-option :produce-models true)\n\
+         (declare-const a0 (Array (_ BitVec 8) (_ BitVec 1)))\n\
+         (declare-const a1 (Array (_ BitVec 8) (_ BitVec 1)))\n\
+         (declare-const p Bool)\n\
+         (declare-const q Bool)\n\
+         (declare-const d (_ BitVec 1))\n\
+         (assert (= (select a0 #b00000100) (select a0 #b01101100)))\n\
+         (assert (= (select (store ((as const (Array (_ BitVec 8) (_ BitVec 1))) d) \
+         #b11011010 #b0) #b11100110) (bvxor (select (store a1 #b00101101 #b1) \
+         #b01110100) #b0)))\n\
+         (assert (or (= (select (ite q a1 (ite p a1 a0)) #b00001000) #b0) \
+         (= (bvxor (select (ite q (store a1 #b10010010 #b1) (store a0 #b01111110 #b0)) \
+         #b00001010) #b0) (select a1 #b01010110))))\n\
+         (assert (forall ((i!q (_ BitVec 8))) (= (bvxor (select (ite p \
+         (store a0 #b11010011 #b1) (ite q a1 a1)) #b01000000) #b1) \
+         (select (ite p a1 a1) i!q))))\n\
+         (check-sat)\n(get-model)\n",
+        "sat",
+        "`c4b04b7` answers `sat` in 11.4 ms and the pass-9 tree answered \
+         nothing in 20 s; `Solver::array_root_spelling` is what buys it back",
+    );
+}
+
+/// `#P2b-58`'s second hole, **closed** by the same completion (re-fix pass 11).
 ///
 /// `rk8/atk/f5_binder_collide_index.smt2`, the unpinned twin of `#P2b-55`'s
 /// name-collision repro. It is satisfiable — at any `i` other than `#b0000001`
 /// the read misses the `store` and the body says `a[#b0000001] = k`, which
-/// `a = ((as const …) k)` satisfies — and `c4b04b7` answers `sat`. This tree
-/// answers `unknown`: `binder_row` now (correctly) accepts the quantifier and
-/// rewrites the read, and the residual `∀i. ite(i = 1, k, a[1]) = k` at width
-/// 7 is past `finite_expand`'s 64-point budget, where MBQI has no way to
-/// certify the `sat`.
+/// `a = ((as const …) k)` satisfies — and `c4b04b7` answers `sat` in 0.12 ms.
+/// This tree answered `unknown` until the completion landed: `binder_row`
+/// accepts the quantifier and rewrites the read, and the residual
+/// `∀i. ite(i = 1, k, a[1]) = k` at width 7 is past `finite_expand`'s
+/// 64-point budget, where MBQI had no way to certify the `sat`. The pool that
+/// decides it is the element-sort one — `k`'s value in the candidate model is
+/// a candidate default, and `a = ((as const …) k)` is what the certificate
+/// discharges.
 ///
 /// Same mechanism as the pin above, different surface. Recorded separately
-/// because it is the one the round's own attack corpus already contained.
+/// because it is the one the round's own attack corpus already contained, and
+/// because the bound name here **is** a declared constant's name — so a
+/// completion that confused the two would certify the wrong formula.
+/// `solver::array_completion_certify` renames every bound variable to a
+/// reserved constant before it builds a query, which is what keeps them apart.
 #[test]
-fn a_satisfiable_name_collision_script_the_base_decides_is_undecided_here() {
+fn a_satisfiable_name_collision_script_is_decided_by_a_certified_completion() {
     assert_verdict(
         "(set-logic ALL)\n\
          (declare-const a (Array (_ BitVec 7) (_ BitVec 7)))\n\
@@ -259,8 +467,9 @@ fn a_satisfiable_name_collision_script_the_base_decides_is_undecided_here() {
          (assert (and (forall ((k (_ BitVec 7))) (= k k))\n\
          (forall ((i (_ BitVec 7))) (= (select (store a i k) (_ bv1 7)) k))))\n\
          (check-sat)\n",
-        "unknown",
-        "HOLE (decision (24a)): `c4b04b7` answers `sat` here",
+        "sat",
+        "#P2b-58 (decision (36)): `c4b04b7` answers `sat` here and so must \
+         this tree, by a certified completion",
     );
 }
 

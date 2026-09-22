@@ -337,3 +337,157 @@ mod p2b32_walk_tests {
         assert_eq!(solver.check(&mut tm), SolverResult::Unsat, "a12");
     }
 }
+
+/// One array is one array term (`#P2b-59`).
+///
+/// `Solver::assert` stores the **pre**-rewrite term in `Solver::assertions`
+/// and registers the **encoded** one as a ground array root.  Where the
+/// encoding chain replaced an array-sorted `(ite c a b)` with the fresh proxy
+/// `eliminate_nonbool_ite` mints, the same array became reachable under two
+/// names, and the collector — which walks both root sets — counted it twice:
+/// two members of every pair set, two extensionality witnesses per pair, and a
+/// read-over-write cascade down each.
+///
+/// The test states the fix directly, on the shape that found it
+/// (`rk9/min/q33_a01.smt2`): the collector's array-term set contains no proxy
+/// at all, and its size is the number of syntactically distinct arrays rather
+/// than that number plus one per `ite`.  A verdict test cannot say this — the
+/// script's verdict is a property of the search that follows — and a timing
+/// test must not.
+mod one_spelling_per_array_tests {
+    use super::super::*;
+    use oxiz_core::ast::TermManager;
+
+    /// Every array-sorted term the collector reaches from `solver`'s two root
+    /// sets, in first-encounter order.
+    fn collected_array_terms(solver: &Solver, manager: &TermManager) -> Vec<TermId> {
+        let mut collected = ArrayStructure::default();
+        let mut visited: FxHashSet<TermId> = FxHashSet::default();
+        for &root in &solver.assertions {
+            collect_array_structure(root, manager, &mut visited, &mut collected, true);
+        }
+        for &root in &solver.ground_array_roots {
+            collect_array_structure(root, manager, &mut visited, &mut collected, false);
+        }
+        let mut out: Vec<TermId> = Vec::new();
+        let push = |t: TermId, out: &mut Vec<TermId>| {
+            if is_array_sorted(t, manager) && !out.contains(&t) {
+                out.push(t);
+            }
+        };
+        for &(_, array, _) in &collected.selects {
+            push(array, &mut out);
+        }
+        for &(store, _, value) in &collected.stores {
+            push(store, &mut out);
+            push(value, &mut out);
+        }
+        for &term in &collected.foreign {
+            push(term, &mut out);
+        }
+        for &(ite, _, then_branch, else_branch) in &collected.array_ites {
+            push(ite, &mut out);
+            push(then_branch, &mut out);
+            push(else_branch, &mut out);
+        }
+        for &term in &collected.const_arrays {
+            push(term, &mut out);
+        }
+        out
+    }
+
+    #[test]
+    fn an_ite_selected_array_base_is_one_array_and_not_two() {
+        let mut tm = TermManager::new();
+        let index = tm.sorts.bitvec(8);
+        let element = tm.sorts.bitvec(1);
+        let array_sort = tm.sorts.array(index, element);
+
+        let a0 = tm.mk_var("a0", array_sort);
+        let a1 = tm.mk_var("a1", array_sort);
+        let p = tm.mk_var("p", tm.sorts.bool_sort);
+        let one = tm.mk_bitvec(1u32, 1);
+        let zero = tm.mk_bitvec(0u32, 1);
+        let i0 = tm.mk_bitvec(0xb7u32, 8);
+        let i1 = tm.mk_bitvec(0xd6u32, 8);
+
+        // `(= (select (store (ite p a0 a1) #xb7 #b1) #xd6) #b0)` — the shape of
+        // `rk9/min/q33_a01.smt2`'s first assertion, with an `ite`-selected
+        // store base and no quantifier anywhere.
+        let base = tm.mk_ite(p, a0, a1);
+        let store = tm.mk_store(base, i0, one);
+        let read = tm.mk_select(store, i1);
+        let goal = tm.mk_eq(read, zero);
+
+        let mut solver = Solver::new();
+        solver.assert(goal, &mut tm);
+
+        let arrays = collected_array_terms(&solver, &tm);
+        let prefix = oxiz_core::smtlib::reserved_name("iteelim", "");
+        let printer = oxiz_core::smtlib::Printer::new(&tm);
+        let printed: Vec<String> = arrays.iter().map(|&t| printer.print_term(t)).collect();
+        let proxies: Vec<&String> = printed.iter().filter(|s| s.contains(&prefix)).collect();
+        assert!(
+            proxies.is_empty(),
+            "the array collector reached the encoder's `ite` proxies, so one array is two array \
+             terms: {proxies:?}"
+        );
+        // `a0`, `a1`, `(ite p a0 a1)` and `(store (ite p a0 a1) #xb7 #b1)`.
+        // The proxy would make it five, and every pair set built out of it
+        // would grow with the square of that.
+        assert_eq!(arrays.len(), 4, "collected array terms: {printed:?}");
+    }
+
+    /// The other half of the same rule: below the enumeration limit the proxy
+    /// **stays**, and that is deliberate.
+    ///
+    /// `Solver::array_root_spelling` re-spells only the proxies of arrays
+    /// whose index sort is too large for
+    /// [`super::super::ARRAY_INDEX_ENUMERATION_LIMIT`]. An enumerated pair
+    /// mints no Skolem witness, so the duplicate costs at most a constant
+    /// factor of lemmas over the one shared index set — while putting the
+    /// `ite` back there hands `build_array_ite_reads` a conditional read pair
+    /// at every element of the domain for every read the enumerated family
+    /// creates. Measured over the 300-pair width-1/2 corpus of
+    /// `round4_pass5_recheck_pins`: one pair went from `sat` in 8.5 ms to
+    /// `sat` in 2,702 ms with the verdict unchanged, and the gate's 180 s
+    /// ceiling became a TIMEOUT; with the limit respected it is `sat` in
+    /// 2.9 ms.
+    ///
+    /// So this test asserts the *presence* of the proxy, and it reddens if a
+    /// later pass widens the rule to every index sort. It is not a claim that
+    /// two spellings are good — it is the record of where the trade turns.
+    #[test]
+    fn below_the_enumeration_limit_the_proxy_deliberately_stays() {
+        let mut tm = TermManager::new();
+        let index = tm.sorts.bitvec(2);
+        let element = tm.sorts.bitvec(1);
+        let array_sort = tm.sorts.array(index, element);
+
+        let a0 = tm.mk_var("a0", array_sort);
+        let a1 = tm.mk_var("a1", array_sort);
+        let p = tm.mk_var("p", tm.sorts.bool_sort);
+        let one = tm.mk_bitvec(1u32, 1);
+        let zero = tm.mk_bitvec(0u32, 1);
+        let i0 = tm.mk_bitvec(2u32, 2);
+        let i1 = tm.mk_bitvec(3u32, 2);
+
+        let base = tm.mk_ite(p, a0, a1);
+        let store = tm.mk_store(base, i0, one);
+        let read = tm.mk_select(store, i1);
+        let goal = tm.mk_eq(read, zero);
+
+        let mut solver = Solver::new();
+        solver.assert(goal, &mut tm);
+
+        let arrays = collected_array_terms(&solver, &tm);
+        let prefix = oxiz_core::smtlib::reserved_name("iteelim", "");
+        let printer = oxiz_core::smtlib::Printer::new(&tm);
+        let printed: Vec<String> = arrays.iter().map(|&t| printer.print_term(t)).collect();
+        assert!(
+            printed.iter().any(|s| s.contains(&prefix)),
+            "at an enumerable index sort the encoder's `ite` proxy must still \
+             reach the collector: {printed:?}"
+        );
+    }
+}
