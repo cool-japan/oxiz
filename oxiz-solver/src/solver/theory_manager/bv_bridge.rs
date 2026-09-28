@@ -284,6 +284,13 @@ impl TheoryManager<'_> {
             }
             changed = true;
             self.bv_pin_pending = false;
+            // Charged like every other embedded check (it was the one that was
+            // not, so `:bv-embedded-checks` undercounted the solves exactly
+            // where the leaf-equality exchange was busiest — re-fix pass 12).
+            if self.charge_bv_embedded_check() {
+                self.resource_exhausted = true;
+                return Exchange::Refuted(TheoryCheckResult::Sat);
+            }
             match self.bv.check() {
                 Ok(TheoryCheckResultEnum::Unsat(conflict_terms)) => {
                     return Exchange::Refuted(self.report_theory_conflict(conflict_terms));

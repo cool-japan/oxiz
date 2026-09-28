@@ -7,12 +7,12 @@
 //! * A test whose doc carries **THE HOLE IS CLOSED** asserts what this tree
 //!   answers **today**, which is the weaker answer. It is green now and must
 //!   go **red** when the defect is fixed; the doc names the assertion to
-//!   flip. Nothing here asserts a wrong `sat` or a wrong `unsat`: every hole
-//!   pinned below is either an honest `unknown`, or a *correct* verdict whose
-//!   published model is wrong — and in the latter case the falsification is
-//!   established **on this tree**, by replaying the published model into the
-//!   same formula written out over every point of its index sort, so the pin
-//!   never rests on an external solver.
+//!   flip. Nothing here asserts a wrong `sat` or a wrong `unsat`. Re-fix pass
+//!   12 (decisions (40), (41)) closed the three holes of section 1 and
+//!   inverted them: each now asserts `sat` **and** replays the published
+//!   model into the same formula written out over every point of its index
+//!   sort, so the pin never rests on an external solver. The one hole left
+//!   open in this file is section 3's round-count pin.
 //! * Every other test asserts the CORRECT answer and is an ordinary
 //!   regression guard for `solver::array_completion_certify`, the module
 //!   re-fix pass 11 added. They were written by attacking that module rather
@@ -127,45 +127,33 @@ fn width_seven_points() -> Vec<String> {
 }
 
 // ---------------------------------------------------------------------------
-// 1. OPEN HOLES
+// 1. THE HOLES RECHECK PASS 11 PINNED, CLOSED BY RE-FIX PASS 12 (decisions
+//    (40) and (41)) AND INVERTED: each asserts `sat` and replays the model.
 // ---------------------------------------------------------------------------
 
-/// **THE HOLE IS CLOSED** when the replay below answers `sat`.
-///
-/// `#P2b-51`, in **three** lines, and in the exact shape `#P2b-58`'s close-out
-/// says is now decided by a certified completion:
+/// `#P2b-51`, in **three** lines — **closed** by decision (40) (re-fix pass
+/// 12), and inverted here.  This test carried the name
+/// `a_three_line_quantified_array_script_still_publishes_a_falsifying_model`
+/// while the hole was open.
 ///
 /// ```text
 /// (declare-const a (Array (_ BitVec 7) (_ BitVec 1)))
 /// (assert (forall ((i (_ BitVec 7))) (= (select a i) #b1)))
 /// ```
 ///
-/// The verdict `sat` is **correct** — `a = ((as const …) #b1)` satisfies it —
-/// and the published model is `((as const …) #b0)`, which reads `#b0`
-/// everywhere and so falsifies the only assertion in the script. This test
-/// establishes that on this tree and on nothing else: it takes the published
-/// model, pins it, and writes the quantifier out over all 128 points of its
-/// index sort. A real model keeps that `sat`; this one turns it `unsat`.
+/// The verdict `sat` is correct, and until re-fix pass 12 the published model
+/// was `((as const …) #b0)` — false at all 128 points, so it falsified the
+/// only assertion in the script.  `check_core` answered `Sat` with no honesty
+/// gate pending, and the completion (`solver::array_completion_certify`) ran
+/// only where a verdict would otherwise be given up.  It now runs at every
+/// `Sat` exit a quantified array assertion reaches and installs the certified
+/// interpretation; the verdict is untouched.
 ///
-/// It is the *residue* decision (36) deliberately left, recorded in `TODO.md`
-/// `#P2b-58` as a decision with its reason: `Solver::check` fires the
-/// completion only where a verdict would otherwise be given up, and here
-/// `check_core` already answers `Sat` with no honesty gate pending, so the
-/// module never runs. The shape matters because it is *smaller* than every
-/// script `#P2b-58`'s list names — `rk6/corpus/qmbqi120/q0074` needs a second
-/// assertion to reach the completion at all — so a reader of the `[0.3.4]`
-/// notes could reasonably expect it to be covered and it is not.
-///
-/// `c4b04b7` answers `unknown` here with `(error "No model available")`, so
-/// this is not a regression: the tree gained a verdict and kept a bad model.
-/// Measured on the delivered tree and on `0559fb3`: byte-identical responses,
-/// so the model is not new to re-fix pass 11 either.
-///
-/// To close: publish `((as const …) #b1)` — which is what
-/// `array_completion_certify` would certify if it were consulted here — and
-/// flip the `unsat` below to `sat`.
+/// The model is **replayed**, not string-matched: its pins are asserted beside
+/// the quantifier written out over all 128 points of its index sort, and that
+/// must be `sat`.  A different but equally correct model keeps this green.
 #[test]
-fn a_three_line_quantified_array_script_still_publishes_a_falsifying_model() {
+fn a_three_line_quantified_array_script_publishes_a_certified_model() {
     let script = "(set-logic ALL)\n\
          (set-option :produce-models true)\n\
          (declare-const a (Array (_ BitVec 7) (_ BitVec 1)))\n\
@@ -176,8 +164,7 @@ fn a_three_line_quantified_array_script_still_publishes_a_falsifying_model() {
     assert_eq!(
         verdict(&lines),
         "sat",
-        "the script is satisfiable and this tree says so; the pin is about \
-         the MODEL\n--- response ---\n{}",
+        "the script is satisfiable and this tree says so\n--- response ---\n{}",
         lines.join("\n")
     );
     let pins = model_equalities(&lines);
@@ -196,32 +183,24 @@ fn a_three_line_quantified_array_script_still_publishes_a_falsifying_model() {
     replay.push_str("(check-sat)\n");
     assert_verdict(
         &replay,
-        "unsat",
-        "THE HOLE IS CLOSED: the published model now satisfies the quantifier \
-         at every one of the 128 points of its index sort, so `#P2b-51` no \
-         longer reaches this shape. Flip this `unsat` to `sat`, and re-state \
-         `#P2b-51` in TODO.md and the `[0.3.4]` CHANGELOG bullet",
+        "sat",
+        "#P2b-51 (decision (40)): the published model must satisfy the \
+         quantifier at every one of the 128 points of its index sort",
     );
 }
 
-/// **THE HOLE IS CLOSED** when the replay below answers `sat`.
-///
-/// The same hole at an element sort `#P2b-51` has never been measured at:
-/// **`Bool`**. Every script the entry names has a `(_ BitVec 1)` element sort,
-/// and the entry's own mechanism sentence — *"`context::model_fmt::array_model`
-/// takes an array's default from the **sort**"* — predicts the Boolean case
-/// but nothing pins it.
+/// The same hole at the **`Bool`** element sort — **closed** by decision
+/// (40) (re-fix pass 12), and inverted here.  This test carried the name
+/// `the_falsifying_model_family_reaches_a_boolean_element_sort_too` while the
+/// hole was open.
 ///
 /// `(forall ((i (_ BitVec 7))) (select a i))` over `(Array (_ BitVec 7) Bool)`
-/// is `sat` here (correctly: `a = ((as const …) true)`), and the published
-/// model is `(store ((as const …) false) #b0000010 true)` — `false` at 127 of
-/// the 128 points, so it falsifies the quantifier. Byte-identical on `0559fb3`,
-/// so it is pre-existing rather than new.
-///
-/// To close: publish a model that satisfies the quantifier, and flip the
-/// `unsat` below to `sat`.
+/// is `sat` (correctly: `a = ((as const …) true)`), and the model published
+/// until re-fix pass 12 was `(store ((as const …) false) #b0000010 true)` —
+/// `false` at 127 of the 128 points.  The replay below asserts the published
+/// model beside the quantifier written out at every point.
 #[test]
-fn the_falsifying_model_family_reaches_a_boolean_element_sort_too() {
+fn the_boolean_element_sort_member_publishes_a_certified_model() {
     let script = "(set-logic ALL)\n\
          (set-option :produce-models true)\n\
          (declare-const a (Array (_ BitVec 7) Bool))\n\
@@ -234,36 +213,42 @@ fn the_falsifying_model_family_reaches_a_boolean_element_sort_too() {
     assert_eq!(
         verdict(&lines),
         "sat",
-        "the script is satisfiable and this tree says so; the pin is about \
-         the MODEL\n--- response ---\n{}",
+        "the script is satisfiable and this tree says so\n--- response ---\n{}",
         lines.join("\n")
     );
     let pins = model_equalities(&lines);
+    assert!(
+        pins.contains("(= a "),
+        "the published model must pin `a` for the replay to mean anything\n\
+         --- response ---\n{}",
+        lines.join("\n")
+    );
     let mut replay = String::from(
         "(set-logic ALL)\n\
          (declare-const a (Array (_ BitVec 7) Bool))\n\
          (declare-const p Bool)\n",
     );
     replay.push_str(&pins);
+    replay.push_str("(assert (or p (select a #b0000010)))\n");
     for point in width_seven_points() {
         replay.push_str(&format!("(assert (select a {point}))\n"));
     }
     replay.push_str("(check-sat)\n");
     assert_verdict(
         &replay,
-        "unsat",
-        "THE HOLE IS CLOSED at the `Bool` element sort: the published model \
-         now satisfies the quantifier everywhere. Flip this `unsat` to `sat` \
-         and record the element sort in `#P2b-51`",
+        "sat",
+        "#P2b-51 (decision (40)) at the `Bool` element sort: the published \
+         model must satisfy the quantifier everywhere and the ground \
+         assertion beside it",
     );
 }
 
-/// **THE HOLE IS CLOSED** when either verdict below is `sat`.
-///
-/// The two shapes `solver::array_completion_certify` declines by construction,
-/// pinned so a later widening is visible rather than silent. Both are
-/// satisfiable, and in both the satisfying interpretation is **not** a constant
-/// array over any pooled default:
+/// The two shapes the constant-only completion declined — **closed** by
+/// decision (41) (re-fix pass 12): a default plus finitely many pinned points,
+/// the points taken from the ground index terms the goal already names, behind
+/// the same certificate.  This test carried the name
+/// `an_interpretation_that_is_not_constant_anywhere_is_declined_and_never_sat`
+/// while both answered an honest `unknown` (as `c4b04b7` does).
 ///
 /// * a body that forces one index to a different value from all the others
 ///   (`a = (store ((as const …) #b1) #b0000000 #b0)`);
@@ -271,40 +256,57 @@ fn the_falsifying_model_family_reaches_a_boolean_element_sort_too() {
 ///   `#b0000100`, beside a ground assertion that forces one of the rest the
 ///   other way.
 ///
-/// Both answer `unknown` here — which is honest, and is what the module's own
-/// doc says it will do — and `c4b04b7` answers `unknown` on both as well, so
-/// nothing is lost against the base. The pin exists because `#P2b-58`'s
-/// close-out lists what declines in prose only; this turns two of those six
-/// lines into something `cargo nextest` checks.
-///
-/// To close: extend the completion past a constant array (pins plus a default,
-/// with the pins taken from the ground terms the goal already names) and flip
-/// the two `unknown`s.
+/// Both are `sat` now, and each published model is replayed against its
+/// quantifier written out over all 128 points of the index sort and every
+/// ground assertion beside it — a `sat` published here MUST come with a model
+/// that satisfies the quantifier at every point.
+/// A quantifier body at one index, as a function of that index's spelling.
+type BodyAt = dyn Fn(&str) -> String;
+
 #[test]
-fn an_interpretation_that_is_not_constant_anywhere_is_declined_and_never_sat() {
-    let one_point_off = "(set-logic ALL)\n\
-         (declare-const a (Array (_ BitVec 7) (_ BitVec 1)))\n\
-         (declare-const p Bool)\n\
-         (assert (or p (= (select a #b0000010) #b1)))\n\
-         (assert (forall ((i (_ BitVec 7))) \
-         (= (select a i) (ite (= i #b0000000) #b0 #b1))))\n\
-         (check-sat)\n";
-    let guarded = "(set-logic ALL)\n\
-         (declare-const a (Array (_ BitVec 7) (_ BitVec 1)))\n\
-         (assert (= (select a #b0000101) #b0))\n\
-         (assert (forall ((i (_ BitVec 7))) \
-         (=> (bvult i #b0000100) (= (select a i) #b1))))\n\
-         (check-sat)\n";
-    for (script, name) in [(one_point_off, "one point off"), (guarded, "guarded")] {
+fn an_interpretation_that_is_not_constant_anywhere_is_certified_with_pins() {
+    let decls = "(declare-const a (Array (_ BitVec 7) (_ BitVec 1)))\n\
+         (declare-const p Bool)\n";
+    let one_point_off_ground = "(assert (or p (= (select a #b0000010) #b1)))\n";
+    let one_point_off_body =
+        |i: &str| format!("(= (select a {i}) (ite (= {i} #b0000000) #b0 #b1))");
+    let guarded_ground = "(assert (= (select a #b0000101) #b0))\n";
+    let guarded_body = |i: &str| format!("(=> (bvult {i} #b0000100) (= (select a {i}) #b1))");
+    let cases: [(&str, &str, &BodyAt); 2] = [
+        ("one point off", one_point_off_ground, &one_point_off_body),
+        ("guarded", guarded_ground, &guarded_body),
+    ];
+    for (name, ground, body) in cases {
+        let script = format!(
+            "(set-logic ALL)\n(set-option :produce-models true)\n{decls}{ground}\
+             (assert (forall ((i (_ BitVec 7))) {}))\n(check-sat)\n(get-model)\n",
+            body("i")
+        );
+        let lines = run(&script);
+        assert_eq!(
+            verdict(&lines),
+            "sat",
+            "decision (41) ({name}): a default plus pinned points certifies this \
+             script\n--- response ---\n{}",
+            lines.join("\n")
+        );
+        let pins = model_equalities(&lines);
+        assert!(
+            pins.contains("(= a "),
+            "({name}) the published model must pin `a`\n--- response ---\n{}",
+            lines.join("\n")
+        );
+        let mut replay = format!("(set-logic ALL)\n{decls}{pins}{ground}");
+        for point in width_seven_points() {
+            replay.push_str(&format!("(assert {})\n", body(&point)));
+        }
+        replay.push_str("(check-sat)\n");
         assert_verdict(
-            script,
-            "unknown",
+            &replay,
+            "sat",
             &format!(
-                "THE HOLE IS CLOSED ({name}): the completion now reaches an \
-                 interpretation that is not a constant array. Flip this \
-                 `unknown` to `sat`, and add the model replay this pin's \
-                 siblings use — a `sat` published here MUST come with a model \
-                 that satisfies the quantifier at every point"
+                "({name}) the published model must satisfy the quantifier at \
+                 every one of the 128 points and the ground assertion beside it"
             ),
         );
     }
@@ -757,7 +759,8 @@ fn a_popped_refinement_scope_re_derives_its_lemmas() {
     assert_eq!(
         answers[0], "unknown",
         "2,000 embedded checks is deliberately below what this script \
-         consumes (30,402); the pin is about the `pop`, not the verdict"
+         consumes (30,402 until re-fix pass 12, 9,302 since); the pin is \
+         about the `pop`, not the verdict"
     );
 }
 
@@ -778,6 +781,14 @@ fn a_popped_refinement_scope_re_derives_its_lemmas() {
 /// `<scratchpad>/oxiz4/rk12/REBUILD.md` rather than asserted here. What this
 /// test asserts is the cheap half the documents get wrong: **the two counts at
 /// 500 and 5,000 differ**.
+///
+/// **Re-measured on re-fix pass 12's tree (decisions (43), (45)):** 9 / 69 at
+/// 500 and 47 / 158 at 5,000 — still apart.  The saturation point moved from
+/// 30,402 checks to 9,302 (70 / 195, `sat`, identical at 20,000 and 50,000),
+/// cheap enough that `round4_pass9_recheck_pins::the_refinement_reaches_a_fixpoint_above_its_saturation_point`
+/// now asserts it.  Decision (44)'s fixpoint *below* that point was built in
+/// two variants and measured to cost more checks than it saves (`TODO.md`
+/// `#P2b-59` (e)), so this stays a hole.
 ///
 /// To close: make 500 and 5,000 agree (a real fixpoint below the saturation
 /// point) and flip the `assert_ne!` below.

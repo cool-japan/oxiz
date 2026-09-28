@@ -1,6 +1,9 @@
 //! CDCL SAT Solver
 
 mod add_clause;
+/// `Solver::solve_with_assumptions`, MiniSat-style (assumptions re-decided
+/// after every backjump and restart).
+mod assumption_search;
 mod bve;
 mod config;
 mod conflict;
@@ -14,6 +17,8 @@ mod lrat_trace;
 mod lucky;
 mod probe;
 mod propagate;
+/// `Solver::add_clause_at_root`: clauses that survive every `pop`.
+mod root_clause;
 mod search_ext;
 mod self_subsumption;
 
@@ -384,6 +389,14 @@ pub struct Solver {
     /// clauses this `pop` is removing), which is all the old unconditional
     /// clear was ever meant to do.
     pub(super) assertion_trivially_unsat: Vec<bool>,
+    /// Unit clauses installed by [`Solver::add_clause_at_root`].  A unit lives
+    /// only as a level-0 trail assignment, and `pop` truncates the trail to
+    /// its `push`-time size, so every root unit is re-asserted by `pop` (see
+    /// `solver/root_clause.rs`).  Each unit carries the LRAT id it was
+    /// registered under (`None` while tracing is off): `pop` clears the unit
+    /// justification of every variable it unassigns, and the replay puts it
+    /// back.
+    pub(super) root_units: Vec<(Lit, Option<u64>)>,
     /// Model (if sat)
     pub(super) model: Vec<LBool>,
     /// Whether formula is trivially unsatisfiable
@@ -632,6 +645,7 @@ impl Solver {
             assertion_trail_sizes: vec![0],
             assertion_clause_ids: vec![Vec::new()],
             assertion_trivially_unsat: Vec::new(),
+            root_units: Vec::new(),
             model: Vec::new(),
             trivially_unsat: false,
             phase: Vec::new(),
@@ -1314,259 +1328,6 @@ impl Solver {
         }
     }
 
-    /// Solve with assumptions and return unsat core if UNSAT
-    ///
-    /// This is the key method for MaxSAT: it solves under assumptions and
-    /// if the result is UNSAT, returns the subset of assumptions in the core.
-    ///
-    /// # Arguments
-    /// * `assumptions` - Literals that must be true
-    ///
-    /// # Returns
-    /// * `(SolverResult, Option<Vec<Lit>>)` - Result and unsat core (if UNSAT)
-    ///
-    /// # LRAT tracing is unsupported here
-    ///
-    /// This entry point's clause-learning goes through `Solver::learn_clause`
-    /// (a private method, not part of this crate's public API) rather than
-    /// the plain [`Solver::solve`] loop's hint-chain-aware inline
-    /// path, and an assumption literal is installed without going through
-    /// [`Solver::add_clause`] (so it has no original-clause LRAT id to be
-    /// justified by regardless). Rather than emit an LRAT proof this port
-    /// cannot back with a real hint chain, LRAT tracing is force-disabled the
-    /// instant this entry point runs (DRAT is unaffected — `learn_clause`
-    /// already emits it correctly, self-justifying, independent of this gap).
-    ///
-    /// # Unsat core is expressed in the caller's own literals
-    ///
-    /// Internally, an assumption may be rewritten before it is decided on
-    /// (see `resolve_reintroduced_literal`, a private method not part of
-    /// this crate's public API: an equivalent-literal-substituted variable
-    /// becomes its class representative). A core drawn from those *resolved*
-    /// literals is translated back to the caller's originals (via
-    /// `translate_core_to_original`, likewise private) before this method
-    /// returns, so `core ⊆ assumptions` — a genuine subset of exactly what
-    /// was passed in — always holds, matching what a MaxSAT-style caller
-    /// keying relaxations on its own selector literals expects.
-    pub fn solve_with_assumptions(
-        &mut self,
-        assumptions: &[Lit],
-    ) -> (SolverResult, Option<Vec<Lit>>) {
-        self.disable_lrat_proof();
-        // See `Solver::solve`'s identical guard: a prior `add_clause` may
-        // have tried to reintroduce a bounded-variable-eliminated variable.
-        if self.fatal_error.is_some() {
-            return (SolverResult::Unknown, None);
-        }
-        if self.trivially_unsat {
-            return (SolverResult::Unsat, Some(Vec::new()));
-        }
-
-        // Ensure all assumption variables exist
-        for &lit in assumptions {
-            while self.num_vars <= lit.var().index() {
-                self.new_var();
-            }
-        }
-
-        // Resolve each assumption literal exactly like a fresh `add_clause`
-        // literal (see `Self::resolve_reintroduced_literal`): an
-        // equivalent-literal-substituted variable is rewritten to its class
-        // representative — still the same constraint, since the map exists
-        // only because that equivalence was already proven — and a
-        // bounded-variable-eliminated one has no sound rewrite available and
-        // poisons the solver instead of guessing (see `SolverError`).
-        // Everything below decides on and analyzes these *resolved*
-        // literals, but any unsat core handed back to the caller is
-        // translated back to `original_assumptions` (see
-        // `Self::translate_core_to_original`) before it is returned: a
-        // caller of this MaxSAT-style API expects the core to be a genuine
-        // subset of exactly what it passed in, not a class representative it
-        // never mentioned.
-        let original_assumptions = assumptions;
-        let mut resolved_assumptions: Vec<Lit> = Vec::with_capacity(assumptions.len());
-        for &lit in assumptions {
-            match self.resolve_reintroduced_literal(lit) {
-                Some(resolved) => resolved_assumptions.push(resolved),
-                None => return (SolverResult::Unknown, None),
-            }
-        }
-        let assumptions: &[Lit] = &resolved_assumptions;
-
-        // A prior solve() may have returned Sat while leaving its full model on the
-        // trail (decisions at levels > 0). Fully restart the search state by
-        // backtracking to the root BEFORE capturing `assumption_level_start` and
-        // testing the assumptions. Otherwise leftover model decisions masquerade as
-        // fixed level-0 facts: an assumption that merely disagrees with the previous
-        // arbitrary model would hit `value.is_false()` below and be reported as a
-        // false UNSAT (e.g. (a∨b); solve() picks ¬a,b; then assumptions=[a] must be
-        // SAT, not UNSAT). This is the standard incremental / MaxSAT entry protocol.
-        self.backtrack_with_phase_saving(0);
-
-        // Clear conflict-analysis marks so a stale `seen` array left by a previous
-        // solve cannot pollute the extracted assumption core.
-        for s in &mut self.seen {
-            *s = false;
-        }
-
-        // Initial propagation at level 0
-        if self.propagate().is_some() {
-            return (SolverResult::Unsat, Some(Vec::new()));
-        }
-
-        // Lucky phase, the assumption-aware variant: the resolved assumption
-        // literals are seeded into the candidate as frozen values, so a model
-        // it reports satisfies them by construction (see `solver/lucky.rs`).
-        // Placed after the level-0 propagation that establishes the facts it
-        // freezes and before the first assumption decision below, so a hit
-        // returns without ever touching the trail — there is nothing to
-        // backtrack, and no core is owed because the phase never concludes
-        // UNSAT. It declines outright when an assumption contradicts a level-0
-        // fact, leaving that verdict (and its core) to the loop below.
-        //
-        // Unlike `solve()` this entry point runs no inprocessing at all, so
-        // nothing downstream is skipped by a hit.
-        if self.try_lucky_phase(assumptions).is_some() {
-            return (SolverResult::Sat, None);
-        }
-
-        // Create a new decision level for assumptions
-        let assumption_level_start = self.trail.decision_level();
-
-        // Assign assumptions as decisions
-        for (i, &lit) in assumptions.iter().enumerate() {
-            // Check if already assigned
-            let value = self.trail.lit_value(lit);
-            if value.is_true() {
-                continue; // Already satisfied
-            }
-            if value.is_false() {
-                // Conflict with assumption - extract core from conflicting assumptions
-                let core = self.extract_assumption_core(assumptions, i);
-                self.backtrack(assumption_level_start);
-                let core =
-                    Self::translate_core_to_original(core, assumptions, original_assumptions);
-                return (SolverResult::Unsat, Some(core));
-            }
-
-            // Make decision for assumption
-            self.trail.new_decision_level();
-            self.trail.assign_decision(lit);
-
-            // Propagate after each assumption
-            if let Some(conflict) = self.propagate() {
-                // Conflict during assumption propagation: collect the full set of
-                // contributing assumptions from the conflict clause.
-                let core = self.analyze_assumption_conflict(assumptions, conflict);
-                self.backtrack(assumption_level_start);
-                let core =
-                    Self::translate_core_to_original(core, assumptions, original_assumptions);
-                return (SolverResult::Unsat, Some(core));
-            }
-        }
-
-        // Now solve normally
-        loop {
-            // Resource budget / interrupt check: abandon under-assumption search
-            // and report Unknown when the conflict budget or interrupt fires.
-            if self.should_stop_search() {
-                self.backtrack(assumption_level_start);
-                return (SolverResult::Unknown, None);
-            }
-
-            if let Some(conflict) = self.propagate() {
-                self.debug_check_conflict_clause(conflict);
-                self.stats.conflicts += 1;
-
-                // Check if conflict involves assumptions
-                let backtrack_level = self.analyze_conflict_level(conflict);
-
-                if backtrack_level <= assumption_level_start {
-                    // Conflict forces backtracking past assumptions - UNSAT
-                    let core = self.analyze_assumption_conflict(assumptions, conflict);
-                    self.backtrack(assumption_level_start);
-                    let core =
-                        Self::translate_core_to_original(core, assumptions, original_assumptions);
-                    return (SolverResult::Unsat, Some(core));
-                }
-
-                let (bt_level, learnt_clause) = self.analyze(conflict);
-
-                // Empty learned clause = genuine root-level (level-0) refutation.
-                // The `backtrack_level <= assumption_level_start` guard above
-                // already routes all-level-0 conflicts to the UNSAT-core path, so
-                // this is a belt-and-braces guard that also avoids an empty-clause
-                // index panic in `learn_clause`.
-                if learnt_clause.is_empty() {
-                    let core = self.analyze_assumption_conflict(assumptions, conflict);
-                    self.backtrack(assumption_level_start);
-                    let core =
-                        Self::translate_core_to_original(core, assumptions, original_assumptions);
-                    return (SolverResult::Unsat, Some(core));
-                }
-
-                self.backtrack_with_phase_saving(bt_level.max(assumption_level_start + 1));
-                self.debug_check_invariants("after backtrack (assumptions)");
-                self.learn_clause(learnt_clause);
-
-                self.vsids.decay();
-                self.clauses.decay_activity(self.config.clause_decay);
-                self.handle_clause_deletion_and_restart_limited(assumption_level_start);
-            } else {
-                // No conflict - try to decide. `propagate()` just returned `None`,
-                // i.e. reached a fixpoint.
-                self.debug_check_fixpoint_invariants("after propagation fixpoint (assumptions)");
-                if let Some(var) = self.pick_branch_var() {
-                    self.stats.decisions += 1;
-                    self.trail.new_decision_level();
-
-                    let polarity = if self.rand_bool(self.config.random_polarity_prob) {
-                        self.rand_bool(0.5)
-                    } else {
-                        self.phase.get(var.index()).copied().unwrap_or(false) ^ self.phase_inverted
-                    };
-                    let lit = if polarity {
-                        Lit::pos(var)
-                    } else {
-                        Lit::neg(var)
-                    };
-                    self.trail.assign_decision(lit);
-                } else {
-                    // All variables assigned - SAT
-                    self.save_model();
-                    self.debug_verify_model();
-                    self.debug_check_invariants("at SAT (assumptions)");
-                    self.backtrack(assumption_level_start);
-                    return (SolverResult::Sat, None);
-                }
-            }
-        }
-    }
-
-    /// Translate a core drawn from `resolved` (the literals
-    /// [`Self::solve_with_assumptions`] actually decided on) back to the
-    /// caller's `original` assumption literals it corresponds to.
-    ///
-    /// `resolved[i]` is what `original[i]` became after
-    /// [`Self::resolve_reintroduced_literal`]; a core literal that does not
-    /// match any position in `resolved` (should not happen — every core
-    /// literal comes from `resolved` in the first place) is passed through
-    /// unchanged rather than dropped, so a coding error here fails toward
-    /// "core has an unexpected literal" rather than silently shrinking the
-    /// core. First occurrence wins on a duplicate resolved literal, matching
-    /// how `analyze_final_core`'s own `assumption_of` map is built from this
-    /// same `resolved` list.
-    fn translate_core_to_original(core: Vec<Lit>, resolved: &[Lit], original: &[Lit]) -> Vec<Lit> {
-        core.into_iter()
-            .map(|lit| {
-                resolved
-                    .iter()
-                    .position(|&r| r == lit)
-                    .map_or(lit, |i| original[i])
-            })
-            .collect()
-    }
-
     /// Get the model (if sat)
     #[must_use]
     pub fn model(&self) -> &[LBool] {
@@ -1790,6 +1551,10 @@ impl Solver {
             // latched inside this scope but is in fact provable without it is
             // dropped and simply re-derived by the next `solve()`.
             self.trivially_unsat = self.assertion_trivially_unsat.pop().unwrap_or(false);
+
+            // Root units outlive every scope, but they live on the trail
+            // only, and the truncation above may have removed them.
+            self.replay_root_units();
         }
     }
 
@@ -1840,6 +1605,7 @@ impl Solver {
         self.assertion_clause_ids.clear();
         self.assertion_clause_ids.push(Vec::new());
         self.assertion_trivially_unsat.clear();
+        self.root_units.clear();
         self.model.clear();
         self.num_vars = 0;
         self.restart_threshold = self.config.restart_interval;

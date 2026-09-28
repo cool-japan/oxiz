@@ -491,7 +491,7 @@ impl Solver {
                             // available, no surgical undo), so rebase to root
                             // before re-driving them from a fresh
                             // `TheoryManager`.
-                            self.rebase_theory_state();
+                            self.rebase_theory_state_for_round();
                             theory_manager = TheoryManager::new(
                                 manager,
                                 &mut self.euf,
@@ -761,6 +761,7 @@ impl Solver {
                         .map(|m| m.assignments().clone())
                         .unwrap_or_default();
 
+                    self.mbqi.note_goal(&self.assertions);
                     let mbqi_result = self.mbqi.check_with_model(&model_assignments, manager);
                     match mbqi_result {
                         MBQIResult::NoQuantifiers => {
@@ -817,6 +818,18 @@ impl Solver {
                             // Continue loop
                         }
                         MBQIResult::NewInstantiations(instantiations) => {
+                            // `#P2b-60`: the relevant set is saturated and only
+                            // the unnamed-region instances are fresh.  A
+                            // certified completion concludes without them.
+                            if self.mbqi.only_unnamed_region_pending()
+                                && self.certify_at_mbqi_saturation(manager)
+                            {
+                                self.unsat_core = None;
+                                self.debug_check_invariants(
+                                    "check_core: before returning sat (completion at saturation)",
+                                );
+                                return SolverResult::Sat;
+                            }
                             // Collect ground sub-terms (especially Skolem
                             // applications) from instantiation results so they
                             // become MBQI candidates in subsequent rounds.
@@ -1059,7 +1072,7 @@ impl Solver {
                     // consequences committed at the root, and the replay below
                     // re-derives the theory state from exactly those.  Nothing is
                     // re-encoded, so no clause is duplicated.
-                    self.rebase_theory_state();
+                    self.rebase_theory_state_for_round();
                     theory_manager = TheoryManager::new(
                         manager,
                         &mut self.euf,

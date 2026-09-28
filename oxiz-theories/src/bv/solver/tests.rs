@@ -21,6 +21,11 @@ use crate::theory::TheoryCombination;
 /// probe. `embedded_sat_config()` now disables that heuristic (and
 /// inprocessing) so the incremental cleanup contract stays exact.
 ///
+/// Re-fix pass 12 replaced that cleanup contract altogether (an assertion is
+/// an assumption literal now, never a level-0 unit — `scope.rs`), and the
+/// regression is kept as it was: the same branches must still answer the same
+/// way.
+///
 /// Drives the same `a = x*3 ∧ a ≠ x ∧ (a = x ∨ a = 7)` disjunction as the
 /// `oxiz-solver` integration test `bv_mul_aux_disjunction_const_is_sat_8bit`
 /// via explicit `push`/`check`/`pop` branches: branch `a = x` is UNSAT, the
@@ -132,9 +137,10 @@ fn test_bv_neq() {
 // constraint (fixed dividend/quotient, free divisor) because its own
 // first internal `solve()` call could hit an unsound learned clause
 // (resolved through a bare, clause-less level-0 decision literal
-// installed by `assert_const`). `check()` now re-verifies an `Unsat`
+// installed by `assert_const`). `check()` re-verified an `Unsat`
 // verdict by discarding this probe's learned clauses and retrying once
-// before trusting it. This was previously worked around at the test
+// before trusting it, until re-fix pass 12 removed the bare units that made
+// that necessary (`scope.rs`); the regression stays pinned. This was previously worked around at the test
 // level by `#[ignore]`ing `test_bv10_udiv` in `tests/test_bv10.rs`.
 #[test]
 fn audit_check_recovers_from_first_attempt_false_unsat() {

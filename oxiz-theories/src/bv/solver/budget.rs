@@ -2,7 +2,8 @@
 //!
 //! # Why this exists
 //!
-//! [`BvSolver::check`] runs a *full* `oxiz_sat::Solver::solve()` on its own
+//! [`BvSolver::check`] runs a *full* embedded solve (one
+//! `oxiz_sat::Solver::solve_with_assumptions`, see `scope.rs`) on its own
 //! embedded solver, once per asserted bit-vector atom, from inside the enclosing
 //! CDCL(T) search's `on_assignment` callback. Every budget poll in the
 //! CDCL(T) layer — `TheoryManager::timed_out`, the `max_conflicts` comparison
@@ -38,12 +39,6 @@
 //! takes.
 
 use super::BvSolver;
-
-/// Denominator of the allowance reserved for the `Unsat` re-verification in
-/// [`BvSolver::check`]. One quarter of whatever is left when a probe starts is
-/// held back, so a first solve that ends `Unsat` still has budget to be
-/// re-verified — see [`BvSolver::first_solve_allowance`].
-const REVERIFY_RESERVE_DIVISOR: u64 = 4;
 
 impl BvSolver {
     /// Bound every embedded `solve()` this solver runs.
@@ -90,21 +85,6 @@ impl BvSolver {
     pub(crate) fn remaining_conflict_budget(&self) -> Option<u64> {
         self.budget_max_conflicts
             .map(|total| total.saturating_sub(self.conflicts_spent))
-    }
-
-    /// The allowance the *first* solve of a probe may spend, keeping
-    /// `1 / REVERIFY_RESERVE_DIVISOR` of the remainder back for the `Unsat`
-    /// re-verification.
-    ///
-    /// Rounded so the first solve gets the larger share: with `r` left it may
-    /// spend `r - r / 4`, which is `r` itself for `r < 4`. A tiny allowance
-    /// therefore goes entirely to the first solve and the re-verify gets none,
-    /// which is exactly the case [`BvSolver::check`] reports as `Unknown` —
-    /// an `Unsat` that could not be re-verified is not a verdict this solver
-    /// trusts (see `check`'s own comment on why the re-verify exists).
-    pub(crate) fn first_solve_allowance(&self) -> Option<u64> {
-        self.remaining_conflict_budget()
-            .map(|remaining| remaining - remaining / REVERIFY_RESERVE_DIVISOR)
     }
 
     /// Arm the embedded solver for one `solve()`: install the shared deadline

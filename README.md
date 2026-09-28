@@ -80,7 +80,7 @@ Finite-range quantifier expansion (`AUFLIA`), Skolem witness synthesis with CEGA
 Models, unsat cores and proofs are invalidated on `push`/`pop`/`assert`, so a stale answer can never be handed back; an unjustified conflict clause now yields `Unknown` instead of a fabricated `Unsat`; derived reasons are Solver-owned and stamped with absolute scope depth; e-matching trigger inference is restricted to uninterpreted heads (matching Z3's `pattern_inference`, and fixing a matching loop); and `(get-unsat-core)` works when `:produce-unsat-cores` is enabled mid-session, because assertion names are now recorded unconditionally.
 
 ### Repeated `(check-sat)` behavior
-Long incremental sessions no longer accumulate cost. Hyper-binary-resolution clauses are registered in the learned/assertion ledgers, so clause-DB reduction, `forget` and `pop` can actually reclaim them; `Solver::pop` retracts Tseitin memo entries per-entry through the undo journal instead of clearing the memo wholesale (the wholesale clear caused unbounded re-encoding — one goal grew from 25 to 361 original clauses over 30 push/pop-plus-check cycles); MBQI search state is checkpointed and restored around each check, which also fixes MBQI silently ceasing to instantiate after roughly ten checks on the same goal. New: a **verdict cache** makes a repeated `(check-sat)` on an untouched goal an O(1) cache hit, invalidated by `assert`/`push`/`pop`/`reset` and by every settings mutator.
+Long incremental sessions no longer accumulate cost. The embedded bit-vector solver installs every circuit at the root and scopes only what is asserted (each asserted atom is an assumption of one `solve_with_assumptions` per check, and a refutation is explained by the failed-assumption core), so a popped circuit is never re-encoded with fresh variables and one embedded check costs the same after a hundred thousand checks as after two thousand; `Solver::solve_with_assumptions` itself now re-decides its assumptions after every backjump and restart (it used to drop them and could answer `sat` with a model violating one). Hyper-binary-resolution clauses are registered in the learned/assertion ledgers, so clause-DB reduction, `forget` and `pop` can actually reclaim them; `Solver::pop` retracts Tseitin memo entries per-entry through the undo journal instead of clearing the memo wholesale (the wholesale clear caused unbounded re-encoding — one goal grew from 25 to 361 original clauses over 30 push/pop-plus-check cycles); MBQI search state is checkpointed and restored around each check, which also fixes MBQI silently ceasing to instantiate after roughly ten checks on the same goal. New: a **verdict cache** makes a repeated `(check-sat)` on an untouched goal an O(1) cache hit, invalidated by `assert`/`push`/`pop`/`reset` and by every settings mutator.
 
 ### Quality gates
 `clippy::unwrap_used` is denied in all 17 member crates, and clippy is clean in both the dev and release profiles; `rustdoc -D warnings` is clean; `cargo deny check bans` is clean; every source file is under the 2,000-line cap. `to_cnf_tseitin` (an equisatisfiable, linear-size CNF encoding) was added to `oxiz-core` and `TseitinCnfTactic` rewired to it.
@@ -175,7 +175,7 @@ The three quantified logics that carried the whole of 0.3.0's remaining gap clos
 - **Advanced Quantifier Handling** - MBQI, E-matching, Skolemization, DER
 - **SMT-LIB2 Support** - Full standard input/output format
 - **WebAssembly Ready** - Run in browsers via WASM bindings
-- **Incremental Solving** - Push/pop for efficient constraint management, with per-entry Tseitin-memo retraction and an O(1) verdict cache for repeated `(check-sat)` on an untouched goal
+- **Incremental Solving** - Push/pop for efficient constraint management, with per-entry Tseitin-memo retraction and an O(1) verdict cache for repeated `(check-sat)` on an untouched goal; the bit-blaster's circuits are root definitions that outlive every `pop` (only asserted atoms are scoped, as assumptions), so the price of an embedded bit-vector check no longer grows with the number of backtracks
 - **Proof Generation** - DRAT, Alethe, LFSC, Coq/Lean/Isabelle export
 - **Optimization** - MaxSAT, OMT with Pareto optimization
 - **Model Checking** - CHC solving with PDR/IC3
@@ -428,19 +428,27 @@ Status reflects results on the `bench/z3_parity` suite against a real `z3` 4.15.
 
 > **Scope of the array and quantifier entries above.** They name the machinery, not a completeness
 > claim. Above the finite expansion's 64-point budget — an index sort of `(_ BitVec 7)` or wider — a
-> *satisfiable* quantified array script is decided when the arrays the candidate model leaves partial
-> can be completed to **constant** arrays over a searched default and that completion passes a
-> quantifier-free certificate (`solver::array_completion_certify`, `#P2b-58`, closed in 0.3.4: the
-> `sat` is published only after a validity query per universal and one over the assertions has been
-> discharged, so a wrong completion is refused rather than published). Outside that shape — an
-> interpretation that is not constant anywhere, a goal carrying an uninterpreted function, an
-> `exists`, or a *declared* sort whose cardinality nothing pins — the completion declines and the
-> answer falls back to whatever the ordinary path reaches: often `sat` or `unsat`, and an honest
-> `unknown` when it reaches neither. A `sat` published without the completion may still come with a
-> model that falsifies its own assertion (`#P2b-51`).
-> Both remain open, with their repros, measured sizes and pins, as `#P2b-50` and `#P2b-51` in
-> [`TODO.md`](TODO.md). Neither is a wrong verdict: the paired corpora report 0 wrong `sat` and
-> 0 wrong `unsat`.
+> *satisfiable* quantified array script is decided when the arrays can be completed to a total
+> interpretation that passes a quantifier-free certificate (`solver::array_completion_certify`: a
+> validity query per universal and one over every assertion; a wrong completion is refused, never
+> published). The completion is a constant array over a searched default and, over bit-vector and `Bool`
+> index sorts, a default **plus finitely many pinned points** taken from the index terms the goal names
+> (0.3.4, `#P2b-58`); it also runs on every quantified array `sat`, where it changes only the published
+> **model** and never the verdict (`#P2b-51`). Outside that shape — an interpretation that differs from
+> its default at an index the goal never names, a goal carrying an uninterpreted function, more than
+> three arrays, an `exists`, or a *declared* sort whose cardinality nothing pins — the completion
+> declines: the verdict is whatever the ordinary path reaches (often `sat` or `unsat`, an honest
+> `unknown` when it reaches neither), and on a `sat` the candidate model is published unchanged and may
+> still falsify the universal (`#P2b-63`). Wrong verdicts measured in this area so far, tracked in
+> [`TODO.md`](TODO.md) with their repros (a measurement, not a claim that nothing else exists):
+> `#P2b-60` (an array pinned by a ground equality and read under a binder answered `sat` where it is
+> `unsat`) is fixed in 0.3.4 over bit-vector, `Int`, `Real`, `Bool` and declared index sorts; the same
+> family over a datatype index sort with a field, and over a declared sort whose second element exists
+> only as a Skolem witness, still answers `sat` (`#P2b-64`, **open**, pre-existing in 0.3.3); and
+> datatype constructors are not distinct as array indices, so `a = (store ((as const …) 0) red 1)`
+> beside `(= (select a green) 1)` answers `sat` (`#P2b-61`, **open**, pre-existing in 0.3.3).
+> A two-variable pigeonhole under a `(not (= i j))` guard answers `sat` (`#P2b-65`, **open**).
+> `#P2b-50` (declared sorts whose cardinality nothing pins) stays open.
 
 ### Optimization
 - MaxSAT (Fu-Malik, RC2, LNS)

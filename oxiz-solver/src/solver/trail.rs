@@ -178,6 +178,7 @@ impl super::Solver {
             named_assertions: _, // TRAIL: NamedAssertionAdded
             assumption_vars: _, // INVARIANT: never written
             model: _,           // RESULT: cleared by `invalidate_results`
+            certified_array_model: _, // RESULT: compared by equality with `model`, never read alone
             nl_algebraic_values: _, // RESULT: the other half of `model` (the
             // exact algebraic values it cannot hold), cleared by the same
             // `invalidate_results` call and additionally at every

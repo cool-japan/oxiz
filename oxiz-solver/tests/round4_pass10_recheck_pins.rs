@@ -115,42 +115,32 @@ fn at_budget(body: &str, budget: u32) -> (String, u64, u64) {
 
 /// **THE HOLE IS CLOSED** when the two round counts below are equal.
 ///
-/// `#P2b-59`'s close-out, `TODO.md`'s decision (24a) mechanism (iv), the
-/// `[0.3.4]` CHANGELOG bullet and the sibling test
-/// `round4_pass9_recheck_pins::the_refinement_round_count_is_bounded_and_equal_inside_the_plateau`
-/// (which carried the name `…_reaches_a_refinement_fixpoint` when this pin was
-/// written) all stated that the lazy array refinement **reaches a fixpoint** on
-/// this script, on the evidence of `:array-refinement-rounds` being 10 at
-/// `:max-bv-embedded-checks 2000` **and** 10 at `5000`.
+/// Decision (44)'s target: the refinement reaching the **same** round count
+/// at 500, 5,000 and 50,000 embedded checks — a fixpoint *below* the point
+/// where the script stops asking for budget, not one above it.  It is not
+/// met, and this pin keeps the evidence.
 ///
-/// That equality is a **plateau inside the ramp**, not a fixpoint. The same
-/// method one rung higher (release, `<scratchpad>/oxiz4/rk11/min/q33_b*.smt2`,
-/// the counters byte-identical to the ones asserted here):
+/// # History
 ///
-/// | budget | verdict | rounds / instances |
-/// |---|---|---|
-/// | 500 | `unknown` | 9 / 75 |
-/// | 2,000 | `unknown` | 10 / 76 |
-/// | 5,000 | `unknown` | 10 / 76 |
-/// | **8,000** | `unknown` | **41 / 129** |
-/// | 10,000 | `unknown` | 51 / 181 |
-/// | 20,000 | `unknown` | 59 / 199 |
-/// | 50,000 | **`sat`** | 66 / 208 |
+/// Written by adversarial recheck pass 10 against a "reaches a fixpoint"
+/// claim that rested on 10 rounds at both 2,000 and 5,000 checks — a plateau
+/// inside a ramp that saturated only at 66 / 208 after 30,402 checks.  The
+/// pin compared 5,000 with 8,000 (10 / 76 against 41 / 129).
 ///
-/// So the refinement still consumes whatever budget it is given, up to the
-/// 66 rounds and 30,402 embedded checks the unbudgeted run needs — it is the
-/// *saturation* at 66 that makes the script decidable again, not a fixpoint at
-/// 10. What re-fix pass 10 genuinely bought is the **verdict**: `sat` where
-/// the pass-9 tree answered nothing in 400 s (measured, not quoted). That
-/// half is guarded by `round4_pass9_recheck_pins::the_corpus_member_the_root_spelling_buys_back_is_decided`
-/// and is not restated here.
+/// # Re-measured on re-fix pass 12's tree (decisions (43), (45))
 ///
-/// 8,000 rather than 20,000 or 50,000 is the cheapest rung that breaks the
-/// plateau (518 ms release against 4.6 s and 30.4 s), so the pin costs the
-/// gate a second rather than a minute.
+/// The plateau is gone and the saturation point moved down by a factor of
+/// three (9,302 checks, 70 / 195, `sat` — pinned as a real fixpoint by
+/// `round4_pass9_recheck_pins::the_refinement_reaches_a_fixpoint_above_its_saturation_point`),
+/// but below it the count still climbs with the budget: 47 / 158 at 5,000,
+/// 64 / 188 at 8,000.  Both variants of decision (44) — every deferred family
+/// for every pair in each round, and the same staged behind the eager
+/// families — were built and measured on that tree and *raise* the checks
+/// the script spends (27,700 and 74,363 against 9,302; see `TODO.md`
+/// `#P2b-59` (e)), so neither landed and this stays a hole.
 ///
-/// To close: make the two counts agree — then flip `assert!(rounds_high >
-/// rounds_low)` to `assert_eq!`, and correct the three documents above.
+/// To close: make the two counts agree below the saturation point, then flip
+/// `assert!(rounds_high > rounds_low)` to `assert_eq!`.
 #[test]
 fn the_array_refinement_round_count_still_grows_with_the_budget() {
     let body = format!("{Q33_DECLS}{Q33_ASSERT_0}{Q33_ASSERT_1}");
@@ -164,82 +154,92 @@ fn the_array_refinement_round_count_still_grows_with_the_budget() {
         (v_low.as_str(), v_high.as_str()),
         ("unknown", "unknown"),
         "both budgets are deliberately below what the script consumes \
-         (30,402 embedded checks); this pin is about the counters, not the \
-         verdict",
+         (9,302 embedded checks on re-fix pass 12's tree); this pin is about \
+         the counters, not the verdict",
     );
     assert!(
-        rounds_low > 0 && rounds_low <= 12 && inst_low <= 90,
-        "HOLE: the plateau the `fixpoint` claim rests on is 10 rounds / 76 \
-         instances at 5,000 checks; this tree reports {rounds_low} / \
-         {inst_low}. If the plateau moved, re-measure the whole ladder before \
-         trusting either document.",
+        rounds_low > 0 && inst_low > 0,
+        "the refinement must run at 5,000 checks ({rounds_low} / {inst_low})"
     );
     assert!(
         rounds_high > rounds_low && inst_high > inst_low,
         "THE HOLE IS CLOSED: the refinement reported {rounds_high} rounds / \
          {inst_high} instances at 8,000 embedded checks against \
-         {rounds_low} / {inst_low} at 5,000, so it no longer consumes whatever \
-         budget it is given, and a real fixpoint claim becomes assertable. \
-         Invert this assertion, and re-state TODO.md (24a)(iv), `#P2b-59` \
-         (e)/(g) and the CHANGELOG `[0.3.4]` Fixed bullet, which re-fix pass 11 \
-         corrected to the measured ladder rather than to a fixpoint at 10.",
+         {rounds_low} / {inst_low} at 5,000, so below its saturation point it no \
+         longer consumes whatever budget it is given — decision (44)'s \
+         fixpoint.  Invert this assertion, and re-state TODO.md (24a)(iv), \
+         `#P2b-59` (e)/(g) and the CHANGELOG `[0.3.4]` bullet.",
     );
 }
 
-/// **THE HOLE IS CLOSED** when this answers `sat`.
+/// The swapped-order twin **is decided** (inverted by re-fix pass 12).
 ///
 /// `#P2b-59`'s repro with its **two assertions in the other order** and
 /// nothing else changed — as a set of lines the file is byte-identical to
 /// `<scratchpad>/oxiz4/rk9/min/q33_a01.smt2`, so it is the same formula.
+/// `c4b04b7` and crates.io 0.3.3 answer `sat` in 0.1 ms.  Until re-fix pass 12
+/// this tree gave no answer in 300 s and `unknown` at 50,000 embedded checks
+/// having spent all of them (52 / 171), which is what this pin — then
+/// `the_same_script_with_its_two_assertions_swapped_is_not_decided` — held
+/// green.
 ///
-/// `c4b04b7` answers `sat` in 0.1 ms and crates.io 0.3.3 in 0.1 ms, exactly as
-/// they do for the original order. Re-fix pass 10's fix decides the original
-/// order (`sat`, 30.4 s release, 66 rounds / 30,402 checks) and does **not**
-/// decide this one: no answer in 300 s (release, measured twice), `unknown` in
-/// 55.3 s at `:max-bv-embedded-checks 50000` having spent all 50,002 checks on
-/// 52 rounds / 171 instances. So `#P2b-59` is fixed for one spelling of its
-/// own repro and not for the other, and no `TODO.md` entry names this script.
-///
-/// The claim is made on the **deterministic** counters rather than on a clock:
-/// where the original order plateaus at 10 rounds at both 2,000 and 5,000
-/// checks — which is the equality the sibling fixpoint pin asserts — this
-/// order reports 25 and then 33. The test asserts both halves side by side, so
-/// it is a statement about the **order** and not about the script.
-///
-/// To close: make this answer `sat` (the base answers it in a tenth of a
-/// millisecond) and flip the two `unknown`s below.
+/// Decided now, in both orders, at 50,000 checks: the original order spends
+/// 9,302 (70 / 195) in 0.2–0.4 s release, the swapped order 29,189
+/// (124 / 295) in 1.2 s (two campaign workers beside each run).  What decided them is decision (45) — root-scoped bit-blasting and
+/// failed-assumption cores, which took the thousands of outer theory
+/// conflicts per refinement round out of the loop — not the order: the two
+/// orders still take different trajectories, and that half of decision (43)
+/// is the hole pinned just below.
 #[test]
-fn the_same_script_with_its_two_assertions_swapped_is_not_decided() {
+fn the_same_script_with_its_two_assertions_swapped_is_decided() {
     let swapped = format!("{Q33_DECLS}{Q33_ASSERT_1}{Q33_ASSERT_0}");
     let original = format!("{Q33_DECLS}{Q33_ASSERT_0}{Q33_ASSERT_1}");
     assert!(
         !swapped.contains("forall") && !swapped.contains("exists"),
         "this pin's whole point is that the script carries no binder"
     );
-    let (v_low, rounds_low, _) = at_budget(&swapped, 2_000);
-    let (v_high, rounds_high, _) = at_budget(&swapped, 5_000);
+    for (order, body) in [("swapped", &swapped), ("original", &original)] {
+        let (verdict, rounds, instances) = at_budget(body, 50_000);
+        assert_eq!(
+            verdict, "sat",
+            "the {order} order must be decided at 50,000 embedded checks \
+             ({rounds} rounds / {instances} instances)"
+        );
+    }
+}
+
+/// **THE HOLE IS CLOSED** when the two orders report identical counters.
+///
+/// Decision (43): the refinement's per-round choices are made in a canonical
+/// structural order (`solver/array_axioms/canonical.rs`), and the lemmas a
+/// round asserts reach the SAT core sorted by that order.  Measured: round 1
+/// of the two orders asserts the same instances.  The trajectories still
+/// part company after it, because the *outer* search is not canonical — the
+/// assertions themselves are encoded, and their SAT variables numbered, in
+/// the order they are written, so the two orders find different candidate
+/// models and a model-guided refinement answers them with different lemmas.
+/// Both decide `sat` at 50,000 checks, with 70 / 195 against 124 / 295.
+///
+/// To close: make the outer search order-independent too (or the refinement
+/// model-independent), then assert the counters equal.
+#[test]
+fn the_two_assertion_orders_still_take_different_refinement_trajectories() {
+    let swapped = format!("{Q33_DECLS}{Q33_ASSERT_1}{Q33_ASSERT_0}");
+    let original = format!("{Q33_DECLS}{Q33_ASSERT_0}{Q33_ASSERT_1}");
+    let (v_orig, rounds_orig, inst_orig) = at_budget(&original, 50_000);
+    let (v_swap, rounds_swap, inst_swap) = at_budget(&swapped, 50_000);
     assert_eq!(
-        (v_low.as_str(), v_high.as_str()),
-        ("unknown", "unknown"),
-        "THE HOLE IS CLOSED if either of these is `sat`: the base decides this \
-         formula in 0.1 ms and this tree decides the SAME formula in the other \
-         assertion order",
+        (v_orig.as_str(), v_swap.as_str()),
+        ("sat", "sat"),
+        "both orders are decided (see the test above)"
     );
-    let (_, orig_low, _) = at_budget(&original, 2_000);
-    let (_, orig_high, _) = at_budget(&original, 5_000);
-    assert_eq!(
-        orig_low, orig_high,
-        "the original order is the control: it plateaus at the same round \
-         count at 2,000 and 5,000 checks ({orig_low} vs {orig_high}). If the \
-         control moved, this pin no longer isolates the assertion order.",
-    );
-    assert!(
-        rounds_high > rounds_low,
-        "HOLE: in the swapped order the refinement is still climbing where the \
-         original order plateaus — {rounds_low} rounds at 2,000 checks and \
-         {rounds_high} at 5,000, against {orig_low} and {orig_high}. If the two \
-         orders now agree, `#P2b-59`'s fix has stopped depending on the order \
-         the assertions arrive in and this pin should be inverted.",
+    assert_ne!(
+        (rounds_orig, inst_orig),
+        (rounds_swap, inst_swap),
+        "THE HOLE IS CLOSED: the two orders now report the same {rounds_orig} \
+         rounds / {inst_orig} instances — decision (43)'s trajectory \
+         independence.  Invert this to `assert_eq!` and re-state TODO.md \
+         `#P2b-59` (f) and (24a)(i)."
     );
 }
 
@@ -672,10 +672,19 @@ fn a_popped_array_lemma_is_re_derived_after_the_pop() {
 //
 //    The two scripts below are kept for the other direction: they are the
 //    shapes whose *truth* is `unsat` while the completion pool offers a
-//    satisfying-looking default, so they redden if a later pass moves the
-//    hook earlier — before the refinement has had its say — which is the
-//    change that would make M11b able to publish a wrong verdict rather than
-//    only a wrong model.
+//    satisfying-looking default.  They were written to redden "if a later
+//    pass moves the hook earlier"; re-fix pass 12 did move it — to every
+//    `Sat` exit (decision (40)) and to MBQI's saturation point, before the
+//    unnamed-region instances of `#P2b-60` — and they do NOT redden, because
+//    `check_core` refutes both before any hook is reached (an `Unsat` never
+//    reaches one).  Measured, re-fix pass 12, isolated copy with the
+//    certificate short-circuited to `true` AND the evaluation pre-filter off:
+//    both stay `unsat`, while
+//    `round4_pass12_unnamed_region_pins::an_array_pinned_by_a_ground_equality_is_refuted_under_a_binder`
+//    (the `wsat1` shape) turns into a wrong `sat` — so on the saturation-time
+//    path the certificate is the only guard, and THAT pin, not these two, is
+//    its mutation witness.  Kept as what they are: guards that the ordinary
+//    refutation of these shapes survives every hook.
 // ---------------------------------------------------------------------------
 
 /// A completion that is wrong at a point the script pins must be refused, and

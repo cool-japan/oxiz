@@ -64,8 +64,7 @@ impl BvSolver {
             for i in width..(2 * width) {
                 // ~b_is_zero => ~full_prod_bits[i]
                 // b_is_zero | ~full_prod_bits[i]
-                self.sat
-                    .add_clause([Lit::pos(b_is_zero), Lit::neg(full_prod_bits[i])]);
+                self.define([Lit::pos(b_is_zero), Lit::neg(full_prod_bits[i])]);
             }
 
             // Encode: sum = prod + rem, capturing the carry-out.
@@ -77,8 +76,7 @@ impl BvSolver {
 
             // No wrap: q*b + r must fit in width when b != 0, else the
             // equation would only hold modulo 2^width and admit false quotients.
-            self.sat
-                .add_clause([Lit::pos(b_is_zero), Lit::neg(carry_out)]);
+            self.define([Lit::pos(b_is_zero), Lit::neg(carry_out)]);
 
             // Enforce: a = sum (the division equation)
             for i in 0..width {
@@ -88,14 +86,13 @@ impl BvSolver {
             // Enforce: rem < b (when b != 0)
             let rem_lt_b = self.sat.new_var();
             self.encode_ult_result(&rem_bits, &vb.bits, rem_lt_b);
-            self.sat
-                .add_clause([Lit::pos(b_is_zero), Lit::pos(rem_lt_b)]);
+            self.define([Lit::pos(b_is_zero), Lit::pos(rem_lt_b)]);
 
             // All 1s for division by zero result
             let mut all_ones: SmallVec<[Var; 32]> = SmallVec::new();
             for _ in 0..width {
                 let one = self.sat.new_var();
-                self.sat.add_clause([Lit::pos(one)]);
+                self.define([Lit::pos(one)]);
                 all_ones.push(one);
             }
 
@@ -153,8 +150,7 @@ impl BvSolver {
 
             // Enforce: high bits of product are zero (no overflow) when b != 0
             for i in width..(2 * width) {
-                self.sat
-                    .add_clause([Lit::pos(b_is_zero), Lit::neg(full_prod_bits[i])]);
+                self.define([Lit::pos(b_is_zero), Lit::neg(full_prod_bits[i])]);
             }
 
             // Encode: sum = prod + rem, capturing the carry-out.
@@ -165,8 +161,7 @@ impl BvSolver {
             let carry_out = self.encode_adder_carry(&sum_bits, &prod_bits, &rem_bits);
 
             // No wrap: q*b + r must fit in width when b != 0.
-            self.sat
-                .add_clause([Lit::pos(b_is_zero), Lit::neg(carry_out)]);
+            self.define([Lit::pos(b_is_zero), Lit::neg(carry_out)]);
 
             // Enforce: a = sum (the division equation a = q*b + r)
             for i in 0..width {
@@ -177,8 +172,7 @@ impl BvSolver {
             let rem_lt_b = self.sat.new_var();
             self.encode_ult_result(&rem_bits, &vb.bits, rem_lt_b);
             // This constraint only applies when b != 0
-            self.sat
-                .add_clause([Lit::pos(b_is_zero), Lit::pos(rem_lt_b)]);
+            self.define([Lit::pos(b_is_zero), Lit::pos(rem_lt_b)]);
 
             // result = b_is_zero ? a : rem_bits
             for i in 0..width {
@@ -267,8 +261,7 @@ impl BvSolver {
 
             // Enforce: high bits of product are zero (no overflow) when b != 0
             for i in width..(2 * width) {
-                self.sat
-                    .add_clause([Lit::pos(b_is_zero), Lit::neg(full_prod[i])]);
+                self.define([Lit::pos(b_is_zero), Lit::neg(full_prod[i])]);
             }
 
             let mut sum: SmallVec<[Var; 32]> = SmallVec::new();
@@ -278,8 +271,7 @@ impl BvSolver {
             let carry_out = self.encode_adder_carry(&sum, &prod, &rem_abs);
 
             // No wrap: quot_abs*abs_b + rem_abs must fit in width when b != 0.
-            self.sat
-                .add_clause([Lit::pos(b_is_zero), Lit::neg(carry_out)]);
+            self.define([Lit::pos(b_is_zero), Lit::neg(carry_out)]);
 
             // Enforce abs_a = sum (unconditionally - division equation always holds)
             for i in 0..width {
@@ -290,8 +282,7 @@ impl BvSolver {
             let rem_lt_b = self.sat.new_var();
             self.encode_ult_result(&rem_abs, &abs_b, rem_lt_b);
             // Only enforce when b != 0
-            self.sat
-                .add_clause([Lit::pos(b_is_zero), Lit::pos(rem_lt_b)]);
+            self.define([Lit::pos(b_is_zero), Lit::pos(rem_lt_b)]);
 
             // Result sign: sign_a XOR sign_b
             let result_sign = self.sat.new_var();
@@ -328,7 +319,7 @@ impl BvSolver {
             // where `-1` is all-ones and `1` is all-zeros; so bit 0 is a pinned
             // true and every higher bit is `not sign_a`.
             let one_bit = self.sat.new_var();
-            self.sat.add_clause([Lit::pos(one_bit)]);
+            self.define([Lit::pos(one_bit)]);
             let not_sign_a = self.sat.new_var();
             self.encode_not(not_sign_a, sign_a);
 
@@ -421,8 +412,7 @@ impl BvSolver {
 
             // Enforce: high bits of product are zero (no overflow) when b != 0
             for i in width..(2 * width) {
-                self.sat
-                    .add_clause([Lit::pos(b_is_zero), Lit::neg(full_prod[i])]);
+                self.define([Lit::pos(b_is_zero), Lit::neg(full_prod[i])]);
             }
 
             let mut sum: SmallVec<[Var; 32]> = SmallVec::new();
@@ -432,8 +422,7 @@ impl BvSolver {
             let carry_out = self.encode_adder_carry(&sum, &prod, &rem_abs);
 
             // No wrap: quot_abs*abs_b + rem_abs must fit in width when b != 0.
-            self.sat
-                .add_clause([Lit::pos(b_is_zero), Lit::neg(carry_out)]);
+            self.define([Lit::pos(b_is_zero), Lit::neg(carry_out)]);
 
             // Enforce abs_a = sum (unconditionally - division equation always holds)
             for i in 0..width {
@@ -443,8 +432,7 @@ impl BvSolver {
             // Enforce rem_abs < abs_b (only when b != 0)
             let rem_lt_b = self.sat.new_var();
             self.encode_ult_result(&rem_abs, &abs_b, rem_lt_b);
-            self.sat
-                .add_clause([Lit::pos(b_is_zero), Lit::pos(rem_lt_b)]);
+            self.define([Lit::pos(b_is_zero), Lit::pos(rem_lt_b)]);
 
             // neg_rem = -rem_abs (for negative dividend case)
             let mut neg_rem: SmallVec<[Var; 32]> = SmallVec::new();

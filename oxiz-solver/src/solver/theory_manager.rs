@@ -1368,6 +1368,14 @@ impl TheoryCallback for TheoryManager<'_> {
             return TheoryCheckResult::Sat;
         }
 
+        // An exhausted budget has already decided `Unknown`: no more theory
+        // work, and no more conflicts *counted* past `:max-conflicts`
+        // (decision (20); nine distinct arrays under a budget of 100 reported
+        // 242 once bit-vector explanations became cores, decision (45)).
+        if self.resource_exhausted {
+            return TheoryCheckResult::Sat;
+        }
+
         // The same exit in the *deterministic* currency (`#P2b-46`): one
         // refinement round can hand the search a circuit whose per-assignment
         // embedded check is the whole cost, and neither refinement counter can
@@ -1566,6 +1574,10 @@ impl TheoryCallback for TheoryManager<'_> {
         // Sat so the owning solver answers `Unknown`.
         if self.timed_out() {
             self.resource_exhausted = true;
+            return TheoryCheckResult::Sat;
+        }
+        // An exhausted budget already decided `Unknown` (see `on_assignment`).
+        if self.resource_exhausted {
             return TheoryCheckResult::Sat;
         }
 

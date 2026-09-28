@@ -57,6 +57,14 @@
 //!       relevant set (UF-argument terms ∪ guard-ground constants); outside the guard
 //!       region the implication is vacuously true.
 //!
+//! * **Arrays** — an array is *not* an uninterpreted function: `store`, the
+//!   array constant and extensionality fix its value at indices no term names,
+//!   so for every sort a bound variable indexes an array at, the relevant set
+//!   also carries a representative of the region no index names
+//!   (`unnamed_region`, `#P2b-60`).  Without it the relevant set of
+//!   `∀i. a1[i] = #b1` beside `a1 = store(K#b0, #b0000000, #b1)` was
+//!   `{#b0000000}` alone and the certifier answered a wrong `sat`.
+//!
 //! When *any* tracked quantifier falls outside these fragments (or is an
 //! existential, which needs a witness rather than an instance) the module
 //! reports [`CertifyResult::NotEligible`] and the caller keeps its normal
@@ -73,6 +81,8 @@ use oxiz_core::sort::SortId;
 
 use super::model_completion::CompletedModel;
 use super::{Instantiation, InstantiationReason, QuantifiedFormula};
+
+mod unnamed_region;
 
 /// Result of collecting the complete instantiation set for every tracked
 /// quantifier.
@@ -91,9 +101,14 @@ pub(crate) enum CertifyResult {
 
 /// Collect the complete instantiation set for every tracked quantifier, or
 /// report that the goal is outside the certifiable fragment.
+///
+/// `unnamed` carries the goal's literals when the representatives of the
+/// array-index region no term names are to be added (the saturation re-check,
+/// `#P2b-60`), and is `None` for the ordinary relevant set.
 pub(crate) fn collect_fragment_instances(
     quantifiers: &[QuantifiedFormula],
     model: &CompletedModel,
+    unnamed: Option<&[TermId]>,
     manager: &mut TermManager,
     cap: usize,
     generation: u32,
@@ -125,6 +140,16 @@ pub(crate) fn collect_fragment_instances(
         if quantifier.is_universal && quantifier.can_instantiate() {
             augment_guard_grounds(quantifier, &mut relevant, manager);
         }
+    }
+
+    // The third half, for arrays (`#P2b-60`), on the saturation re-check
+    // only: a representative of the index region no term names, so the
+    // projection that extends a model of the instances to the whole domain
+    // never sends an unnamed index onto a `store`'s own index.  See
+    // `unnamed_region`.  Again only instances are added, so this can only
+    // strengthen the ground problem.
+    if let Some(goal) = unnamed {
+        unnamed_region::add_unnamed_index_points(quantifiers, model, goal, &mut relevant, manager);
     }
 
     let mut saw_quantifier = false;

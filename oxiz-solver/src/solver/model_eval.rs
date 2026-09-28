@@ -1534,6 +1534,30 @@ impl Solver {
         )
     }
 
+    /// `term` under `model` alone: every leaf read from the model, a `select`
+    /// read over its `store` chain (and through an installed array value).
+    ///
+    /// The reading `solver::array_completion_certify` pre-filters a candidate
+    /// completion with: only a definite [`EvalOutcome::Value`] of `false`
+    /// refutes, so a candidate the evaluator cannot fold still goes to the
+    /// certificate, and one it can refute never costs a query.
+    pub(super) fn eval_under_interpretation(
+        &self,
+        term: TermId,
+        model: &Model,
+        manager: &TermManager,
+    ) -> EvalOutcome {
+        self.eval_with(
+            term,
+            model,
+            manager,
+            0,
+            SelectSemantics::ReadOverWrite,
+            LeafSource::Model,
+            &FuncInterps::default(),
+        )
+    }
+
     /// [`Self::eval_in_model_outcome`] with the `select` and numeric-leaf
     /// readings spelled out; see [`SelectSemantics`] and [`LeafSource`] for
     /// why the callers differ.

@@ -540,7 +540,11 @@ pub(super) fn encode_bv_term_recursive(
                         // its magnitude would assert a different value.
                         return false;
                     };
-                    if !bv.assert_const_big(tid, &magnitude, width) {
+                    // A literal denotes its value in every scope, so its bits
+                    // are a *definition* (root clauses, never retracted), not
+                    // a scoped assertion — see `oxiz_theories`' `bv/solver/
+                    // scope.rs` (decision (45)).
+                    if !bv.define_const_big(tid, &magnitude, width) {
                         return false;
                     }
                 }

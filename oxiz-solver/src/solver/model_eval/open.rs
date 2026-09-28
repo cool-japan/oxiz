@@ -380,11 +380,32 @@ impl Solver {
     ) -> (SmallVec<[(TermId, TermId); 4]>, EvalOutcome) {
         let mut levels: SmallVec<[(TermId, TermId); 4]> = SmallVec::new();
         let mut base = array;
-        while let Some(TermKind::Store(inner, store_index, value)) =
-            manager.get(base).map(|t| &t.kind)
-        {
-            levels.push((*store_index, *value));
-            base = *inner;
+        let mut followed = false;
+        loop {
+            while let Some(TermKind::Store(inner, store_index, value)) =
+                manager.get(base).map(|t| &t.kind)
+            {
+                levels.push((*store_index, *value));
+                base = *inner;
+            }
+            // An array the model binds to an installed *value* — the certified
+            // interpretation `solver::array_completion_certify` publishes, a
+            // constant array or a store chain over one (`#P2b-51`) — is read
+            // through that value: it is what `(get-model)` prints, so a read
+            // answered from anything else would describe a second model.
+            // Followed once: an installed value is closed and binds nothing.
+            match model.get(base) {
+                Some(value)
+                    if !followed
+                        && crate::solver::array_completion_certify::is_array_value(
+                            value, manager,
+                        ) =>
+                {
+                    base = value;
+                    followed = true;
+                }
+                _ => break,
+            }
         }
         // An array constant bottoms the chain out with a definite value: it
         // reads back its default at every index, so no published read of the

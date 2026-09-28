@@ -146,6 +146,10 @@ pub struct Solver {
     pub(super) assumption_vars: FxHashMap<u32, Var>,
     /// Model (if sat)
     pub(super) model: Option<Model>,
+    /// The assignments of the last model `array_completion_certify`
+    /// installed, so a second hook in the same `check` can tell a certified
+    /// model from one that merely binds arrays to value terms.
+    pub(super) certified_array_model: Option<FxHashMap<TermId, TermId>>,
     /// Exact model values for the nonlinear-real variables that [`Model`]
     /// cannot hold — the `(get-model)` side-channel for algebraic witnesses.
     ///
@@ -712,6 +716,7 @@ impl Solver {
             named_assertions: Vec::new(),
             assumption_vars: FxHashMap::default(),
             model: None,
+            certified_array_model: None,
             nl_algebraic_values: FxHashMap::default(),
             unsat_core: None,
             context_stack: Vec::new(),
@@ -879,33 +884,20 @@ impl Solver {
             }
             result = self.check_core(manager);
         }
-        // `#P2b-58` / decision (36): model completion for an array default
-        // under a binder, behind a quantifier-free certificate.
-        //
-        // This is the *last* thing tried before a verdict is given up, and
-        // only where one would be: either `check_core` already answered
-        // `Unknown`, or it answered `Sat` and one of the honesty gates below
-        // is about to take that `Sat` away.  A `Sat` that survives the gates
-        // needs nothing from here, and a `Unsat` is never revisited.
-        //
-        // Soundness rests entirely on
-        // [`Solver::certify_sat_by_array_completion`]: it publishes `Sat` only
-        // when a completed, total interpretation has been *verified* against
-        // every assertion by quantifier-free validity queries, which is a
-        // model in the ordinary semantic sense.  So the `Sat` returned here
-        // does not depend on the honesty gates it overtakes — it does not rest
-        // on the array axiomatisation, on the quantifier literals, or on the
-        // candidate model at all; the candidate only supplies the values the
-        // search starts from.  See `solver::array_completion_certify`.
+        // `#P2b-58` / `#P2b-51` (decisions (36), (40), (41)): model completion
+        // for an array default under a binder, behind a quantifier-free
+        // certificate, at every `Sat` exit of `check_core` and wherever a
+        // verdict would otherwise be given up.  It changes a *verdict* only
+        // where one would be given up (`Unknown`, or a `Sat` a gate below is
+        // about to take away), and otherwise only the published *model*; an
+        // `Unsat` is never revisited.  Why the `Sat` it returns rests on the
+        // certificate alone is in `solver::array_completion_certify`.
         let honesty_gate_pending = self.encode_depth_exceeded
             || self.dt_axioms_incomplete
             || self.array_axioms_incomplete
             || self.quantifier_literal_unconstrained
             || self.case_split_skipped_targets;
-        if (result == SolverResult::Unknown
-            || (result == SolverResult::Sat && honesty_gate_pending))
-            && self.certify_sat_by_array_completion(manager)
-        {
+        if self.array_completion_at_exit(result, honesty_gate_pending, manager) {
             self.unsat_core = None;
             self.debug_check_invariants("check: before returning sat (completed array model)");
             return SolverResult::Sat;

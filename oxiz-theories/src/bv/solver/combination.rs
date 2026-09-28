@@ -62,38 +62,16 @@ impl TheoryCombination for BvSolver {
             // off the SMT-LIB script path today (`TheoryManager` only forwards
             // equality notifications to the arithmetic solver), but
             // `TheoryCombination` is public API and a direct caller reaches it.
-            let allowance = self.remaining_conflict_budget();
-            self.apply_budget_to_embedded(allowance);
-            let conflicts_before = self.sat.stats().conflicts;
-            let solve_result = self.sat.solve();
-            self.charge_embedded_conflicts(conflicts_before);
+            // One solve under the scope's assertions, the new equality among
+            // them (`scope.rs`); it ends at decision level 0.
+            let (solve_result, _core) = self.solve_scope();
             match solve_result {
-                SolverResult::Unsat => {
-                    // The equality is inconsistent with current BV constraints
-                    self.sat.backtrack_to_root();
-                    false
-                }
+                SolverResult::Unsat => false,
                 SolverResult::Sat => {
-                    // Extract model-based equalities: if two BV terms now have
-                    // the same value in the model, propagate that equality
                     self.extract_model_equalities();
-                    self.sat.backtrack_to_root();
                     true
                 }
-                SolverResult::Unknown => {
-                    // The solve ran out of budget, so there is no model to read
-                    // and `extract_model_equalities` must NOT be called: it
-                    // reads `self.sat.model()`, which after an unfinished solve
-                    // holds whatever partial assignment the search abandoned,
-                    // and would derive shared equalities that nothing entails.
-                    // Reporting "accepted, no equalities derived" is the sound
-                    // answer: `false` here means "this theory refutes the
-                    // equality", which is a claim an exhausted solve cannot
-                    // make.  Incompleteness is handled by the enclosing search,
-                    // which sees the budget exhaustion through its own poll.
-                    self.sat.backtrack_to_root();
-                    true
-                }
+                SolverResult::Unknown => true,
             }
         } else if lhs_known || rhs_known {
             // One term is a BV term, the other is foreign (shared variable).

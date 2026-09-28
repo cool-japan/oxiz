@@ -11,41 +11,60 @@ use oxiz_core::ast::TermId;
 use oxiz_theories::bv::BvSolver;
 use oxiz_theories::{Theory, TheoryCheckResult};
 
-/// `push` / `pop` must retract a circuit node created inside the scope.
+/// `push` / `pop` retract what was **asserted** inside the scope and keep
+/// what was **defined** there (decision (45), `bv/solver/scope.rs`).
 ///
-/// This is U-Z10 at its smallest: `x` is bit-blasted and pinned to `1` *inside*
-/// a pushed scope, so `sat.pop()` deletes both its defining and its pinning
-/// clauses. Before the fix `term_to_bv` kept the entry, so `get_bv(x)` still
-/// answered `Some` after the pop and the encoder's idempotence guard
-/// (`oxiz-solver`'s `theory_bv_encode::encode_bv_term_recursive`, `if
-/// bv.get_bv(tid).is_some() { continue; }`) then refused to rebuild it — leaving
-/// a completely unconstrained bit-vector that made unsatisfiable formulas
-/// answer `sat`. After the fix the term is unknown again and gets re-encoded.
+/// This test used to assert the opposite half of U-Z10's fix: that
+/// `get_bv(x)` is `None` after the pop, because `sat.pop()` deleted the
+/// clauses defining `x`'s circuit and a surviving cache entry would have
+/// handed the encoder an unconstrained bit-vector.  Circuits are now installed
+/// at the root and never deleted, so the entry and its clauses live exactly as
+/// long as each other; what U-Z10 was about — a circuit that is *unconstrained*
+/// after the pop — is what this version checks directly: the adder defined
+/// inside the scope still constrains `z` after it, while the constant pinned
+/// inside the scope is gone.
 #[test]
-fn pop_retracts_a_circuit_node_created_inside_the_scope() {
+fn pop_keeps_the_circuit_and_retracts_only_the_assertion() {
     let mut solver = BvSolver::new();
-    let x = TermId::new(1);
+    let (x, y, z) = (TermId::new(1), TermId::new(2), TermId::new(3));
 
     solver.push();
     solver.new_bv(x, 8);
-    assert!(solver.assert_const(x, 1, 8));
+    solver.new_bv(y, 8);
     assert!(
-        solver.get_bv(x).is_some(),
-        "the circuit exists inside the scope"
+        solver.bv_add(z, x, y),
+        "z := x + y, defined inside the scope"
     );
+    assert!(solver.assert_const(x, 1, 8));
+    assert!(matches!(
+        solver.check().expect("check"),
+        TheoryCheckResult::Sat
+    ));
     solver.pop();
 
-    assert!(
-        solver.get_bv(x).is_none(),
-        "0.3.3/0.3.4 kept this cache entry after pop, leaving an unconstrained \
-         bit-vector the encoder would never rebuild (U-Z10)"
-    );
+    assert!(solver.get_bv(z).is_some(), "the circuit outlives the scope");
+    // The popped assertion `x = 1` is gone: `x = 2` is consistent now.
+    assert!(solver.assert_const(x, 2, 8));
+    assert!(solver.assert_const(y, 2, 8));
+    assert!(matches!(
+        solver.check().expect("check"),
+        TheoryCheckResult::Sat
+    ));
+    assert_eq!(solver.get_value(z), Some(4), "the adder still defines z");
+    // …and the adder still refutes a wrong sum: it is constrained, not free.
+    solver.push();
+    assert!(solver.assert_const(z, 5, 8));
+    assert!(matches!(
+        solver.check().expect("check"),
+        TheoryCheckResult::Unsat(_)
+    ));
+    solver.pop();
 }
 
-/// A node created *below* the pushed scope must survive the pop: the rollback
-/// must retract exactly what `sat.pop()` deleted, no more.
+/// A node created below the pushed scope survives the pop — and so, now, does
+/// one created inside it: both are definitions.
 #[test]
-fn pop_keeps_a_circuit_node_created_below_the_scope() {
+fn pop_keeps_every_circuit_node_below_or_inside_the_scope() {
     let mut solver = BvSolver::new();
     let x = TermId::new(1);
     let y = TermId::new(2);
@@ -56,28 +75,41 @@ fn pop_keeps_a_circuit_node_created_below_the_scope() {
     solver.pop();
 
     assert!(solver.get_bv(x).is_some(), "x predates the push");
-    assert!(solver.get_bv(y).is_none(), "y was created inside the scope");
+    assert!(
+        solver.get_bv(y).is_some(),
+        "y is a definition and outlives the pop"
+    );
 }
 
-/// Nested scopes unwind one level at a time, and `reset` clears everything.
+/// Nested scopes unwind their *assertions* one level at a time, and `reset`
+/// clears everything.
 #[test]
 fn nested_pops_unwind_one_level_at_a_time() {
     let mut solver = BvSolver::new();
-    let (a, b, c) = (TermId::new(1), TermId::new(2), TermId::new(3));
+    let a = TermId::new(1);
 
     solver.new_bv(a, 8);
+    assert!(solver.assert_const(a, 1, 8));
     solver.push();
-    solver.new_bv(b, 8);
+    assert!(solver.assert_const(a, 2, 8), "contradicts the base level");
     solver.push();
-    solver.new_bv(c, 8);
+    assert!(matches!(
+        solver.check().expect("check"),
+        TheoryCheckResult::Unsat(_)
+    ));
 
     solver.pop();
-    assert!(solver.get_bv(c).is_none());
-    assert!(solver.get_bv(b).is_some());
+    assert!(
+        matches!(solver.check().expect("check"), TheoryCheckResult::Unsat(_)),
+        "`a = 2` belongs to the level still open"
+    );
 
     solver.pop();
-    assert!(solver.get_bv(b).is_none());
-    assert!(solver.get_bv(a).is_some());
+    assert!(
+        matches!(solver.check().expect("check"), TheoryCheckResult::Sat),
+        "only the base-level `a = 1` is left"
+    );
+    assert_eq!(solver.get_value(a), Some(1));
 
     solver.reset();
     assert!(solver.get_bv(a).is_none(), "reset clears the caches");

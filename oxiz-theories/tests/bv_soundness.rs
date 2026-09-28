@@ -79,31 +79,48 @@ fn test_empty_conflict_fixed_with_guard_terms() {
     }
 }
 
-/// Multiple guard terms: all recorded terms appear in the conflict clause.
+/// Multiple guard terms: every recorded term whose assertion the refutation
+/// uses appears in the conflict clause — and, since the explanation became
+/// the failed-assumption core (decision (45), `bv/solver/scope.rs`), a
+/// recorded term whose assertion plays no part does not.
+///
+/// A term blames the assertions made since the previous
+/// `record_constraint_term`, which is how the theory manager calls it (assert,
+/// then record).  This test used to record both guards after all three
+/// assertions and require both in the clause — the whole-scope explanation,
+/// under which every recorded term was blamed for every conflict.
 #[test]
 fn test_conflict_clause_contains_all_guard_terms() {
     let mut solver = BvSolver::new();
     let a = TermId::new(1);
     let b = TermId::new(2);
+    let c = TermId::new(3);
 
     solver.new_bv(a, 8);
     solver.new_bv(b, 8);
+    solver.new_bv(c, 8);
 
-    // a = 100, b = 200, a = b — UNSAT
+    // a = 100, b = 200 (guard1), a = b (guard2) — UNSAT; c = 7 (guard3) is
+    // consistent with everything and takes no part in the refutation.
     solver.assert_const(a, 100, 8);
     solver.assert_const(b, 200, 8);
-    assert!(solver.assert_eq(a, b));
-
     let guard1 = TermId::new(101);
-    let guard2 = TermId::new(102);
     solver.record_constraint_term(guard1);
+    assert!(solver.assert_eq(a, b));
+    let guard2 = TermId::new(102);
     solver.record_constraint_term(guard2);
+    solver.assert_const(c, 7, 8);
+    let guard3 = TermId::new(103);
+    solver.record_constraint_term(guard3);
 
     match solver.check().expect("check should not error") {
         TheoryCheckResult::Unsat(terms) => {
-            assert!(!terms.is_empty(), "conflict clause must not be empty");
             assert!(terms.contains(&guard1), "guard1 must be in conflict clause");
             assert!(terms.contains(&guard2), "guard2 must be in conflict clause");
+            assert!(
+                !terms.contains(&guard3),
+                "guard3 is not part of the refutation: {terms:?}"
+            );
         }
         other => panic!("Expected UNSAT, got {:?}", other),
     }

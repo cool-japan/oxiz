@@ -191,7 +191,7 @@ impl Solver {
         // just-refuted candidate model (e.g. a stale
         // `select = 6`) — including any left in scopes this
         // round's search never unwound.
-        self.rebase_theory_state();
+        self.rebase_theory_state_for_round();
         // After backtracking to root and resetting the
         // theory solvers: the SAT-variable <-> term tables
         // and the Tseitin memo are *not* reset here, so
@@ -199,5 +199,24 @@ impl Solver {
         // replayed search will re-derive.
         self.debug_check_invariants("check_core: after array-lemma backtrack");
         ArrayRefinementStep::Resolve
+    }
+
+    /// [`Solver::rebase_theory_state`] for a new search *within* one check —
+    /// a refinement round, a repair round, an MBQI round — over the same
+    /// terms: every theory solver is rebased as there, except that the
+    /// bit-vector solver keeps its circuits
+    /// ([`oxiz_theories::bv::BvSolver::retract_assertions`]).  They are
+    /// definitions, valid in every search (`oxiz-theories`' `bv/solver/
+    /// scope.rs`, decision (45)), and rebuilding them every round was most
+    /// of the cost of a round on a script whose lemmas mint many reads.  The
+    /// check itself starts from the full reset, so no circuit outlives the
+    /// `(check-sat)` that built it.
+    pub(super) fn rebase_theory_state_for_round(&mut self) {
+        use oxiz_theories::Theory;
+        self.sat.backtrack_to_root();
+        self.euf.reset();
+        self.arith.reset();
+        self.bv.retract_assertions();
+        self.derived_reasons.clear();
     }
 }

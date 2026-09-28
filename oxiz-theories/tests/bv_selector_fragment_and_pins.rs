@@ -312,12 +312,17 @@ fn a_selector_the_outer_search_never_assigned_is_readable_from_the_circuit() {
     assert_eq!(solver.get_value(x), Some(1));
 }
 
-/// An opaque leaf is journalled with its circuit and retracted by the same
-/// `pop` (`#P2b-29`): the theory manager reads this list to intern every
-/// leaf into congruence closure, so a stale entry would name a term whose
-/// circuit is gone.
+/// An opaque leaf's record lives exactly as long as its circuit (`#P2b-29`):
+/// the theory manager reads this list to intern every leaf into congruence
+/// closure, so it must never name a term whose circuit is gone.  Since the
+/// circuits are definitions installed at the root (decision (45),
+/// `bv/solver/scope.rs`) both outlive every `pop`; `reset` clears both.
+///
+/// Until re-fix pass 12 this test asserted that a leaf created inside a scope
+/// was retracted with it — which was right while `sat.pop()` deleted the
+/// leaf's clauses, and is the same invariant (record ⇔ live circuit) now.
 #[test]
-fn opaque_leaves_are_journalled_and_retracted_with_their_scope() {
+fn opaque_leaves_live_exactly_as_long_as_their_circuits() {
     let mut tm = TermManager::new();
     let bv8 = tm.sorts.bitvec(8);
     let fa = tm.mk_var("fa", bv8);
@@ -334,17 +339,18 @@ fn opaque_leaves_are_journalled_and_retracted_with_their_scope() {
     assert_eq!(
         solver.opaque_leaves(),
         &[fa, fb],
-        "a re-creation is not journalled twice"
+        "a re-creation is not recorded twice"
     );
     assert!(solver.get_bv(fb).is_some());
     solver.pop();
-    assert_eq!(solver.opaque_leaves(), &[fa]);
-    assert!(
-        solver.get_bv(fb).is_none(),
-        "the leaf's circuit goes with the same pop as its record"
+    assert_eq!(
+        solver.opaque_leaves(),
+        &[fa, fb],
+        "the leaf outlives the pop, with its circuit"
     );
+    assert!(solver.get_bv(fb).is_some(), "the circuit is a definition");
     solver.new_opaque_leaf(fc, 8);
-    assert_eq!(solver.opaque_leaves(), &[fa, fc]);
+    assert_eq!(solver.opaque_leaves(), &[fa, fb, fc]);
     solver.reset();
     assert!(solver.opaque_leaves().is_empty());
     assert!(solver.get_bv(fa).is_none());

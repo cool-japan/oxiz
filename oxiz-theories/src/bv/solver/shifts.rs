@@ -50,7 +50,7 @@ impl BvSolver {
     /// A fresh SAT variable forced to constant 0.
     fn fresh_zero(&mut self) -> Var {
         let zero = self.sat.new_var();
-        self.sat.add_clause([Lit::neg(zero)]);
+        self.define([Lit::neg(zero)]);
         zero
     }
 

@@ -183,6 +183,17 @@ fn an_array_equal_to_a_constant_prints_that_constants_default() {
 
 /// `r3/mp/b3`: an array asserted equal to a `store` prints that store's own
 /// base and write.
+///
+/// Checked by **exact evaluation** of the two printed chains over all four
+/// indices, not by the replay the other tests use.  Re-fix pass 12's
+/// bit-blaster (decision (45)) finds a different — equally correct — model
+/// (`arr = [#b10, #b11, #b00, #b00]`, `brr` the same with `#b00` at `#b01`), and
+/// replaying *that* model as two `define-fun` store chains answers `unknown`:
+/// the two chains denote one array with their links in a different order,
+/// which is exactly `#P2b-38` (d)'s open honesty-gate residue (HEAD `c702310`'s
+/// probe answers the same replay `unknown` too).  The property under test is
+/// that the printed model satisfies the assertions, and the evaluation decides
+/// that without the gate.
 #[test]
 fn an_array_equal_to_a_store_prints_that_store() {
     let script = "(set-logic QF_ABV)
@@ -194,7 +205,45 @@ fn an_array_equal_to_a_store_prints_that_store() {
 (get-model)
 ";
     let model = model_of(script);
-    assert!(replay_is_sat(script, &model), "{model}");
+    let arr = two_bit_array(&model, "arr");
+    let brr = two_bit_array(&model, "brr");
+    let mut stored = brr;
+    stored[1] = 3;
+    assert_eq!(arr, stored, "arr must equal (store brr #b01 #b11): {model}");
+    assert_eq!(arr[1], 3, "(select arr #b01) must be #b11: {model}");
+}
+
+/// The four entries of a printed `(Array (_ BitVec 2) (_ BitVec 2))` chain
+/// `(store … ((as const …) #bDD) #bII #bVV …)`, read left to right, inner
+/// store first, so a later write wins.
+fn two_bit_array(model: &str, name: &str) -> [u8; 4] {
+    let line = model
+        .lines()
+        .find(|line| {
+            line.trim_start()
+                .starts_with(&format!("(define-fun {name} "))
+        })
+        .unwrap_or_else(|| panic!("no definition of {name}: {model}"));
+    let body = line
+        .split("(_ BitVec 2))")
+        .nth(2)
+        .unwrap_or_else(|| panic!("unexpected definition of {name}: {line}"));
+    let bits: Vec<u8> = body
+        .split("#b")
+        .skip(1)
+        .filter_map(|chunk| chunk.get(..2))
+        .filter_map(|two| u8::from_str_radix(two, 2).ok())
+        .collect();
+    let (default, writes) = bits
+        .split_first()
+        .unwrap_or_else(|| panic!("no constant default in {line}"));
+    let mut entries = [*default; 4];
+    for pair in writes.chunks(2) {
+        if let [index, value] = pair {
+            entries[usize::from(*index)] = *value;
+        }
+    }
+    entries
 }
 
 /// `r3/mp/b10` and `bench/z3_parity/benchmarks/qf_a/array_07`: the *outer*

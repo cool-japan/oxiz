@@ -48,7 +48,8 @@
 //!
 //! # What is still pinned open
 //!
-//! Two holes survive and keep their `THE HOLE IS CLOSED` notes:
+//! Two holes survive and keep their `THE HOLE IS CLOSED` notes, and one
+//! more is closed and inverted:
 //!
 //! * `a_declared_index_sort_with_a_free_cardinality_is_undecided` — a
 //!   *completeness* hole this pass introduced knowingly.  An uninterpreted
@@ -56,10 +57,10 @@
 //!   came from the very defect the rest of this section guards, and showing it
 //!   properly needs finite-model finding over an uninterpreted sort.
 //!   `TODO.md` `#P2b-50`.
-//! * `a_published_model_still_falsifies_its_own_quantified_assertion` — the
-//!   *model* half of R5-1, a different mechanism in a different module
-//!   (`context::model_fmt::array_model` chooses an array's default from the
-//!   sort rather than from the quantified assertions).  `TODO.md` `#P2b-51`.
+//! * `a_published_model_satisfies_its_own_quantified_assertion` — the
+//!   *model* half of R5-1 (`TODO.md` `#P2b-51`), pinned here as a hole until
+//!   re-fix pass 12 closed it (decision (40)) and inverted it: it now asserts
+//!   `sat` and replays the published model over all 128 points.
 //! * `two_nested_arrays_held_apart_still_print_identically` — `#P2b-49`,
 //!   untouched by this pass.
 //!
@@ -751,32 +752,35 @@ fn the_read_over_write_lemma_reaches_a_named_assertion() {
     );
 }
 
-/// **PIN — a published model that falsifies its own script.**
+/// **A published model satisfies its own quantified assertion** — `#P2b-51`'s
+/// original six-line script, **closed** by decision (40) (re-fix pass 12) and
+/// inverted here.  This test carried the name
+/// `a_published_model_still_falsifies_its_own_quantified_assertion` while the
+/// hole was open.
 ///
 /// `a1[#b0000011] = #b0`, so `(bvxor (select a1 #b0000011) #b1)` is `#b1` and
-/// the binder demands that `a0` be constantly `#b1`.  **The verdict `sat` is
-/// correct** — `a0 = ((as const …) #b1)` is a model — but the model this tree
-/// publishes is
+/// the binder demands that `a0` be constantly `#b1`.  The verdict `sat` was
+/// always correct; the model published until re-fix pass 12 was
 ///
 /// ```text
 /// a0 = (store (store ((as const (Array (_ BitVec 7) (_ BitVec 1))) #b0)
 ///                    #b1111111 #b1) #b0000011 #b1)
 /// ```
 ///
-/// whose value at `#b0000000` is `#b0`.  The model falsifies its own `forall`.
+/// whose value at `#b0000000` is `#b0`, falsifying its own `forall`: the
+/// renderer took an array's default from the sort, and the completion that
+/// would have repaired it (`solver::array_completion_certify`) ran only where
+/// a verdict would otherwise be given up.  It now runs at every `Sat` exit a
+/// quantified array assertion reaches, and installs the certified
+/// interpretation when its quantifier-free certificate passes; none of
+/// `#P2b-58` (f)'s decline rules applies here (two arrays, one universal, no
+/// uninterpreted symbol, constant interpretations over pooled defaults).
 ///
-/// This is the *model* half of R5-1 and it is a different mechanism from the
-/// verdict half the rest of this section guards: the renderer
-/// (`context::model_fmt::array_model`) chooses an array's default from the sort
-/// rather than from the quantified assertions, and the read-over-write rewrite
-/// cannot reach it — the binder here carries no `store` at all.  Measured on
-/// the 300 paired width-7/8 scripts of `rk6/corpus/qmbqi`: 26 falsifying models
-/// before re-fix pass 7, 24 after.
-///
-/// **THE HOLE IS CLOSED** when the published `a0` reads `#b1` at
-/// `#b0000000` — invert this test then.  `TODO.md` `#P2b-51` carries it.
+/// The model is **replayed** against the quantifier written out over all 128
+/// points of its index sort and the ground assertion beside it, so a
+/// different but equally correct model keeps this green.
 #[test]
-fn a_published_model_still_falsifies_its_own_quantified_assertion() {
+fn a_published_model_satisfies_its_own_quantified_assertion() {
     let script = "(set-logic ALL)\n\
          (set-option :produce-models true)\n\
          (declare-const a0 (Array (_ BitVec 7) (_ BitVec 1)))\n\
@@ -788,17 +792,47 @@ fn a_published_model_still_falsifies_its_own_quantified_assertion() {
          (get-model)\n";
     let lines = run(script);
     assert_eq!(verdict(&lines), "sat", "{}", joined(&lines));
-    let text = joined(&lines);
-    let rendered = text
-        .lines()
-        .find(|line| line.trim_start().starts_with("(define-fun a0 "))
-        .unwrap_or_default()
-        .to_string();
+    let mut pins = String::new();
+    for line in &lines {
+        for raw in line.lines() {
+            let trimmed = raw.trim();
+            let Some(rest) = trimmed.strip_prefix("(define-fun ") else {
+                continue;
+            };
+            let Some((name, rest)) = rest.split_once(" () (Array (_ BitVec 7) (_ BitVec 1)) ")
+            else {
+                continue;
+            };
+            let Some(value) = rest.strip_suffix(')') else {
+                continue;
+            };
+            pins.push_str(&format!("(assert (= {name} {value}))\n"));
+        }
+    }
     assert!(
-        rendered.contains("((as const (Array (_ BitVec 7) (_ BitVec 1))) #b0)"),
-        "PIN: `a0`'s published default is the sort's `#b0` and the binder demands \
-         `#b1`, so the model falsifies its own assertion; when the default \
-         becomes `#b1`, invert this test\n{text}"
+        pins.contains("(= a0 ") && pins.contains("(= a1 "),
+        "both arrays must be published for the replay to mean anything\n{}",
+        joined(&lines)
+    );
+    let mut replay = String::from(
+        "(set-logic ALL)\n\
+         (declare-const a0 (Array (_ BitVec 7) (_ BitVec 1)))\n\
+         (declare-const a1 (Array (_ BitVec 7) (_ BitVec 1)))\n",
+    );
+    replay.push_str(&pins);
+    replay.push_str("(assert (= (select a1 (_ bv3 7)) #b0))\n");
+    for index in 0..128u32 {
+        replay.push_str(&format!(
+            "(assert (= (select a0 (_ bv{index} 7)) (bvxor (select a1 (_ bv3 7)) #b1)))\n"
+        ));
+    }
+    replay.push_str("(check-sat)\n");
+    assert_verdict(
+        &replay,
+        "sat",
+        "#P2b-51 (decision (40)): the published model must satisfy the \
+         quantifier at every one of the 128 points of its index sort and the \
+         ground assertion beside it",
     );
 }
 

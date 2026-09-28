@@ -442,9 +442,13 @@ fn script_rejection(script: &str) -> String {
 // move a witness, and that must not read as a soundness regression.
 
 /// `a = 0x0f` (entailed) with a disjunction whose first branch is excluded, so
-/// `b >u 0xf0` must hold.  `b = 0xff` is a **measured witness** — one of the
-/// fifteen values above `0xf0` — recorded here because it is the value both
-/// builds produce.
+/// `b >u 0xf0` must hold.  Until re-fix pass 12 this pinned `b = 0xff`, the
+/// **measured witness** both builds then produced — one of the fifteen values
+/// above `0xf0`.  The bit-blaster's root-scoped definitions (decision (45))
+/// moved the embedded search to `0xf1`, which is exactly the "later
+/// search-order change" the section note above anticipates; the test now
+/// asserts the entailed property (`b` is published, and `b >u 0xf0`) rather
+/// than one witness among fifteen.
 #[test]
 fn satisfiable_disjunction_model_is_complete() {
     let script = "\
@@ -461,9 +465,15 @@ fn satisfiable_disjunction_model_is_complete() {
         printed.contains("(a #x0f)"),
         "a = 0x0f is entailed, got: {printed}"
     );
+    let b = printed
+        .split("(b #x")
+        .nth(1)
+        .and_then(|rest| rest.get(..2))
+        .and_then(|hex| u8::from_str_radix(hex, 16).ok());
     assert!(
-        printed.contains("(b #xff)"),
-        "recorded witness b = 0xff, got: {printed}"
+        b.is_some_and(|value| value > 0xf0),
+        "b must be published and above 0xf0 (the only branch a = 0x0f leaves), \
+         got: {printed}"
     );
 }
 

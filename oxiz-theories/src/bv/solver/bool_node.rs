@@ -21,51 +21,39 @@ impl BvSolver {
     /// solver knows `c` is false, the BV solver did not, and each considered its
     /// own half consistent.
     ///
-    /// The theory manager therefore replays every atom assignment here. The unit
-    /// lands on the embedded solver's trail at the current level, which is kept
-    /// in lockstep with the outer decision levels, so it is retracted on
-    /// backtrack exactly like the (dis)equality and comparison assertions. The
-    /// value is also remembered so a selector that is *first encoded later*
-    /// still picks it up — the outer assignment and the bit-blasting can happen
-    /// in either order.
+    /// The theory manager therefore replays every atom assignment here.  The
+    /// value is recorded in `outer_bool` (journalled, so the matching `pop`
+    /// retracts it) and every check assumes it on the term's boolean node —
+    /// whether the node existed when the value arrived or was encoded later,
+    /// and however many `pop`s the node itself has survived (see `scope.rs`:
+    /// the node is a definition, the pin an assertion).
     ///
     /// Returns `true` when `term` already has a boolean node, i.e. the value
-    /// was pinned into a live circuit right now.  The caller must then run a
+    /// is pinned onto a live circuit right now.  The caller must then run a
     /// `Theory::check`: the pin is an assertion the embedded solver can
     /// refute, and one that reaches it *after* the last constraint was
     /// checked would otherwise go unexamined — `(= x (ite p 1 2)) ∧ (= x 2)
     /// ∧ p`, asserted in that order, ended the search with `p` pinned and no
     /// check run, and only the model gate noticed (`unknown` for an `unsat`;
     /// `#P2b-24`).  `false` means the value was merely remembered for a node
-    /// that does not exist yet; `encode_bool_node` applies it on creation,
-    /// and the check that follows that encoding covers it.
+    /// that does not exist yet; the check that follows that node's encoding
+    /// covers it.
     pub fn assert_bool_value(&mut self, term: TermId, value: bool) -> bool {
         let previous = self.outer_bool.insert(term, value);
         self.outer_bool_journal.push((term, previous));
-        if let Some(&var) = self.bool_node.get(&term) {
-            self.pin_bool_var(term, var, value);
-            return true;
-        }
-        false
+        self.bool_node.contains_key(&term)
     }
 
-    /// Add the unit clause forcing `var` — the boolean node of the outer atom
-    /// `term` — to `value`, and record `term` as a conflict hypothesis for as
-    /// long as that unit is live (see [`Self::pinned_terms`]).
-    fn pin_bool_var(&mut self, term: TermId, var: Var, value: bool) {
-        let lit = if value { Lit::pos(var) } else { Lit::neg(var) };
-        self.sat.add_clause([lit]);
-        if self.pinned_set.insert(term) {
-            self.pinned_terms.push(term);
-        }
-    }
-
-    /// The outer Boolean atoms whose values are currently pinned into the
-    /// circuit, in pin order — the hypotheses every conflict explanation
-    /// names besides the recorded constraint terms.  Exposed for tests.
+    /// The outer Boolean atoms whose values are currently pinned onto the
+    /// circuit, in term order — the hypotheses a whole-scope conflict
+    /// explanation names besides the recorded constraint terms.  Exposed for
+    /// tests.
     #[must_use]
-    pub fn pinned_terms(&self) -> &[TermId] {
-        &self.pinned_terms
+    pub fn pinned_terms(&self) -> Vec<TermId> {
+        self.current_pins()
+            .into_iter()
+            .map(|(term, _)| term)
+            .collect()
     }
 
     /// Encode a Bool-sorted term into a single SAT truth variable over
@@ -86,12 +74,6 @@ impl BvSolver {
     pub fn encode_bool_node(&mut self, term: TermId, manager: &TermManager) -> Option<Var> {
         use oxiz_core::ast::TermKind;
         if let Some(&v) = self.bool_node.get(&term) {
-            // Re-apply any outer truth value: the node may have been created
-            // below a decision level that has since been popped, which retracts
-            // the unit clause but not the cached variable.
-            if let Some(&value) = self.outer_bool.get(&term) {
-                self.pin_bool_var(term, v, value);
-            }
             return Some(v);
         }
         let kind = manager.get(term)?.kind.clone();
@@ -102,12 +84,12 @@ impl BvSolver {
             }
             TermKind::True => {
                 let v = self.sat.new_var();
-                self.sat.add_clause([Lit::pos(v)]);
+                self.define([Lit::pos(v)]);
                 v
             }
             TermKind::False => {
                 let v = self.sat.new_var();
-                self.sat.add_clause([Lit::neg(v)]);
+                self.define([Lit::neg(v)]);
                 v
             }
             TermKind::Not(inner) => {
@@ -180,7 +162,7 @@ impl BvSolver {
                     None => {
                         // `(distinct)` / `(distinct x)` is vacuously true.
                         let v = self.sat.new_var();
-                        self.sat.add_clause([Lit::pos(v)]);
+                        self.define([Lit::pos(v)]);
                         v
                     }
                 }
@@ -204,7 +186,7 @@ impl BvSolver {
                     None => {
                         // Empty conjunction is `true`.
                         let v = self.sat.new_var();
-                        self.sat.add_clause([Lit::pos(v)]);
+                        self.define([Lit::pos(v)]);
                         v
                     }
                 }
@@ -227,7 +209,7 @@ impl BvSolver {
                     None => {
                         // Empty disjunction is `false`.
                         let v = self.sat.new_var();
-                        self.sat.add_clause([Lit::neg(v)]);
+                        self.define([Lit::neg(v)]);
                         v
                     }
                 }
@@ -249,13 +231,9 @@ impl BvSolver {
             TermKind::BvSle(lhs, rhs) => self.bool_ule(lhs, rhs, manager, true)?,
             _ => return None,
         };
-        if self.bool_node.insert(term, out).is_none() {
-            self.bool_node_journal.push(term);
-        }
-        // Honour an outer assignment recorded before this node existed.
-        if let Some(&value) = self.outer_bool.get(&term) {
-            self.pin_bool_var(term, out, value);
-        }
+        // A definition, permanent (`scope.rs`).  An outer value recorded
+        // before the node existed is picked up by the next check's pins.
+        self.bool_node.insert(term, out);
         Some(out)
     }
 
@@ -290,7 +268,11 @@ impl BvSolver {
         if lits.is_empty() {
             return false;
         }
-        self.sat.add_clause(lits);
+        // The disjunction is *defined* once, behind a selector, and the
+        // selector is asserted — so a lemma derived again reuses its clause,
+        // and a `pop` retracts the assertion without deleting a clause.
+        let selector = self.clause_selector(&lits);
+        self.assert_lit(selector);
         true
     }
 
@@ -305,12 +287,12 @@ impl BvSolver {
     /// pre-bit-blasted, equal-width operands: `out <=> AND_i (lhs[i] <=>
     /// rhs[i])`.  `None` when either is missing or the widths differ.
     ///
-    /// Memoised per unordered pair in `eq_cache` (journalled like
-    /// `ult_cache`, so the entry lives exactly as long as its clauses): the
-    /// bit-vector / EUF exchange asks for the same pairs round after round,
-    /// and re-encoding them made every round's instance — and search —
-    /// bigger than the last (see the field's documentation).
-    fn bool_bv_eq(&mut self, lhs: TermId, rhs: TermId) -> Option<Var> {
+    /// Memoised per unordered pair in `eq_cache`, and — a definition — never
+    /// retracted (`scope.rs`): the bit-vector / EUF exchange asks for the same
+    /// pairs round after round, `assert_eq` / `assert_neq` assert it on every
+    /// trail assignment of an atom, and re-encoding it made every round's
+    /// instance — and search — bigger than the last.
+    pub(super) fn bool_bv_eq(&mut self, lhs: TermId, rhs: TermId) -> Option<Var> {
         let key = if lhs.raw() <= rhs.raw() {
             super::ComparisonKey { a: lhs, b: rhs }
         } else {
@@ -326,38 +308,47 @@ impl BvSolver {
             (Some(va), Some(vb)) if va.width == vb.width => (va, vb),
             _ => return None,
         };
-        let mut acc: Option<Var> = None;
-        for i in 0..va.width as usize {
-            // bit_eq <=> (a[i] <=> b[i])
-            let bit_eq = self.sat.new_var();
-            let xor = self.sat.new_var();
-            self.encode_xor(xor, va.bits[i], vb.bits[i]);
-            self.encode_not(bit_eq, xor);
-            acc = Some(match acc {
-                None => bit_eq,
-                Some(prev) => {
-                    let v = self.sat.new_var();
-                    self.encode_and(v, prev, bit_eq);
-                    v
+        // `out <=> AND_i (a[i] <=> b[i])`, in as few variables as the
+        // definition allows, because a root definition is live in every later
+        // check of the round (`scope.rs`): one XNOR for a single bit, and for
+        // a wider pair `out` plus one "this bit differs" witness per bit —
+        // `w + 1` variables where the XOR/NOT/AND chain this replaced took
+        // `3w`.  Both directions are encoded, so `out` is a function of the
+        // operands and asserting either polarity is exact:
+        //   out  -> a[i] = b[i]            (two binary clauses per bit)
+        //   !out -> some d[i]              (one clause)
+        //   d[i] -> a[i] != b[i]           (two clauses per bit)
+        let width = va.width as usize;
+        let out = match width {
+            0 => self.const_var(true),
+            1 => {
+                let out = self.sat.new_var();
+                self.encode_xnor(out, va.bits[0], vb.bits[0]);
+                out
+            }
+            _ => {
+                let out = self.sat.new_var();
+                let mut differs: Vec<Lit> = Vec::with_capacity(width + 1);
+                differs.push(Lit::pos(out));
+                for i in 0..width {
+                    let (a, b) = (va.bits[i], vb.bits[i]);
+                    self.define([Lit::neg(out), Lit::neg(a), Lit::pos(b)]);
+                    self.define([Lit::neg(out), Lit::pos(a), Lit::neg(b)]);
+                    let d = self.sat.new_var();
+                    self.define([Lit::neg(d), Lit::pos(a), Lit::pos(b)]);
+                    self.define([Lit::neg(d), Lit::neg(a), Lit::neg(b)]);
+                    differs.push(Lit::pos(d));
                 }
-            });
-        }
-        let out = match acc {
-            Some(v) => v,
-            None => {
-                // Two zero-width vectors are trivially equal.
-                let v = self.sat.new_var();
-                self.sat.add_clause([Lit::pos(v)]);
-                v
+                self.define(differs);
+                out
             }
         };
-        self.eq_cache.insert(key.clone(), out);
-        self.eq_cache_journal.push(key);
+        self.eq_cache.insert(key, out);
         Some(out)
     }
 
-    /// Encode a strict less-than (signed or unsigned) comparison result var.
-    /// Operands are assumed already bit-blasted by the caller.
+    /// The strict less-than (signed or unsigned) gate over two bit-blasted
+    /// operands — the memoised definition `assert_ult` / `assert_slt` assert.
     fn bool_ult(
         &mut self,
         lhs: TermId,
@@ -365,35 +356,11 @@ impl BvSolver {
         _manager: &TermManager,
         signed: bool,
     ) -> Option<Var> {
-        let (va, vb) = match (
-            self.term_to_bv.get(&lhs).cloned(),
-            self.term_to_bv.get(&rhs).cloned(),
-        ) {
-            (Some(va), Some(vb)) if va.width == vb.width => (va, vb),
-            _ => return None,
-        };
-        let width = va.width as usize;
-        let result = self.sat.new_var();
         if signed {
-            // Signed: if sign bits differ, lhs<rhs iff sign_lhs=1; else unsigned.
-            let sign_a = va.bits[width - 1];
-            let sign_b = vb.bits[width - 1];
-            let diff_sign = self.sat.new_var();
-            self.encode_xor(diff_sign, sign_a, sign_b);
-            self.sat
-                .add_clause([Lit::neg(diff_sign), Lit::neg(sign_a), Lit::pos(result)]);
-            self.sat
-                .add_clause([Lit::neg(diff_sign), Lit::pos(sign_a), Lit::neg(result)]);
-            let ult = self.sat.new_var();
-            self.encode_ult_result(&va.bits, &vb.bits, ult);
-            self.sat
-                .add_clause([Lit::pos(diff_sign), Lit::neg(ult), Lit::pos(result)]);
-            self.sat
-                .add_clause([Lit::pos(diff_sign), Lit::pos(ult), Lit::neg(result)]);
+            self.slt_gate(lhs, rhs)
         } else {
-            self.encode_ult_result(&va.bits, &vb.bits, result);
+            self.ult_gate(lhs, rhs)
         }
-        Some(result)
     }
 
     /// Encode a less-than-or-equal (signed or unsigned) comparison result var

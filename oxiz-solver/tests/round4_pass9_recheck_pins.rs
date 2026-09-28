@@ -2,9 +2,13 @@
 //! regression guards for what passes 8, 9 and 10 closed.
 //!
 //! Re-fix pass 10 closed one of the three holes (`#P2b-59`) and inverted its
-//! pin into `the_refinement_round_count_is_bounded_and_equal_inside_the_plateau`
-//! — a name re-fix pass 11 corrected, because the equality it asserts is a
-//! plateau inside a ramp and not the fixpoint the pass claimed (see that
+//! pin into `a_quantifier_free_array_script_reaches_a_refinement_fixpoint`,
+//! which re-fix pass 11 renamed
+//! `the_refinement_round_count_is_bounded_and_equal_inside_the_plateau`
+//! because the equality it asserted was a plateau inside a ramp and not the
+//! fixpoint the pass claimed; re-fix pass 12 made the real fixpoint cheap
+//! enough to assert, as
+//! `the_refinement_reaches_a_fixpoint_above_its_saturation_point` (see that
 //! test's doc for the measured ladder). Re-fix pass 11 closed the other two
 //! (`#P2b-58`, model completion for an array default under a binder) with
 //! `solver::array_completion_certify`, so **this file now has no open hole**:
@@ -246,80 +250,46 @@ fn the_same_formula_expanded_over_its_whole_index_sort_is_sat() {
     );
 }
 
-/// The lazy array refinement's round count is **bounded and equal at two
-/// budgets inside the 10 / 76 plateau** on a quantifier-free `QF_ABV` script
-/// with `ite`-selected array bases (`#P2b-59`).
+/// The lazy array refinement **reaches a fixpoint** on `#P2b-59`'s
+/// quantifier-free repro: at two budgets above the point where it stops asking
+/// for budget, the verdict is `sat` and `:array-refinement-rounds` /
+/// `:array-lemma-instances` are identical — and the embedded checks spent are
+/// below both budgets, so neither budget is what stopped it.
 ///
-/// # This is not a fixpoint test, and the name it used to carry said it was
+/// # History: this test was the plateau test, and before that it was wrong
 ///
-/// The name `a_quantifier_free_array_script_reaches_a_refinement_fixpoint`
-/// and the sentence "the counts are identical at two budgets — a fixpoint" are
-/// **withdrawn** (adversarial recheck pass 10, corrected here in re-fix pass
-/// 11). The equality at 2,000 and 5,000 is a *plateau inside a ramp*: the same
-/// method one rung higher gives 41 / 129 at 8,000. Measured ladder, release,
-/// `<scratchpad>/oxiz4/rk11/min/q33_b*.smt2`:
+/// Until re-fix pass 12 it was
+/// `the_refinement_round_count_is_bounded_and_equal_inside_the_plateau`: equal
+/// counts at 2,000 and 5,000 checks, **inside** a 10 / 76 plateau of a ramp that
+/// only saturated at 66 / 208 after 30,402 checks (30.4 s release), which no
+/// test could afford to take.  Before *that* it carried the name
+/// `a_quantifier_free_array_script_reaches_a_refinement_fixpoint` and claimed
+/// the plateau was a fixpoint — withdrawn by adversarial recheck pass 10.
+///
+/// Re-fix pass 12 made the real fixpoint affordable rather than moving it:
+/// the embedded bit-blaster's circuits became root definitions and its
+/// conflict explanations failed-assumption cores (decision (45), `#P2b-46`
+/// (f)), and the refinement's choices canonical (decision (43)).  The same
+/// script now saturates after **9,302** embedded checks with **70 rounds /
+/// 195 instances**, `sat` in 0.1–0.4 s release, and the counters are
+/// byte-identical at 20,000 and 50,000.  Measured ladder, release:
 ///
 /// | budget | verdict | rounds / instances |
 /// |---|---|---|
-/// | 500 | `unknown` | 9 / 75 |
-/// | 2,000 | `unknown` | 10 / 76 |
-/// | 5,000 | `unknown` | 10 / 76 |
-/// | 8,000 | `unknown` | 41 / 129 |
-/// | 10,000 | `unknown` | 51 / 181 |
-/// | 12,000 | `unknown` | 57 / 197 |
-/// | 20,000 | `unknown` | 59 / 199 |
-/// | **50,000** | **`sat`** | **66 / 208**, 30,402 checks spent |
+/// | 500 | `unknown` | 9 / 69 |
+/// | 2,000 | `unknown` | 30 / 108 |
+/// | 5,000 | `unknown` | 47 / 158 |
+/// | 8,000 | `unknown` | 64 / 188 |
+/// | 20,000 | **`sat`** | **70 / 195**, 9,302 checks spent |
+/// | 50,000 | **`sat`** | **70 / 195**, 9,302 checks spent |
 ///
-/// The refinement **does** reach a fixpoint — at 66 rounds / 208 instances,
-/// where it stops asking for budget (30,402 of the 50,002 checks offered) and
-/// publishes `sat`. Every rung below that is a *truncation* by the budget, not
-/// a fixpoint at a smaller place. The only assertion that could carry a real
-/// fixpoint claim is one taken at two budgets **above** 30,402 checks, and
-/// that costs the gate about a minute of release time (30.4 s at 50,000, and
-/// the dev profile is several times slower), which is why this test does not
-/// take it and says so instead of calling the plateau a fixpoint.
-///
-/// What this test is, then: a **bounded, equal** count at two budgets, which
-/// is still a working regression guard — the pass-9 tree reports 20 and 26 at
-/// exactly these two budgets and fails both halves. Its companion
+/// What it is **not**: decision (44)'s target, a fixpoint *below* the
+/// saturation point — the same count at 500, 5,000 and 50,000.  Below 9,302
+/// checks the count still grows with the budget; that open half is pinned by
 /// `round4_pass10_recheck_pins::the_array_refinement_round_count_still_grows_with_the_budget`
-/// pins the rung that breaks the plateau, so a tree whose plateau *moved*
-/// reddens there rather than passing silently here.
-///
-/// A **quantifier-free** script — two assertions over two width-8 arrays with
-/// `ite`-selected bases, taken verbatim from
-/// `<scratchpad>/oxiz4/rk6/corpus/qmbqi120/q0033.smt2` with its `forall`
-/// assertion dropped. It contains no binder at all, which is what located the
-/// defect: no quantifier machinery can reach it.
-///
-/// # What went wrong, and what this now guards
-///
-/// `Solver::assert` stores the pre-rewrite term in `Solver::assertions` and
-/// registered the **encoded** term as a ground array root. Where the encoding
-/// chain replaced an array-sorted `(ite c a b)` with the proxy constant
-/// `eliminate_nonbool_ite` mints, the array collector walked both and counted
-/// one array as two — two members of every pair set, two extensionality
-/// witnesses per pair, a read-over-write cascade down each. The refinement
-/// then kept finding new instances for as long as it was given budget:
-/// `:array-refinement-rounds` 7 at `:max-bv-embedded-checks 500`, **20** at
-/// 2,000, **26** at 5,000, 91 at 20,000, and `c4b04b7` answers `sat` in 7.3 ms
-/// while this tree and the pass-6 checkpoint `00add07` answered nothing in
-/// 120 s.
-///
-/// `Solver::array_root_spelling` puts the proxies back before the root is
-/// registered, so one array is one array term, and the script answers `sat` in
-/// 30.4 s unbudgeted (release, 66 rounds, 208 lemma instances, 30,402 embedded
-/// checks) where the pass-9 tree answered nothing in 400 s. The residual cost
-/// is `#P2b-46` (f)'s `O(num_vars)` embedded check, whose price is **not** a
-/// flat rate — 0.06 ms per check at 12,002 checks, 0.23 at 20,002 and 1.00 at
-/// 30,402, which is the `O(num_vars)` curve itself. The unbudgeted run is not
-/// asserted here because 30 s of release time is minutes of the gate's; it is
-/// recorded in `TODO.md` `#P2b-59` with its counters.
-///
-/// The bound beside the equality is load-bearing: a tree that regressed to a
-/// *stable* 93 rounds would satisfy equality alone.
+/// and `round4_pass11_recheck_pins::the_round_counts_at_five_hundred_and_five_thousand_checks_differ`.
 #[test]
-fn the_refinement_round_count_is_bounded_and_equal_inside_the_plateau() {
+fn the_refinement_reaches_a_fixpoint_above_its_saturation_point() {
     let body = "(declare-const a0 (Array (_ BitVec 8) (_ BitVec 1)))\n\
          (declare-const a1 (Array (_ BitVec 8) (_ BitVec 1)))\n\
          (declare-const p Bool)\n\
@@ -338,20 +308,16 @@ fn the_refinement_round_count_is_bounded_and_equal_inside_the_plateau() {
         !body.contains("forall") && !body.contains("exists"),
         "this pin's whole point is that the script carries no binder"
     );
-    let mut rounds = Vec::new();
-    let mut instances = Vec::new();
-    for budget in [2000u32, 5000] {
+    let mut observed = Vec::new();
+    for budget in [20_000u32, 50_000] {
         let script =
             format!("(set-logic ALL)\n(set-option :max-bv-embedded-checks {budget})\n{body}");
         let lines = run(&script);
-        // The budget is the *deterministic* one and it is deliberately below
-        // what the script needs, so this says nothing about the verdict — the
-        // claim is entirely in the two counters below.
         assert_eq!(
             verdict(&lines),
-            "unknown",
-            "at {budget} embedded checks the script is still short of a \
-             verdict; it is the refinement counters that this pin is about\n{}",
+            "sat",
+            "at {budget} embedded checks the refinement must have saturated and \
+             decided the script\n{}",
             lines.join("\n")
         );
         let stats = lines
@@ -359,7 +325,7 @@ fn the_refinement_round_count_is_bounded_and_equal_inside_the_plateau() {
             .find(|line| line.contains(":array-refinement-rounds"))
             .cloned()
             .unwrap_or_default();
-        let read = |key: &str| -> u32 {
+        let read = |key: &str| -> u64 {
             stats
                 .split(key)
                 .nth(1)
@@ -367,33 +333,26 @@ fn the_refinement_round_count_is_bounded_and_equal_inside_the_plateau() {
                 .and_then(|token| token.parse().ok())
                 .unwrap_or_default()
         };
-        rounds.push(read(":array-refinement-rounds "));
-        instances.push(read(":array-lemma-instances "));
+        let checks = read(":bv-embedded-checks ");
+        assert!(
+            checks > 0 && checks < u64::from(budget),
+            "the budget must not be what stopped it: {checks} of {budget} \
+             embedded checks spent"
+        );
+        observed.push((
+            read(":array-refinement-rounds "),
+            read(":array-lemma-instances "),
+            checks,
+        ));
     }
     assert_eq!(
-        rounds.len(),
-        2,
-        "both budgets must publish `:array-refinement-rounds`"
-    );
-    assert_eq!(
-        rounds[0], rounds[1],
-        "the lazy array refinement must reach a fixpoint: it reported \
-         {rounds:?} rounds at budgets 2,000 and 5,000, so it is still finding \
-         new work for as long as it is given budget (`#P2b-59`; before the \
-         fix this was 20 and 26)",
-    );
-    assert_eq!(
-        instances[0], instances[1],
-        "the lemma set must reach a fixpoint too: {instances:?} instances at \
-         budgets 2,000 and 5,000 (before the fix, 91 and 104)",
+        observed[0], observed[1],
+        "a fixpoint: identical rounds / instances / checks at 20,000 and \
+         50,000 embedded checks, got {observed:?}"
     );
     assert!(
-        rounds[0] > 0 && rounds[0] <= 12 && instances[0] <= 90,
-        "a fixpoint at {} rounds / {} instances is not the one measured (10 / \
-         76): equality across two budgets alone would also be satisfied by a \
-         tree stuck at the pre-fix 93 rounds",
-        rounds[0],
-        instances[0],
+        observed[0].0 > 0,
+        "the refinement must have run: {observed:?}"
     );
 }
 
@@ -403,10 +362,13 @@ fn the_refinement_round_count_is_bounded_and_equal_inside_the_plateau() {
 /// the recheck listed beside the quantifier-free repro above. `c4b04b7`
 /// answers `sat` in 11.4 ms; the pass-9 tree answered nothing inside a 20 s
 /// cap, so `rk9/pairverd.py` counted it as a lost verdict; here it is `sat`
-/// in 160.2 ms (release). The other three — `q0033`, `q0047`, `q0103` — are
-/// deliberately **not** pinned: they still do not finish in 130 s, their cost
-/// is `#P2b-46` (f)'s `O(num_vars)` embedded check, and a pin on a verdict
-/// they do not produce would be scaffolding.
+/// in 160.2 ms (release). The other three — `q0033`, `q0047`, `q0103` — were
+/// deliberately **not** pinned: on the pass-10 tree they did not finish in
+/// 130 s, their cost `#P2b-46` (f)'s `O(num_vars)` embedded check, and a pin
+/// on a verdict they did not produce would have been scaffolding.  Re-fix
+/// pass 12 closed `#P2b-46` (f) but could not re-run them: their files were
+/// destroyed with the earlier scratch directory and nothing carries them
+/// verbatim, so their minimal repro (the test above) stands for them.
 ///
 /// The `(get-model)` is kept because it is what the corpus runs, and the
 /// model it prints is `#P2b-51`'s open item, not this test's claim: the

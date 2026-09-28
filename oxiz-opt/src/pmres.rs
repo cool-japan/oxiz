@@ -217,7 +217,9 @@ impl PmresSolver {
     fn solve_level(&mut self, soft_clauses: &[SoftClause]) -> Result<MaxSatResult, MaxSatError> {
         // An active soft constraint in the WPM1 working set.
         struct SoftEntry {
-            /// Original clause literals (never gains blocking/selector literals).
+            /// The clause as it now stands: the original literals plus the
+            /// blocking variable of every relaxation it took part in (never a
+            /// selector).
             body: SmallVec<[Lit; 8]>,
             /// Residual weight still to be paid if this constraint is violated.
             weight: Weight,
@@ -357,6 +359,19 @@ impl PmresSolver {
                         let body = entries[i].body.clone();
                         self.add_relaxed_clause(&mut solver, &body, &[b, sel_new]);
 
+                        // WPM1 relaxes the clause *as it now stands*: the
+                        // blocking variable stays in the body, so a constraint
+                        // relaxed twice may be paid by either of its blocking
+                        // variables.  Dropping it (the body used to stay the
+                        // original clause) let each constraint be violated by
+                        // its newest blocking variable only, so a core that
+                        // needs two violations — at most one of `x0, x1, x2`
+                        // with all three wanted — reproduced itself forever.
+                        // A `solve_with_assumptions` that silently dropped
+                        // assumptions after a backjump used to end that loop
+                        // with a `Sat` violating them (fixed 2026-09-28,
+                        // `oxiz-sat/tests/assumption_retention.rs`).
+                        entries[i].body.push(Lit::pos(b));
                         entries[i].selector = sel_new;
                         entries[i].weight = w_min.clone();
                     }

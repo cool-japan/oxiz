@@ -34,7 +34,10 @@ impl Solver {
     /// Read-only. Used by [`Solver::pre_check_effective_unit`] both before
     /// and (when it backtracks) after a `backtrack_to_root()` call, so it
     /// must not itself assume anything about levels.
-    fn scan_clause_for_attach(&self, clause_lits: &[Lit]) -> (bool, u32, SmallVec<[Lit; 4]>) {
+    pub(super) fn scan_clause_for_attach(
+        &self,
+        clause_lits: &[Lit],
+    ) -> (bool, u32, SmallVec<[Lit; 4]>) {
         let mut has_true = false;
         let mut max_false_level = 0u32;
         let mut undefined: SmallVec<[Lit; 4]> = SmallVec::new();

@@ -223,6 +223,13 @@ impl Solver {
         // part in.
         register_store_own_index_reads(manager, &mut collected);
 
+        // Canonical order (decision (43)): every list below is sorted by
+        // structural key, so which pair a one-pair phase reaches first — and
+        // which SAT variables a round's lemmas are given — no longer follows
+        // the order the assertions were written in.  See `canonical.rs`.
+        let mut keys = canonical::StructuralKeys::new(&self.ite_elim_aliases);
+        collected.canonicalize(&mut keys, manager);
+
         // ---- Phase 2: build candidate ground axiom instances ------------
         let mut candidates: Vec<TermId> = Vec::new();
         build_read_over_write(manager, &collected, &mut candidates);
@@ -252,10 +259,10 @@ impl Solver {
         // is visible in the printed model as one array with two answers at
         // index `3`.  Guided by the candidate model, so only the pairs that
         // actually collide in it cost anything.
-        self.build_index_congruence(manager, &collected, &mut candidates);
+        self.build_index_congruence(manager, &collected, &mut keys, &mut candidates);
 
         // ---- Phase 3: filter (dedup + model) and assert -----------------
-        if self.assert_new_instances(&candidates, manager) {
+        if self.assert_new_instances(&candidates, manager, &mut keys) {
             return true;
         }
 
@@ -264,7 +271,7 @@ impl Solver {
         // [`build_const_array_witness_cell`] documents: read eagerly the rule
         // is cubic in syntactic structure and a six-declaration script stopped
         // answering at all.
-        if self.assert_const_array_witness_congruence(&collected, manager) {
+        if self.assert_const_array_witness_congruence(&collected, manager, &mut keys) {
             return true;
         }
 
@@ -278,7 +285,7 @@ impl Solver {
         // before anything had looked at whether the assignment already keeps
         // those pairs apart.  One pair per round, and only for pairs the
         // assignment has not already separated.
-        if self.assert_chain_index_congruence(&collected, manager) {
+        if self.assert_chain_index_congruence(&collected, manager, &mut keys) {
             return true;
         }
 
@@ -287,8 +294,8 @@ impl Solver {
         // [`build_off_chain_family`] documents: its index is a fresh
         // bit-vector argument term, and minting one per pair eagerly made the
         // BV↔EUF partition exchange the dominant cost of the whole search.
-        // One pair per round, in the order the pairs were collected.
-        if self.assert_off_chain_family(&collected, manager) {
+        // One pair per round, in canonical structural order (decision (43)).
+        if self.assert_off_chain_family(&collected, manager, &mut keys) {
             return true;
         }
 
@@ -346,7 +353,7 @@ impl Solver {
                 break;
             }
         }
-        self.assert_new_instances(&extra, manager)
+        self.assert_new_instances(&extra, manager, &mut keys)
     }
 
     /// Add `i = j ⇒ select(a,i) = select(a,j)` for every array `a` and every
@@ -363,6 +370,7 @@ impl Solver {
         &self,
         manager: &mut TermManager,
         collected: &ArrayStructure,
+        keys: &mut canonical::StructuralKeys,
         candidates: &mut Vec<TermId>,
     ) {
         let Some(model) = self.model.as_ref() else {
@@ -380,10 +388,10 @@ impl Solver {
             reads.entry((array, index)).or_insert(select_term);
         }
 
-        // Deterministic order: `read_indices` is a hash map, and the instances
-        // it produces are asserted to the SAT core.
+        // Canonical order (decision (43)): `read_indices` is a hash map, and
+        // the raw id this used to sort by follows the interning order.
         let mut arrays: Vec<TermId> = collected.read_indices.keys().copied().collect();
-        arrays.sort_unstable_by_key(|array: &TermId| array.raw());
+        arrays.sort_by_cached_key(|&array| keys.order(array, manager));
         for array in arrays {
             let Some(indices) = collected.read_indices.get(&array) else {
                 continue;
@@ -434,7 +442,18 @@ impl Solver {
     /// completeness never depends on the model being able to evaluate a
     /// `select` — worst case this degenerates to eager instantiation, which is
     /// still sound and complete.
-    fn assert_new_instances(&mut self, candidates: &[TermId], manager: &mut TermManager) -> bool {
+    ///
+    /// The survivors reach the SAT core **sorted by canonical key** (decision
+    /// (43)): the order a lemma is encoded in decides which SAT variables its
+    /// atoms receive, and with them the search's tie-breaks, so an order that
+    /// followed the builders' input — the assertion order — made two
+    /// spellings of one formula search differently.
+    fn assert_new_instances(
+        &mut self,
+        candidates: &[TermId],
+        manager: &mut TermManager,
+        keys: &mut canonical::StructuralKeys,
+    ) -> bool {
         let mut to_add: Vec<TermId> = Vec::new();
         {
             let model = self.model.as_ref();
@@ -456,6 +475,8 @@ impl Solver {
             }
         }
 
+        to_add.sort_by_cached_key(|&inst| keys.order(inst, manager));
+        to_add.dedup();
         let mut added = false;
         for inst in to_add {
             if self.array_axiom_instances.len() >= MAX_ARRAY_AXIOM_INSTANCES {
@@ -606,9 +627,11 @@ impl Solver {
     /// (`#P2b-37`, two array constants reached only through a variable of
     /// indirection) and why it may not be built eagerly.
     ///
-    /// Cells are enumerated constants-outer, pairs-inner, both in collection
-    /// order — the term-graph walk's pre-order — so the choice is
-    /// deterministic and does not depend on hashing or on machine speed.
+    /// Cells are enumerated constants-outer, pairs-inner, both in canonical
+    /// structural order (decision (43), `canonical.rs`) — not the term-graph
+    /// walk's pre-order, which followed the assertion order — so the choice is
+    /// deterministic and does not depend on the assertion order, on hashing or
+    /// on machine speed.
     ///
     /// A pair the assignment holds *apart* is skipped: the congruence's
     /// antecedent `a = b` is false under this assignment, so the cell has
@@ -619,6 +642,7 @@ impl Solver {
         &mut self,
         collected: &ArrayStructure,
         manager: &mut TermManager,
+        keys: &mut canonical::StructuralKeys,
     ) -> bool {
         if collected.const_arrays.is_empty() || collected.eq_pairs.is_empty() {
             return false;
@@ -661,7 +685,7 @@ impl Solver {
                 let witness = extensionality_witness(manager, a, b, const_domain);
                 let mut family: Vec<TermId> = Vec::new();
                 build_const_array_witness_cell(manager, constant, witness, (a, b), &mut family);
-                if self.assert_new_instances(&family, manager) {
+                if self.assert_new_instances(&family, manager, keys) {
                     return true;
                 }
             }
@@ -683,13 +707,14 @@ impl Solver {
     /// shapes — while the chain walk, which is the part that scales with chain
     /// depth, waits until the cheaper families have nothing left to say.
     ///
-    /// The pairs are tried in collection order (the term-graph walk's
-    /// pre-order), so the choice is deterministic and does not depend on
-    /// hashing or on machine speed.
+    /// The pairs are tried in canonical structural order (decision (43)), so
+    /// the choice does not depend on the assertion order, on hashing or on
+    /// machine speed.
     fn assert_chain_index_congruence(
         &mut self,
         collected: &ArrayStructure,
         manager: &mut TermManager,
+        keys: &mut canonical::StructuralKeys,
     ) -> bool {
         let polarity = self.pair_polarity(collected, manager);
         let pairs = collected.eq_pairs.clone();
@@ -714,7 +739,7 @@ impl Solver {
             }
             let mut family: Vec<TermId> = Vec::new();
             push_congruence_at(manager, a, b, &indices, &mut family);
-            if self.assert_new_instances(&family, manager) {
+            if self.assert_new_instances(&family, manager, keys) {
                 return true;
             }
         }
@@ -727,12 +752,13 @@ impl Solver {
     ///
     /// One pair per round, like the foreign-pair rule and for the same reason
     /// — see [`build_off_chain_family`] for why this family is not built with
-    /// the other three.  The pairs are tried in collection order, which is the
-    /// term-graph walk's pre-order, so the choice is deterministic.
+    /// the other three.  The pairs are tried in canonical structural order
+    /// (decision (43)), so the choice does not depend on the assertion order.
     fn assert_off_chain_family(
         &mut self,
         collected: &ArrayStructure,
         manager: &mut TermManager,
+        keys: &mut canonical::StructuralKeys,
     ) -> bool {
         let pairs = collected.eq_pairs.clone();
         for (a, b) in pairs {
@@ -749,7 +775,7 @@ impl Solver {
             if family.is_empty() {
                 continue;
             }
-            if self.assert_new_instances(&family, manager) {
+            if self.assert_new_instances(&family, manager, keys) {
                 return true;
             }
         }
@@ -1725,6 +1751,8 @@ pub(crate) fn ground_children(kind: &TermKind, out: &mut Vec<TermId>) {
     }
 }
 
+/// Canonical structural keys for the refinement's scheduling (decision (43)).
+mod canonical;
 mod families;
 use families::*;
 

@@ -763,6 +763,16 @@ impl Model {
         self.assignments.insert(term, value);
     }
 
+    /// Remove the entry for `term`, returning the value it had.
+    ///
+    /// Used where an interpretation is *replaced* rather than extended: an
+    /// entry derived from the old interpretation (a read, an atom over it)
+    /// would otherwise answer `(get-value)` from the model it no longer
+    /// describes.
+    pub(crate) fn remove(&mut self, term: TermId) -> Option<TermId> {
+        self.assignments.remove(&term)
+    }
+
     /// Minimize the model by removing redundant assignments
     /// Returns a new minimized model containing only essential assignments
     pub fn minimize(&self, essential_vars: &[TermId]) -> Model {

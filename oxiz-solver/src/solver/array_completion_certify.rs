@@ -48,15 +48,54 @@
 //! completion can never produce one: `rk11/atk/m4_body_false_at_a_point.smt2`
 //! and `m4b_stored_point_conflict.smt2` are refuted rather than published.
 //!
+//! # Where it runs, and what it may change (decision (40))
+//!
+//! [`Solver::array_completion_at_exit`] is called once per `check`, after
+//! `check_core` and before the honesty gates, whatever `check_core`'s `Sat`
+//! exit was:
+//!
+//! * where a verdict would otherwise be given up — `Unknown`, or a `Sat` a
+//!   gate is about to take away — a passing certificate licenses `Sat`
+//!   (`#P2b-58`);
+//! * on a `Sat` no gate takes away, the **verdict is not touched**: a passing
+//!   certificate replaces the candidate model's arrays by the certified
+//!   interpretation, and a failed or declined one leaves the model exactly as
+//!   it was (`#P2b-51`: the candidate model left every index the search did
+//!   not pin to the sort default, which could falsify the very quantifier
+//!   the verdict rests on — `(forall ((i (_ BitVec 7))) (= (select a i) #b1)))`
+//!   was published with `a = ((as const …) #b0)`).
+//!
+//! In both cases the installed model then passes the same ground-assertion
+//! gate every quantified `Sat` exit of `check_core` passes
+//! (`quantified_model_refutes_ground_assertions`), and a model that fails it
+//! is put back as it was.  Installing *replaces* an interpretation, so every
+//! model entry derived from the old one — a read of a completed array, an
+//! atom over such a read — is dropped, and `(get-value)` re-derives it from
+//! the certified interpretation (the evaluator reads through an installed
+//! array value; see `model_eval::open::store_chain`).
+//!
+//! # Pins plus a default (decision (41))
+//!
+//! The first search tries a constant array per array.  Where no constant
+//! certifies, the second one — `array_completion_certify::pinned` — tries a
+//! default **plus finitely many pinned points**, the points being the ground
+//! index terms the goal already names (the literals of the index sort, and
+//! the values of the index-sort constants the candidate model fixes), and the
+//! values at them found by one quantifier-free *fill* query.  The fill query
+//! only proposes; the interpretation it proposes goes through the very same
+//! certificate, so a wrong proposal costs a query and never a verdict.
+//!
 //! # What it is not
 //!
 //! It is not a decision procedure for the fragment and does not pretend to be:
-//! the default pool is finite and the combination count is capped, so a script
-//! whose satisfying interpretation is not a constant array over one of the
-//! pooled values keeps its `unknown`.  Declining costs only completeness.
-//! `#P2b-50` — a *declared* sort whose cardinality nothing pins — stays
-//! separate and open; this module never invents a domain, it only interprets
-//! an array whose index and element sorts are both already pinned.
+//! the default pool is finite, the pins are the ground index terms the goal
+//! names and nothing else, and the combination count is capped, so a script
+//! whose satisfying interpretation differs from every pooled default at an
+//! index the goal does not name keeps its `unknown`.  Declining costs only
+//! completeness.  `#P2b-50` — a *declared* sort whose cardinality nothing
+//! pins — stays separate and open; this module never invents a domain, it
+//! only interprets an array whose index and element sorts are both already
+//! pinned.
 
 use oxiz_core::ast::{TermId, TermKind, TermManager};
 use oxiz_core::interner::Spur;
@@ -65,7 +104,13 @@ use oxiz_core::sort::{SortId, SortKind};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::array_axioms::CONST_ARRAY_FUNC;
-use super::{Solver, SolverResult};
+use super::model_eval::EvalOutcome;
+use super::types::Model;
+use super::{EvalVal, Solver, SolverResult};
+
+mod pinned;
+#[cfg(test)]
+mod tests;
 
 /// Array-sorted free variables one attempt may complete.
 ///
@@ -116,6 +161,32 @@ struct Goal {
 }
 
 impl Solver {
+    /// The completion hook at `check`'s exit (decisions (36), (40)).
+    ///
+    /// `result` is what `check_core` answered and `gate_pending` whether an
+    /// honesty gate is about to take a `Sat` away.  Returns `true` only where
+    /// the caller must now answer `Sat` in place of a verdict it would have
+    /// given up; on a `Sat` that survives the gates it returns `false` and at
+    /// most replaces the published model (the verdict is already `Sat`).
+    pub(super) fn array_completion_at_exit(
+        &mut self,
+        result: SolverResult,
+        gate_pending: bool,
+        manager: &mut TermManager,
+    ) -> bool {
+        match result {
+            SolverResult::Unknown => self.certify_sat_by_array_completion(manager),
+            SolverResult::Sat if gate_pending => self.certify_sat_by_array_completion(manager),
+            SolverResult::Sat => {
+                // Decision (40): only the model may change here, so whether
+                // a completion was installed is deliberately not the verdict.
+                let _model_replaced = self.certify_sat_by_array_completion(manager);
+                false
+            }
+            SolverResult::Unsat => false,
+        }
+    }
+
     /// Try to publish `Sat` for a quantified array goal by completing the
     /// arrays the candidate model leaves partial and certifying the result.
     ///
@@ -124,61 +195,210 @@ impl Solver {
     /// certificate verified rather than the partial candidate.  A `false`
     /// leaves the solver exactly as it was found.
     pub(super) fn certify_sat_by_array_completion(&mut self, manager: &mut TermManager) -> bool {
-        if !self.has_array_ops || !self.has_quantifiers || self.assertions.is_empty() {
-            return false;
-        }
-        let Some(model) = self.model.as_ref() else {
+        let Some(original) = self.model.clone() else {
             return false;
         };
-        let assignments = model.assignments().clone();
+        // Already completed in this check (at the MBQI saturation point, see
+        // `check_core`): the model carries the certified interpretation.
+        if self.completion_already_installed(&original) {
+            return true;
+        }
+        let Some((goal, completion)) = self.search_certified_completion(manager) else {
+            return false;
+        };
+        self.install_completed_model(&goal, &completion, manager);
+        // The gate every quantified `Sat` exit of `check_core` passes, run on
+        // the model that will actually be published.  The certificate already
+        // implies it; a disagreement means the two readings differ, and then
+        // the original model is what stays.
+        if self.quantified_model_refutes_ground_assertions(manager) {
+            self.model = Some(original);
+            self.certified_array_model = None;
+            return false;
+        }
+        true
+    }
+
+    /// The completion tried at MBQI's saturation point, where the only fresh
+    /// instances left are the unnamed-region representatives of `#P2b-60`
+    /// (`check_core`).  A certified completion concludes `sat` without them.
+    ///
+    /// Tried for finite (bit-vector or `Bool`) index sorts only: that is
+    /// where the representatives' extra index term costs the array search
+    /// most (`qeq120/q0033`, seed 20260931: no answer in 60 s with them, `sat`
+    /// in 12 ms before and with this), and over `Int` the constant search is
+    /// all the completion has (`pinned` declines), so an attempt there would
+    /// only intern its queries' terms into the running search.
+    pub(super) fn certify_at_mbqi_saturation(&mut self, manager: &mut TermManager) -> bool {
+        let finite = self.assertions.iter().all(|&assertion| {
+            manager
+                .free_vars_including_patterns(assertion)
+                .into_iter()
+                .filter_map(|var| manager.get(var).map(|d| d.sort))
+                .filter(|&sort| is_array_sort(sort, manager))
+                .all(|sort| {
+                    matches!(
+                        manager.sorts.get(sort).map(|s| &s.kind),
+                        Some(SortKind::Array { domain, .. })
+                            if matches!(
+                                manager.sorts.get(*domain).map(|d| &d.kind),
+                                Some(SortKind::BitVec(_) | SortKind::Bool)
+                            )
+                    )
+                })
+        });
+        finite && self.certify_sat_by_array_completion(manager)
+    }
+
+    /// Whether `model` is exactly the model a completion installed earlier in
+    /// this `check` (at MBQI's saturation point, then again at the exit).
+    /// Equality of the whole assignment map, not a look at the arrays' values:
+    /// a model that merely binds an array to a value term was not certified.
+    fn completion_already_installed(&self, model: &Model) -> bool {
+        self.certified_array_model
+            .as_ref()
+            .is_some_and(|certified| certified == model.assignments())
+    }
+
+    /// The search behind [`Self::certify_sat_by_array_completion`]: the goal
+    /// and a certified completion of its arrays, or `None`.
+    ///
+    /// Two searches, cheapest first: one constant array per array over the
+    /// pooled defaults (`#P2b-58`), then a default plus pinned points
+    /// (`pinned`, decision (41)).  Every candidate is first *evaluated* on a
+    /// finite sample — the assertions, each universal replaced by its
+    /// instances at the goal's own points and at one point they do not name —
+    /// and only a candidate the evaluation cannot refute costs a certificate
+    /// query.  The evaluation only ever discards (a definite `false` at a
+    /// sampled point is a counterexample the certificate would find), so it
+    /// changes which candidates are *tried*, never what is accepted.
+    fn search_certified_completion(
+        &mut self,
+        manager: &mut TermManager,
+    ) -> Option<(Goal, FxHashMap<TermId, TermId>)> {
+        if !self.has_array_ops || !self.has_quantifiers || self.assertions.is_empty() {
+            return None;
+        }
+        let assignments = self.model.as_ref()?.assignments().clone();
         let assertions = self.assertions.clone();
         if !is_small_enough_to_certify(&assertions, manager) {
-            return false;
+            return None;
         }
-        let Some(goal) = Goal::build(&assertions, &assignments, manager) else {
-            return false;
-        };
+        let goal = Goal::build(&assertions, &assignments, manager)?;
         let pools = goal.default_pools(&assignments, manager);
         if pools.iter().any(Vec::is_empty) {
-            return false;
+            return None;
         }
+        let points = goal.points_by_sort(manager);
+        let samples = goal.sample_instances(&points, manager)?;
         let logic = self.logic.clone();
         let mut queries = 0usize;
         for combination in Combinations::new(&pools) {
             let mut completion: FxHashMap<TermId, TermId> = FxHashMap::default();
             for (&array, &default) in goal.arrays.iter().zip(combination.iter()) {
-                let Some(sort) = manager.get(array).map(|d| d.sort) else {
-                    return false;
-                };
+                let sort = manager.get(array).map(|d| d.sort)?;
                 let interpretation = const_array(sort, default, manager);
                 completion.insert(array, interpretation);
             }
+            if self.completion_refuted_by_evaluation(&goal, &completion, &samples, manager) {
+                continue;
+            }
             if goal.certificate_passes(&completion, manager, logic.as_deref(), &mut queries) {
-                self.install_completed_model(&goal, &completion);
-                return true;
+                return Some((goal, completion));
             }
             if queries >= MAX_CERTIFICATE_QUERIES {
-                return false;
+                break;
             }
         }
-        false
+        let completion =
+            self.search_pinned_completion(&goal, &samples, &points, manager, logic.as_deref())?;
+        Some((goal, completion))
+    }
+
+    /// Whether `completion` (with the scalar pins) makes some assertion
+    /// definitely `false` once every universal is replaced by its sampled
+    /// instances (`samples`).  See [`Self::search_certified_completion`].
+    fn completion_refuted_by_evaluation(
+        &self,
+        goal: &Goal,
+        completion: &FxHashMap<TermId, TermId>,
+        samples: &FxHashMap<TermId, TermId>,
+        manager: &mut TermManager,
+    ) -> bool {
+        let mut interpretation = Model::new();
+        for (&symbol, &value) in goal.scalar_pins.iter().chain(completion.iter()) {
+            interpretation.set(symbol, value);
+        }
+        goal.assertions.iter().any(|&assertion| {
+            let sampled = manager.substitute(assertion, samples);
+            matches!(
+                self.eval_under_interpretation(sampled, &interpretation, manager),
+                EvalOutcome::Value(EvalVal::Bool(false))
+            )
+        })
     }
 
     /// Record the certified interpretation in the published model.
     ///
-    /// The array variable is bound to `((as const A) d)` — the term the
-    /// certificate was discharged over, so what `(get-model)` prints and what
-    /// was verified are the same object.
-    fn install_completed_model(&mut self, goal: &Goal, completion: &FxHashMap<TermId, TermId>) {
+    /// Each array variable is bound to the term the certificate was
+    /// discharged over — `((as const A) d)`, or a `store` chain over it — so
+    /// what `(get-model)` prints and what was verified are the same object.
+    ///
+    /// Installing *replaces* an interpretation, so every other entry whose
+    /// term mentions a completed array is dropped first: a read
+    /// `(select a k) ↦ v` or an atom over one describes the candidate model,
+    /// not the certified one, and `Solver::model_value_in` answers
+    /// `(get-value)` from an entry before it evaluates anything.  With the
+    /// entry gone the evaluator reads the term through the installed value.
+    fn install_completed_model(
+        &mut self,
+        goal: &Goal,
+        completion: &FxHashMap<TermId, TermId>,
+        manager: &TermManager,
+    ) {
         let Some(model) = self.model.as_mut() else {
             return;
         };
+        let completed: FxHashSet<TermId> = goal.arrays.iter().copied().collect();
+        let mut stale: Vec<TermId> = model
+            .assignments()
+            .keys()
+            .copied()
+            .filter(|&term| !completed.contains(&term) && mentions_any(term, &completed, manager))
+            .collect();
+        stale.sort_unstable_by_key(|term| term.raw());
+        for term in stale {
+            model.remove(term);
+        }
         for &array in &goal.arrays {
             if let Some(&value) = completion.get(&array) {
                 model.set(array, value);
             }
         }
+        self.certified_array_model = Some(model.assignments().clone());
     }
+}
+
+/// Whether `term` has one of `targets` as a sub-term.
+fn mentions_any(term: TermId, targets: &FxHashSet<TermId>, manager: &TermManager) -> bool {
+    let mut stack: Vec<TermId> = vec![term];
+    let mut visited: FxHashSet<TermId> = FxHashSet::default();
+    let mut children: Vec<TermId> = Vec::new();
+    while let Some(current) = stack.pop() {
+        if targets.contains(&current) {
+            return true;
+        }
+        if !visited.insert(current) {
+            continue;
+        }
+        let Some(data) = manager.get(current) else {
+            continue;
+        };
+        children.clear();
+        children.extend(oxiz_core::ast::traversal::get_children(&data.kind));
+        stack.extend(children.iter().copied());
+    }
+    false
 }
 
 impl Goal {
@@ -385,6 +605,17 @@ fn run_query(
 /// alternation and is declined, because the certificate below would not be
 /// quantifier-free.
 fn peel_universal(term: TermId, position: usize, manager: &mut TermManager) -> Option<TermId> {
+    peel_universal_with_vars(term, position, manager).map(|(body, _)| body)
+}
+
+/// [`peel_universal`], also returning the fresh constants the bound variables
+/// became, in binder order, so a caller can instantiate the body at chosen
+/// points (`pinned::Goal::fill_query`).
+fn peel_universal_with_vars(
+    term: TermId,
+    position: usize,
+    manager: &mut TermManager,
+) -> Option<(TermId, Vec<TermId>)> {
     let mut current = term;
     let mut bound: Vec<(Spur, SortId)> = Vec::new();
     loop {
@@ -401,6 +632,7 @@ fn peel_universal(term: TermId, position: usize, manager: &mut TermManager) -> O
         return None;
     }
     let mut rename: FxHashMap<TermId, TermId> = FxHashMap::default();
+    let mut fresh_vars: Vec<TermId> = Vec::with_capacity(bound.len());
     for (index, (name, sort)) in bound.into_iter().enumerate() {
         let bound_name = manager.resolve_str(name).to_string();
         let bound_var = manager.mk_var(&bound_name, sort);
@@ -408,9 +640,19 @@ fn peel_universal(term: TermId, position: usize, manager: &mut TermManager) -> O
             &reserved_name("qcert", &format!("{position}_{index}")),
             sort,
         );
-        rename.insert(bound_var, fresh);
+        // A chain that binds one name twice keeps the innermost binding,
+        // which is the one the body sees; the constant list keeps one entry
+        // per *distinct* variable so an instantiation never assigns it twice.
+        match rename.insert(bound_var, fresh) {
+            None => fresh_vars.push(fresh),
+            Some(previous) => {
+                if let Some(slot) = fresh_vars.iter_mut().find(|var| **var == previous) {
+                    *slot = fresh;
+                }
+            }
+        }
     }
-    Some(manager.substitute(current, &rename))
+    Some((manager.substitute(current, &rename), fresh_vars))
 }
 
 /// Record every maximal quantifier sub-term of `term`, declining on an
@@ -586,20 +828,29 @@ fn sort_extremes(sort: SortId, manager: &mut TermManager) -> Vec<TermId> {
     }
 }
 
-/// A bounded product over the per-array default pools.
+/// A bounded product over per-position pools (the per-array default pools,
+/// or the per-variable instantiation points of `pinned::Goal::fill_query`).
 struct Combinations<'a> {
     pools: &'a [Vec<TermId>],
     cursor: Vec<usize>,
     emitted: usize,
+    cap: usize,
     done: bool,
 }
 
 impl<'a> Combinations<'a> {
+    /// The product over `pools`, at most [`MAX_COMBINATIONS`] items.
     fn new(pools: &'a [Vec<TermId>]) -> Self {
+        Self::with_cap(pools, MAX_COMBINATIONS)
+    }
+
+    /// The product over `pools`, at most `cap` items.
+    fn with_cap(pools: &'a [Vec<TermId>], cap: usize) -> Self {
         Self {
             pools,
             cursor: vec![0; pools.len()],
             emitted: 0,
+            cap,
             done: pools.is_empty(),
         }
     }
@@ -609,7 +860,7 @@ impl Iterator for Combinations<'_> {
     type Item = Vec<TermId>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.done || self.emitted >= MAX_COMBINATIONS {
+        if self.done || self.emitted >= self.cap {
             return None;
         }
         let mut item: Vec<TermId> = Vec::with_capacity(self.pools.len());
@@ -644,6 +895,49 @@ pub(super) fn const_array(
     manager: &mut TermManager,
 ) -> TermId {
     manager.mk_apply(CONST_ARRAY_FUNC, [default], array_sort)
+}
+
+/// Whether `term` is a closed array *value* this module installs: the array
+/// constant [`const_array`] builds over a literal default, or a `store` chain
+/// over one whose every index and stored value is a literal.
+///
+/// The renderer prints such a term verbatim and the model evaluator reads a
+/// `select` through it; nothing else in the solver assigns an array a value
+/// term, so the predicate is exactly "an interpretation the certificate
+/// verified".
+pub(crate) fn is_array_value(term: TermId, manager: &TermManager) -> bool {
+    let mut current = term;
+    loop {
+        let Some(data) = manager.get(current) else {
+            return false;
+        };
+        match &data.kind {
+            TermKind::Store(inner, index, value) => {
+                if !is_literal(*index, manager) || !is_literal(*value, manager) {
+                    return false;
+                }
+                current = *inner;
+            }
+            _ => {
+                return super::array_axioms::const_array_default(current, manager)
+                    .is_some_and(|default| is_literal(default, manager));
+            }
+        }
+    }
+}
+
+/// Whether `term` is a literal value of a scalar sort.
+fn is_literal(term: TermId, manager: &TermManager) -> bool {
+    manager.get(term).is_some_and(|data| {
+        matches!(
+            data.kind,
+            TermKind::BitVecConst { .. }
+                | TermKind::IntConst(_)
+                | TermKind::RealConst(_)
+                | TermKind::True
+                | TermKind::False
+        )
+    })
 }
 
 /// Whether `term` is the array constant [`const_array`] builds.

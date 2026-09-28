@@ -363,7 +363,48 @@ impl Context {
         // field term; anything else stands for itself.
         let resolved = model.get(term).unwrap_or(term);
         let resolved = self.resolve_array_branch(resolved, model)?;
+        if let Some(value) = self.installed_store_chain(resolved, model) {
+            return Some(value);
+        }
         self.array_model_value(resolved, sort, model, class_values)
+    }
+
+    /// A `store` chain whose innermost base is an array the model binds to an
+    /// installed value (`solver::array_completion_certify`), printed as that
+    /// value with the chain's writes laid on top — or `None` when `term` is
+    /// not such a chain or a write's index or value has no literal value in
+    /// the model.
+    ///
+    /// Without it `(get-value ((store a k v)))` over a completed `a` was
+    /// rendered from the congruence class of the `store` term, whose base is
+    /// the *candidate* model's reading of `a` (the sort default), beside a
+    /// `(get-model)` printing the certified `a`: two commands describing two
+    /// models.
+    fn installed_store_chain(
+        &mut self,
+        term: TermId,
+        model: &crate::solver::Model,
+    ) -> Option<String> {
+        let mut writes: Vec<(TermId, TermId)> = Vec::new();
+        let mut current = term;
+        while let TermKind::Store(inner, index, value) = self.terms.get(current)?.kind {
+            writes.push((index, value));
+            current = inner;
+        }
+        if writes.is_empty() {
+            return None;
+        }
+        let base = model.get(current)?;
+        if !crate::solver::array_completion_certify::is_array_value(base, &self.terms) {
+            return None;
+        }
+        let mut chain = base;
+        for (index, value) in writes.into_iter().rev() {
+            let index = self.solver.model_value_in(index, model, &mut self.terms)?;
+            let value = self.solver.model_value_in(value, model, &mut self.terms)?;
+            chain = self.terms.mk_store(chain, index, value);
+        }
+        self.format_installed_array(chain)
     }
 
     /// Follow an array-sorted `ite` down to the branch the model selects.

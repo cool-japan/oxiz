@@ -79,21 +79,57 @@ impl Context {
         model: &crate::solver::Model,
         class_values: &super::class_values::ClassValues,
     ) -> Option<String> {
-        // An array the model pins *explicitly* to an array constant is the one
+        // An array the model pins *explicitly* to an array value is the one
         // case where the class is not the better source: the value did not
         // come out of the congruence closure at all.  It is installed by
-        // `solver::array_completion_certify`, whose `sat` was discharged over
-        // exactly this term — the completed total interpretation
-        // `((as const A) d)` — so printing anything else would publish a model
-        // the certificate did not verify.  Every other array keeps the
-        // class-based rendering below, which is what `#P2b-37` needs.
-        if let Some(value) = model.get(array) {
-            if crate::solver::array_completion_certify::is_const_array(value, &self.terms) {
-                let printer = oxiz_core::smtlib::Printer::new(&self.terms);
-                return Some(printer.print_term(value));
-            }
+        // `solver::array_completion_certify`, whose certificate was discharged
+        // over exactly this term — the completed total interpretation
+        // `((as const A) d)`, or a `store` chain over it — so printing
+        // anything else would publish a model the certificate did not verify.
+        // An array-sorted `(get-value)` hands the installed value itself in
+        // (`array_query_value` resolves the constant to its model entry), and
+        // it prints as itself for the same reason.  Every other array keeps
+        // the class-based rendering below, which is what `#P2b-37` needs.
+        let installed = model.get(array).unwrap_or(array);
+        if let Some(printed) = self.format_installed_array(installed) {
+            return Some(printed);
         }
         self.array_class_value(array, sort, model, class_values, 0)
+    }
+
+    /// The printed form of an installed array value — the constant array or
+    /// the `store` chain over one that `solver::array_completion_certify`
+    /// certified — or `None` when `value` is not one.
+    ///
+    /// Spelled with the same leaf formatting every other model entry uses
+    /// ([`Context::format_value`]): a `Real` default prints as `0.0` here as it
+    /// does everywhere else in `(get-model)`, not as the shared printer's `0`.
+    pub(in crate::context) fn format_installed_array(&self, value: TermId) -> Option<String> {
+        if !crate::solver::array_completion_certify::is_array_value(value, &self.terms) {
+            return None;
+        }
+        let mut levels: Vec<(TermId, TermId)> = Vec::new();
+        let mut current = value;
+        while let TermKind::Store(inner, index, stored) = self.terms.get(current)?.kind {
+            levels.push((index, stored));
+            current = inner;
+        }
+        let default = crate::solver::array_axioms::const_array_default(current, &self.terms)?;
+        let sort = self.terms.get(current)?.sort;
+        let mut chain = format!(
+            "((as const {}) {})",
+            self.format_sort_name(sort),
+            self.format_value(default)
+        );
+        // Innermost store first, the order the term itself nests them in.
+        for (index, stored) in levels.into_iter().rev() {
+            chain = format!(
+                "(store {chain} {} {})",
+                self.format_value(index),
+                self.format_value(stored)
+            );
+        }
+        Some(chain)
     }
 
     /// [`Context::array_model_value`] at nesting depth `depth`; see
@@ -228,6 +264,7 @@ impl Context {
         }
 
         // ---- reads -----------------------------------------------------
+        let bound = self.bound_only_variables();
         let mut reads: Vec<(TermId, TermId, TermId)> = Vec::new();
         for (&term, &value) in model.assignments() {
             let Some(data) = self.terms.get(term) else {
@@ -235,6 +272,7 @@ impl Context {
             };
             if let TermKind::Select(read_array, index) = data.kind
                 && members.contains(&read_array)
+                && !self.mentions_bound_variable(term, &bound)
             {
                 reads.push((term, index, value));
             }
@@ -679,6 +717,7 @@ impl Context {
         }
 
         // ---- reads -----------------------------------------------------
+        let bound = self.bound_only_variables();
         let mut reads: Vec<(TermId, TermId)> = Vec::new();
         for (&term, &value) in model.assignments() {
             if background_only {
@@ -690,6 +729,7 @@ impl Context {
             if let TermKind::Select(read_array, index) = data.kind
                 && members.contains(&read_array)
                 && model.get(index).unwrap_or(index) == index_value
+                && !self.mentions_bound_variable(term, &bound)
             {
                 reads.push((term, value));
             }
@@ -1024,4 +1064,70 @@ fn is_ground_value(term: TermId, manager: &TermManager) -> bool {
                 | TermKind::StringLit(_)
         )
     })
+}
+
+impl Context {
+    /// The variable terms a quantifier of the assertions binds and no
+    /// declaration names: `i` in `(forall ((i Int)) (= (select a i) 5))`, when
+    /// no `i` of that sort is also declared (`#P2b-62`).
+    ///
+    /// A bound variable is interned as an ordinary `Var` term, so the body's
+    /// own `(select a i)` is a term like any other — and the search can give
+    /// it, and `i`, a model entry (0 and 0 on
+    /// `bench/z3_parity/benchmarks/AUFLIA/array_extensionality.smt2`).  Laid
+    /// down as a read of `a` at index `0`, that entry shadowed the real
+    /// `(select a 0) = 10` and `(get-model)` published `a[0] = 0` beside a
+    /// `(get-value ((select a 0)))` answering `10`: a model falsifying the
+    /// script's own ground assertion.  A term over a bound variable says
+    /// nothing about the model, so the renderer and its read-side twin skip
+    /// every read that mentions one.
+    pub(super) fn bound_only_variables(&self) -> BoundOnly {
+        let declared: crate::prelude::FxHashSet<TermId> =
+            self.declared_consts.iter().map(|decl| decl.term).collect();
+        let mut names: crate::prelude::FxHashSet<(oxiz_core::interner::Spur, SortId)> =
+            crate::prelude::FxHashSet::default();
+        let mut visited: crate::prelude::FxHashSet<TermId> = crate::prelude::FxHashSet::default();
+        let mut stack: Vec<TermId> = self.assertions.clone();
+        let mut children: Vec<TermId> = Vec::new();
+        while let Some(current) = stack.pop() {
+            if !visited.insert(current) {
+                continue;
+            }
+            let Some(data) = self.terms.get(current) else {
+                continue;
+            };
+            if let TermKind::Forall { vars, .. } | TermKind::Exists { vars, .. } = &data.kind {
+                names.extend(vars.iter().copied());
+            }
+            children.clear();
+            children.extend(oxiz_core::ast::traversal::get_children(&data.kind));
+            stack.extend(children.iter().copied());
+        }
+        BoundOnly { names, declared }
+    }
+
+    /// Whether `term` has a bound-only variable (see
+    /// [`Context::bound_only_variables`]) as a free variable.
+    pub(super) fn mentions_bound_variable(&self, term: TermId, bound: &BoundOnly) -> bool {
+        !bound.names.is_empty()
+            && self
+                .terms
+                .free_vars_including_patterns(term)
+                .into_iter()
+                .any(|var| {
+                    !bound.declared.contains(&var)
+                        && self.terms.get(var).is_some_and(|data| match data.kind {
+                            TermKind::Var(name) => bound.names.contains(&(name, data.sort)),
+                            _ => false,
+                        })
+                })
+    }
+}
+
+/// The `(name, sort)` pairs a quantifier of the assertions binds, and the
+/// declared constants (a declared constant sharing a bound name and sort is
+/// the same term, and is kept).
+pub(super) struct BoundOnly {
+    names: crate::prelude::FxHashSet<(oxiz_core::interner::Spur, SortId)>,
+    declared: crate::prelude::FxHashSet<TermId>,
 }

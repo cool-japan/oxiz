@@ -877,6 +877,14 @@ impl Context {
             // [`Context::format_get_value`]), so routing `(get-model)` through
             // it is what keeps the two commands character-for-character in
             // agreement about a reconstructed datatype value.
+            // An installed array value (`solver::array_completion_certify`):
+            // its leaves print in the same spelling as every other entry.
+            Some(TermKind::Store(..) | TermKind::Apply { .. })
+                if crate::solver::array_completion_certify::is_array_value(term, &self.terms) =>
+            {
+                self.format_installed_array(term)
+                    .unwrap_or_else(|| "?".to_string())
+            }
             Some(
                 TermKind::FpLit { .. }
                 | TermKind::FpPlusInfinity { .. }
@@ -891,14 +899,12 @@ impl Context {
                 let printer = oxiz_core::smtlib::Printer::new(&self.terms);
                 printer.print_term(term)
             }
-            // The array constant `((as const A) d)` is an ordinary `Apply`
-            // under a reserved function symbol, so it has no `TermKind` of its
-            // own and would otherwise fall through to the `?` placeholder.
-            // It reaches a model entry from exactly one place —
-            // `solver::array_completion_certify`, which installs the *total*
-            // interpretation its certificate was discharged over — and
-            // printing it is what makes the published model the one that was
-            // verified (`#P2b-58`, decision (36)).
+            // The array constant `((as const A) d)` over a non-literal
+            // default: an ordinary `Apply` under a reserved function symbol,
+            // printed by the shared printer rather than falling through to
+            // `?`.  (A literal default is an installed array value, above:
+            // `solver::array_completion_certify` publishes the interpretation
+            // its certificate was discharged over, `#P2b-58` / `#P2b-51`.)
             Some(TermKind::Apply { .. })
                 if crate::solver::array_completion_certify::is_const_array(term, &self.terms) =>
             {
