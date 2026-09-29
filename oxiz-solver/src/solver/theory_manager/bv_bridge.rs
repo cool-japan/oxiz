@@ -256,6 +256,22 @@ impl TheoryManager<'_> {
                 });
                 members.push(term);
             }
+            // The values compared below must come from a snapshot that
+            // assigns every member of a class with more than one leaf: a leaf
+            // defined after the last check reads `0` whatever its circuit
+            // says, so two leaves could look equal (no equality asserted, a
+            // combined model that is not one) or unequal on nothing.
+            let stale = class_order.iter().any(|root| {
+                by_class.get(root).is_some_and(|members| {
+                    members.len() > 1 && members.iter().any(|&t| !self.bv.snapshot_covers(t))
+                })
+            });
+            if stale {
+                if let Some(refuted) = self.refresh_bv_snapshot() {
+                    return refuted;
+                }
+                changed = true;
+            }
             let mut asserted_any = false;
             for root in class_order {
                 let Some(members) = by_class.get(&root) else {
@@ -439,23 +455,15 @@ impl TheoryManager<'_> {
         // A circuit built just now has no value in the model snapshot the
         // last check left (its bits read as `0`, a constant's pinned bits
         // included), so the partition below would be read off nothing: one
-        // check gives every candidate a real value first.
-        if !encoded.is_empty() {
+        // check gives every candidate a real value first.  The same holds for
+        // a circuit some *earlier* encoder defined without a check after it
+        // (an atom whose other operand could not be modelled is never
+        // asserted, so nothing re-solves): `snapshot_covers` is the test, and
+        // the recheck-12 wrong `unsat` read a `#b1` defined that way as `#b0`.
+        if !encoded.is_empty() || candidates.iter().any(|&t| !self.bv.snapshot_covers(t)) {
             changed = true;
-            self.bv_pin_pending = false;
-            if self.charge_bv_embedded_check() {
-                self.resource_exhausted = true;
-                return Exchange::Refuted(TheoryCheckResult::Sat);
-            }
-            match self.bv.check() {
-                Ok(TheoryCheckResultEnum::Sat) | Ok(TheoryCheckResultEnum::Propagate(_)) => {}
-                Ok(TheoryCheckResultEnum::Unsat(conflict_terms)) => {
-                    return Exchange::Refuted(self.report_theory_conflict(conflict_terms));
-                }
-                Ok(TheoryCheckResultEnum::Unknown) | Err(_) => {
-                    self.resource_exhausted = true;
-                    return Exchange::Refuted(TheoryCheckResult::Sat);
-                }
+            if let Some(refuted) = self.refresh_bv_snapshot() {
+                return refuted;
             }
         }
 
@@ -528,8 +536,15 @@ impl TheoryManager<'_> {
             let Some(width) = self.bv_width_of(term, self.manager) else {
                 continue;
             };
-            let Some(value) = self.bv.get_value_big(term) else {
-                continue;
+            // A literal's value is its own, in every model: it is never read
+            // off the circuit, whose snapshot may predate the literal's
+            // definition (the tautological merge below trusts this key).
+            let value = match self.bv_literal_value(term, width) {
+                Some(value) => value,
+                None => match self.bv.get_value_big(term) {
+                    Some(value) => value,
+                    None => continue,
+                },
             };
             let key = (width, value);
             let members = by_value.entry(key.clone()).or_insert_with(|| {
@@ -558,7 +573,9 @@ impl TheoryManager<'_> {
                 // Two bit-vector literals of one value under two term ids are
                 // equal in every model: merge them for good, under the
                 // tautological reason the constant interning uses, rather
-                // than treat the pair as a model coincidence.
+                // than treat the pair as a model coincidence.  The bucket key
+                // of a literal is its literal value (above), never a model
+                // reading, so this merge can only join equal literals.
                 if self.is_bv_constant(first) && self.is_bv_constant(other) {
                     self.tautological_reasons.insert(first);
                     let _ = self.euf.merge(n1, n2, first);
@@ -712,6 +729,43 @@ impl TheoryManager<'_> {
             .into_iter()
             .filter(|&term| eligible(term))
             .min_by_key(|term| used.contains(term))
+    }
+
+    /// One embedded check whose only purpose is a model snapshot covering
+    /// every circuit defined so far (see `BvSolver::snapshot_covers`),
+    /// charged like every other check.  `Some` carries what the exchange must
+    /// return instead of continuing: a conflict the scope's assertions reach
+    /// on their own, or `Sat` with `resource_exhausted` set.
+    fn refresh_bv_snapshot(&mut self) -> Option<Exchange> {
+        use oxiz_theories::Theory;
+        use oxiz_theories::TheoryCheckResult as TheoryCheckResultEnum;
+        self.bv_pin_pending = false;
+        if self.charge_bv_embedded_check() {
+            self.resource_exhausted = true;
+            return Some(Exchange::Refuted(TheoryCheckResult::Sat));
+        }
+        match self.bv.check() {
+            Ok(TheoryCheckResultEnum::Sat) | Ok(TheoryCheckResultEnum::Propagate(_)) => None,
+            Ok(TheoryCheckResultEnum::Unsat(conflict_terms)) => Some(Exchange::Refuted(
+                self.report_theory_conflict(conflict_terms),
+            )),
+            Ok(TheoryCheckResultEnum::Unknown) | Err(_) => {
+                self.resource_exhausted = true;
+                Some(Exchange::Refuted(TheoryCheckResult::Sat))
+            }
+        }
+    }
+
+    /// The value of a bit-vector literal of `width` bits, read modulo
+    /// `2^width` exactly as the encoder pins it (`define_const_big`); `None`
+    /// for any other term.
+    fn bv_literal_value(&self, term: TermId, width: u32) -> Option<num_bigint::BigUint> {
+        let TermKind::BitVecConst { value, .. } = &self.manager.get(term)?.kind else {
+            return None;
+        };
+        let magnitude = value.to_biguint()?;
+        let modulus = num_bigint::BigUint::from(1u8) << width;
+        Some(magnitude % modulus)
     }
 
     /// Whether `term` is a bit-vector literal.

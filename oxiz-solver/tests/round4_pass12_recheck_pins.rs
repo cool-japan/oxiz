@@ -114,6 +114,18 @@ fn published(lines: &[String], name: &str) -> Option<String> {
     })
 }
 
+/// An unsatisfiable script must never answer `sat` (`unknown` is accepted).
+fn assert_never_sat(name: &str, script: &str, hole: &str) {
+    let lines = run(script);
+    assert_ne!(
+        verdict(&lines),
+        "sat",
+        "WRONG SAT ({hole}, `{name}`): this script is UNSATISFIABLE\n\
+         --- script ---\n{script}--- response ---\n{}",
+        lines.join("\n")
+    );
+}
+
 /// Pin a wrong `sat` green: panic with THE HOLE IS CLOSED on any other answer.
 fn assert_still_wrong_sat(name: &str, script: &str, hole: &str) {
     let lines = run(script);
@@ -129,18 +141,23 @@ fn assert_still_wrong_sat(name: &str, script: &str, hole: &str) {
 }
 
 // ---------------------------------------------------------------------------
-// 1. OPEN HOLES — `#P2b-65`: a pigeonhole answered `sat`.
+// 1. CLOSED (re-fix pass 13) — `#P2b-65`: a pigeonhole answered `sat`.
 //
 //    `∀i j. i ≠ j ⇒ a[i] ≠ a[j]` over an index sort with more points than the
 //    element sort has values is UNSATISFIABLE (an injection that cannot
 //    exist).  Spelled with the guard `(not (= i j))` — as a premise of `=>`,
 //    swapped, under three negations, or inside an `and` guarding a three-way
-//    `distinct` — and beside one ground read, it answers `sat` on this tree.
-//    The cause recorded in `TODO.md` `#P2b-65` (`mbqi::sat_certify::eu_walk`
-//    descends `Not` without polarity, so `premise_safe` accepts `i ≠ j` as the
-//    monotone var-var guard) fits every spelling below: the `or`, `xor`,
-//    `ite`, `not (and …)` and `distinct`-guard spellings of the same formula
-//    are never `sat` (guarded in section 2).
+//    `distinct` — and beside one ground read, it answered `sat` on
+//    `c4b04b7`, HEAD `c702310` and re-fix pass 12's tree:
+//    `mbqi::sat_certify::eu_walk` descended `Not` without polarity, so
+//    `premise_safe` accepted `i ≠ j` as the monotone var-var guard, and the
+//    relevant-set instances "saturated" a formula they do not decide (two
+//    unnamed indices share one representative, so `i ≠ j` is not preserved
+//    by the projection).  The walk now tracks polarity and admits a var-var
+//    guard at positive polarity only (unit test
+//    `mbqi::sat_certify::tests::premise_safe_admits_a_var_var_guard_at_positive_polarity_only`).
+//    Re-measured over the recheck's 156 generated spellings (`recheck12/atk/
+//    pig2/`, release): 0 `sat` (was 29), 81 `unsat`, 75 `unknown`.
 //
 //    Each script's truth is established IN THE TEST by an in-test oracle
 //    rather than asserted: the same array read at one more point than the
@@ -175,16 +192,17 @@ fn pigeonhole_instance_is_refuted(index: &str, element: &str, ground: &str, at: 
 
 const BV7: &str = "(_ BitVec 7)";
 
-/// **THE HOLE IS CLOSED** when any script here stops answering `sat`.
+/// `#P2b-65` at a bit-vector index sort, in six spellings: never `sat`.
 ///
-/// `#P2b-65` at a bit-vector index sort, in six spellings.  Crates.io 0.3.3
-/// answers `unknown` to the bit-vector-element members and the same wrong
-/// `sat` to the `Bool`-element member; `c4b04b7`, HEAD `c702310` and this
-/// tree answer `sat` to all six.  `pigeon2` is `corpus/named/pigeon2.smt2`
-/// verbatim.  To close: fix `premise_safe`/`eu_walk` (decision (49)) and
-/// invert every entry to assert `unsat` (or at least never `sat`).
+/// Crates.io 0.3.3 answers `unknown` to the bit-vector-element members and a
+/// wrong `sat` to the `Bool`-element member; `c4b04b7`, HEAD `c702310` and
+/// re-fix pass 12's tree answered `sat` to all six.  This tree answers
+/// `unknown` to all six (the quantifier is outside the certifiable fragment
+/// and nothing else refutes 128 points; the three-point instance is refuted
+/// by the in-test oracle below).  `pigeon2` is `corpus/named/pigeon2.smt2`
+/// verbatim.
 #[test]
-fn p2b65_bit_vector_index_pigeonholes_still_answer_a_wrong_sat() {
+fn p2b65_bit_vector_index_pigeonholes_are_never_sat() {
     let neg_impl = format!(
         "(forall ((i {BV7}) (j {BV7})) (=> (not (= i j)) (distinct (select a i) (select a j))))"
     );
@@ -234,7 +252,7 @@ fn p2b65_bit_vector_index_pigeonholes_still_answer_a_wrong_sat() {
         ),
     ];
     for (name, element, body, ground) in cases {
-        assert_still_wrong_sat(name, &pigeonhole(BV7, element, body, ground), "#P2b-65");
+        assert_never_sat(name, &pigeonhole(BV7, element, body, ground), "#P2b-65");
     }
     let three = ["#b0000000", "#b0000001", "#b0000010"];
     let five = [
@@ -249,17 +267,14 @@ fn p2b65_bit_vector_index_pigeonholes_still_answer_a_wrong_sat() {
     pigeonhole_instance_is_refuted(BV7, "(_ BitVec 2)", "(= (select a #b0000000) #b00)", &five);
 }
 
-/// **THE HOLE IS CLOSED** when any script here stops answering `sat`.
-///
-/// `#P2b-65` over an **`Int`** index with a bit-vector element — a
-/// REGRESSION against the released crate that `TODO.md` does not record:
-/// crates.io 0.3.3 answers the correct `unsat` to all five, while `c4b04b7`,
-/// HEAD `c702310` and this tree answer `sat` (measured 2026-09-29, release
-/// probes).  `TODO.md` `#P2b-65`'s "crates.io 0.3.3: `unknown`" holds only at
-/// a bit-vector index.  To close: as above, and invert every entry to assert
-/// `unsat` — 0.3.3 already decides these.
+/// `#P2b-65` over an **`Int`** index with a bit-vector element: `unsat`, as
+/// crates.io 0.3.3 answers.  `c4b04b7`, HEAD `c702310` and re-fix pass 12's
+/// tree answered `sat` to all five — a regression against the released crate
+/// (measured 2026-09-29 by the adversarial recheck, release probes).  With the
+/// guard out of the certifiable fragment, MBQI's counterexample loop refutes
+/// every spelling.
 #[test]
-fn p2b65_int_index_pigeonholes_answer_a_wrong_sat_that_0_3_3_refutes() {
+fn p2b65_int_index_pigeonholes_are_refuted_as_0_3_3_refutes_them() {
     let neg_impl =
         "(forall ((i Int) (j Int)) (=> (not (= i j)) (distinct (select a i) (select a j))))";
     let swapped =
@@ -297,7 +312,11 @@ fn p2b65_int_index_pigeonholes_answer_a_wrong_sat_that_0_3_3_refutes() {
         ),
     ];
     for (name, element, body, ground) in cases {
-        assert_still_wrong_sat(name, &pigeonhole("Int", element, body, ground), "#P2b-65");
+        assert_verdict(
+            &pigeonhole("Int", element, body, ground),
+            "unsat",
+            &format!("#P2b-65 `{name}`: an unsatisfiable pigeonhole (0.3.3 answers `unsat`)"),
+        );
     }
     pigeonhole_instance_is_refuted("Int", "(_ BitVec 1)", bv1_ground, &["0", "1", "2"]);
     pigeonhole_instance_is_refuted(
@@ -308,15 +327,13 @@ fn p2b65_int_index_pigeonholes_answer_a_wrong_sat_that_0_3_3_refutes() {
     );
 }
 
-/// **THE HOLE IS CLOSED** when either script stops answering `sat`.
-///
 /// `#P2b-65` over an `Int` index with a `Bool` element (the recheck's
-/// `p8_int_g`): wrong `sat` on crates.io 0.3.3, `c4b04b7`, HEAD and this tree
-/// alike, so pre-existing — but reachable, and the published model
-/// `a = (store (store ((as const (Array Int Bool)) false) 0 true) 1 false)`
-/// reads `false` at both `1` and `2`, falsifying the universal at `(1, 2)`.
+/// `p8_int_g`): `unsat`.  Crates.io 0.3.3, `c4b04b7`, HEAD and re-fix pass
+/// 12's tree answered a wrong `sat` and published `a = (store (store ((as
+/// const (Array Int Bool)) false) 0 true) 1 false)`, which reads `false` at
+/// both `1` and `2` and so falsifies the universal at `(1, 2)`.
 #[test]
-fn p2b65_int_index_bool_element_pigeonhole_still_answers_a_wrong_sat() {
+fn p2b65_int_index_bool_element_pigeonholes_are_refuted() {
     let neg_impl =
         "(forall ((i Int) (j Int)) (=> (not (= i j)) (distinct (select a i) (select a j))))";
     let triple_neg = "(forall ((i Int) (j Int)) (=> (not (not (not (= i j)))) \
@@ -325,10 +342,10 @@ fn p2b65_int_index_bool_element_pigeonhole_still_answers_a_wrong_sat() {
         ("int_bool_neg_impl_g", neg_impl),
         ("int_bool_triple_neg_g", triple_neg),
     ] {
-        assert_still_wrong_sat(
-            name,
+        assert_verdict(
             &pigeonhole("Int", "Bool", body, "(select a 0)"),
-            "#P2b-65",
+            "unsat",
+            &format!("#P2b-65 `{name}`: an unsatisfiable pigeonhole"),
         );
     }
     pigeonhole_instance_is_refuted("Int", "Bool", "(select a 0)", &["0", "1", "2"]);
@@ -576,30 +593,36 @@ fn decision_41_a_guard_region_the_representative_misses_stays_undecided() {
 }
 
 // ---------------------------------------------------------------------------
-// 4b. OPEN HOLE — a WRONG `unsat` in an incremental QF_AUFBV script.
+// 4b. CLOSED (re-fix pass 13) — the wrong `unsat` in an incremental QF_AUFBV
+//     script.
 // ---------------------------------------------------------------------------
 
-/// **THE HOLE IS CLOSED** when the second `(check-sat)` stops answering
-/// `unsat`.
+/// The script `fuzz_abv.py` (seed 29092028, script 12503) found, delta-debugged
+/// to eight lines.  The first assertion makes `a0` the constant array `#b0`;
+/// the premise of the second, `a0 = ((as const …) #b1)`, is then false, so it
+/// holds; and `(store a0 i0 #b1)` differs from `a0` at `i0` because
+/// `a0[i0] = #b0`.  **Satisfiable** at both checks (the in-test oracle
+/// enumerates all 8 interpretations).  Crates.io 0.3.3 answers `sat sat`;
+/// `c4b04b7` `sat unknown`; HEAD `c702310` and re-fix pass 12's tree answered
+/// the wrong **`sat unsat`** in release and tripped the empty-clause
+/// `debug_assert!` in debug.
 ///
-/// Found by the recheck's own incremental QF_AUFBV fuzzer
-/// (`recheck12/fuzz_abv.py`, seed 29092028, script 12503 — 2 wrong `unsat`
-/// in 78,658 checks, and the same 2 on HEAD `c702310`), delta-debugged to
-/// the eight lines below.  The first assertion makes `a0` the constant array
-/// `#b0`; the premise of the second, `a0 = ((as const …) #b1)`, is then
-/// false, so it holds; and `(store a0 i0 #b1)` differs from `a0` at `i0`
-/// because `a0[i0] = #b0`.  The script is **satisfiable** (the in-test
-/// oracle below enumerates all 8 interpretations of `i0` and the two cells of
-/// `a0`).  Crates.io 0.3.3 answers `sat sat`; `c4b04b7` `sat unknown`; HEAD
-/// `c702310` and this tree **`sat unsat`** — a wrong `unsat`, a regression
-/// against the released crate, NOT introduced by re-fix pass 12 (HEAD has
-/// it).  It needs the first `(check-sat)` (without it, or with a `push`
-/// in its place, the tree answers `unknown`) and the `ite` over an array
-/// `distinct` in the second assertion (spelled `(bvule i0 i0)` it is `sat`).
-/// To close: find the incremental state the first check leaves behind, and
-/// invert this pin to assert `sat sat` (or at least never `unsat`).
+/// Root cause (re-fix pass 13): the comparison's operand `(ite (distinct a0
+/// a0) #b1 i0)` was partly bit-blasted — the literal `#b1` got its circuit —
+/// and then not asserted (its selector was outside the encoder's fragment),
+/// so no check followed; `bv_bridge::model_partition_lemma` read `#b1` off
+/// the stale circuit snapshot as `#b0`, bucketed the two literals together
+/// and merged them "for good" under their tautological reasons; the EUF
+/// conflict that followed blamed tautologies only, and release turned the
+/// empty clause into the negation of the whole assignment.  Fixed three ways,
+/// each on its own sufficient for this script: a literal is bucketed by its
+/// literal value; a candidate the snapshot does not cover forces a refresh
+/// check (`BvSolver::snapshot_covers`); and a conflict whose reasons are all
+/// tautologies is aborted (`unknown`), never turned into a clause.  The
+/// selector `(distinct a0 a0)` also folds to `false` in the encoder now,
+/// which is what makes the second check `sat` rather than `unknown`.
 #[test]
-fn an_incremental_array_script_answers_a_wrong_unsat() {
+fn an_incremental_array_script_is_satisfiable_at_both_checks() {
     let script = "(set-logic QF_AUFBV)\n\
          (declare-fun i0 () (_ BitVec 1))\n\
          (declare-fun a0 () (Array (_ BitVec 1) (_ BitVec 1)))\n\
@@ -630,31 +653,47 @@ fn an_incremental_array_script_answers_a_wrong_unsat() {
         satisfying > 0,
         "the oracle must find the model a0 = const #b0"
     );
-    // Release answers `sat unsat`.  A build with debug assertions (the gate's
-    // test profile) stops earlier, at `theory_manager/conflict_clause.rs`'s
-    // `debug_assert!` "theory conflict over [..] produced an empty clause":
-    // the array/EUF theory reports a conflict whose every reason is a
-    // tautology or a level-0 fact — a spurious conflict — and release turns
-    // the fallback clause into the wrong `unsat`.  Both shapes are the hole.
-    let outcome = std::panic::catch_unwind(|| run(script));
-    let still_open = match &outcome {
-        Ok(lines) => verdicts(lines) == ["sat", "unsat"],
-        Err(payload) => {
-            let message = payload
-                .downcast_ref::<String>()
-                .cloned()
-                .or_else(|| payload.downcast_ref::<&str>().map(|s| s.to_string()))
-                .unwrap_or_default();
-            message.contains("produced an empty clause")
-        }
-    };
-    assert!(
-        still_open,
-        "THE HOLE IS CLOSED: the second `(check-sat)` of this SATISFIABLE script \
-         ({satisfying} of 8 interpretations satisfy it) no longer answers the wrong \
-         `unsat` (release) nor trips the empty-clause debug assertion (debug). \
-         Invert this pin to assert `sat sat` (never `unsat`).\n{:?}",
-        outcome.as_ref().map(|lines| lines.join("\n"))
+    let lines = run(script);
+    assert_eq!(
+        verdicts(&lines),
+        ["sat", "sat"],
+        "a SATISFIABLE script ({satisfying} of 8 interpretations satisfy it)\n{}",
+        lines.join("\n")
+    );
+}
+
+/// The same script with the selector over two DIFFERENT arrays, which no
+/// structural rule folds: the operand stays outside the encoder's fragment,
+/// so this is the path where the stale snapshot was read, with nothing to
+/// fold it away.  Satisfiable (`a0 = a1 = const #b0` makes the selector
+/// false and `(bvule i0 i0)` holds; the premise is false anyway); `unknown`
+/// is accepted (the atom is unmodelled), a wrong `unsat` — or the
+/// empty-clause `debug_assert!` — is the hole coming back.
+#[test]
+fn a_stale_circuit_snapshot_never_manufactures_a_refutation() {
+    let script = "(set-logic QF_AUFBV)\n\
+         (declare-fun i0 () (_ BitVec 1))\n\
+         (declare-fun a0 () (Array (_ BitVec 1) (_ BitVec 1)))\n\
+         (declare-fun a1 () (Array (_ BitVec 1) (_ BitVec 1)))\n\
+         (assert (= a0 ((as const (Array (_ BitVec 1) (_ BitVec 1))) #b0)))\n\
+         (check-sat)\n\
+         (assert (=> (= ((as const (Array (_ BitVec 1) (_ BitVec 1))) #b1) a0) \
+         (bvule (ite (distinct a0 a1) #b1 i0) i0)))\n\
+         (assert (distinct (store a0 i0 #b1) a0))\n\
+         (check-sat)\n";
+    let lines = run(script);
+    let answers = verdicts(&lines);
+    assert_eq!(
+        answers.first().map(String::as_str),
+        Some("sat"),
+        "{}",
+        lines.join("\n")
+    );
+    assert_ne!(
+        answers.get(1).map(String::as_str),
+        Some("unsat"),
+        "WRONG UNSAT: the script is satisfiable\n{}",
+        lines.join("\n")
     );
 }
 

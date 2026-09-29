@@ -82,6 +82,10 @@ fn bit_blast_cond_operands(bv: &mut BvSolver, cond: TermId, mgr: &TermManager) -
                 stack.push(*rhs);
                 stack.push(*lhs);
             }
+            // A `distinct` naming one operand twice is `false` over any sort
+            // (`#P2b-22`'s structural rule), so it has no operands to blast —
+            // an array `(distinct a0 a0)` selector included.
+            TermKind::Distinct(args) if super::model_eval::has_repeated_operand(args) => {}
             TermKind::Distinct(args) if args.first().is_some_and(|&a| is_bool(a)) => {
                 stack.extend(args.iter().rev().copied());
             }

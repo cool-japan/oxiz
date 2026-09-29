@@ -1804,7 +1804,7 @@ impl Solver {
 /// what the AST stores them in); the hash-set fallback keeps a pathologically
 /// wide one linear rather than quadratic, since this runs once per `distinct`
 /// node on every gate evaluation.
-fn has_repeated_operand(args: &[TermId]) -> bool {
+pub(super) fn has_repeated_operand(args: &[TermId]) -> bool {
     /// Above this many operands the pairwise scan stops being the cheaper one.
     const PAIRWISE_LIMIT: usize = 16;
 

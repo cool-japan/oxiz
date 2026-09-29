@@ -128,6 +128,19 @@ impl BvSolver {
                 self.encode_mux(v, cv, tv, ev);
                 v
             }
+            TermKind::Distinct(ref args)
+                if args
+                    .iter()
+                    .enumerate()
+                    .any(|(i, a)| args.iter().skip(i + 1).any(|b| a == b)) =>
+            {
+                // One operand named twice: `false` over any sort, an array
+                // `(distinct a0 a0)` included — a structural fact, so the
+                // node is defined without looking at the operands.
+                let v = self.sat.new_var();
+                self.define([Lit::neg(v)]);
+                v
+            }
             TermKind::Distinct(ref args) => {
                 // Pairwise: every pair of operands differs.  A pair of Bool
                 // operands differs iff their truth values do (`xor`); a pair

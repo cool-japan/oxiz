@@ -275,6 +275,25 @@ impl TermManager {
             ) => {
                 return self.mk_bool(v1 == v2 && w1 == w2);
             }
+            // Applications of two DIFFERENT constructors of one datatype are
+            // unequal in every model — datatypes are free (SMT-LIB 2.6
+            // §4.2.3) — so their equality is `false` wherever it is built.
+            // Folding it here, rather than in one consumer, is what lets the
+            // fact reach every place that manufactures such an equality: the
+            // read-over-write lemma `(select (store a red 1) green)` builds
+            // `(= red green)` itself and never asked the datatype axioms, so
+            // the atom was a free Boolean and `a = store(K0, red, 1) ∧
+            // a[green] = 1` answered `sat` (`#P2b-61`, `#P2b-64` (1)).
+            (
+                Some(TermKind::DtConstructor {
+                    constructor: c1, ..
+                }),
+                Some(TermKind::DtConstructor {
+                    constructor: c2, ..
+                }),
+            ) if c1 != c2 && self.get(lhs).map(|t| t.sort) == self.get(rhs).map(|t| t.sort) => {
+                return self.false_id;
+            }
             _ => {}
         }
 

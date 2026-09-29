@@ -50,7 +50,8 @@
 //!       folded into the relevant instantiation set (see
 //!       [`augment_guard_grounds`]) so no region boundary is missed;
 //!     - **variable-vs-variable** comparisons `x ⊕ y` for the monotone-preserving
-//!       relations `≤`, `≥`, `=` only.
+//!       relations `≤`, `≥`, `=` only, and only at **positive polarity** in the
+//!       guard (`#P2b-65`: `¬(x = y)` and `¬(x ≤ y)` are not preserved).
 //!       Strict `<` / `>` *between two variables*, and any bare variable in the
 //!       consequent, are excluded because they are not preserved by the
 //!       model-extension projection.  Each variable is instantiated over its sort's
@@ -148,8 +149,16 @@ pub(crate) fn collect_fragment_instances(
     // never sends an unnamed index onto a `store`'s own index.  See
     // `unnamed_region`.  Again only instances are added, so this can only
     // strengthen the ground problem.
-    if let Some(goal) = unnamed {
-        unnamed_region::add_unnamed_index_points(quantifiers, model, goal, &mut relevant, manager);
+    if let Some(goal) = unnamed
+        && !unnamed_region::add_unnamed_index_points(
+            quantifiers,
+            model,
+            goal,
+            &mut relevant,
+            manager,
+        )
+    {
+        return CertifyResult::NotEligible;
     }
 
     let mut saw_quantifier = false;
@@ -543,9 +552,46 @@ fn strict_eu(term: TermId, vars: &FxHashSet<Spur>, manager: &TermManager) -> boo
 
 /// Premise position: like [`strict_eu`], but a comparison between two bound
 /// variables using a monotone-preserving relation (`≤`, `≥`, `=`) is allowed
-/// as a guard.
+/// as a guard — **at positive polarity only** (`#P2b-65`).
+///
+/// The fragment argument needs the premise to be preserved by the projection
+/// `π` that extends a model of the instances to the whole domain: whenever the
+/// premise holds at `(x, y)` it must hold at `(π x, π y)`.  `x ≤ y` and
+/// `x = y` are (π is monotone and a function), but their negations `y < x`
+/// and `x ≠ y` are not — two unnamed indices can share one representative.
+/// So a var-var comparison under an odd number of negations (a `not`, the
+/// left side of an inner `=>`) is rejected, and so is one whose polarity the
+/// walk cannot pin down (an `ite` condition, either side of a Boolean `=` or
+/// `distinct`, anything under an arithmetic or uninterpreted operator).
+/// Before this rule `(=> (not (= i j)) (distinct (select a i) (select a j)))`
+/// — a pigeonhole over 128 indices and two values — was certified `sat`.
 fn premise_safe(term: TermId, vars: &FxHashSet<Spur>, manager: &TermManager) -> bool {
     eu_walk(term, vars, manager, true)
+}
+
+/// The polarity at which a sub-term of a premise occurs in it.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+enum Polarity {
+    /// Under an even number of negations: true there means true in the
+    /// premise.
+    Positive,
+    /// Under an odd number of negations.
+    Negative,
+    /// At both polarities (or at one the walk does not track): an `ite`
+    /// condition, a Boolean `=` / `distinct` operand, an operand of an
+    /// arithmetic or uninterpreted operator.
+    Both,
+}
+
+impl Polarity {
+    /// The polarity one negation further down.
+    fn flipped(self) -> Self {
+        match self {
+            Self::Positive => Self::Negative,
+            Self::Negative => Self::Positive,
+            Self::Both => Self::Both,
+        }
+    }
 }
 
 /// Shared traversal for [`strict_eu`] / [`premise_safe`].
@@ -566,15 +612,17 @@ fn premise_safe(term: TermId, vars: &FxHashSet<Spur>, manager: &TermManager) -> 
 /// classification is one conjunction, so obligation order cannot change the
 /// outcome: the walk answers `false` the moment any obligation fails, and
 /// `true` only once the worklist drains.  `seen` deduplicates structural
-/// obligations by `TermId` (`allow_guard` is fixed for a given walk), which
-/// preserves the verdict — a repeated subterm re-adds identical conjuncts —
-/// while bounding re-expansion of shared subterms of the hash-consed DAG to
-/// linear.
+/// obligations by `TermId` and [`Polarity`] (`allow_guard` is fixed for a
+/// given walk), which preserves the verdict — a repeated subterm at the same
+/// polarity re-adds identical conjuncts — while bounding re-expansion of
+/// shared subterms of the hash-consed DAG to linear (three polarities per
+/// term at most).
 fn eu_walk(term: TermId, vars: &FxHashSet<Spur>, manager: &TermManager, allow_guard: bool) -> bool {
     /// One pending conjunct of the classification.
     enum Obligation {
-        /// The structural essentially-uninterpreted check for a term.
-        Walk(TermId),
+        /// The structural essentially-uninterpreted check for a term, at the
+        /// polarity it occurs at in the walked formula.
+        Walk(TermId, Polarity),
         /// A direct argument of an uninterpreted function / array operation:
         /// either a bound variable (exactly the allowed leaf position) or a
         /// subterm that must itself be essentially uninterpreted.  (The old
@@ -599,16 +647,24 @@ fn eu_walk(term: TermId, vars: &FxHashSet<Spur>, manager: &TermManager, allow_gu
         /// Outside a guard (the consequent), neither exception applies and
         /// each side must itself be essentially uninterpreted, so a bare
         /// bound variable is rejected.
-        Cmp(TermId, TermId, bool),
+        ///
+        /// The var-vs-var form is admitted at [`Polarity::Positive`] only
+        /// (`#P2b-65`, see [`premise_safe`]); the var-vs-ground form at every
+        /// polarity, because the negation of each admitted relation is again
+        /// one (`¬(x ≤ t)` is `t < x`, `¬(x = t)` the disequality guard).
+        Cmp(TermId, TermId, bool, Polarity),
     }
 
-    let mut stack: Vec<Obligation> = vec![Obligation::Walk(term)];
-    let mut seen: FxHashSet<TermId> = FxHashSet::default();
+    let mut stack: Vec<Obligation> = vec![Obligation::Walk(term, Polarity::Positive)];
+    // Keyed by term AND polarity: the same sub-term met at a second polarity
+    // is a different obligation (a var-var guard fine at one is not at the
+    // other).
+    let mut seen: FxHashSet<(TermId, Polarity)> = FxHashSet::default();
 
     while let Some(obligation) = stack.pop() {
         match obligation {
-            Obligation::Walk(t) => {
-                if !seen.insert(t) {
+            Obligation::Walk(t, polarity) => {
+                if !seen.insert((t, polarity)) {
                     continue;
                 }
                 let Some(node) = manager.get(t) else {
@@ -655,35 +711,41 @@ fn eu_walk(term: TermId, vars: &FxHashSet<Spur>, manager: &TermManager, allow_gu
                     // not preserved by the model-extension projection).
                     // Both permit a bound-variable-vs-ground guard.
                     TermKind::Le(l, r) | TermKind::Ge(l, r) | TermKind::Eq(l, r) => {
-                        stack.push(Obligation::Cmp(*l, *r, true));
+                        stack.push(Obligation::Cmp(*l, *r, true, polarity));
                     }
                     TermKind::Lt(l, r) | TermKind::Gt(l, r) => {
-                        stack.push(Obligation::Cmp(*l, *r, false));
+                        stack.push(Obligation::Cmp(*l, *r, false, polarity));
                     }
 
                     // Structural boolean / arithmetic: descend.  Any bare
                     // bound variable reached this way falls into the `Var`
-                    // arm above and is rejected.
-                    TermKind::Not(a) | TermKind::Neg(a) => stack.push(Obligation::Walk(*a)),
-                    TermKind::And(args)
-                    | TermKind::Or(args)
-                    | TermKind::Add(args)
-                    | TermKind::Mul(args) => {
+                    // arm above and is rejected.  Polarity follows the
+                    // Boolean connectives and is lost (`Both`) under an
+                    // arithmetic operator.
+                    TermKind::Not(a) => stack.push(Obligation::Walk(*a, polarity.flipped())),
+                    TermKind::Neg(a) => stack.push(Obligation::Walk(*a, Polarity::Both)),
+                    TermKind::And(args) | TermKind::Or(args) => {
                         for &a in args.iter() {
-                            stack.push(Obligation::Walk(a));
+                            stack.push(Obligation::Walk(a, polarity));
                         }
                     }
-                    TermKind::Implies(l, r)
-                    | TermKind::Sub(l, r)
-                    | TermKind::Div(l, r)
-                    | TermKind::Mod(l, r) => {
-                        stack.push(Obligation::Walk(*l));
-                        stack.push(Obligation::Walk(*r));
+                    TermKind::Add(args) | TermKind::Mul(args) => {
+                        for &a in args.iter() {
+                            stack.push(Obligation::Walk(a, Polarity::Both));
+                        }
+                    }
+                    TermKind::Implies(l, r) => {
+                        stack.push(Obligation::Walk(*l, polarity.flipped()));
+                        stack.push(Obligation::Walk(*r, polarity));
+                    }
+                    TermKind::Sub(l, r) | TermKind::Div(l, r) | TermKind::Mod(l, r) => {
+                        stack.push(Obligation::Walk(*l, Polarity::Both));
+                        stack.push(Obligation::Walk(*r, Polarity::Both));
                     }
                     TermKind::Ite(c, th, el) => {
-                        stack.push(Obligation::Walk(*c));
-                        stack.push(Obligation::Walk(*th));
-                        stack.push(Obligation::Walk(*el));
+                        stack.push(Obligation::Walk(*c, Polarity::Both));
+                        stack.push(Obligation::Walk(*th, polarity));
+                        stack.push(Obligation::Walk(*el, polarity));
                     }
                     TermKind::Distinct(args) => {
                         // Disequality is not projection-preserving; reject if
@@ -693,7 +755,7 @@ fn eu_walk(term: TermId, vars: &FxHashSet<Spur>, manager: &TermManager, allow_gu
                             if is_bound_var(a, vars, manager) {
                                 return false;
                             }
-                            stack.push(Obligation::Walk(a));
+                            stack.push(Obligation::Walk(a, Polarity::Both));
                         }
                     }
 
@@ -711,9 +773,9 @@ fn eu_walk(term: TermId, vars: &FxHashSet<Spur>, manager: &TermManager, allow_gu
                 if is_bound_var(t, vars, manager) {
                     continue;
                 }
-                stack.push(Obligation::Walk(t));
+                stack.push(Obligation::Walk(t, Polarity::Both));
             }
-            Obligation::Cmp(l, r, allow_var_var) => {
+            Obligation::Cmp(l, r, allow_var_var, polarity) => {
                 if allow_guard {
                     let lb = is_bound_var(l, vars, manager);
                     let rb = is_bound_var(r, vars, manager);
@@ -725,13 +787,14 @@ fn eu_walk(term: TermId, vars: &FxHashSet<Spur>, manager: &TermManager, allow_gu
                         continue;
                     }
                     // Monotone-preserving comparison between two bound
-                    // variables.
-                    if allow_var_var && lb && rb {
+                    // variables — at positive polarity only (`#P2b-65`).
+                    if allow_var_var && lb && rb && polarity == Polarity::Positive {
                         continue;
                     }
                 }
-                stack.push(Obligation::Walk(l));
-                stack.push(Obligation::Walk(r));
+                // Either side of a Boolean `=` occurs at both polarities.
+                stack.push(Obligation::Walk(l, Polarity::Both));
+                stack.push(Obligation::Walk(r, Polarity::Both));
             }
         }
     }
@@ -988,6 +1051,58 @@ mod tests {
     // an explicit heap stack. These tests pin the classification verdicts
     // (behavior preservation), deep-input survival on a small thread stack,
     // and the `seen`-set bound on shared DAGs.
+
+    /// `#P2b-65`: a var-var guard is admitted at positive polarity only.
+    /// `(not (= i j))`, a triple negation, a negation inside an `and`, the
+    /// left side of an inner `=>` and an `ite` condition are all rejected;
+    /// `(not (not (= i j)))` and `(or (<= i j) …)` are admitted; and a
+    /// var-vs-ground guard stays admitted at every polarity.
+    #[test]
+    fn premise_safe_admits_a_var_var_guard_at_positive_polarity_only() {
+        let mut m = TermManager::new();
+        let bv7 = m.sorts.bitvec(7);
+        let i = m.mk_var("i", bv7);
+        let j = m.mk_var("j", bv7);
+        let k = m.mk_var("k", bv7);
+        let zero = m.mk_bitvec(BigInt::from(0u8), 7);
+        let bool_sort = m.sorts.bool_sort;
+        let p = m.mk_var("p", bool_sort);
+        let vars: FxHashSet<Spur> = [var_spur(&m, i), var_spur(&m, j), var_spur(&m, k)]
+            .into_iter()
+            .collect();
+        let i_eq_j = m.mk_eq(i, j);
+        let j_eq_k = m.mk_eq(j, k);
+        let i_eq_k = m.mk_eq(i, k);
+        assert!(premise_safe(i_eq_j, &vars, &m));
+        let not_eq = m.mk_not(i_eq_j);
+        assert!(!premise_safe(not_eq, &vars, &m), "(not (= i j))");
+        let double = m.mk_not(not_eq);
+        let triple = m.mk_not(double);
+        if m.get(double)
+            .is_some_and(|t| matches!(t.kind, TermKind::Not(_)))
+        {
+            assert!(premise_safe(double, &vars, &m), "(not (not (= i j)))");
+        }
+        assert!(!premise_safe(triple, &vars, &m), "three negations");
+        let n_jk = m.mk_not(j_eq_k);
+        let n_ik = m.mk_not(i_eq_k);
+        let conj = m.mk_and([not_eq, n_jk, n_ik]);
+        assert!(!premise_safe(conj, &vars, &m), "negations inside an and");
+        let inner = m.mk_implies(i_eq_j, p);
+        assert!(!premise_safe(inner, &vars, &m), "left side of an inner =>");
+        let ite = m.mk_ite(i_eq_j, p, p);
+        if m.get(ite)
+            .is_some_and(|t| matches!(t.kind, TermKind::Ite(..)))
+        {
+            assert!(!premise_safe(ite, &vars, &m), "an ite condition");
+        }
+        let disj = m.mk_or([i_eq_j, p]);
+        assert!(premise_safe(disj, &vars, &m), "(or (= i j) p)");
+        // Var vs ground: every polarity maps into the admitted set.
+        let i_eq_zero = m.mk_eq(i, zero);
+        let not_ground = m.mk_not(i_eq_zero);
+        assert!(premise_safe(not_ground, &vars, &m), "(not (= i #b0000000))");
+    }
 
     #[test]
     fn eu_walk_semantic_pins() {

@@ -59,16 +59,19 @@
 //!   there is no unnamed region to represent, only the named elements to cover;
 //! * over `Bool`, both values, and over an enumeration datatype (every
 //!   constructor nullary), every constructor — exhaustive;
-//! * over a datatype with a field, the ground terms the goal spells, as for a
-//!   declared sort — which is **not** complete there (a model must contain
-//!   every constructor term), and stays open in `TODO.md` `#P2b-60`.
+//! * over a declared sort, also every constant of the sort the candidate model
+//!   assigns — the Skolem witness of an asserted `exists` appears only in the
+//!   encoded assertion, never in the goal's spelling (`#P2b-64` (2));
+//! * over a datatype with a field, or any other index sort (floating point,
+//!   arrays, strings), **nothing is complete**, so the caller declines to
+//!   certify (re-fix pass 13, `#P2b-64` (1)): no single value is known to be
+//!   unnamed there, and until then the certifier concluded `sat` over the
+//!   spelled terms alone.
 //!
 //! `π` then sends every unnamed index to an unnamed representative in the same
 //! gap of every order, where every array term reads what it reads at every
 //! other unnamed index of that gap, and fixes every named index: `M'` is a
-//! model.  (A floating-point or array *index* sort gets nothing here, and a
-//! datatype with a field only its spelled terms; no script of either has been
-//! met, and the gap stays named in `TODO.md` `#P2b-60`.)
+//! model.
 //!
 //! Every point added is an **instance of a universal**, which is always a
 //! sound consequence: the change can only make an unsatisfiable goal show its
@@ -105,16 +108,19 @@ struct Named {
 
 /// Add the points of the module docs to `relevant` for every sort a bound
 /// variable indexes an array at.  `goal` is the assertions in scope.
+///
+/// `false` when some such sort has no complete set of points (a datatype
+/// with a field): the saturation test must then not conclude anything.
 pub(super) fn add_unnamed_index_points(
     quantifiers: &[QuantifiedFormula],
     model: &CompletedModel,
     goal: &[TermId],
     relevant: &mut FxHashMap<SortId, Vec<TermId>>,
     manager: &mut TermManager,
-) {
+) -> bool {
     let (order, mut named) = index_sorts(quantifiers, manager);
     if order.is_empty() {
-        return;
+        return true;
     }
     let bound_names: FxHashSet<Spur> = quantifiers
         .iter()
@@ -177,20 +183,36 @@ pub(super) fn add_unnamed_index_points(
             }
             SortKind::Uninterpreted(_) => {
                 points.extend(ground_terms_of_sort(goal, sort, manager));
+                // A constant of the sort the goal never spells outside a
+                // binder is still an element the model must cover: the
+                // Skolem witness of an asserted `exists` lives only in the
+                // *encoded* assertion (`encode::exists_skolem`), and a
+                // binder-sort witness only in the candidate pool.  Missing
+                // them made `∃x. x ≠ u` beside `∀x. a[x] = 1` over
+                // `a = store(K0, u, 1)` saturate at `{u}` alone (`#P2b-64`
+                // (2)).  Constants only — a model key that is an application
+                // or a read is an instance term, and choosing points by
+                // those would move them every round.
+                points.extend(model_constants_of_sort(model, sort, &bound_names, manager));
             }
             SortKind::Datatype(_) => {
                 // An enumeration (every constructor nullary) is its own
                 // finite domain: every constructor is a point.  A datatype
-                // with a field has no finite domain to enumerate and gets
-                // only the ground terms the goal spells, which is the
-                // declared-sort rule and is incomplete there (`TODO.md`
-                // `#P2b-60`).
+                // with a field has no finite domain to enumerate, and no
+                // single representative of the values no term names is
+                // known to be unnamed (a field value can coincide with a
+                // named term's), so the saturation cannot be certified
+                // there at all: the caller is told to decline (`#P2b-64`
+                // (1): `∀x:L. a[x] = 1` beside `a = store(K0, nil, 1)` was
+                // certified over `{nil}` and answered `sat`).
                 match enumeration_constructors(sort, manager) {
                     Some(constructors) => points.extend(constructors),
-                    None => points.extend(ground_terms_of_sort(goal, sort, manager)),
+                    None => return false,
                 }
             }
-            _ => {}
+            // No representative is known for any other index sort, so no
+            // saturation over it is a certificate.
+            _ => return false,
         }
         let bucket = relevant.entry(sort).or_default();
         for point in points {
@@ -199,6 +221,7 @@ pub(super) fn add_unnamed_index_points(
             }
         }
     }
+    true
 }
 
 /// The sorts a bound variable indexes an array at, in first-encounter order,
@@ -443,6 +466,29 @@ fn ground_terms_of_sort(goal: &[TermId], sort: SortId, manager: &TermManager) ->
         children.extend(oxiz_core::ast::traversal::get_children(&data.kind));
         stack.extend(children.iter().copied());
     }
+    out.sort_unstable_by_key(|term| term.raw());
+    out
+}
+
+/// Every constant (`Var`) of `sort` the candidate model assigns, other than a
+/// bound variable's name, in term-id order.
+fn model_constants_of_sort(
+    model: &CompletedModel,
+    sort: SortId,
+    bound_names: &FxHashSet<Spur>,
+    manager: &TermManager,
+) -> Vec<TermId> {
+    let mut out: Vec<TermId> = model
+        .assignments
+        .keys()
+        .copied()
+        .filter(|&term| {
+            manager.get(term).is_some_and(|data| {
+                data.sort == sort
+                    && matches!(&data.kind, TermKind::Var(name) if !bound_names.contains(name))
+            })
+        })
+        .collect();
     out.sort_unstable_by_key(|term| term.raw());
     out
 }

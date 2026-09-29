@@ -287,6 +287,30 @@ impl BvSolver {
         (result, core)
     }
 
+    /// Whether the model snapshot of the last `Sat` check assigns every bit of
+    /// `term`'s circuit (`false` for a term with no circuit).
+    ///
+    /// A circuit defined *after* that check — a definition installed while
+    /// encoding an atom that was then never asserted (an operand the encoder
+    /// could model beside one it could not), or one built for a partition
+    /// candidate — has no value in the snapshot, and
+    /// [`Self::get_value_big`] then reads its bits as `0` whatever they are
+    /// defined to be: a literal `#b1` read back as `#b0`.  A caller that
+    /// compares circuit values (the bit-vector / EUF exchange of
+    /// `oxiz-solver`) must refresh the snapshot with a check first; reading
+    /// such a value is how the stale `#b1 = #b0` of the recheck-12 wrong
+    /// `unsat` was manufactured.
+    #[must_use]
+    pub fn snapshot_covers(&self, term: TermId) -> bool {
+        self.term_to_bv.get(&term).is_some_and(|bv| {
+            bv.bits.iter().all(|var| {
+                self.last_sat_model
+                    .get(var.index())
+                    .is_some_and(|value| value.is_defined())
+            })
+        })
+    }
+
     /// The terms to blame for a refutation whose failed assumptions are
     /// `core`: each literal's recorded blame, or its pinned atom.  `None` when
     /// some literal carries no blame (or the core is empty), in which case the
