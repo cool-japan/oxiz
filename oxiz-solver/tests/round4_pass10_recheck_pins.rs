@@ -137,7 +137,7 @@ fn at_budget(body: &str, budget: u32) -> (String, u64, u64) {
 /// for every pair in each round, and the same staged behind the eager
 /// families — were built and measured on that tree and *raise* the checks
 /// the script spends (27,700 and 74,363 against 9,302; see `TODO.md`
-/// `#P2b-59` (e)), so neither landed and this stays a hole.
+/// `#P2b-59` (h)), so neither landed and this stays a hole.
 ///
 /// To close: make the two counts agree below the saturation point, then flip
 /// `assert!(rounds_high > rounds_low)` to `assert_eq!`.
@@ -168,7 +168,7 @@ fn the_array_refinement_round_count_still_grows_with_the_budget() {
          {rounds_low} / {inst_low} at 5,000, so below its saturation point it no \
          longer consumes whatever budget it is given — decision (44)'s \
          fixpoint.  Invert this assertion, and re-state TODO.md (24a)(iv), \
-         `#P2b-59` (e)/(g) and the CHANGELOG `[0.3.4]` bullet.",
+         `#P2b-59` (h) and the CHANGELOG `[0.3.4]` bullets.",
     );
 }
 
@@ -183,13 +183,16 @@ fn the_array_refinement_round_count_still_grows_with_the_budget() {
 /// `the_same_script_with_its_two_assertions_swapped_is_not_decided` — held
 /// green.
 ///
-/// Decided now, in both orders, at 50,000 checks: the original order spends
-/// 9,302 (70 / 195) in 0.2–0.4 s release, the swapped order 29,189
-/// (124 / 295) in 1.2 s (two campaign workers beside each run).  What decided them is decision (45) — root-scoped bit-blasting and
-/// failed-assumption cores, which took the thousands of outer theory
-/// conflicts per refinement round out of the loop — not the order: the two
-/// orders still take different trajectories, and that half of decision (43)
-/// is the hole pinned just below.
+/// Decided now, in both orders, and each order at a fixpoint of its own: the
+/// original order spends 9,302 checks (70 / 195) in 0.2–0.4 s release, the
+/// swapped order 29,189 (124 / 295) in 0.8–1.2 s (two campaign workers beside
+/// each run), and each reports the same rounds, instances and checks at
+/// 35,000 and at 50,000 — both budgets above what it spends — so neither
+/// verdict is a truncation.  What decided them is decision (45) —
+/// root-scoped bit-blasting and failed-assumption cores, which took the
+/// thousands of outer theory conflicts per refinement round out of the loop —
+/// not the order: the two orders still take different trajectories, and that
+/// half of decision (43) is the hole pinned just below.
 #[test]
 fn the_same_script_with_its_two_assertions_swapped_is_decided() {
     let swapped = format!("{Q33_DECLS}{Q33_ASSERT_1}{Q33_ASSERT_0}");
@@ -199,11 +202,33 @@ fn the_same_script_with_its_two_assertions_swapped_is_decided() {
         "this pin's whole point is that the script carries no binder"
     );
     for (order, body) in [("swapped", &swapped), ("original", &original)] {
-        let (verdict, rounds, instances) = at_budget(body, 50_000);
+        let mut observed = Vec::new();
+        for budget in [35_000u32, 50_000] {
+            let script = format!(
+                "(set-logic ALL)\n(set-option :max-bv-embedded-checks {budget})\n{body}\
+                 (check-sat)\n(get-info :all-statistics)\n"
+            );
+            let lines = run(&script);
+            let checks = counter(&lines, ":bv-embedded-checks ");
+            let rounds = counter(&lines, ":array-refinement-rounds ");
+            let instances = counter(&lines, ":array-lemma-instances ");
+            assert_eq!(
+                verdict(&lines),
+                "sat",
+                "the {order} order must be decided at {budget} embedded checks \
+                 ({rounds} rounds / {instances} instances / {checks} checks)"
+            );
+            assert!(
+                checks > 0 && checks < u64::from(budget),
+                "the budget must not be what stopped the {order} order: \
+                 {checks} of {budget} embedded checks spent"
+            );
+            observed.push((rounds, instances, checks));
+        }
         assert_eq!(
-            verdict, "sat",
-            "the {order} order must be decided at 50,000 embedded checks \
-             ({rounds} rounds / {instances} instances)"
+            observed[0], observed[1],
+            "the {order} order's refinement must reach its fixpoint: identical \
+             rounds / instances / checks at 35,000 and 50,000, got {observed:?}"
         );
     }
 }

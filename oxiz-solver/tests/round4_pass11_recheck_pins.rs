@@ -788,7 +788,7 @@ fn a_popped_refinement_scope_re_derives_its_lemmas() {
 /// cheap enough that `round4_pass9_recheck_pins::the_refinement_reaches_a_fixpoint_above_its_saturation_point`
 /// now asserts it.  Decision (44)'s fixpoint *below* that point was built in
 /// two variants and measured to cost more checks than it saves (`TODO.md`
-/// `#P2b-59` (e)), so this stays a hole.
+/// `#P2b-59` (h)), so this stays a hole.
 ///
 /// To close: make 500 and 5,000 agree (a real fixpoint below the saturation
 /// point) and flip the `assert_ne!` below.
@@ -832,7 +832,7 @@ fn the_round_counts_at_five_hundred_and_five_thousand_checks_differ() {
     assert_eq!(
         (low_verdict.as_str(), high_verdict.as_str()),
         ("unknown", "unknown"),
-        "both budgets are below the 30,402 checks this script consumes"
+        "both budgets are below the 9,302 checks this script consumes"
     );
     assert!(
         low_rounds > 0 && high_rounds > 0,
@@ -843,9 +843,8 @@ fn the_round_counts_at_five_hundred_and_five_thousand_checks_differ() {
         low_rounds, high_rounds,
         "THE HOLE IS CLOSED: the refinement now reports the same \
          {low_rounds} rounds at 500 and at 5,000 embedded checks, which is \
-         decision (35)(c)'s criterion. Flip this to `assert_eq!` and correct \
-         `TODO.md` `#P2b-59` (e), which today says the criterion is met in \
-         the accidental sense that both budgets land in one plateau — they do \
-         not: 500 is one rung below it"
+         decision (35)(c)'s and decision (44)'s criterion. Flip this to \
+         `assert_eq!` and correct `TODO.md` `#P2b-59` (h), which today \
+         records 9 rounds at 500 against 47 at 5,000"
     );
 }

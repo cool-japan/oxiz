@@ -95,6 +95,49 @@ enum Atom {
     Const(usize, u64),
 }
 
+/// An assertion checked before any term was recorded for it stays unblamed
+/// (the `blame_from` watermark behind `BvSolver::record_constraint_term`), so
+/// a later, unrelated term never becomes its explanation.  `a <u b` is
+/// asserted with no term and checked while consistent; only then is
+/// `b <u a` asserted and recorded as `later`.  The refutation needs both, and
+/// `b <u a` alone is satisfiable, so an explanation of `[later]` alone would
+/// be a false theory lemma; the unblamed literal sends the explanation to the
+/// sound fallback instead — every recorded term, `earlier` included.
+#[test]
+fn an_assertion_checked_before_its_term_is_never_charged_to_a_later_term() {
+    let mut solver = BvSolver::new();
+    let (a, b, p, q) = (
+        TermId::new(1),
+        TermId::new(2),
+        TermId::new(3),
+        TermId::new(4),
+    );
+    for term in [a, b, p, q] {
+        solver.new_bv(term, 4);
+    }
+    assert!(solver.assert_ult(p, q));
+    let earlier = TermId::new(101);
+    solver.record_constraint_term(earlier);
+    assert!(solver.assert_ult(a, b));
+    assert!(matches!(
+        solver.check().expect("check"),
+        TheoryCheckResult::Sat
+    ));
+    assert!(solver.assert_ult(b, a));
+    let later = TermId::new(102);
+    solver.record_constraint_term(later);
+    match solver.check().expect("check") {
+        TheoryCheckResult::Unsat(terms) => {
+            assert!(
+                terms.contains(&later) && terms.contains(&earlier),
+                "the unblamed `a <u b` must send the explanation to every \
+                 recorded term, not charge it to `later`: {terms:?}"
+            );
+        }
+        other => panic!("`a <u b` beside `b <u a` is unsat, got {other:?}"),
+    }
+}
+
 fn holds(atom: Atom, values: [u64; 3]) -> bool {
     let signed = |v: u64| -> i64 {
         if v >> (W - 1) & 1 == 1 {
