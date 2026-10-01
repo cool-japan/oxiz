@@ -28,9 +28,10 @@
 //! The default and the value at each point are fresh reserved constants, and
 //! one quantifier-free **fill** query asks for values that satisfy the
 //! assertions with every maximal `forall` replaced by its instances at the
-//! points plus one representative point the pins do not name (the smallest
-//! such value of the sort) — the instance at that representative is what
-//! constrains the default.  A satisfying assignment is only a *proposal*: the
+//! points plus one representative of every gap the points leave in the
+//! orders a guard can use (`gap_representatives`; re-fix pass 13, where a
+//! single smallest unnamed value could fall outside a guarded region) — the
+//! instances at those representatives are what constrain the default.  A satisfying assignment is only a *proposal*: the
 //! concrete interpretation built from it is evaluated on the same sample and
 //! then goes through the very certificate the constant search uses — a
 //! validity query per universal over *every* point of its sort, plus one over
@@ -126,6 +127,7 @@ impl Solver {
             defaults.push(default);
         }
         let fill = goal.fill_query(&symbolic, samples, manager);
+        let fill = goal.under_hypotheses(fill, manager);
         let mut symbols = defaults.clone();
         symbols.extend(slots.iter().map(|&(_, _, symbol)| symbol));
         let mut queries = 0usize;
@@ -161,7 +163,7 @@ impl Solver {
         if self.completion_refuted_by_evaluation(goal, &completion, samples, manager) {
             return None;
         }
-        goal.certificate_passes(&completion, manager, logic, &mut queries)
+        goal.certificate_passes(self, &completion, manager, logic, &mut queries)
             .then_some(completion)
     }
 }
@@ -229,9 +231,7 @@ impl Goal {
             for &var in &vars {
                 let sort = manager.get(var)?.sort;
                 let mut list = points.get(&sort).cloned().unwrap_or_default();
-                if let Some(representative) = unnamed_point(sort, &list, manager) {
-                    list.push(representative);
-                }
+                list.extend(gap_representatives(sort, &list, manager));
                 if list.is_empty() {
                     return None;
                 }
@@ -248,6 +248,21 @@ impl Goal {
             }
             instances.insert(universal, manager.mk_and(conjuncts));
         }
+        // An `exists` is sampled as the disjunction of its body at the very
+        // witnesses the certificate tries (`declined`), so the sample never
+        // refutes a completion the certificate could accept.
+        for (position, &existential) in self.existentials.iter().enumerate() {
+            let witnesses = self.existential_witnesses(existential, position, manager)?;
+            instances.insert(existential, manager.mk_or(witnesses));
+        }
+        // A quantifier at negative polarity is sampled through its dual
+        // (`polarity`): the original sub-term is the negation of the dual's
+        // sample, which is again the conjunction (for a `forall`) or the
+        // disjunction (for an `exists`) of its body's instances.
+        for &(original, dual) in &self.negations {
+            let dual_sample = *instances.get(&dual)?;
+            instances.insert(original, manager.mk_not(dual_sample));
+        }
         Some(instances)
     }
 
@@ -260,6 +275,7 @@ impl Goal {
         manager: &mut TermManager,
     ) -> TermId {
         let mut substitution = self.scalar_pins.clone();
+        substitution.extend(self.ground_values.iter().map(|(&k, &v)| (k, v)));
         substitution.extend(symbolic.iter().map(|(&k, &v)| (k, v)));
         let mut parts: Vec<TermId> = Vec::with_capacity(self.assertions.len());
         for &assertion in &self.assertions {
@@ -317,7 +333,11 @@ fn index_sort(term: TermId, manager: &TermManager) -> Option<SortId> {
 /// representative of the region every pinned interpretation reads as its
 /// default — or `None` when the sort has no such value or is not one this
 /// search enumerates.
-fn unnamed_point(sort: SortId, named: &[TermId], manager: &mut TermManager) -> Option<TermId> {
+pub(super) fn unnamed_point(
+    sort: SortId,
+    named: &[TermId],
+    manager: &mut TermManager,
+) -> Option<TermId> {
     let kind = manager.sorts.get(sort).map(|s| s.kind.clone())?;
     let taken: FxHashSet<(u8, BigInt)> = named
         .iter()
@@ -354,6 +374,70 @@ fn unnamed_point(sort: SortId, named: &[TermId], manager: &mut TermManager) -> O
             }
         }
         _ => None,
+    }
+}
+
+/// One representative per gap of the orders a guard can use, beside the
+/// named points `named` (decision (41), re-fix pass 13): over a bit-vector
+/// sort `r ± 1 (mod 2^w)` beside every named `r` and the four ends of the
+/// unsigned and signed orders; over `Int` `r ± 1` (or `0` when nothing is
+/// named); over `Bool` whichever value is not named — each only if unnamed.
+///
+/// One *smallest* unnamed value was not enough: under a guard it can fall
+/// outside the guarded region, and then no sampled instance constrains the
+/// default — `∀i ≥ 2. a[i] = #b1` beside `a[0] = #b0` sampled `{0, 2}` plus
+/// the representative `1`, below the guard, so the fill query left the
+/// default free and the certificate refused the `#b0` it picked.  These are
+/// the same regions `mbqi::sat_certify::unnamed_region` represents.
+pub(super) fn gap_representatives(
+    sort: SortId,
+    named: &[TermId],
+    manager: &mut TermManager,
+) -> Vec<TermId> {
+    let Some(kind) = manager.sorts.get(sort).map(|s| s.kind.clone()) else {
+        return Vec::new();
+    };
+    let taken: FxHashSet<BigInt> = named
+        .iter()
+        .filter_map(|&t| literal_key(t, manager).map(|(_, value)| value))
+        .collect();
+    match kind {
+        SortKind::BitVec(width) => {
+            let modulus = BigInt::from(1u8) << width;
+            let half = BigInt::from(1u8) << width.saturating_sub(1);
+            let mut candidates: Vec<BigInt> =
+                vec![BigInt::from(0u8), &modulus - 1u8, half.clone(), &half - 1u8];
+            for r in &taken {
+                candidates.push((r + 1u8 + &modulus) % &modulus);
+                candidates.push((r - 1u8 + &modulus) % &modulus);
+            }
+            candidates.retain(|value| *value >= BigInt::from(0u8) && *value < modulus);
+            candidates.retain(|value| !taken.contains(value));
+            candidates.sort();
+            candidates.dedup();
+            candidates
+                .into_iter()
+                .map(|value| manager.mk_bitvec(value, width))
+                .collect()
+        }
+        SortKind::Int => {
+            let mut candidates: Vec<BigInt> = if taken.is_empty() {
+                vec![BigInt::from(0u8)]
+            } else {
+                taken
+                    .iter()
+                    .flat_map(|r| [r + 1u8, r - 1u8])
+                    .filter(|value| !taken.contains(value))
+                    .collect()
+            };
+            candidates.sort();
+            candidates.dedup();
+            candidates
+                .into_iter()
+                .map(|value| manager.mk_int(value))
+                .collect()
+        }
+        _ => unnamed_point(sort, named, manager).into_iter().collect(),
     }
 }
 

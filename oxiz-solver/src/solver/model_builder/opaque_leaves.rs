@@ -110,7 +110,9 @@ impl Solver {
                 continue;
             };
             if let Some(default) = super::ground_default_term(manager, sort) {
-                model.set(index, default);
+                // A default no theory chose: the printer may give the class a
+                // fresh value instead (`#P2b-71`).
+                model.set_default(index, default);
             }
         }
     }
@@ -155,7 +157,7 @@ impl Solver {
                 continue;
             }
             if is_var && let Some(default) = super::ground_default_term(manager, sort) {
-                model.set(current, default);
+                model.set_default(current, default);
             }
         }
     }

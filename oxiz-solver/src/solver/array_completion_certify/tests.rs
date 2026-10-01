@@ -115,3 +115,92 @@ fn an_array_value_is_a_literal_store_chain_over_a_literal_constant() {
         "only a closed, literal interpretation is an installed array value"
     );
 }
+
+/// Decision (54)(ii), `polarity`: a negated `exists` is certified false
+/// through its dual universal, an implication's antecedent is negative, and
+/// an `exists` in an `ite` condition keeps both polarities (certified true
+/// as before).
+#[test]
+fn quantifiers_are_classified_by_polarity_with_duals_for_the_negative_ones() {
+    let mut tm = TermManager::new();
+    let index = tm.sorts.bitvec(7);
+    let element = tm.sorts.bitvec(1);
+    let array_sort = tm.sorts.array(index, element);
+    let a = tm.mk_var("a", array_sort);
+    let j = tm.mk_var("j", index);
+    let read = tm.mk_select(a, j);
+    let zero = tm.mk_bitvec(num_bigint::BigInt::from(0u8), 1);
+    let body = tm.mk_eq(read, zero);
+    let exists = tm.mk_exists([("j", index)], body);
+    let negated = tm.mk_not(exists);
+    let false_term = tm.mk_false();
+    let implication = tm.mk_implies(exists, false_term);
+    for assertion in [negated, implication] {
+        let found = polarity::collect_quantifiers(&[assertion], &mut tm)
+            .unwrap_or_else(|| panic!("the walk reads every term"));
+        assert!(
+            found.existentials.is_empty(),
+            "no positive `exists` is left"
+        );
+        assert_eq!(found.universals.len(), 1, "one dual universal");
+        assert_eq!(
+            found.negations,
+            vec![(exists, found.universals[0])],
+            "the original `exists` is certified false through its dual"
+        );
+        let dual_is_universal = matches!(
+            tm.get(found.universals[0]).map(|d| &d.kind),
+            Some(TermKind::Forall { .. })
+        );
+        assert!(
+            dual_is_universal,
+            "the dual of a negated `exists` is `∀j. ¬φ`"
+        );
+    }
+    let p = tm.mk_var("p", tm.sorts.bool_sort);
+    let q = tm.mk_var("q", tm.sorts.bool_sort);
+    let under_ite = tm.mk_ite(exists, p, q);
+    let found = polarity::collect_quantifiers(&[under_ite], &mut tm)
+        .unwrap_or_else(|| panic!("the walk reads every term"));
+    assert_eq!(
+        found.existentials,
+        vec![exists],
+        "two-sided: certified true"
+    );
+    assert!(found.negations.is_empty());
+}
+
+/// Decision (54)(ii), `groups`: arrays are grouped by co-occurrence in one
+/// assertion — an array equality links them like a shared universal — and
+/// the bound on the search applies to a group.
+#[test]
+fn arrays_are_grouped_by_the_assertions_that_mention_them_together() {
+    let mut tm = TermManager::new();
+    let index = tm.sorts.bitvec(7);
+    let element = tm.sorts.bitvec(1);
+    let array_sort = tm.sorts.array(index, element);
+    let names = ["a", "b", "c", "d", "e"];
+    let arrays: Vec<TermId> = names.iter().map(|n| tm.mk_var(n, array_sort)).collect();
+    let i = tm.mk_var("i", index);
+    let one = tm.mk_bitvec(num_bigint::BigInt::from(1u8), 1);
+    let mut assertions: Vec<TermId> = Vec::new();
+    // `a`, `b`, `c` and `d` each under its own binder.
+    for &array in arrays.iter().take(4) {
+        let read = tm.mk_select(array, i);
+        let body = tm.mk_eq(read, one);
+        assertions.push(tm.mk_forall([("i", index)], body));
+    }
+    // `d = e` links the last two.
+    assertions.push(tm.mk_eq(arrays[3], arrays[4]));
+    let groups = groups::array_groups(&arrays, &assertions, &tm);
+    assert_eq!(
+        groups,
+        vec![
+            vec![arrays[0]],
+            vec![arrays[1]],
+            vec![arrays[2]],
+            vec![arrays[3], arrays[4]]
+        ]
+    );
+    assert_eq!(groups::largest_group(&arrays, &assertions, &tm), 2);
+}

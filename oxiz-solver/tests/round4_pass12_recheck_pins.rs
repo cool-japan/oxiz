@@ -1,12 +1,9 @@
 //! Round-4 adversarial recheck, pass 12 — the pins it leaves in the tree.
 //!
-//! * A test whose doc carries **THE HOLE IS CLOSED** pins an OPEN hole green:
-//!   it asserts the answer this tree gives today, which is WRONG, and it fails
-//!   with that phrase the moment the answer changes.  Whoever closes the hole
-//!   inverts the test to assert the correct behaviour (its doc names it) and
-//!   updates `TODO.md`.
-//! * Every other test is a regression guard for behaviour this pass measured
-//!   correct, asserting that behaviour directly.
+//! Every hole the recheck pinned green here (`#P2b-65`, `#P2b-61`,
+//! `#P2b-64`, decisions (48) and (41), the incremental QF_AUFBV wrong
+//! `unsat`) was closed by re-fix pass 13 and its pin inverted to assert the
+//! correct behaviour; every test in this file is now a regression guard.
 //!
 //! Every repro below is carried VERBATIM; the out-of-tree copies live under
 //! `<scratchpad>/oxiz4/recheck12/atk/` and are not needed to run anything
@@ -121,20 +118,6 @@ fn assert_never_sat(name: &str, script: &str, hole: &str) {
         verdict(&lines),
         "sat",
         "WRONG SAT ({hole}, `{name}`): this script is UNSATISFIABLE\n\
-         --- script ---\n{script}--- response ---\n{}",
-        lines.join("\n")
-    );
-}
-
-/// Pin a wrong `sat` green: panic with THE HOLE IS CLOSED on any other answer.
-fn assert_still_wrong_sat(name: &str, script: &str, hole: &str) {
-    let lines = run(script);
-    assert_eq!(
-        verdict(&lines),
-        "sat",
-        "THE HOLE IS CLOSED ({hole}, `{name}`): this UNSATISFIABLE script no longer \
-         answers the wrong `sat` it was pinned at. Invert this pin to assert \
-         `unsat` (or at least never `sat`) and close {hole} in TODO.md.\n\
          --- script ---\n{script}--- response ---\n{}",
         lines.join("\n")
     );
@@ -409,31 +392,32 @@ fn p2b65_the_other_guard_spellings_are_never_sat() {
 }
 
 // ---------------------------------------------------------------------------
-// 3. OPEN HOLES — `#P2b-61` / `#P2b-64`: datatype and declared index sorts.
+// 3. CLOSED (re-fix pass 13) — `#P2b-61` / `#P2b-64`: datatype and declared
+//    index sorts.
 // ---------------------------------------------------------------------------
 
-/// **THE HOLE IS CLOSED** when either script stops answering `sat`.
-///
 /// `#P2b-61`, QUANTIFIER-FREE: `a = (store ((as const (Array Color Int)) 0)
-/// red 1)` beside `a[green] = 1` is `unsat` (`red ≠ green`), and answers `sat`
-/// on 0.3.3, `c4b04b7`, HEAD and this tree.  The quantified twin (`∀x. a[x] =
-/// 1`) likewise.  The in-test oracle: with `(distinct red green)` asserted by
-/// hand this tree answers `unsat`, so the one fact missing is constructor
-/// distinctness reaching the array index reasoning.
+/// red 1)` beside `a[green] = 1` is `unsat` (`red ≠ green`), and answered
+/// `sat` on 0.3.3, `c4b04b7`, HEAD and re-fix pass 12's tree; the quantified
+/// twin (`∀x. a[x] = 1`) likewise.  The read-over-write lemma built the atom
+/// `(= red green)` itself and nothing ever told it the two constructors
+/// differ; `TermManager::mk_eq` now folds an equality between two different
+/// constructors of one datatype to `false`, wherever it is built.  The in-test
+/// oracle: with `(distinct red green)` asserted by hand it is `unsat` too.
 #[test]
-fn p2b61_enumeration_constructors_are_not_distinct_as_array_indices() {
+fn p2b61_enumeration_constructors_are_distinct_as_array_indices() {
     let prefix = "(set-logic ALL)\n(declare-datatypes ((Color 0)) (((red) (green) (blue))))\n\
          (declare-const a (Array Color Int))\n\
          (assert (= a (store ((as const (Array Color Int)) 0) red 1)))\n";
-    assert_still_wrong_sat(
-        "wdt_ground",
+    assert_verdict(
         &format!("{prefix}(assert (= (select a green) 1))\n(check-sat)\n"),
-        "#P2b-61",
+        "unsat",
+        "#P2b-61 `wdt_ground`: red and green are different constructors",
     );
-    assert_still_wrong_sat(
-        "wdt",
+    assert_verdict(
         &format!("{prefix}(assert (forall ((x Color)) (= (select a x) 1)))\n(check-sat)\n"),
-        "#P2b-61",
+        "unsat",
+        "#P2b-61 `wdt`: the universal is false at green",
     );
     assert_verdict(
         &format!(
@@ -444,27 +428,27 @@ fn p2b61_enumeration_constructors_are_not_distinct_as_array_indices() {
     );
 }
 
-/// **THE HOLE IS CLOSED** when either script stops answering `sat`.
-///
-/// `#P2b-64` (1), `corpus/named/dt_field.smt2` — and its QUANTIFIER-FREE core,
-/// which the recheck found and `TODO.md` does not record: `a = (store ((as
-/// const (Array L Int)) 0) nil 1)` beside `a[(cons 0 nil)] = 1` is `unsat`
-/// (`nil ≠ cons 0 nil`) and answers `sat` on 0.3.3, `c4b04b7`, HEAD and this
-/// tree.  So `#P2b-64` (1) is `#P2b-61`'s mechanism at a constructor with a
-/// field, not a binder defect: the quantified `dt_field` needs no
-/// `#P2b-60`-style instance to go wrong.  The in-test oracle names the same
-/// index through a constant, `x = (cons 0 nil)`, and this tree refutes it.
+/// `#P2b-64` (1), `corpus/named/dt_field.smt2`, and its QUANTIFIER-FREE core:
+/// `a = (store ((as const (Array L Int)) 0) nil 1)` beside `a[(cons 0 nil)] =
+/// 1` is `unsat` (`nil ≠ cons 0 nil`) and answered `sat` on 0.3.3, `c4b04b7`,
+/// HEAD and re-fix pass 12's tree — `#P2b-61`'s mechanism at a constructor
+/// with a field, closed by the same fold.  The quantified `dt_field` is
+/// `unsat` too and is now never `sat`: the saturation test has no complete
+/// point set over a datatype with a field (no value is known to be unnamed),
+/// so it declines instead of concluding `sat` over `{nil}`; nothing else
+/// refutes `∀x:L` today, so it answers `unknown`.  The in-test oracle names
+/// the same index through a constant, `x = (cons 0 nil)`.
 #[test]
-fn p2b64_a_constructor_with_a_field_is_not_distinct_as_an_array_index() {
+fn p2b64_a_constructor_with_a_field_is_distinct_as_an_array_index() {
     let prefix = "(set-logic ALL)\n(declare-datatypes ((L 0)) (((nil) (cons (hd Int) (tl L)))))\n\
          (declare-const a (Array L Int))\n\
          (assert (= a (store ((as const (Array L Int)) 0) nil 1)))\n";
-    assert_still_wrong_sat(
-        "dt_field_ground",
+    assert_verdict(
         &format!("{prefix}(assert (= (select a (cons 0 nil)) 1))\n(check-sat)\n"),
-        "#P2b-64 (1) / #P2b-61",
+        "unsat",
+        "#P2b-64 (1) quantifier-free core: nil and (cons 0 nil) differ",
     );
-    assert_still_wrong_sat(
+    assert_never_sat(
         "dt_field",
         &format!("{prefix}(assert (forall ((x L)) (= (select a x) 1)))\n(check-sat)\n"),
         "#P2b-64 (1)",
@@ -479,26 +463,27 @@ fn p2b64_a_constructor_with_a_field_is_not_distinct_as_an_array_index() {
     );
 }
 
-/// **THE HOLE IS CLOSED** when the script stops answering `sat`.
-///
 /// `#P2b-64` (2), `corpus/named/usort_skolem.smt2` verbatim: the second
 /// element of `U` exists only as the Skolem witness of `(exists ((x U))
 /// (distinct x u))`, and `∀x. a[x] = 1` is false there, so the script is
-/// `unsat`; it answers `sat` on 0.3.3, `c4b04b7`, HEAD and this tree.  The
-/// in-test oracle spells the witness as a declared constant `w`, and this tree
-/// refutes that.
+/// `unsat`; it answered `sat` on 0.3.3, `c4b04b7`, HEAD and re-fix pass 12's
+/// tree, because the saturation test's points over a declared sort were the
+/// terms the goal SPELLS, and the witness lives only in the encoded assertion.
+/// The points now also take every constant of the sort the search's decided
+/// atoms mention.  The in-test oracle spells the witness as a declared
+/// constant `w`.
 #[test]
-fn p2b64_a_skolem_witness_is_missing_from_the_index_universe() {
+fn p2b64_a_skolem_witness_is_in_the_index_universe() {
     let tail = "(declare-const a (Array U Int))\n\
          (assert (= a (store ((as const (Array U Int)) 0) u 1)))\n\
          (assert (forall ((x U)) (= (select a x) 1)))\n(check-sat)\n";
-    assert_still_wrong_sat(
-        "usort_skolem",
+    assert_verdict(
         &format!(
             "(set-logic ALL)\n(declare-sort U 0)\n(declare-const u U)\n\
              (assert (exists ((x U)) (distinct x u)))\n{tail}"
         ),
-        "#P2b-64 (2)",
+        "unsat",
+        "#P2b-64 (2): the universal is false at the Skolem witness",
     );
     assert_verdict(
         &format!(
@@ -514,23 +499,22 @@ fn p2b64_a_skolem_witness_is_missing_from_the_index_universe() {
 // 4. OPEN HOLES — decisions (48) and (41).
 // ---------------------------------------------------------------------------
 
-/// **THE HOLE IS CLOSED** when `a` is no longer printed as the bare constant.
-///
-/// Decision (48): a `Sat` whose published model already satisfies every
-/// assertion keeps that model; the completion replaces only a falsifying one.
-/// Not implemented in this tree: `Solver::array_completion_at_exit` completes
-/// every quantified array `Sat` unconditionally.  On
+/// Decision (48), CLOSED (re-fix pass 13): a `Sat` whose published model
+/// already satisfies every assertion keeps that model; the completion
+/// replaces only a falsifying one.  On
 /// `bench/extended_theories/AUFLIRA/06_quantified_array_property.smt2` with
 /// `(get-model)`, HEAD `c702310` (and `c4b04b7`) publish
 /// `a = (store (store (store ((as const (Array Int Real)) 0.0) 0 0.0) 1 0.0) 42 0.0)`,
-/// which already satisfies every assertion, and this tree replaces it with
-/// `((as const (Array Int Real)) 0.0)` — a response change that is not
-/// falsifying → certified.  Both models are correct, and that is replayed
-/// here: the published `a` pinned beside a `k` with `a[k] < 0` is `unsat`.
-/// To close: implement (48) and assert that the printed `a` is the candidate
-/// model's store chain again.
+/// which already satisfies every assertion, and re-fix pass 12's tree
+/// replaced it with `((as const (Array Int Real)) 0.0)`.  `Context` now
+/// renders the replaced candidate as `(get-model)` would, parses it back and
+/// certifies it with the completion's own certificate; it passes, so the
+/// candidate is put back.  (The tree's candidate also carries the read at `2`
+/// the `#P2b-60` saturation instance made — `0.0`, the default.)  Whichever
+/// model is published is replayed: pinned beside a `k` with `a[k] < 0`, it
+/// must be `unsat`.
 #[test]
-fn decision_48_a_correct_candidate_model_is_still_replaced() {
+fn decision_48_a_correct_candidate_model_is_kept() {
     let script = "(set-logic AUFLIRA)\n(set-option :produce-models true)\n\
          (declare-const a (Array Int Real))\n\
          (assert (forall ((i Int)) (>= (select a i) 0.0)))\n\
@@ -550,45 +534,55 @@ fn decision_48_a_correct_candidate_model_is_still_replaced() {
         "unsat",
         "whichever model is published must read `>= 0.0` at every index",
     );
-    assert_eq!(
+    assert_ne!(
         printed,
         "((as const (Array Int Real)) 0.0)",
-        "THE HOLE IS CLOSED (decision (48)): the correct candidate model is no \
-         longer replaced by the completion. Invert this to assert the candidate's \
-         store chain and record (48) closed.\n{}",
+        "decision (48): the correct candidate model must not be replaced\n{}",
         lines.join("\n")
     );
+    for entry in [" 0 0.0)", " 1 0.0)", " 42 0.0)"] {
+        assert!(
+            printed.starts_with("(store ") && printed.contains(entry),
+            "the candidate's store chain, with its read at `{entry}`\n{}",
+            lines.join("\n")
+        );
+    }
 }
 
-/// **THE HOLE IS CLOSED** when the script is decided `sat`.
-///
-/// Decision (41)'s pinned completion samples every universal at the goal's
-/// points plus ONE representative unnamed point — the smallest value of the
-/// sort the points do not name.  Under a guard that representative can fall
-/// outside the guarded region, and then no sampled instance constrains the
-/// default: here `∀i ≥ 2. a[i] = 1` beside `a[0] = 0` (satisfiable, by
-/// `(store ((as const …) #b1) #b0000000 #b0)`), the points are `#b0000000`
-/// and `#b0000010`, the representative is `#b0000001` (below the guard), and
-/// the fill query leaves the default free; the certificate refuses the `#b0`
-/// it picks.  `unknown` on 0.3.3, `c4b04b7`, HEAD and this tree — not a lost
-/// verdict, a completeness gap in (41).  To close: one representative per
-/// region of every order a guard uses (as `mbqi::sat_certify::unnamed_region`
-/// already does), then assert `sat` and replay the model at all 128 points.
-/// A wrong `unsat` fails this pin too.
+/// Decision (41), CLOSED (re-fix pass 13): the pinned completion used to
+/// sample every universal at the goal's points plus ONE representative
+/// unnamed point — the smallest value of the sort the points do not name —
+/// and under a guard that representative can fall outside the guarded
+/// region: `∀i ≥ 2. a[i] = 1` beside `a[0] = 0` (satisfiable, by `(store
+/// ((as const …) #b1) #b0000000 #b0)`) sampled `{0, 2}` plus `1`, below the
+/// guard, so the fill query left the default free and the certificate
+/// refused the `#b0` it picked; `unknown` on 0.3.3, `c4b04b7`, HEAD and re-fix
+/// pass 12's tree.  The sample now carries one representative per gap of
+/// every order a guard can use (`pinned::gap_representatives`, the regions of
+/// `mbqi::sat_certify::unnamed_region`): `sat`, the model replayed at all
+/// 128 points.
 #[test]
-fn decision_41_a_guard_region_the_representative_misses_stays_undecided() {
-    let script = "(set-logic AUFBV)\n\
-         (declare-const a (Array (_ BitVec 7) (_ BitVec 1)))\n\
+fn decision_41_a_guard_region_is_sampled_by_a_representative_inside_it() {
+    let decls = "(declare-const a (Array (_ BitVec 7) (_ BitVec 1)))\n";
+    let lines = run(&format!(
+        "(set-logic AUFBV)\n(set-option :produce-models true)\n{decls}\
          (assert (forall ((i (_ BitVec 7))) (=> (bvuge i #b0000010) (= (select a i) #b1))))\n\
-         (assert (= (select a #b0000000) #b0))\n(check-sat)\n";
-    let lines = run(script);
-    assert_eq!(
-        verdict(&lines),
-        "unknown",
-        "THE HOLE IS CLOSED (decision (41) representative): the script is now \
-         decided. If `sat`, invert this pin to assert `sat` with a 128-point model \
-         replay; an `unsat` is WRONG (the script is satisfiable).\n{}",
-        lines.join("\n")
+         (assert (= (select a #b0000000) #b0))\n(check-sat)\n(get-model)\n"
+    ));
+    assert_eq!(verdict(&lines), "sat", "{}", lines.join("\n"));
+    let pins = model_equalities(&lines);
+    assert!(pins.contains("(= a "), "{}", lines.join("\n"));
+    let mut replay = format!("(set-logic AUFBV)\n{decls}{pins}");
+    for (index, point) in points(7).iter().enumerate() {
+        if index >= 2 {
+            replay.push_str(&format!("(assert (= (select a {point}) #b1))\n"));
+        }
+    }
+    replay.push_str("(assert (= (select a #b0000000) #b0))\n(check-sat)\n");
+    assert_verdict(
+        &replay,
+        "sat",
+        "the published `a` must hold at all 126 guarded points and at 0",
     );
 }
 
@@ -792,6 +786,13 @@ fn an_ite_circuit_popped_and_negated_is_refuted_where_0_3_3_was_not() {
 /// and crates.io 0.3.3 do.  The satisfiable half (`∀i. a[i] = ((_ extract 0
 /// 0) i)` alone) must, if it is ever `sat`, publish the alternating array:
 /// replayed at all 128 points.
+///
+/// Re-fix pass 13 note: since the pinned completion's sample carries one
+/// representative per gap of every order (decision (41)), the evaluation
+/// pre-filter already refutes the constant `#b0` at `#b1111111`, so under
+/// the `certificate_passes → true` mutation this script stays `unknown`; the
+/// certificate-only witness is now
+/// `a_completion_false_at_one_unnamed_point_is_refused_by_the_certificate`.
 #[test]
 fn a_completion_only_the_certificate_can_refuse_is_never_published() {
     let decls = "(declare-const a (Array (_ BitVec 7) (_ BitVec 1)))\n";
@@ -827,6 +828,37 @@ fn a_completion_only_the_certificate_can_refuse_is_never_published() {
             "a published model must be the alternating array at every point",
         );
     }
+}
+
+/// The certificate-only witness after re-fix pass 13's gap sampling:
+/// `∀i. a[i] = (ite (= (bvadd i #b0000011) #b0000000) #b1 #b0)` beside `∀i.
+/// a[i] = #b0` is UNSAT at `i = #b1111101` — a point neither the goal's
+/// literals nor their gap representatives name, so the evaluation pre-filter
+/// accepts the constant `#b0` and only the certificate's validity query over
+/// every point refuses it.  Measured in the isolated mutation copy: with
+/// `certificate_passes` short-circuited to `true` the tree answers a **wrong
+/// `sat`** with `a = ((as const …) #b0)`; the tree answers `unknown`.
+#[test]
+fn a_completion_false_at_one_unnamed_point_is_refused_by_the_certificate() {
+    let lines = run("(set-logic ALL)\n(set-option :produce-models true)\n\
+         (declare-const a (Array (_ BitVec 7) (_ BitVec 1)))\n\
+         (assert (forall ((i (_ BitVec 7))) (= (select a i) \
+         (ite (= (bvadd i #b0000011) #b0000000) #b1 #b0))))\n\
+         (assert (forall ((i (_ BitVec 7))) (= (select a i) #b0)))\n(check-sat)\n");
+    assert_ne!(
+        verdict(&lines),
+        "sat",
+        "WRONG SAT: the script is unsatisfiable at i = #b1111101\n{}",
+        lines.join("\n")
+    );
+    // The in-test oracle: the one point the pre-filter does not sample.
+    assert_verdict(
+        "(set-logic ALL)\n(declare-const a (Array (_ BitVec 7) (_ BitVec 1)))\n\
+         (assert (= (select a #b1111101) (ite (= (bvadd #b1111101 #b0000011) #b0000000) #b1 #b0)))\n\
+         (assert (= (select a #b1111101) #b0))\n(check-sat)\n",
+        "unsat",
+        "the instance at #b1111101 refutes the constant #b0",
+    );
 }
 
 /// Two universals over a width-8 index and a `Bool` element sort — `a` true

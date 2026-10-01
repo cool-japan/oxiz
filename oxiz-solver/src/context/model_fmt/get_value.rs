@@ -92,10 +92,16 @@ impl Context {
         if self.last_result != Some(SolverResult::Sat) {
             return NO_MODEL.to_string();
         }
+        // A model that failed its certificate is not published: a term that
+        // reads one of its arrays gets the same error `(get-model)` answers,
+        // a term that reads none still gets its value (decision (54)).
+        if let Some(error) = self.uncertified_read_error(terms) {
+            return error;
+        }
         // Owned so the evaluation below can borrow `self.terms` mutably; see
         // `get_model` for why an empty assertion stack — or a populated
         // algebraic side-channel — yields an empty model rather than an error.
-        let model = match self.solver.model() {
+        let model = match self.published_model() {
             Some(model) => model.clone(),
             None if self.assertions.is_empty() || !self.solver.nl_algebraic_values().is_empty() => {
                 crate::solver::Model::new()
@@ -171,9 +177,20 @@ impl Context {
         // describing rather than out of a second reading of it.
         let class_values = self.build_class_values(&completed_model);
 
+        // `(get-model)`'s own printed interpretation, read back only when the
+        // readings below cannot fold a term (decision (69)): parsing the
+        // printed model interns terms, and a later check's search order is
+        // sensitive to what the term arena holds, so it is not paid for a
+        // query the ordinary readings already answer.
+        let mut reading: Option<Option<super::printed_check::PrintedReading>> = None;
         let mut values = Vec::with_capacity(terms.len());
         for &term in terms {
-            let value_str = if let Some(value) = self.unassigned_const_value(term, &model) {
+            let value_str = if super::array_model::is_constructor_value(term, &self.terms) {
+                // A constructor value is its own value (decision (69)(10)):
+                // `(get-value (green))` answered `red`, the model's value of
+                // some constant, beside a `(get-model)` that prints `green`.
+                oxiz_core::smtlib::Printer::new(&self.terms).print_term(term)
+            } else if let Some(value) = self.unassigned_const_value(term, &model) {
                 // A bare unconstrained constant: report exactly what
                 // `(get-model)` reports for it, witnesses included.
                 value
@@ -190,13 +207,37 @@ impl Context {
                 // structural reading because that reading answers an array
                 // `ite` with a term and would shadow this one.
                 value
+            } else if let Some(value) = if self.goal_is_quantified() && !is_leaf(term, &self.terms)
+            {
+                // A quantified goal's model is certified AS PRINTED (decision
+                // (67)): where the congruence closure left two values at one
+                // point, the printed table keeps the first (`#P2b-74`), and the
+                // structural reading below answered from the other —
+                // `(get-value ((select a (f m))))` said `-2` beside a
+                // `(get-model)` whose `f` and `a` give `0` (recheck 14's
+                // `g14a/s02595`, pre-existing on `c702310`).  So a compound
+                // term is answered from the printed model first.
+                if reading.is_none() {
+                    reading = Some(self.printed_reading());
+                }
+                match reading.as_ref().and_then(Option::as_ref) {
+                    Some(printed) => self.printed_reading_value(term, printed),
+                    None => None,
+                }
+            } else {
+                None
+            } {
+                value
             } else if let Some(value) =
                 self.solver
                     .model_value_in(term, &completed_model, &mut self.terms)
             {
                 // The structural reading: bit-vector operators, comparisons,
-                // read-over-write and congruent applications fold here.
-                oxiz_core::smtlib::Printer::new(&self.terms).print_term(value)
+                // read-over-write and congruent applications fold here.  A
+                // `Real` keeps its decimal point, as `(get-model)` prints it.
+                self.real_spelling(term, value).unwrap_or_else(|| {
+                    oxiz_core::smtlib::Printer::new(&self.terms).print_term(value)
+                })
             } else if let Some(value) = self.array_read_value(term, &completed_model, &class_values)
             {
                 // A read of an array the model describes only through its
@@ -217,6 +258,20 @@ impl Context {
                 // function with an else-value: two commands describing two
                 // different models.  The else-value is the one `(get-model)`
                 // committed to, so it is the answer here too.
+                value
+            } else if let Some(value) = {
+                // The printed model read back, folded exactly: a compound over
+                // an application (`(+ (f j) 3)`), a comparison of two
+                // applications, a read at an applied index — each echoed its
+                // body before (`#P2b-35`'s residue, decision (69)(9)).
+                if reading.is_none() {
+                    reading = Some(self.printed_reading());
+                }
+                match reading.as_ref().and_then(Option::as_ref) {
+                    Some(printed) => self.printed_reading_value(term, printed),
+                    None => None,
+                }
+            } {
                 value
             } else {
                 let completed = if completion.is_empty() {
@@ -248,6 +303,21 @@ impl Context {
         format!("({})", values.join("\n "))
     }
 
+    /// `value` spelled with a decimal point when `term` is `Real`-sorted and
+    /// `value` is integral (`-2` → `-2.0`, as `(get-model)` prints it);
+    /// `None` otherwise, a non-integral value keeping the printer's spelling.
+    fn real_spelling(&self, term: TermId, value: TermId) -> Option<String> {
+        let sort = self.terms.get(term)?.sort;
+        if sort != self.terms.sorts.real_sort {
+            return None;
+        }
+        match &self.terms.get(value)?.kind {
+            TermKind::IntConst(n) => Some(format!("{n}.0")),
+            TermKind::RealConst(r) if *r.denom() == 1 => Some(format!("{}.0", r.numer())),
+            _ => None,
+        }
+    }
+
     /// The value the printed model gives the array read `term`, when `term` is
     /// a `select` the structural reading could not fold.
     ///
@@ -272,6 +342,8 @@ impl Context {
         let range = *range;
         let index_value = match model.get(index) {
             Some(value) => value,
+            // A constructor value is its own value (`#P2b-72`).
+            None if super::array_model::is_constructor_value(index, &self.terms) => index,
             None => self.solver.model_value_in(index, model, &mut self.terms)?,
         };
         // Resolve an `ite` array operand through the model's value for its
@@ -567,4 +639,19 @@ impl Context {
                 .map_or(else_value, |(_, value)| value),
         )
     }
+}
+
+/// Whether `term` is a constant or a literal (its own printed value).
+fn is_leaf(term: TermId, terms: &oxiz_core::ast::TermManager) -> bool {
+    terms.get(term).is_some_and(|t| {
+        matches!(
+            t.kind,
+            TermKind::Var(_)
+                | TermKind::True
+                | TermKind::False
+                | TermKind::IntConst(_)
+                | TermKind::RealConst(_)
+                | TermKind::BitVecConst { .. }
+        )
+    })
 }

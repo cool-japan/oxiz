@@ -619,32 +619,11 @@ Line numbers below were re-verified on 2026-09-09, after the two file splits thi
   cargo-formal `p2b/w0/I0-b.md` §1.2, `p2b/w2/W2-a.md` §9.
 - [ ] **U-Z16 — `(set-option :produce-proofs true)` is accepted and `(get-proof)` then always
   errors.** The verdict itself is correct; only the certificate is missing. This is **the one
-  remaining disagreement of the 22 conformance fixtures**, measured on the fixed tree:
+  remaining disagreement of the 32 conformance fixtures** (22 when this was written; re-run 2026-09-29: 31 of 32 agree), measured on the fixed tree:
   `u06_proof_not_enabled` `expected=unsat`, `actual=error`, `(error "Proof generation not enabled.
   Set :produce-proofs to true")`; that fixture carries `upstream: U-Z16`, and the fix is U-Z1.
-- [x] **#P2b-1 — `BvSolver::assert_ule` memoises nothing, which the U-Z10 rollback makes more
-  expensive.** **Closed 2026-09-29 (re-fix pass 12, decision (45)):** `assert_ule(a, b)` asserts
-  `¬ult_gate(b, a)`, the gate memoised per ordered pair in `ult_cache` and defined once at the
-  embedded solver's root, so no rollback ever rebuilds it (`oxiz-theories/src/bv/solver/scope.rs`;
-  the journals below no longer exist — see `#P2b-46` (f)). `oxiz-theories/src/bv/solver.rs:411` allocates a fresh comparison variable and
-  re-runs `encode_ult_result` on *every* call, unlike `assert_ult` (`:370`), which memoises in
-  `ult_cache`. After the U-Z10 fix a backjump rebuilds circuits above the popped level, so
-  repeated `bvule` assertions on the same operand pair recur more often and each adds a fresh
-  `O(width)` circuit. Fix: give `assert_ule` the same memo (key `ComparisonKey { a: b, b: a }`,
-  the pair it actually encodes) and journal it identically in `ult_cache_journal`. Performance
-  only — evidence: cargo-formal Phase 2b, `p2b/w0/I0-a.md` §2.2.
-- [x] **#P2b-2 — keep BV *definitional* clauses at the SAT solver's base level and scope only
-  the *assertion* units.** **Closed 2026-09-29 (re-fix pass 12, decision (45)):** the `oxiz-sat`
-  API is `Solver::add_clause_at_root` (`oxiz-sat/src/solver/root_clause.rs`) and every `BvSolver`
-  encoder clause goes through it; the assertions are scoped as *assumption literals* of
-  `solve_with_assumptions` rather than as unit clauses under an embedded `push`/`pop` — see
-  `#P2b-46` (f) for the soundness argument and the measurements. The U-Z10 fix retracts circuit nodes on `pop()`
-  (`oxiz-theories/src/bv/solver.rs:1728`), so every circuit above a popped level is rebuilt with
-  fresh SAT variables and the old ids leak (memory only). The standard shape keeps definitional
-  clauses permanent at assertion level 0 and scopes only the unit assertions; that needs an
-  `oxiz-sat` API for "add this clause at level 0 regardless of the open push depth" (`push` /
-  `pop` bracket `assertion_clause_ids`) plus a split of `BvSolver`'s encoders into definitional
-  and assertional halves. Much larger change; recorded — evidence: `p2b/w0/I0-a.md` §2.2.
+- [x] **#P2b-1 — `BvSolver::assert_ule` memoised nothing, which the U-Z10 rollback made more expensive.** — closed 2026-09-29 (re-fix pass 12, decision (45)); the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-1), moved verbatim by re-fix pass 17 (decision (79)).
+- [x] **#P2b-2 — keep BV *definitional* clauses at the SAT solver's base level and scope only the *assertion* units.** — closed 2026-09-29 (re-fix pass 12, decision (45)); the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-2), moved verbatim by re-fix pass 17 (decision (79)).
 - [ ] **#P2b-3 — an in-place polarity flip in a bit-vector problem may fabricate `unsat`
   (unverified, and *not* refuted).** `oxiz-solver/src/solver/theory_manager.rs:1420`: the
   rebuild-on-flip path is guarded `&& self.bv_terms.is_empty()`, so in a bit-vector problem a
@@ -757,22 +736,17 @@ Line numbers below were re-verified on 2026-09-09, after the two file splits thi
     A per-check cost that grows as the variable table grows **is** the `O(num_vars)` curve; quoting the last
     point of it as a rate (as this entry did until 2026-09-22) invites a later pass to budget a script by
     multiplying its check count by 1 ms, which under-estimates a small script and over-estimates a large one.
-    **Re-measured 2026-09-29 on re-fix pass 12's final tree (decision (45) closed `#P2b-46` (f); release,
-    `$R/fixB/final/`, both probes back to back beside two campaign workers).** The price is now **flat**:
-    the `#P2b-46` (f) reproducer shape without any budget option (`det_w3_n12`, twelve distinct width-3
-    arrays) spends 2,001 / 20,001 / 100,001 embedded checks in 9.9 / 78.5 / 364.2 ms — 5.0, 3.9 and 3.6 µs
-    per check — where the pre-pass tree `c702310` spends 2,002 / 20,002 in 27.0 / 3,224.4 ms (13.5 and
-    161 µs per check) and decides at 75,741 checks after 80.5 s (1.06 ms per check); `det_w3_n20` 9.1 /
-    6.2 / 8.1 µs against 13.2 / 152 / 787 µs. The members this entry carried by path from mechanism (iv):
-    `q33_a01` **`sat` in 0.16–0.36 s** (70 rounds / 195 instances, 9,302 checks; `c702310` 59.1 s,
-    30,402 checks) and `x10_q33_swapped` **`sat` in 0.8–1.2 s** (124 / 295, 29,189 checks; `c702310` no
-    answer in 130 s at 50,000 checks). `rk6/corpus/qmbqi120/q0033`, `q0047` and `q0103` could not be re-run:
-    their files were destroyed with the earlier scratch directory and nothing carries them verbatim (the
-    regenerated corpus's scripts of the same names are different formulas). **What still loses the five
-    tabled verdicts is the budget itself, no longer its price** — see `#P2b-38` (b)'s re-measurement below the
-    table: the four `_mc200` scripts spend all 200 of their embedded conflicts, and `st10_w3` / `det_w3_n20`
-    reach the 250,000-check ceiling in about a second where they took minutes.
-    **OPEN** (the budget; the price is closed).
+    **Re-measured 2026-09-29 (re-fix pass 12, decision (45); release, back to back beside two campaign workers).**
+    On `det_w3_n12` (no budget option) the price is flat: 2,001 / 20,001 / 100,001 checks in 5.0 / 3.9 / 3.6 µs each,
+    against `c702310`'s 13.5 / 161 µs and 1.06 ms at its 75,741-check verdict; `det_w3_n20` 9.1 / 6.2 / 8.1 against
+    13.2 / 152 / 787 µs. `q33_a01` `sat` in 0.16–0.36 s (70 / 195, 9,302 checks; `c702310` 59.1 s) and
+    `x10_q33_swapped` `sat` in 0.8–1.2 s (124 / 295, 29,189; `c702310` no answer in 130 s). `rk6/.../q0033`,
+    `q0047`, `q0103` were destroyed with the old scratch directory. **The flat rate is per shape, not general
+    (adversarial recheck 12, re-measured by re-fix pass 13): on a multi-round ground twin the price is a curve
+    again** — `$R/corpus/qmbqi120/g0072` 16 / 218 / 2,343 µs per check at 5k / 20k / 50k — because every refinement
+    round's circuits stay defined and every embedded check assigns every variable ever defined; open as `#P2b-69`.
+    What still loses the five tabled verdicts is the budget itself (`#P2b-38` (b)'s re-measurement).
+    **OPEN** (the budget; the price is closed within one search and open across refinement rounds, `#P2b-69`).
   * **(ii) `#P2b-57` — a positive-polarity quantifier obligation verified even where it was vacuous.** Opened by
     re-fix pass 8 with `encode::quant_guard`, **CLOSED at the root by re-fix pass 9**; see `#P2b-57` for the
     repros (`rk8/atk/j4`, `j3`, `j1`, `h1`), the three fixes and the re-measurement. Kept named here because the
@@ -906,6 +880,157 @@ Line numbers below were re-verified on 2026-09-09, after the two file splits thi
   FLIPPED 0 and LOST 0 / GAINED 26 / FLIPPED 0. Tree partitions {`sat` 101, `unsat` 18, `unknown` 1} and
   {`sat` 71, `unsat` 49}; quantified vs ground WRONG_SAT 0 / WRONG_UNSAT 0 on both; every published model
   replayed, 0 falsifying (101 and 71 confirmed by the exact evaluator).
+  **The ground-twin leg, added 2026-09-29 (adversarial recheck 12; re-run on re-fix pass 13's final tree, `$R/fix13b/camp/`).**
+  The standing leg covered the quantified `q*` files only; it now runs `pairverd.py` over the `g*` twins too
+  (same corpora, cap 20 s, 2 workers). `q*`: base → tree LOST 0 / GAINED 58 / FLIPPED 5 and LOST 0 / 53 / 20;
+  `c702310` → tree LOST 0 / 23 and 0 / 26 (25–26 across runs: HEAD's TIMEOUTs at the 20 s cap vary 3–4). `g*`: base → tree **LOST 5** on qmbqi120 (`g0021`, `g0048`, `g0064`,
+  `g0072`, `g0103`; FLIPPED 2) and **LOST 4** on qeq120 (`g0027`, `g0037`, `g0060`, `g0115`; FLIPPED 6), every flip
+  base `sat` → tree `unsat` (base wrong `sat`s); `c702310` → tree LOST 1 on each (`g0103`: HEAD `sat` at 17,374
+  checks; `g0027`: HEAD `sat` 11.8 s, tree `sat` 22.6 s — the cap). Re-fix pass 12's tree → this pass: 0 / 0 / 0
+  on three legs, GAINED 1 on qeq120 `g*` (the cap again). At a 130 s cap: `g0021` `sat` 26.9 s (118,765 checks), `g0027` 22.6 s (177,339), `g0064` 84.5 s
+  (64,025), `g0115` 56.8 s (108,836), `g0103` 77–81 s (83,387) — decided, above the cap, the price of `#P2b-69`
+  (re-taken twice uncapped on the final tree under load average 10–25: every counter identical, both runs byte-identical);
+  `g0072`, `g0037`, `g0060` reach the 250,000-check ceiling (mechanism (i), at `#P2b-69`'s price: `g0060` 664.6 s
+  against HEAD's 95.3 s); `g0048` is `unknown` after 22,182 checks with no budget installed — **mechanism (v),
+  named 2026-09-29**: `bv_euf_undecided`, set when `bv_bridge::share_bv_equalities_with_euf`'s partition-lemma loop
+  exhausts `MAX_LEMMAS = 8,192` (the `#P2b-29` remainder; traced with an env-gated probe, `$R/fix13/g0048_named.txt`;
+  a full bit-vector reset per round decides it in 205 ms, `#P2b-69`). HEAD loses `g0021`, `g0048`, `g0064`,
+  `g0072` too; these are not re-fix pass 12's.
+  **Re-run on re-fix pass 14's final tree, with the fresh-corpus ground-twin leg (decision (59); `$R/fix14/final/`;
+  cap 20 s, 2 workers; "regenerated corpus 2026-09-28 / 2026-09-29, gen_qmbqi.py seeds 20260928, 20260931, 20260951,
+  20260952"; re-fix pass 13's tree, `$R/fix14/probe_p13`, is a third baseline).** `qmbqi120` / `qeq120` `q*`: base →
+  tree LOST 0 / 0 (GAINED 59 / 53, FLIPPED 5 / 20), HEAD → tree LOST 0 / 0, pass 13 → tree LOST 0 (GAINED 1) / 0;
+  `g*`: base → tree LOST 5 (`g0021`, `g0048`, `g0064`, `g0072`, `g0103`) / 4 (`g0027`, `g0037`, `g0060`, `g0115`),
+  HEAD → tree LOST 1 (`g0103`) / 1 (`g0027`), pass 13 → tree LOST 0 / 0 (an earlier run of the same binary under
+  load average 20-30 also lost `g0050` at the 20 s cap — on pass 13's tree as on this one; HEAD `sat` in 1.7 s). **`fq200` (seed 20260951) / `feq200` (seed 20260952, `--array-eq`),
+  200 pairs each:** base → tree LOST 6 / 3, GAINED 96 / 90, FLIPPED 15 / 52 (all 67 base `sat` → tree `unsat`,
+  quantified vs ground WRONG_SAT 0 / WRONG_UNSAT 0 on both, `eval_false` 0 of 167 / 106 `sat`); HEAD → tree LOST 3 / 1
+  (FLIPPED 0 / 2, HEAD `sat` → tree `unsat`); pass 13 → tree LOST 0 / 0 (GAINED 4 / 2). Every base-decided loss, run to
+  130 s with its counters (`scripts/round4/lossrun.py`), on its mechanism's list: **(i)** the 250,000-check ceiling —
+  `fq200/g0013` (`unknown`, 250,001 checks), `feq200/g0038` (`unknown`, 250,001); **`#P2b-69`'s price** (decided above
+  the cap) — `fq200/g0029` `sat` 40.1 s (50,159 checks), `g0065` 119.6 s (187,185), `g0117` 16.1 s (57,566; inside the
+  cap in this run), `feq200/g0086` 15.9 s (116,770; inside the cap in this run), `g0142` 78.4 s (89,972), `g0154` 51.7 s
+  (189,185); **(v)** — `fq200/g0122`, `unknown` after 34,736 checks / 3,662 embedded conflicts / 12 rounds, traced with
+  the honesty-flag instrumentation (`$R/fix14/final/g0122_trace.err`): `bv_euf_undecided` set, the partition-lemma bound
+  as for `g0048`; **unresolved at 130 s** — `fq200/g0038` (tree and HEAD TIMEOUT), `fq200/g0127` (tree TIMEOUT, HEAD `sat`
+  2.1 s at 7,400 checks). **Deterministic-budget HEAD losses** (`:max-bv-embedded-checks` 5k / 10k / 20k,
+  `$R/fix14/final/ladder_*`): HEAD `sat` at 5,785 (`fq200/g0029`), 7,548 (`g0122`), 7,400 (`g0127`) and 8,501
+  (`feq200/g0142`) checks; this tree `unknown` at 10k and 20k (2 / 518, 12 / 53, 12 / 1,206, 22 / 826 rounds / instances
+  at 20k) — beside `qmbqi120/g0103` in `#P2b-69` and decision (51), and none of them this pass's: pass 13's tree leaves
+  the same scripts undecided (pass 13 → tree LOST 0 on both corpora; adversarial recheck 13 attributed them to decision
+  (45) with `probe_iso` / `probe_p12`).
+  **Re-run on re-fix pass 15's final tree (decision (70); `$R/fix15/final/`, cap 20 s, 2 workers; pass 14's final
+  binary `probe_p14` a third baseline).** `pairverd`: `fq200` / `feq200` exactly pass 14's (pass 14 → tree 0 / 0 / 0;
+  HEAD LOST 3 / 1, base LOST 6 / 3, the named scripts above); `qmbqi120` HEAD LOST 1 (`g0103`), base LOST 4, pass 14
+  LOST 1 (`g0021`); `qeq120` HEAD LOST 0, base LOST 3, pass 14 LOST 0. **Cap-edge scripts re-run ALONE at 130 s** (one
+  worker, nothing beside it; tree / HEAD / pass 14): `qeq120/g0027` `sat` 15.3 / 7.2 / 15.3 s, `qmbqi120/g0050` `sat`
+  7.0 / 0.45 / 7.0 s, `qmbqi120/g0021` `sat` 17.8 / 112 / 18.0 s — decided inside the cap alone, lost at it under two
+  workers; `qeq120/g0037` `unknown` 107 s / TIMEOUT / `unknown` 107 s (mechanism (i)); `g0103` `sat` 66 / 5.8 / 68 s
+  (`#P2b-69`). `g14a` (z3 as the judge, cap 10 s) against `c702310`: **`s00670` `unsat` → `unknown`** (restored by
+  `NO_MIXED_INT`: `#P2b-79`'s integral models send the MBQI chase down `k = -2, -3, …`); `s01963` the same three
+  verdicts in 38 s alone (3.6 s on `c702310`, 0.07 s on pass 14; 0.2 s without the all-`Int` row tightening), past
+  the cap; `s02265` `unknown` 0.15 s → no answer in 130 s (0.2 s without the tightening; integral models keep the MBQI round finding fresh
+  counterexamples up to its bound); against pass 14 only also `s00383` (14 s alone; 7.2 s on `c702310`), `s01574`
+  (`unsat` → `unknown`, as on `c702310`), `s02748` (`sat` → `unknown`, as on `c702310`; `sat` without the tightening). `s02865` (`c702310` `sat`) was lost at or before pass 12 (`probe_p12`, `p13`, `p14`,
+  `c4b04b7` and 0.3.3 `unknown`). None of these is a wrong answer.
+  **Re-fix pass 16's and 17's leg, restated per decision (78)(iii) by re-fix pass 17 (the final tree; z3 4.15.4 as the
+  judge, cap 10 s, 2 workers; `$R/fix17/final/`, `$R/fix17/REBUILD.md`).** A row is a check where `c702310` (**H**) or
+  re-fix pass 14 (**P**) decided correctly — an `unsat` z3 confirms, or a `sat` z3 confirms whatever model was printed —
+  and this tree does not (`unknown`, or no answer at the cap), or where H or P printed a model z3 confirms and this tree
+  withholds one (**m**). Each names the switches of the isolated copy `probe_iso17` (the final tree with every
+  `OXIZ_MUT15_*`, `OXIZ_MUT16_*`, `OXIZ_MUT16R_NO_TAKEBACK` and `OXIZ_MUT17_*` switch, written by suffix) that restore the
+  baseline's class at a 20 s cap ("none": no switch of its family does); "(pfx)" is a check judged on its prefix
+  (`scripts/round4/README.md`); a check that timed out carries its re-take alone at 130 s. Corpora and this tree's checks: `gen_dt.py` 30093154 (dt6, the first 600
+  scripts; 1,122), 30093162 (599), 30100162 (556), 30100182 (573); `gen_guard.py` 30093152 (1,984), 30093163 (989),
+  30100163 (997), 30100183 (992); `gen14.py` 30093001 (g14a; 4,011), 30093155 (g14b; 4,021), 30093164 (1,356), 30100164
+  (1,366), 30100184 (1,380); `gen_mix.py` 30093153 (6,055), 30093161 (2,005), 30100161 (2,002), 30100181 (2,015) — 32,023
+  checks; the seeds 3010018x are re-fix pass 17's fresh ones. **On all of them this tree gives no wrong verdict
+  (`c702310` 532, pass 14 529) and prints no model falsifying its script where H or P printed a correct one; it prints 0
+  falsifying datatype models (`c702310` 484, pass 16 14) and 14 falsifying models in all, every one `#P2b-81`'s
+  (falsifying on H, P and pass 16 too).** Every model the quantifier-free net withholds is false: 254 of 254 on the
+  four `gen_dt.py` corpora and `g14a`, judged by z3 on the identical trajectory with `OXIZ_MUT17_NET_PRINT` (the net
+  computes, the model is printed; verdicts identical). Rows, by mechanism, with the rate over the corpora it acts on:
+  * **(A) `#P2b-88`'s churn: a datatype model withheld because the model the search found is false (the folds of
+    `#P2b-76` / `#P2b-82` and the datatype refinement move the trajectory) — 58 checks of gen_dt.py's 2,850 (H 47, P
+    43):** `gen_dt.py` 30093154: `d00013#0-1` (pfx) P m (inconclusive: the copy needs > 20 s), `d00016#0` P m
+    DT_FOLD|EQ_ATOM, `d00058#0-1` HP m EQ_ATOM|CTOR_FOLD, `d00187#1` HP m DT_FOLD, `d00210#0` H m EQ_ATOM|OCCURS,
+    `d00210#1` P m DT_FOLD|EQ_ATOM|OCCURS, `d00236#0` H m none, `d00236#1` H m EQ_ATOM, `d00239#0` HP m
+    DT_FOLD|EQ_ATOM|CTOR_FOLD|MIXED_INT, `d00324#0` H m DT_FOLD|EQ_ATOM|MIXED_INT, `d00342#0-1` H m
+    DT_FOLD|CLASS_KEY|SEP_CHECK|UFC, `d00350#0-1` HP m DT_FOLD|EQ_ATOM|CTOR_FOLD, `d00375#1` HP m
+    DT_FOLD|CTOR_FOLD|QF_NET, `d00383#0` HP m SEP_CHECK, `d00383#1` HP m DT_FOLD, `d00391#1` HP m
+    DT_FOLD|EQ_ATOM|CTOR_FOLD|SEP_CHECK|QF_NET, `d00403#2` P m DT_REFINE, `d00507#0-1` HP m DT_FOLD|EQ_ATOM,
+    `d00509#0` H m DT_FOLD|CTOR_FOLD, `d00509#1` HP m DT_FOLD|CTOR_FOLD, `d00509#2` P m DT_FOLD|CTOR_FOLD,
+    `d00577#0-2` HP m DT_FOLD|EQ_ATOM, `d00590#1` P m EQ_ATOM|QF_NET, `gen_dt.py` 30093162: `d00000#1` HP m
+    DT_FOLD|EQ_ATOM, `d00078#0` HP m DT_FOLD|DT_REFINE, `d00101#1` HP m DT_FOLD|EQ_ATOM|CTOR_FOLD, `d00263#0` H m
+    none, `d00272#1` HP m DT_FOLD|EQ_ATOM|DT_REFINE|OCCURS|QF_NET, `d00291#1` P m none, `d00297#0` HP m EQ_ATOM,
+    `gen_dt.py` 30100162: `d00027#0` HP m DT_FOLD|EQ_ATOM, `d00053#2` H m
+    DT_FOLD|EQ_ATOM|DT_REFINE|OCCURS|SEP_CHECK|MIXED_INT|QF_NET, `d00058#0` HP m DT_FOLD|EQ_ATOM|CTOR_FOLD|DT_REFINE,
+    `d00199#0-1` HP m DT_FOLD|CLASS_KEY|UFC, `d00199#2` P m DT_FOLD, `d00226#1` HP m DT_FOLD, `d00266#0-1` H m
+    EQ_ATOM, `d00284#0` H m DT_FOLD|CTOR_FOLD|MIXED_INT, `d00290#2` HP m DT_FOLD|CTOR_FOLD|MIXED_INT, `gen_dt.py`
+    30100182: `d00038#0-1` HP m DT_FOLD|EQ_ATOM, `d00229#0-1` HP m EQ_ATOM|SEP_CHECK, `d00239#1` P m
+    EQ_ATOM|CTOR_FOLD|QF_NET, `d00242#1` HP m EQ_ATOM, `d00272#0` H m EQ_ATOM|MIXED_INT, `d00277#2` H m none,
+    `d00289#0` H m none, `d00298#0` P m DT_FOLD|EQ_ATOM|CTOR_FOLD|DT_REFINE|OCCURS|MIXED_INT.
+  * **(B) `#P2b-88`'s churn, verdicts (the same switches) — 3 checks of gen_dt.py's 2,850 (H 2, P 2):** `gen_dt.py`
+    30093154: `d00389#0` P DT_FOLD, `d00552#0` HP DT_FOLD|EQ_ATOM|CTOR_FOLD|DT_REFINE|MIXED_INT, `gen_dt.py` 30100162:
+    `d00063#0` H DT_FOLD|MIXED_INT.
+  * **(C) `#P2b-75`'s certifier (eligibility first, guard neighbours, real midpoints): the trajectory cost of its
+    soundness fix — 27 checks of gen_guard.py / gen14.py's 17,096 (H 25, P 25):** `gen_guard.py` 30093152: `g00280#0`
+    HP ELIG_FIRST, `g01284#0` HP m REAL_MIDPOINTS, `gen_guard.py` 30093163: `g00211#0` HP m NEIGHBOURS|REAL_MIDPOINTS,
+    `g00242#0` H ELIG_FIRST, `g00250#0` HP m NEIGHBOURS, `g00432#0` HP ELIG_FIRST (unknown alone in 23.3 s),
+    `g00613#0` HP m REAL_MIDPOINTS, `g00683#0` HP ELIG_FIRST, `g00750#0` HP m REAL_MIDPOINTS, `gen_guard.py` 30100163:
+    `g00142#0` HP m NEIGHBOURS|REAL_MIDPOINTS, `g00467#0` HP ELIG_FIRST, `g00619#0` HP ELIG_FIRST, `g00937#0` HP
+    NEIGHBOURS (unknown alone in 53.6 s), `g00939#0` HP m NEIGHBOURS|REAL_MIDPOINTS, `g00998#0` HP ELIG_FIRST,
+    `gen_guard.py` 30100183: `g00247#0` HP NEIGHBOURS (sat alone in 60.3 s), `g00265#0` HP ELIG_FIRST, `g00269#0` H
+    ELIG_FIRST, `g00328#0` HP ELIG_FIRST, `g00575#0` HP ELIG_FIRST, `g00702#0` HP m NEIGHBOURS|REAL_MIDPOINTS,
+    `g00773#0` HP NEIGHBOURS|REAL_MIDPOINTS|TABLES (no answer alone in 130 s), `g00942#0` HP
+    ELIG_FIRST|NEIGHBOURS|REAL_MIDPOINTS, `gen14.py` 30093155: `s00836#0` P NEIGHBOURS (unsat alone in 50.1 s),
+    `s01487#0` HP NEIGHBOURS, `s02638#0` P ELIG_FIRST, `gen14.py` 30093164: `s00650#0` HP NEIGHBOURS (no answer alone
+    in 130 s).
+  * **(D) `#P2b-87`'s take-back / `#P2b-79`'s integrality on a quantified goal — 11 checks of gen_guard.py /
+    gen14.py's 17,096 (H 7, P 10):** `gen_guard.py` 30100163: `g00284#0` HP
+    NEIGHBOURS|DEFER_INT|TAKEBACK|MIXED_INT|TIGHTEN|MIXED_EQ|UFC|EXIT_ACK|TABLES (sat alone in 19.0 s), `g00733#0` HP
+    DEFER_INT|TAKEBACK|MIXED_INT|TABLES (sat alone in 29.2 s), `gen_guard.py` 30100183: `g00707#0` HP
+    TAKEBACK|MIXED_INT|TABLES (sat alone in 25.5 s), `gen14.py` 30093001: `s02748#0` P ELIG_FIRST|TAKEBACK|MIXED_INT,
+    `gen14.py` 30093155: `s00186#1` (pfx) HP NEIGHBOURS|DEFER_INT|TAKEBACK|MIXED_INT|TABLES (sat alone in 29.8 s),
+    `s00262#0` (pfx) P DEFER_INT|TAKEBACK|MIXED_INT, `s00262#1` (pfx) HP DEFER_INT (no answer alone in 130 s),
+    `s00852#2` (pfx) P TAKEBACK|MIXED_INT (unknown alone in 9.8 s), `s02298#2` H m
+    DEFER_INT|TAKEBACK|MIXED_INT|TIGHTEN, `gen14.py` 30093164: `s00586#0` HP m DEFER_INT|TAKEBACK|MIXED_INT,
+    `s00596#0` P NEIGHBOURS|DEFER_INT|TAKEBACK|MIXED_INT|TIGHTEN.
+  * **(E) `#P2b-79`'s integrality on a quantifier-free `gen_mix.py` goal (`c702310` and pass 14 answer `sat`, most
+    with a falsifying model) — 6 checks of gen_mix.py's 12,077 (H 6, P 6):** `gen_mix.py` 30093161: `m00240#1-2` HP
+    MIXED_INT, `m00573#1` HP MIXED_INT, `m00660#0` HP MIXED_INT, `gen_mix.py` 30100161: `m00666#1` HP
+    MIXED_INT|TIGHTEN|MIXED_EQ|UFC, `gen_mix.py` 30100181: `m00848#1` HP MIXED_INT.
+  * **(F) lost against `c702310` only, already on pass 14 (no switch of passes 15-17 restores it; of its 19 verdicts
+    16 are `unknown` on re-fix pass 12's tree already, `g00123` and `g00714` are lost in pass 14, `g00106` in pass 13)
+    — 21 checks of gen_guard.py / gen14.py's 17,096 (H 21, P 0):** `gen_guard.py` 30093152: `g00123#0` H, `g00656#0`
+    H, `g00714#0` H, `g01699#0` H, `gen_guard.py` 30093163: `g00106#0` H (inconclusive: the copy needs > 20 s; sat
+    alone in 24.2 s), `g00248#0` H, `g00546#0` H, `g00725#0` H, `g00970#0` H, `gen_guard.py` 30100163: `g00600#0` H,
+    `g00778#0` H, `gen_guard.py` 30100183: `g00117#0` H, `g00360#0` H, `g00528#0` H, `g00565#0` H, `g00596#0` H,
+    `gen14.py` 30093001: `s02865#0` H, `gen14.py` 30093155: `s01433#2` H m, `s01481#0` H, `s02036#1` H m, `gen14.py`
+    30100184: `s00699#0` H.
+  * **(G) no switch restores it, or the attribution is inconclusive — 6 checks of gen_guard.py / gen14.py's 17,096 (H
+    5, P 6):** `gen_guard.py` 30093152: `g00242#0` P m, `g01407#0` HP (inconclusive: the copy needs > 20 s; sat alone
+    in 104.0 s), `gen_guard.py` 30093163: `g00221#0` HP (inconclusive: the copy needs > 20 s; sat alone in 65.8 s),
+    `gen_guard.py` 30100163: `g00858#0` HP m, `gen14.py` 30093001: `s00403#0` HP m, `s02163#0` HP m.
+  * **(cap) cap-edge: the copy itself decides it inside 20 s, and alone inside 130 s — 4 checks of every corpus's
+    32,023 (H 3, P 4):** `gen_dt.py` 30093154: `d00364#1-2` (pfx) HP (unsat alone in 8.2 s), `gen_guard.py` 30093163:
+    `g00149#0` HP (sat alone in 18.3 s), `gen14.py` 30093001: `s00454#2` (pfx) P (unsat alone in 11.7 s).
+  * **`fuzz_qc.py`** (models by the exact evaluator, every row re-judged by z3; seeds 30100165 (3,000 scripts),
+    30100166 (1,000) and re-fix pass 17's fresh 30100185 (3,000); 9,492 checks): 30100165 `982#0` P ELIG_FIRST
+    (mechanism (C); pinned
+    `round4_pass16_recheck_pins::a_bool_array_true_everywhere_and_false_but_at_one_point_answers_unknown`), `2751#1` P
+    TABLES (decision (68)'s printed tables); 30100166 none; 30100185 `1344#1` H, `1865#0` H (mechanism (F): `unknown`
+    on pass 14 already).
+  **Slower, never wrong** (alone, release): the take-back's `g14b/s00186#1` 29.8 s / 2,635 conflicts (`c702310` 0.2 s /
+  163), `s00836` 50.1 s / 6,842, `gen_guard.py` 30100163 `g00284` 19.0 s / 1,847 and `g00733` 29.2 s / 247 conflicts
+  (`c702310` 0.02 / 0.01 s; `NO_DEFER_INT` / `NO_TAKEBACK` 76 and 30-52 conflicts, recheck 16) — a cost decision (79) left
+  named, not cut; `bench/` `UFLRA/03_monotonicity` `sat` in 301-367 ms against 2.1-2.2 ms on `c702310` (inherited from
+  pass 15; its model withheld since then, falsifying on `c702310` and pass 14); dt6 46 timeouts at 10 s (`c702310` 96,
+  pass 16 41-45 across runs) — the eight scripts pass 16 answered at the cap and this run did not, re-taken alone, give
+  identical verdicts and conflicts on both (`d00415` 6.0 / 6.0 s, `d00159` 13.3 / 13.3 s, `d00364` 8.3 / 8.2 s); `d00001`'s
+  first check 22.2 s / 8,380 theory conflicts / 0 decisions and `recheck15/atk/c40/p5` `unknown` in 12.6 s with 12
+  conflicts (the time outside the search), not traced. Cap-edge at 10 s: `qeq120/g0027`, `qmbqi120/g0050`, `g0037`
+  (above). None of these is a wrong answer.
   **Bookkeeping, recheck-9 finding R9-4 (2026-09-22).** The eight `- [x]` list markers the recheck counted as
   lost to the pass-9 condense are **not** lost on the delivered tree: `TODO.md` carries **439** `- [x]` list
   items against **438** at `0559fb3`, **437** in the pre-condense snapshot `rf10/TODO.md.before-condense` and
@@ -958,23 +1083,15 @@ Line numbers below were re-verified on 2026-09-09, after the two file splits thi
   The other four stay proxied rather than widened, measured in the same profile: `det_w4_n15` at
   `:max-conflicts 20000` was killed at **774 s**, `det_w3_n12` needs 51.6 s *release* at 2000, and `st10_w3` does
   not finish inside the calibrated ceiling at all.
-  **Re-measured 2026-09-29 on re-fix pass 12's final tree** (release, both probes back to back beside two
-  campaign workers, `$R/fixB/final/budget_losses.txt`; `c702310` is the pre-pass tree). All five are still
-  `unknown` at their named budget, and the reason is now the budget itself rather than the price of spending
-  it (`#P2b-46` (f) is closed): the four `_mc200` scripts spend **200 of 200** embedded conflicts on this tree
-  (`c702310`: 200, 200, 200, 194) — having run 8,067 / 5,609 / 276 / 329 embedded checks to get there against
-  `c702310`'s 1,502 / 2,640 / 192 / 230, because a cheaper check lets the search go further before the
-  allowance runs out — in 24–57 ms. Without any budget option: `det_w3_n12` **`sat` in 0.54 s** (232,481
-  checks, 2,592 outer conflicts) against `c702310`'s 28.6 s (75,741 checks, 1,444 conflicts); `det_w4_n11`
-  `sat` 0.11 s against 0.93 s; `det_w4_n15` `sat` 18.6 s against 40.4 s; `det_w3_n20` and `st10_w3` reach the
-  250,000-check ceiling (`unknown`) in 1.0 s and 1.1 s where `c702310` gives no answer in 130 s. **The
-  search now needs more embedded checks than before on the `det_w3_n12` shape (232,481 against 75,741) at a
-  fiftieth of the time**, so a `:max-bv-embedded-checks` budget between the two decides it on `c702310` and
-  not here (at 100,000: `c702310` `sat` in 80.5 s, this tree `unknown` in 0.36 s) — recorded as the
-  trajectory cost of the failed-assumption explanations, not hidden behind the wall clock. The pass-8 pin's
-  check net was raised from 2,000 to 50,000 for exactly this reason: it was a safety net that became the
-  binding budget once checks were cheap, and its attribution assertion (now `>= 200`, tightened from 190)
-  is what reported it.
+  **Re-measured 2026-09-29 (re-fix pass 12; release, `$R/fixB/final/budget_losses.txt`).** All five still `unknown`
+  at their named budget, the budget itself the reason: the `_mc200` scripts spend 200 of 200 embedded conflicts
+  after 8,067 / 5,609 / 276 / 329 checks (`c702310`: 1,502 / 2,640 / 192 / 230) in 24–57 ms. Unbudgeted:
+  `det_w3_n12` `sat` 0.54 s (232,481 checks, 2,592 conflicts; `c702310` 28.6 s, 75,741 / 1,444), `det_w4_n11` 0.11
+  against 0.93 s, `det_w4_n15` 18.6 against 40.4 s; `det_w3_n20` / `st10_w3` reach the 250,000 ceiling in ~1 s
+  (`c702310`: no answer in 130 s). A `:max-bv-embedded-checks` budget between 75,741 and 232,481 decides
+  `det_w3_n12` on `c702310` and not here (at 100,000: `c702310` `sat` 80.5 s, this tree `unknown` 0.36 s) — the
+  trajectory cost of the failed-assumption explanations. The pass-8 pin's check net went 2,000 → 50,000 for that
+  reason; its attribution assertion is `>= 200`.
   **Decided 2026-09-21 (re-fix pass 7, decision (24a)): `st10_w3` is an ACCEPTED LOSS and the ceiling stays at
   250,000.** Re-measured on the pass-7 tree: `st10_w3` `unknown` in 140,261.4 ms and 247,268.8 ms in two runs against the base's `sat` in
   8.6 / 8.8 ms (the spread is machine load; the base is three orders of magnitude away in either reading); `w3_n11` 4,674.6 ms vs 0.3 ms, `w4_n11` 845.0 ms vs 0.3 ms, `w3_n9` 27.9 ms vs 0.3 ms. The reason the
@@ -1010,15 +1127,16 @@ Line numbers below were re-verified on 2026-09-09, after the two file splits thi
   **not** touched here: the gate decides `bench/` verdicts and the 0-verdict-differences sweep is binding. The strongest
   lead this round leaves open; it wants its own campaign.
 - [x] **#P2b-47 (2026-09-21) — the round-4 recheck, pass 6: a quantified script and its own ground expansion disagreed, and even where they agreed the published model did not.** Five findings (R5-1..R5-5), at the root; condensed 2026-09-21 (re-fix pass 8) from 48 lines, nothing dropped — the full prose is in this file's history. **(1) R5-1, blocker, closed at the seam.** An MBQI / e-matching / blind / finite-domain instance is ground by construction but reached the SAT core through `Solver::encode`, never `Solver::assert`, so neither `eliminate_nonbool_ite` nor `collect_array_structure` saw it, and `array_axioms::ground_children` stops at binders — an array term first ground *after* substitution was a root of nothing and its reads were free values of the element sort. `Solver::prepare_ground_instance` (`solver/ground_instance.rs`) is the seam: it runs `eliminate_nonbool_ite` and registers the instance in `Solver::ground_array_roots`, journalled with `TrailOp::GroundArrayRootAdded`, which `instantiate_array_axioms` walks beside `self.assertions`. Its other half is `Solver::array_refinement_round`, hoisted out of `check_core`'s `!has_quantifiers` branch so the quantified candidate-model path runs it too, before all three of the MBQI loop's `Sat` exits; a third strand, `register_encoded_assertion_root`, records the *encoded* form so a Skolemised `exists` is still walked. **(2) R5-1's model half, `#P2b-47` proper.** With the verdicts right, 14 of 800 paired scripts (3 in `q`, 11 in `qnoite`) answered a *correct* `sat` and printed a model falsifying their own quantified assertion: MBQI answers `Satisfied` when no instance it chose to build is violated, leaving every index it did not choose unconstrained and `(get-model)` rendering the array there from the sort default. `encode::finite_expand` gained a second fragment — a binder whose sorts are **finite** (`Bool`, `(_ BitVec w)`) needs no guard and no entailment because the sort *is* the box — exact, polarity-independent and bounded by the existing 64-point `finite_expansion_budget`, so `(_ BitVec 8)` is declined. **Measured, release, `rc5/corpus/{q,qnoite}`, 400 pairs each, `rc3/oracle/tt3.py` with every published model replayed:** before, 29 + 20 wrong `sat` and 130 + 67 falsifying models; after the seam alone, 0 + 0 wrong `sat` and 3 + 11 falsifying with 28 + 27 `unknown`; after the finite-sort expansion, **0 wrong `sat`, 0 wrong `unsat`, 0 falsifying, 0 `unknown`** (384 and 381 agree, the rest oracle-undecidable). **(3) R5-2 (a).** `BV_EMBEDDED_CHECK_CEILING = 250_000` was calibrated against the *pre-fix* tree; re-stated against `c4b04b7` the constraint "no script the base decides may become `unknown`" is **not** satisfied, and every lost verdict is named in `#P2b-38` (b). On 3,800 `rc2` scripts the tree loses none. **(4) R5-3.** `!dtqe{n}` / `!dtca{n}` went through `oxiz_core::smtlib::reserved_name` (`!` is an ordinary SMT-LIB 2.6 simple-symbol character, so the old doc's "cannot collide" was false), pinned behaviourally in `oxiz-core/tests/round4_reserved_mints.rs` by driving `DatatypeQePlugin::eliminate` / `CaseAnalyzer`. **(5) R5-4.** `bv_budget::bv_embedded_check_ceiling()` is a `pub(crate)` read of the live constant, asserted at 250_000 by a **default**-profile test. **(6) R5-5.** `array_uf_combination::render` and `ext_shapes::render` emit no `(set-option :timeout N)`; `tally.sat + tally.unsat > 0` is replaced by `the_harness_decides_a_fixed_script`. Removing the clock alone made both gates exceed nextest's ceiling, so a third **deterministic** budget was added instead of putting it back: `(set-option :max-bv-embedded-checks N)` → `SolverConfig::max_bv_embedded_checks`, clamped by `effective_bv_embedded_check_ceiling` so a script may only ever **narrow** the calibrated ceiling. The generators pass 500 (twice `bench/`'s peak of 207); measured in the test profile, 72 scripts in 5 s at 500 with 4 `unknown_decided`, 52 s at 1,000 with 2, no completion inside 400 s at 2,000. **Mutations, each applied alone in the live tree and restored immediately** (baseline `round4_pass5_recheck_pins`: 14 run, 14 passed; condensed 2026-09-21 from a ten-row table, nothing dropped): M1 `prepare_ground_instance` dropped at the MBQI site only — **0** red; M2 the quantified `array_refinement_round` removed, roots kept — 1; M3 `register_encoded_assertion_root` removed from both sites — 3; M4 root registration dropped from `prepare_ground_instance` — the same 1 as M2; M5 the finite-**sort** arm of `variable_domains` reverted — 1; M6 `expand_finite_quantifiers` disabled — the same 1; M7 the ceiling widened to 1_000_000 — 1; M8 the user clamp removed — 1; M9 both datatype-QE mints back to `format!` — 2; M10 `:max-bv-embedded-checks` dropped from `array_uf_combination::render` — both array_uf gates TIMEOUT at 180 s where they pass in 4.2 s and 17.2 s. M2 and M4 name the same red test and that is the point: the seam's two halves must **both** hold. M1 costs a claim — the MBQI-site `prepare_ground_instance` is witnessed by nothing while the finite-sort expansion consumes every quantified array shape in the corpora first; it is kept because decision (23) asks for every instantiation path to receive the pre-passes and it cannot make a verdict worse, labelled an absence of coverage under decision (7) rule (1c), as is `the_harness_decides_a_fixed_script`. **Decision (27)'s two remaining clocks are recorded, not removed** (`bv_ite_selfcheck_fuzz.rs:902`, where the clock **is** the subject under test, and `bv_ite_adversarial_probe.rs:61`, a harness clock), and its `harness_clock_ms: Option<u64>` field was **superseded**: `render` lost its clock outright, for the campaign as well, and emits the deterministic `:max-bv-embedded-checks` instead — strictly stronger than the decision asked for, recorded here so a later pass does not reintroduce a clock believing one was wanted. The weak `tally.sat + tally.unsat > 0` the decision named at `array_uf_combination.rs:1144` is **deleted** (re-fix pass 8); the `>= 479` floor four lines below is the same claim with a real bound. **Measurement provenance** for the pass (probe hashes, `rsync` pre-copy, rebuild times) is in `<scratchpad>/oxiz4/rf8/REBUILD.md`.
-- [x] **#P2b-46 (f) (2026-09-21) — the embedded bit-blasted solver leaks SAT variables across push/pop, and
+- [ ] **#P2b-46 (f) (2026-09-21) — the embedded bit-blasted solver leaks SAT variables across push/pop, and
   neither lever decision (24b) names lands inside one pass.**
-  **CLOSED at the root 2026-09-29 (re-fix pass 12, decision (45)). Everything below this paragraph is the history of the passes that did not land it, kept verbatim: each "`git diff --stat -- oxiz-sat oxiz-theories` is empty" in it describes the tree of the pass that wrote it, and the U-Z10 analysis ("cannot be scoped alone … its own pass") is the argument decision (45) was built on.** What landed:
+  **OPEN — the LEAK is closed at the root 2026-09-29 (re-fix pass 12, decision (45)), and the item stays open until decision (45)'s full criteria hold on the ground twins too (decision (46); reopened by re-fix pass 13): they hold on the leak's own shape only — the multi-round price is open as `#P2b-69`, `#P2b-70` named a verdict HEAD reached (fixed at the root by re-fix pass 14, `mbqi::counterexample::guard_points`), and mechanism (i)'s ground-twin losses stand (the closure restated per shape below). Everything below this paragraph is the history of the passes that did not land it, kept verbatim: each "`git diff --stat -- oxiz-sat oxiz-theories` is empty" in it describes the tree of the pass that wrote it, and the U-Z10 analysis ("cannot be scoped alone … its own pass") is the argument decision (45) was built on.** What landed:
   (1) `oxiz_sat::Solver::add_clause_at_root` (`oxiz-sat/src/solver/root_clause.rs`): a clause registered at assertion level 0 whatever scopes are open and wherever the search stands — a falsified one is still installed, its conflict latched permanently or per scope; a root unit, which lives on the trail only, is replayed by every `pop` together with its LRAT justification.
   (2) `BvSolver` (`oxiz-theories/src/bv/solver/scope.rs`; the soundness argument is its module doc): every encoder clause is a *definition* — a conservative extension of every clause set — installed once at the root through `define()`; the four journals (`term_to_bv`, `ult_cache`, `eq_cache`, `bool_node`) are permanent memos, because what they name is defined for ever; an *assertion* is a literal in `active`, passed as an assumption of one `solve_with_assumptions` per check, and `push`/`pop` only mark and truncate `active`. `assert_neq` asserts `¬eq` of the memoised `bool_bv_eq` gate, re-encoded to cost one variable per bit plus its output (pass 8's A/B measured the old three-variable gate); `assert_ule` goes through the memoised `ult_gate` (`#P2b-1`, `#P2b-2` closed with it).
   **Deviation from the decision's wording, declared:** assertions are scoped as assumption literals, not as unit clauses under an embedded `push`/`pop` — a scoped unit would retract the clauses learned under it (`#P2b-19`) and re-pay the search every check, while a clause learned under assumptions is a resolvent of the database alone and stays valid under every assumption set (`assumption_search.rs` module doc).
   (3) A refutation is explained by the failed-assumption core — each core literal's recorded blame, or its pinned atom — instead of every guard term in scope, with the old whole-scope explanation as the fallback when a core literal carries no blame; the blame watermark `blame_from` keeps an assertion checked before its term was recorded from being charged to a later, unrelated term.
   (4) Riders, each found while building it and each fixed: `#P2b-66` (the assumption search dropped assumptions and its core dropped the partner of a complementary pair) and `#P2b-67` (PMRES, masked by `#P2b-66`); `share_euf_equalities_with_bv` ran an embedded check without charging `:bv-embedded-checks`; and with cores the outer search counted conflicts past `:max-conflicts` (242 against a budget of 100 on nine distinct arrays) — `TheoryManager::on_assignment` / `final_check` now do no theory work once the budget is exhausted (decision (20)). Three costs of the old shape removed with it: the embedded lucky phase (`enable_lucky_phase: false`, a pre-search `O(num_vars)` scan per check), a check whose assumptions the last model satisfies with no clause defined since answers from that model, and the array refinement's per-round rebase retracts assertions but keeps circuits (`Solver::rebase_theory_state_for_round`).
   **Measured on the final tree** (release, `$R/fixB/final/`, both probes back to back beside two campaign workers; `c702310` is the pre-pass tree): the price of one embedded check on this entry's reproducer shape (`det_w3_n12`, no budget option) is 5.0 / 3.9 / 3.6 µs at 2,001 / 20,001 / 100,001 checks against `c702310`'s 13.5 / 161 µs at 2,002 / 20,002 and 1.06 ms at the 75,741 where it decides — flat instead of growing with the checks already spent; `#P2b-59`'s repro `sat` in 0.16–0.36 s (9,302 checks; `c702310` 59.1 s, 30,402) and its swapped twin `sat` in 0.8–1.2 s (29,189 checks; `c702310` no answer in 130 s); the five budget losses re-measured under `#P2b-38` (b) (still `unknown` at their named budget, the budget itself now the reason). Push/pop fuzz (`fuzz_pushpop.py`, three seeds × 20,000 scripts, 237,905 checks): 0 wrong `sat`, 0 wrong `unsat`, 0 `unknown`, 0 panics. `bench/` sweep: 0 verdict differences against `c702310` and `c4b04b7`; one response difference each (`bench/regression/benchmarks/bv_simple.smt2`'s model, both models satisfy the script). Tests: `oxiz-sat/tests/root_clause.rs` (11, four of them LRAT proofs checked by `oxiz_proof::lrat_check`), `assumption_retention.rs` (4), `oxiz-theories/tests/bv_root_scoped_definitions.rs` (4: no variable minted by re-asserting a popped disequality or re-encoding a popped circuit, 3,000 random scoped scripts against brute force with every core checked unsatisfiable, and an assertion checked before its term is recorded never charged to a later term — the `blame_from` watermark, added when the mutation table found it unwitnessed); four internals tests that pinned the old journals were re-derived for the new contract (`bv_wide_scope_and_model` ×3, `bv_selector_fragment_and_pins` ×1) and `bv_soundness`'s guard-term test now requires the unrelated guard to stay *out* of the explanation. The mutation table is in the CHANGELOG `[0.3.4]` quality-gates entry for re-fix pass 12's second half.
+  **Closure restated per shape (re-fix pass 13, after adversarial recheck 12).** What is closed is the *leak*: no variable is minted by re-asserting a popped atom or re-encoding a popped circuit, and on the leak's own shape (`det_w3_n12`, one refinement round, many outer backtracks) the price per check is flat, re-taken by the recheck at 7.0 / 2.4 / 2.1 µs. On a shape with many refinement rounds it is **not** flat — `qmbqi120/g0072` 16 / 218 / 2,343 µs per check at 5k / 20k / 50k (HEAD `c702310` 11 / 19 µs), `qeq120/g0060` at the 250,000 ceiling in 664.6 s against HEAD's 95.3 s — and that is a different cost, open as `#P2b-69`.
   **Scope widened 2026-09-22 (re-fix pass 10): `#P2b-59`'s five scripts are carried here by path**, because
   once the array collector stopped counting one array twice their residual cost is exactly this entry's
   `O(num_vars)` embedded check and nothing else. `rk9/min/q33_a01.smt2` is now **decided** — `sat` in 30.0 s
@@ -1151,21 +1269,7 @@ Line numbers below were re-verified on 2026-09-09, after the two file splits thi
   path that drops the distinguishing entry, and the pin
   (`round4_pass6_recheck_pins::two_nested_arrays_held_apart_still_print_identically`) carries that script verbatim
   for exactly that reason. A future pass must not minimise the repro and conclude the defect is gone.
-- [x] **#P2b-53 (2026-09-21) — COMPLETENESS, pre-existing: a `forall` over an index sort the finite expansion
-  declines answered `unknown` to a read-over-write at the binder's own index.** `(declare-const a (Array (_ BitVec
-  7) (_ BitVec 1)))` and `(assert (forall ((i (_ BitVec 7))) (distinct (select (store a i #b1) i) #b1)))` —
-  `rk6/atk3/p4_bv7_two_stores.smt2`, whose name outlived its second `store` — is **unsatisfiable**: the read-over-write
-  axiom makes the `select` `#b1` at every `i`, so the body is false everywhere and no enumeration of the 128-point
-  index domain is needed, only the rewrite under the binder. `c4b04b7` (crates.io 0.3.3) and `00add07` (the pass-6
-  checkpoint, where this entry was opened) both answer `unknown`. **CLOSED 2026-09-21 by re-fix pass 8/9
-  (`ff3965d`) as a side effect** of `binder_row`'s read-over-write expansion becoming polarity-complete and its
-  decline guards no longer evadable (`#P2b-54`, `#P2b-55`): the tree answers `unsat` in 32 ms through the release
-  CLI, re-measured 2026-09-22 by the gatekeeper, who also completed this entry — it had been cut off after
-  "the finite expansion" at `00add07` and never re-measured by the pass that closed it. Regression pin:
-  `round4_pass7_recheck_pins::a_read_over_write_at_the_binder_index_is_refuted_above_the_expansion_budget`.
-  **What this is NOT.** Not `#P2b-58`: that item's scripts are *satisfiable* ones the base decides and MBQI cannot
-  certify above the expansion budget; this one is refuted by rewriting and never needed a model. Not `#P2b-50`: the
-  index sort's cardinality is pinned at `2^7`.
+- [x] **#P2b-53 (2026-09-21) — COMPLETENESS, pre-existing: a `forall` over an index sort the finite expansion declines answered `unknown` to a read-over-write at the binder's own index** — closed as a side effect of re-fix pass 7; the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-53), moved verbatim by re-fix pass 17 (decision (79)).
 - [x] #P2b-54 (cargo-formal round-4 recheck pass 7, 2026-09-21; SOUNDNESS, pre-existing on c4b04b7 and crates.io 0.3.3; **FIXED 2026-09-21 in re-fix pass 8**) A quantifier in any non-conjunctive Boolean position is an unconstrained Boolean: `asserted_children` (`oxiz-solver/src/solver/term_walk.rs:200`) descends only `And`⁺/`Or`⁻/`Not`, and `Solver::register_asserted_quantifiers` (`encode.rs:649`) reuses it, so a `forall` under `=>`, `or`, `ite`, Boolean `=` or `not` is registered with nothing and its Tseitin literal is free. Four lines of pure UF: `(declare-sort U 0) (declare-fun f (U) U) (assert (not (forall ((x U)) (= (f x) (f x))))) (check-sat)` answers `sat`; `(assert p)` + `(assert (=> p (forall ((i (_ BitVec 7))) …)))` answers `sat` and prints `(p true)` beside a `(get-value)` of the body's own `i = #b0` instance evaluating to false. Pinned green as holes in `oxiz-solver/tests/round4_pass7_recheck_pins.rs` §1 (eight shapes) with §2 controls (top-level and conjunctive spellings are `unsat`; positive existential decided correctly; `(assert Q)` beside `(assert (not Q))` is `unsat`). Fix direction (recheck): NNF + Skolemisation so every surviving quantifier is at positive polarity, or tie the literal (true ⇒ MBQI/expansion must justify it; false ⇒ a Skolem witness of the negation); NOT by widening `asserted_children`, whose contract is “terms this assertion entails”. — **(fixed 2026-09-21, re-fix pass 8, exactly there.** `asserted_children` is untouched and its unit tests still pin its contract. `solver/encode/quant_guard.rs` is a *second* walk, over the assertion's whole Boolean skeleton, that gives every quantifier occurrence a polarity and reads it as an obligation: a `forall` at positive polarity (and an `exists` at negative) is a **universal** obligation discharged by instantiation, and a `forall` at negative polarity (and an `exists` at positive) is an **existential** obligation discharged by Skolemisation. Every occurrence the spine walk does *not* already register is replaced by a fresh reserved Boolean constant `g` (`reserved_name("qg", n)`), and the obligations that define it are asserted beside the assertion: `∀x. (g → φ)` for the universal half — a plain unconditional universal, so every MBQI instance and every finite-expansion conjunct of it comes out as `g → instance` for free — and `g ∨ ¬φ(sk)` for the existential half, fresh `reserved_name("sk", n)` constants for the binder. An occurrence whose polarity the skeleton cannot pin down (`xor`, a Boolean `=`, an `ite` condition, a UF argument) gets **both**, which is the full definition `g ↔ Q` and is sound in any position. Quantifiers under another binder (`Forall`, `Exists`, `Let`, `Match`) are declined — a closed constant cannot stand for a term that mentions the enclosing binder's variables — and are guarded instead once an instance grounds them (`Solver::prepare_ground_instance`, which now also registers an instance's own asserted-spine quantifiers; that is where a `forall` nested in a `forall` was reaching `encode` with a free literal). **Under the fix there is a safety net, and it is the reason a decline costs no soundness.** `Solver::quantifier_literal_unconstrained` is set whenever a quantifier reaches the Tseitin encoder without a registration or a guard, and `Solver::check` downgrades a `Sat` that rests on it to `Unknown`, exactly as `array_axioms_incomplete` does. Measured before the guard existed and with the net alone: every one of the eight wrong `sat` spellings became `unknown` and no control moved — so the net is real and the guard is what turns those `unknown`s back into verdicts. All eight §1 pins are inverted in `round4_pass7_recheck_pins` and assert the correct `unsat`; the §2 controls are unchanged and green; the `(get-value)` pin now asserts that the response publishes **no** model at all, so a future regression cannot pass by answering `sat` with a different contradictory model. New corpus: `oxiz-solver/tests/round4_pass8_quantifier_position.rs` generates a quantifier in a randomly chosen Boolean position (`=>` on either side, `or`, `ite`, Boolean `=`, `xor`, `not`, nested `and`) and scores it against its own ground expansion in that same position — 240 pairs at widths 1–2 (235 decided both sides, 0 wrong either way) and 60 at width 7, one bit above the expansion budget, where the defect began (50 decided, 0 wrong either way). Mutations, each alone in an isolated copy, baseline 61 tests green: disabling the Skolemisation reddens 5; emitting `∀x φ` instead of `∀x (g → φ)` reddens 3 (with `wrong_unsat 5` on the width-7 corpus); handling only the `=>` shape reddens 4; Skolemising without the literal tie reddens 2.)**
 - [x] #P2b-55 (cargo-formal round-4 recheck pass 7, 2026-09-21; SOUNDNESS REGRESSION vs c4b04b7's `unknown`; partially reopens #P2b-48; **FIXED 2026-09-21 in re-fix pass 8**) `binder_row`'s two decline guards are evadable from a script: (a) the whole-assertion `binder_names` capture guard declines the real quantifier when a contentless conjunct `(forall ((a (_ BitVec 7))) (= a a))` shares a NAME with the free array `a` — wrong `sat` 5.2 ms where the base answers `unknown`, while the same two quantifiers as two assertions are `unsat`; (b) a `forall` nested directly inside another yields no rewrite (the map stops at a deeper binder and splicing across the outer binder is dropped) — wrong `sat` where the base answers `unknown`, while one binder list with both variables is `unsat`. Pinned green as holes in `round4_pass7_recheck_pins.rs` §1b. Fix direction: a per-quantifier capture check on the REPLACEMENT's free names instead of the whole-assertion filter; rewrite innermost-first and rebuild the enclosing binder from the rewritten body. — **(fixed 2026-09-21, re-fix pass 8, both halves.** (a) `binder_row::rewritable_quantifiers` no longer consults `finite_expand::binder_names` at all. It walks the assertion as a *tree*, recording for each quantifier occurrence the chain of binders enclosing it, and declines only when a binder the rewrite would actually be **spliced across** binds a name free in that quantifier. The chain is scanned outward and stops at the nearest enclosing candidate quantifier, because the rewrite is spliced into that quantifier's *body* and so never crosses its binder; since "is a candidate" appears on both sides the filter is a downward fixpoint, and a decline can only lengthen someone else's chain, so it terminates. A *sibling* binder's names are now none of a quantifier's business, which is (a) exactly. (b) The sweep is innermost-first: each quantifier's body first absorbs the rewrites of the quantifiers nested inside it (a substitution into the body, which never crosses that body's own binder), and the binder is rebuilt around the result. The old code spliced the inner rewrite across the outer binder with `substitute`, whose capture avoidance alpha-renamed the outer binder while the replacement still mentioned the *old* bound variable — so the rewrite was either dropped or turned into a formula with a free variable, which is what the new unit test `a_quantifier_nested_inside_another_is_rewritten_innermost_first` asserts against by requiring that the only free name left is the array's. Both §1b pins are inverted and assert the correct `unsat`, and the two halves are mutation-tested separately in an isolated copy: restoring the whole-assertion filter reddens 3 tests, dropping the innermost-first rebuild reddens the unit test that isolates it. The nested shape is now closed twice over — `quant_guard` guards the inner quantifier once an instance of the outer grounds it — which is why the verdict pin alone cannot see the second half fail and the unit test exists.)**
 - [x] #P2b-56 (cargo-formal round-4 recheck pass 7, 2026-09-21; COMPLETENESS, the verdict was a property of the SPELLING; **FIXED 2026-09-21 in re-fix pass 8**) A constant-array read refutation under a binder depended on an unrelated declaration. `(assert (forall ((i (_ BitVec 7))) (distinct (_ bv0 7) (select ((as const (Array (_ BitVec 7) (_ BitVec 7))) (_ bv0 7)) i))))` answered `unknown` on its own and `unsat` the moment `(declare-const d (_ BitVec 7))` — used in no assertion and in no command — was added. `c4b04b7` answers `unknown` to both, so neither half was a lost verdict; the finding was that the closure of the pass-5 constant-array family was narrower than the family. — **(fixed at the root: MBQI seeds its instantiation from the ground terms the script spells out, so a `forall` whose binder sort has no inhabitant anywhere in the script gets no instance at all. `Solver::seed_binder_sort_witnesses` mints one reserved constant (`reserved_name("qwit", n)`, from the same counter as the Skolem symbols) per binder sort that `MBQIIntegration::has_candidate_of_sort` reports empty. Sound because a candidate is only ever used to instantiate a universal and `∀x. φ(x) ⊨ φ(c)` for any `c`, and invisible in `(get-model)`, which prints declared constants. Seeded at **assert** time only: the candidate pool is search state that `MBQIIntegration::restore_search_state` rolls back at each `check` exit, so a witness minted mid-`check` would be re-minted on every `check-sat` and kept by none — measured, ten `(check-sat)` on one quantified assertion cost 0.52 ms in total with no growth. The §3 pin is inverted and now asserts that both spellings get the **same** verdict, `unsat`.)** Also from the same recheck, owed under existing items: four base-decided verdicts lost and unnamed (`rc4/det/det_{w3_n12,w3_n20,w4_n11,w4_n15}_mc200.smt2`, base `sat` / tree `unknown` — #P2b-38 (b)); #P2b-51's size is 38 falsifying models of 120 width-7/8 pairs, not 24–25 of 300; decision (23)'s in-tree paired pin cannot fail for the seam since `#P2b-47` expands both files of every pair; `bench/z3_parity/benchmarks/AUFLIA/array_update.smt2` 20–25 ms on the tree vs 1.7–8.3 ms on the base over five runs (real, not load); a constant-array read refutation under a binder depends on an unrelated `(declare-const d …)` (§3 pin). declines is answered `unknown` even when its body is a *constant*.** One line states it: `(assert (forall ((i (_ BitVec 7))) false))` is **unsatisfiable** — a bit-vector sort is non-empty — and answers `unknown` in 6.9 ms on this tree, 7.1 ms on the pre-fix tree and 7.8 ms on `c4b04b7`. The width-6 control `(forall ((i (_ BitVec 6))) false)` is correctly `unsat` in 0.1 ms, so the boundary is `finite_expand`'s 64-point budget exactly as in `#P2b-48`; unlike `#P2b-48` this is **not** a soundness defect and **not** a regression — every build named above agrees. Two members were met while closing `#P2b-48`: `rk6/atk3/p4_bv7_two_stores.smt2` (`(forall ((i (_ BitVec 7))) (distinct (select (store a i #b1) i) #b1))`, truth `unsat`; the read-over-write rewrite folds it to `∀i. false`, which is the shape above) and `rf8/usort/f2_trivial_sat.smt2` (`(forall ((i (_ BitVec 7))) (= (select a0 i) #b1))`, truth `sat` with `a0 = ((as const …) #b1)`, answered `unknown` on every build). MBQI reaches its fixpoint without ever evaluating the body at a point, so neither direction is decided. The lever is a constant-body check at quantifier registration for the refutation half, and `#P2b-51`'s model completion for the satisfying half.
@@ -1201,9 +1305,9 @@ Line numbers below were re-verified on 2026-09-09, after the two file splits thi
   there. The other difference is that `#P2b-58`'s scripts are ones `c4b04b7` **decides**, which makes them lost
   verdicts under decision (24a) as this entry's members are not.
 - [x] **#P2b-57 (2026-09-21) — a positive-polarity quantifier obligation was verified even where it was vacuous: a satisfiable script whose quantifier plays no part in its verdict answered `unknown`.** Opened by re-fix pass 8 and closed at the root by re-fix pass 9, in one round of the recheck. Four lines, no array, no theory reasoning: `(declare-fun r ((_ BitVec 7)) Bool) (declare-const p Bool) (assert p) (assert (or p (forall ((x (_ BitVec 7))) (r x))))` — `(assert p)` alone satisfies the disjunction. `c4b04b7` `sat` 0.26 ms, crates.io 0.3.3 `sat`, the pass-6 checkpoint `00add07` `sat` 0.10 ms, re-fix pass 8 **`unknown`**. `encode::quant_guard` ties a conditionally placed quantifier to a fresh Boolean constant `g` with the plain universal `∀x. (g → φ)`, and that universal went to MBQI as an ordinary obligation to verify — including on the candidate models that set `g` to `false`, which satisfy it at every point of the domain at once. Above `finite_expand`'s 64-point budget it could not be verified, so the verdict went. Spellings: `rk8/atk/j3` the uninterpreted-sort version (no budget exists to widen), `j1` an `exists` in an `=>` antecedent whose consequent is asserted, `h1` a guarded universal that *holds* in the intended model. Controls that place it: `j5` the same script at index width 2 (inside the budget) `sat`, `j2` the same quantifier at negative polarity (Skolemised to a ground obligation) `sat`, `j6` the same universal also asserted unconditionally `sat`. Scale, on two propositional-oracle corpora that use no solver and no ground twin (`rk8/genpol.py`, `rk8/genpol2.py`): the pass-8 tree lost **35 of 400** and **44 of 300** verdicts the base decides correctly, every one in the `sat` direction. — **(fixed in re-fix pass 9 by two root changes, each measured and each mutation-tested.** **(1)** `MBQIIntegration::quantifier_vacuous_under_model` discharges, for one round, a quantifier whose body reduces to `true` once the **published partial model**'s ground Boolean *variables* are substituted — not the MBQI completion (a `Sat` must not rest on a value the user never sees), only `TermKind::Var` atoms (a compound Boolean's abstraction is not this pass's to trust), and never a variable the model leaves unassigned (that is `#P2b-27`'s undetermined-Boolean hole). A discharged quantifier is dropped from the round entirely, so its symbolic residual can no longer clear `all_evaluations_fully_ground` for the others. **(2)** `MBQIIntegration::generate_blind_instantiations` stopped dropping every lemma that is still `Implies`-headed after simplification. That filter was the reason a guard the search set **true** was not verified either: the blind lemmas are the only thing that seeds `sat_certify`'s relevant-term set for a guarded universal, and with no seed the fragment is never eligible. Measured, and the asymmetry is the proof: `(assert g)` beside `(assert (forall ((x (_ BitVec 7))) (=> g (r x))))` was `unknown`, while the *same formula* spelled `(or (not g) (r x))` — not `Implies`-headed, so never filtered — was `sat`. It now skips only a residual guard that still mentions a variable some tracked quantifier binds, which is the unsound case its own comment described; every other such lemma is a plain clause `¬g ∨ φ(c)` entailed by a universal that is asserted unconditionally, so it can never cause a spurious `unsat`. **(3)** `sat_certify::peel_ground_premises` reads the fragment analyses *through* `quant_guard`'s closed premise: `augment_guard_grounds`, `extract_int_bounds` and `is_eu_eligible` all look at "the premise of a top-level `Implies`", and with `g` there they missed the real guard `(= i c)`, the integer box, and handed a bound variable under `=` to `strict_eu` which rejects it by design. **Measured on the final tree:** all four repros `sat` (`j4`, `j3`, `j1`, `h1`); the 102-script attack battery of passes 7 and 8 has **5 differences against the pass-8 tree and every one is `unknown` → `sat`**; the propositional-oracle corpora go from 358/400 and 252/300 decided to **396/400 and 281/300, with 0 wrong `sat` and 0 wrong `unsat` in both** (the base `c4b04b7` has 61 and 89 wrong `sat` on the same corpora). Pinned by `round4_pass8_recheck_pins` §1 (the recheck's four HOLE pins, inverted) with §2's three controls, and by two corpora whose floors were raised to what this buys: `round4_pass8_quantifier_position::…above_the_budget` 20 → **55 of 60**, and `…inside_the_budget` 180 → **235 of 240**. Mutation table, each row reddening a named test: restore the blanket `Implies` filter → 4 red; disable the vacuity discharge → 3 red; remove `peel_ground_premises` → 1 red (the width-7 array corpus falls 22 → 19 decided); let the vacuity check substitute only `false` values (the "handle one direction" mistake) → 3 red.)**
-- [x] **#P2b-51 (2026-09-21) — a published model falsifies its own quantified assertion, at every index sort the
-  finite expansion declines.** **CLOSED at the root 2026-09-28 (re-fix pass 12, decision (40)); close-out at the end
-  of this entry.** Six lines: `a1[#b0000011] = #b0`, so `(bvxor (select a1 #b0000011) #b1)` is `#b1` and
+- [ ] **#P2b-51 (2026-09-21) — a published model falsifies its own quantified assertion, at every index sort the
+  finite expansion declines.** **Closed at the root 2026-09-28 (re-fix pass 12, decision (40)), REOPENED 2026-09-29 by adversarial
+  recheck 13 (decision (54)) — both at the end of this entry; open for the named residue.** Six lines: `a1[#b0000011] = #b0`, so `(bvxor (select a1 #b0000011) #b1)` is `#b1` and
   `(forall ((i (_ BitVec 7))) (= (select a0 i) (bvxor (select a1 (_ bv3 7)) #b1)))` demands that `a0` be constantly
   `#b1`; the answer `sat` is **correct** (`a0 = ((as const …) #b1)` is a model) and the model published is
   `a0 = (store (store ((as const …) #b0) #b1111111 #b1) #b0000011 #b1)`, which reads `#b0` at `#b0000000`. This is
@@ -1262,201 +1366,99 @@ Line numbers below were re-verified on 2026-09-09, after the two file splits thi
   that changes from a falsifying model to a certified one is a correction, and the pass must list every changed
   response of the sweep and show each is exactly that. Both hole pins above invert then; the `#P2b-51` count on
   `qmbqi120` must fall, and `wrong_sat`/`wrong_unsat` must stay 0.
-  **CLOSE-OUT (2026-09-28, re-fix pass 12, decision (40)).** `Solver::array_completion_at_exit` runs the
-  completion at every `Sat` exit of `check_core` a quantified array assertion reaches (and at MBQI's saturation
-  point, see `#P2b-60`); on a `Sat` no gate takes away it changes only the MODEL, installing the certified
-  interpretation when the certificate — every assertion, ground and quantified, under the completed
-  interpretation — passes, and keeping the original model when it fails or declines. Installing drops every
-  model entry derived from the replaced interpretation, the evaluator reads a `select` through an installed
-  value, the installed model passes `quantified_model_refutes_ground_assertions` or is put back, and
-  `(get-model)`/`(get-value)` print it with the model's own leaf formatting. **Pins inverted** (each asserts
-  `sat` and replays the model over every point of the index sort):
-  `round4_pass11_recheck_pins::a_three_line_quantified_array_script_publishes_a_certified_model`,
-  `::the_boolean_element_sort_member_publishes_a_certified_model`,
+  **CLOSE-OUT (2026-09-28, re-fix pass 12, decision (40)).** `Solver::array_completion_at_exit` runs the completion
+  at every `Sat` exit of `check_core` a quantified array assertion reaches (and at MBQI's saturation point,
+  `#P2b-60`); on a `Sat` no gate takes away it changes only the MODEL: the certified interpretation is installed
+  when the certificate (every assertion, ground and quantified) passes, the original model stays when it fails or
+  declines, stale entries are dropped, the installed model passes `quantified_model_refutes_ground_assertions` or
+  is put back, and `(get-model)`/`(get-value)` print it in the model's leaf formatting. **Pins inverted** (each
+  asserts `sat` and replays the model over the whole index sort): `round4_pass11_recheck_pins::{a_three_line_quantified_array_script_publishes_a_certified_model, the_boolean_element_sort_member_publishes_a_certified_model}`,
   `round4_pass6_recheck_pins::a_published_model_satisfies_its_own_quantified_assertion` (the six-line script; no
-  `#P2b-58` (f) decline rule applies). **Measured** (regenerated corpus 2026-09-28, gen_qmbqi.py seed
-  20260928, `$R/tools/score.py`, cap 20 s, 2 jobs; the decisive figure is the solver-free exact evaluation,
-  because the pin re-check asks the probe and HEAD confirmed falsifying models through `#P2b-60`): HEAD
-  `c702310` {q_sat 78, eval_false **21**, eval_true 57, pinned_wrong_sat 19, agree 92}; final tree {q_sat 100,
-  eval_false **0**, eval_true 100, pinned_wrong_sat 0, agree 112}, q_sat_g_unsat / q_unsat_g_sat 0 / 0 on both;
-  supplementary `qeq120` (seed 20260931, one ground array equality per script) HEAD eval_false 11 of 46 `sat`,
-  tree 0 of 67. q / qnoite (widths 1-2, brute-force oracle) 0 wrong `sat`, 0 wrong `unsat`, 0 falsifying,
-  400 / 400 agree each, before and after. The 217-sweep has 0 verdict and 0 response differences (none of
-  its quantified-array scripts asks for a model). With `(get-model)` appended, 5 responses differ and each is
-  pinned back into its script (`$R/tools/sweep_models.py`): two HEAD models that falsified a GROUND assertion now
-  hold (`#P2b-62`), one correct model is replaced by the certified constant `0.0` (`AUFLIRA/06`), and two gain
-  entries at the new `#P2b-60` points and stay correct — listed in the CHANGELOG. Mutation-tested in an isolated
-  copy (CHANGELOG `[0.3.4]`).
-- [x] **#P2b-58 (2026-09-21) — COMPLETENESS, honest `unknown`, base-decided: MBQI cannot certify a `sat` on a
-  satisfiable quantified array script whose index sort is `(_ BitVec w)` with `w >= 7`, one bit above
-  `finite_expand`'s 64-point budget.** **FIXED AT THE ROOT 2026-09-22 (re-fix pass 11): decision (36)'s model
-  completion, published only behind a quantifier-free certificate — see the close-out at the end of this entry
-  for the design, the measurements and the mutation table. The two hole pins of pass 9 and the two of pass 10
-  are INVERTED and now assert the verdict and the published model.**
-  Opened by the cargo-formal adversarial recheck pass 9 on
-  `rk6/corpus/qmbqi120` — the round's own 120-pair width-7/8 corpus, the one `#P2b-51` is measured on, which had
-  never been run base-vs-tree. `c4b04b7` and crates.io 0.3.3 answer `sat` in milliseconds, by the pre-`#P2b-48`
-  free-value accident (the read under the binder is an opaque value of the element sort); this tree answers an
-  honest `unknown`. **Measured, release, both probes back to back** (`rk9/pairverd.py`, and `rk9/min/*_st.smt2`
-  for the counters): `rk6/corpus/qmbqi120/q0074` `unknown` 26.3 ms here against the base's `sat` 1.0 ms, and the
-  SAME formula written out over all 128 points of its index sort is `sat` in 136.7 ms **on this tree** — so the
-  truth is `sat` and it rests on no external oracle; `q0106` `unknown` 78.5 ms against `sat` 0.6 ms, its ground
-  twin `sat` 1,009.2 ms here; `q0075` `unknown` 25.1 ms against `sat` 6.1 ms. Two further members of the same
-  mechanism sit in the round's attack battery: `rk8/atk/f5_binder_collide_index.smt2` and `rf9/atk/wu1`, both
-  satisfiable, both decided by the base, and they are the only two tree-side `unknown`s in that 102-script
-  battery where the base decides.
-  **The counters name the mechanism rather than leaving it to a clock, and they rule out both mechanisms
-  decision (24a) named before this one.** None of the three carries `(set-option :max-conflicts N)`, and the
-  calibrated ceiling is 250,000 embedded checks against `q0074` `:conflicts 38 :array-refinement-rounds 15
-  :array-lemma-instances 45 :bv-embedded-checks 1167 :bv-embedded-conflicts 0`, `q0075` `:conflicts 61
-  :array-refinement-rounds 12 :bv-embedded-checks 1745 :bv-embedded-conflicts 0` and `q0106` `:conflicts 34
-  :array-refinement-rounds 38 :bv-embedded-checks 5411 :bv-embedded-conflicts 0`. **No budget is exhausted.**
-  The body of `q0074`'s quantifier reduces to `a1[i] = #b1` for every `i` over `(_ BitVec 7)`, which needs model
-  completion for an array default **under a binder** before a `sat` can be certified.
-  **What this is NOT.** Not mechanism (i), `#P2b-46` (f): no budget is installed, and the counters above sit
-  **46x to 214x below** the calibrated 250,000-check ceiling (5,411 on `q0106`, 1,745 on `q0075`, 1,167 on
-  `q0074`), so nothing ran out. Not mechanism (ii), `#P2b-57`: that family is closed at the root
-  and its repros are vacuous positive-polarity obligations, not array defaults. Not `#P2b-50` **as written**:
-  `#P2b-50` is a *declared* sort whose cardinality nothing pins, and its lever is finite-model finding over an
-  uninterpreted sort; here the index sort's cardinality is pinned at `2^w` and the only thing missing is a model
-  over it. Not `#P2b-53`: its repro `rk6/atk3/p4_bv7_two_stores.smt2` answers `unknown` on `c4b04b7` as well, so
-  no verdict is lost there, while the defining property of this item is that the base **decides**. `#P2b-50` and
-  this item are therefore kept **SEPARATE** — the alternative, widening `#P2b-50`'s scope sentence to "every sort
-  `finite_expand` declines, bit-vector index sorts included", was considered and declined because the two want
-  different levers — and `#P2b-50` carries a pointer to here.
-  **Lever**: model completion for an array default under a binder (Ge & de Moura's MBQI model construction) —
-  `#P2b-51`'s lever, costing a **verdict** here and not only a published model. Pinned green as holes by
-  `round4_pass9_recheck_pins::a_satisfiable_width_seven_array_script_the_base_decides_is_undecided_here`, with
-  `::the_same_formula_expanded_over_its_whole_index_sort_is_sat` as the in-test oracle so the pin is a statement
-  about the solver and not about the formula, and by
-  `::a_satisfiable_name_collision_script_the_base_decides_is_undecided_here` for the same mechanism on
-  `rk8/atk/f5_binder_collide_index.smt2`, with `::the_pinned_twin_of_the_name_collision_script_is_refuted` as its
-  control. Both go red the moment the verdict comes back, which is what they are for. *(Both were
-  inverted and RENAMED on 2026-09-22 — to `…_is_decided_by_a_certified_completion` in each case — so the two
-  names above no longer exist in the tree; they are kept here as the record of what was pinned.)*
-
-  **CLOSED AT THE ROOT 2026-09-22 (re-fix pass 11), by decision (36)'s model completion behind a
-  quantifier-free certificate.** New module `oxiz-solver/src/solver/array_completion_certify.rs`
-  (661 lines). **(a) The completion.** Every array-sorted free variable the goal mentions is given a
-  *total* interpretation — the constant array `((as const A) d)` over a default `d` searched in a
-  bounded pool (the element-sort values the candidate model already committed to, then the
-  element-sort literals the script spells out, then the two ends of the sort; at most 6 per array,
-  at most 3 arrays, at most 24 combinations). That is Ge & de Moura's pins-plus-default model
-  construction (CAV 2009), and it is the same rule `mbqi::model_certify` already uses for an
-  uninterpreted function's default over `Int` and `Real` — which is exactly why that module could not
-  be extended instead: `model_certify::value::value_sort` interprets `Int`, `Real` and `Bool` and
-  `None` for every other sort, so an array over a bit-vector index sort needs a value domain, an
-  evaluator and a region-stability argument it does not have. **(b) The certificate, and why a `sat`
-  can never rest on the completion alone.** Nothing is published until two kinds of *validity* query
-  have been discharged by ordinary quantifier-free solves, each budgeted at 20,000 conflicts and
-  never at a clock: for every maximal `forall` sub-term `∀x⃗. ψ`, `¬ψ[completion]` with `x⃗` replaced
-  by fresh reserved constants must be `Unsat`; and then
-  `(or (not A₁[completion]) … (not Aₙ[completion]))` must be `Unsat` — **one** quantifier-free query
-  over the assertions, which is the shape decision (36) asked for. `Unsat` means the formula holds
-  under *every* interpretation of whatever symbol the module failed to interpret, so the conclusion
-  survives an incomplete interpretation; the converse does not, which is why a `forall` that cannot
-  be certified **true** makes the attempt decline rather than be recorded as false, and why `exists`
-  is declined outright. **(c) Where it is hooked, and what that costs.** In `Solver::check`, after
-  `check_core` and *before* the honesty gates, and only where a verdict would otherwise be given up:
-  `Unknown`, or a `Sat` one of the gates is about to take away. A `Sat` that survives the gates needs
-  nothing from it and an `Unsat` is never revisited. It declines before it starts on a goal above
-  4,096 assertion-DAG nodes or carrying an application of a symbol it does not interpret (an
-  uninterpreted function survives into the validity query, where it is certain to decline), so the
-  common path pays one bounded walk.
-  **(d) The assumption `#P2b-58` recorded for the next pass is DISCHARGED, not worked around.** The
-  close-out note of re-fix pass 10 asked that decision (36)'s "the index variable is the only free
-  symbol left, so it is one QF_BV query" be verified before the certificate was designed, and the
-  adversarial recheck pass 10 pinned the script that breaks it
-  (`round4_pass10_recheck_pins::a_binder_constraining_two_arrays_at_once_is_decided`, then named
-  `…_is_undecided_here`): a body that reads a **second** array whose default the candidate model also
-  leaves free. The assumption is false as written and the repair is not a different certificate but a
-  wider completion — interpret *every* array whose default is free at the same time, and the negated
-  body has the index variable as its only free symbol again. That is why the search is a product over
-  per-array pools rather than a search for one default, and it is why `q0106` (three arrays under one
-  binder) is in scope at all.
-  **(e) Measured on the final tree** (decision (36)(c)), release, one process at a time; "base" is `c4b04b7`.
-
-  | script | base (`c4b04b7`) | tree before | tree after |
-  |---|---|---|---|
-  | `rk6/corpus/qmbqi120/q0074` | `sat` 7.48 ms | `unknown` 7.0 ms | **`sat` 22.5 ms** |
-  | `rk6/corpus/qmbqi120/q0075` | `sat` 0.25 ms | `unknown` 12.5 ms | **`sat` 30.4 ms** |
-  | `rk6/corpus/qmbqi120/q0106` | `sat` 0.12 ms | `unknown` 11.3 ms | **`sat` 21.3 ms** |
-  | `rk8/atk/f5_binder_collide_index.smt2` | `sat` 0.12 ms | `unknown` | **`sat` 4.6 ms** |
-  | `rf9/atk/wu1.smt2` | `sat` 0.07 ms | `unknown` | **`sat` 5.2 ms** |
-  | `rk11/atk/m2_name_bound_twice.smt2` | `sat` 0.09 ms | `unknown` 1.1 ms | **`sat` 3.7 ms** |
-  | `rk11/atk/m5_model_determinism.smt2` | `sat` 0.10 ms | `unknown` 1.2 ms | **`sat` 4.2 ms** |
-  | `rk11/atk/m1_two_arrays_one_binder.smt2` | **`unknown`** 0.39 ms | `unknown` | **`sat` 2.7 ms** |
-  | `rk8/atk/f4_binder_collide_array.smt2` | **`unknown`** 0.06 ms | `unknown` | **`sat`** |
-  | `rk11/atk/m4_body_false_at_a_point.smt2` | `unsat` 0.04 ms | `unsat` | **`unsat` 2.3 ms** |
-  | `rk11/atk/m4b_stored_point_conflict.smt2` | **`unknown`** 0.05 ms | `unsat` | **`unsat` 1.6 ms** |
-
-  (Every figure re-measured on the final tree with the release probes, one process at a time, while the
-  machine also carried a concurrent workspace build — so the millisecond columns are upper bounds and the
-  verdicts, which are what the entry claims, are not.)
-  `m1` and `f4` are verdicts the tree **gains over the base**, not ones it lost. `m4`/`m4b` are the controls: a
-  completion the pool offers and the certificate refuses must stay refuted, and both do.
-  Decision (36)(c)'s corpus figures, all re-taken on the final tree:
-  `rk9/pairverd.py` base-vs-tree over `rk6/corpus/qmbqi120` (cap 20 s, 2 workers) — **LOST 3** where it
-  lost 6 (`q0033`, `q0047` and `q0103`, all three `#P2b-59`'s residue on mechanism (i) and all three TIMEOUT at the 20 s cap; the three `#P2b-58` losses `q0074`, `q0075` and `q0106` are gone), GAINED 30, FLIPPED 8 (every flip base `sat` → tree `unsat`, the
-  round's soundness fixes); `rk9/qvsg.py` over the same corpus — **WRONG_SAT 0, WRONG_UNSAT 0**, quantified side
-  85 `sat` / 26 `unsat` / 3 `unknown` / 6 TIMEOUT against 78 / 26 / 10 / 6 before, agree **96** against 90; `rk6/score6.py` (`#P2b-51`'s measurement, cap 20 s, 2 jobs) — `{pairs 120, q_sat 85, q_sat_g_unsat 0, q_unsat_g_sat 0, falsifying_models 8, models_confirmed 51, models_unresolved 26, panics 0, agree 95}`, which is the half of
-  decision (36)(c) that required the falsifying-model count **not to rise**.
-  **`#P2b-51` is NOT closed by this** *(superseded 2026-09-28: decision (40) runs the completion at every `Sat`
-  exit and `#P2b-51` is closed — see its close-out)* and the reason is structural rather than incidental: the completion runs
-  only where a verdict would otherwise be given up, so a script that already answers `sat` with a partial
-  candidate model keeps that model. What the completion buys `#P2b-51` is the scripts it moves from `unknown`
-  to `sat`, each of which is published with the interpretation its certificate was discharged over.
-  `round4_pass6_recheck_pins::a_published_model_still_falsifies_its_own_quantified_assertion` is therefore
-  still green as a hole, correctly. Widening the hook to every quantified array `sat` was considered and
-  **declined on a gate**: it would change the published model of scripts the 217-benchmark sweep compares
-  response-for-response, and the sweep's "0 response differences" is a release gate, not a preference.
-
-  **(f) Scope, stated as what declines rather than as what works (rewritten 2026-09-28, decision (41)).** The
-  module declines — and the goal keeps its `unknown`, or on a `Sat` its original model — when: no constant array
-  over a pooled default and no default-plus-pins interpretation certifies, the pins being the goal's own index
-  literals and the candidate model's values of its index-sort constants (an alternating array, or one that
-  differs from its default at an index the goal never names, declines); the index sort is infinite (`Int`,
-  `Real`) and no *constant* certifies — the pinned search is restricted to bit-vector and `Bool` index sorts
-  because over `Int` one fill query cost seconds (`bench/…/AUFLIA/array_update.smt2` 25 ms -> 104 s with it,
-  33 ms without); the goal carries an application of a symbol the module does not interpret; an `exists`, or
-  an alternation that survives the peel of a consecutive `forall` chain; a universal at negative polarity
-  (its certificate needs the universal *true*); more than 3 array-sorted free variables or more than 4,096
-  assertion-DAG nodes; or a query runs out of its 20,000-conflict budget (96 certificate queries for the
-  constant search, one fill query plus one certificate for the pinned one; a candidate the evaluation
-  pre-filter refutes on the finite sample costs no query). `#P2b-50` — a **declared** sort whose cardinality
-  nothing pins — stays separate and open: this module never invents a domain.
-
-  **(g) Pins and mutations** (decision (36)(d)). The four hole pins are **inverted**:
-  `round4_pass9_recheck_pins::a_satisfiable_width_seven_array_script_is_decided_by_a_certified_completion`
-  (asserts `sat` **and** replays the published model against the quantifier written out at all 128 points of
-  its index sort — the in-test oracle
-  `::the_same_formula_expanded_over_its_whole_index_sort_is_sat` stays beside it),
-  `::a_satisfiable_name_collision_script_is_decided_by_a_certified_completion`,
-  `round4_pass10_recheck_pins::the_guarded_universal_member_of_the_completion_family_is_decided`
-  (**new**: `rf9/atk/wu1.smt2` verbatim — the third script on mechanism (iii)'s list, which had no
-  in-tree pin at all and was carried only by the round's out-of-tree 102-script battery, so a
-  regression there would have been invisible to `cargo nextest`),
-  `round4_pass10_recheck_pins::a_satisfiable_script_with_the_index_name_bound_twice_is_decided` and
-  `::a_binder_constraining_two_arrays_at_once_is_decided` (asserts `sat` **and** that the published model names
-  one constant array per array, `#b1` beside `#b0`). Two new guards sit with them:
-  `::a_completion_that_is_wrong_at_a_point_is_refuted_and_never_published` and
-  `::the_completed_model_is_the_same_on_two_runs`.
-
-  | mutation | effect, measured |
-  |---|---|
-  | **M11a** `certify_sat_by_array_completion` returns `false` at entry (no completion at all) | **5 red**: the four inverted pins and `the_completed_model_is_the_same_on_two_runs`. The two refutation guards stay green, which is what makes them independent of the completion. |
-  | **M11b** keep the completion, make `certificate_passes` return `true` at entry (completion **without** its certificate) | **2 red**, and they are red for the right reason: the tree answers `sat` for `∀i. a[i] = ¬b[i]` with `a = b = ((as const …) #b1)` — a published model that falsifies its own formula. That is the wrong `sat` the certificate exists to prevent, and the two *model*-checking pins are its witnesses. |
-  | **M11b on `m4`/`m4b`** | **no effect, measured rather than assumed** — so whatever refutes them, it is not the completion. Which path *does* is not established here and is not claimed; what is measured is that both answer `unsat` with the certificate disabled, and that the hook runs only where the verdict would otherwise be `unknown` or a gate-downgraded `sat`. They are kept as guards for the *other* direction: they redden if a later pass moves the hook earlier. |
-
-  **Amended 2026-09-28 (re-fix pass 12, decisions (40), (41)).** The hook now also runs at every `Sat` exit
-  (model only, `#P2b-51`) and at MBQI's saturation point (`#P2b-60`), and the completion is a default **plus
-  pinned points** where no constant certifies (`array_completion_certify/pinned.rs`: one fill query over a
-  symbolic default and symbolic point values proposes, the evaluation pre-filter and the same certificate
-  decide). `round4_pass11_recheck_pins::an_interpretation_that_is_not_constant_anywhere_is_certified_with_pins`
-  is the inverted `…_is_declined_and_never_sat` (both scripts `sat`, each model replayed at all 128 points).
-  The M11 guards were **not** re-derived: `a_completion_that_is_wrong_at_a_point_is_refuted_and_never_published`,
-  `m4` and `m4b` are unsatisfiable, `check_core` answers them `unsat`, and an `Unsat` never reaches the hook on
-  either path — all three stay green unchanged, and the mutation rows for this pass are in the CHANGELOG.
+  `#P2b-58` (f) rule applies). **Measured** (regenerated corpus seed 20260928, `$R/tools/score.py`, cap 20 s, 2
+  jobs; the decisive figure is the solver-free exact evaluation): HEAD `c702310` {q_sat 78, eval_false **21**,
+  pinned_wrong_sat 19, agree 92}, pass-12 tree {q_sat 100, eval_false **0**, agree 112}; `qeq120` (seed 20260931)
+  HEAD eval_false 11 of 46 `sat`, tree 0 of 67; q / qnoite 0 wrong `sat` / 0 wrong `unsat` / 0 falsifying.
+  **Amended 2026-09-29 (re-fix pass 13).** Decision (48): a candidate that already satisfies every assertion *as
+  printed* is kept (`Context` renders it, parses it back, and certifies it with the completion's own certificate)
+  — `AUFLIRA/06`'s correct model is printed again instead of the certified constant. The residue where the
+  completion declined is fixed as `#P2b-63`. The `bench/` sweep on the final tree: 0 verdict differences against
+  `c702310`; plain responses 1 difference (`bv_simple`, decision (45)'s trajectory), with `(get-model)` 21, none a
+  falsifying model replaced by a certified one and every tree model verified correct — 17 decision (45)
+  trajectories (`array_update` also with a `#P2b-60` point), 2 with only an extra default-valued entry at a
+  `#P2b-60` point (`array_sorted`, `AUFLIRA/06`), 2 ground-falsifying HEAD models corrected (`#P2b-62`); against
+  re-fix pass 12's tree the only change is `AUFLIRA/06`. Corpora on the final tree (regenerated corpus 2026-09-28, gen_qmbqi.py seed 20260928 /
+  20260931, cap 20 s, 2 jobs): qmbqi120 {q_sat 101, eval_false 0, agree 114}, qeq120 {q_sat 71, eval_false 0,
+  agree 116}, quantified vs ground WRONG_SAT / WRONG_UNSAT 0 / 0 on both; q / qnoite 0 / 0 / 0, 400 / 400 agree.
+  **REOPENED 2026-09-29 by adversarial recheck 13 (decision (54)); re-fix pass 14's close-out below — the family is
+  closed where it published a falsifying model, and OPEN for the named residue the completion still declines.**
+  Recheck 13 measured that wherever the completion declined, the `sat` published the candidate model unchecked:
+  exists-only (`recheck13/atk/g01`, `g02`), a negated `exists` (`c04`, `d02`, `d05`), four arrays under independent
+  binders (`d03`), an `Int` / `Real` index no constant completes (`d01`, `d06`, `d08`); `fuzz_qc` seed 29093020: 141
+  falsifying models of 2,574 `sat` on the pass-13 tree, 366 of 1,828 on `c702310`. **Re-fix pass 14:** (i) **the net** —
+  at every quantified array `Sat` no certificate covers (the completion declined and decision (48) kept nothing),
+  `Context` renders every declared constant as `(get-model)` prints it, parses it back (uninterpreted-sort witnesses
+  as pairwise-distinct constants, datatype constructors as constructor terms) and certifies it against every
+  assertion (`array_completion_certify/printed.rs`, `context/model_fmt/published.rs`); a model that fails is withheld:
+  `(get-model)` answers `(error "model not certified: assertion N … is false at ((i v))")`, `(get-value)` the same for
+  a term reading one of its arrays, a term reading none still answers, the verdict unchanged (decision (40));
+  (ii) **completed** — the exists-only witness was lost because its Skolem constant had no value (`#P2b-71`); a negated
+  `exists` goes through its dual universal (`polarity.rs`), and a quantifier sub-term neither of whose values certifies
+  is left undetermined (the assertions must hold for both); independent arrays are searched per group, the bound on a
+  group (`groups.rs`); `Int` / `Real` complete with the candidate's points over a default from the script's constants
+  and their `± 1` (`infinite.rs`), certified pointwise (`split.rs`); the printed candidate is completed around the
+  groups it gets right (`Solver::complete_around_printed`); (iii) **residue, by name** (each answers `unknown`, or on a
+  `sat` is withheld — never a falsifying model): a group of more than three arrays one chain of assertions links
+  (`fuzz_qc` 29093021 script 2315, withheld; `recheck13/atk/c01`, `unknown`); an uninterpreted function or a
+  non-completed array read at a bound variable (`c02`); a `∀∃` alternation (`c06`, `d07`); an interpretation of no
+  default-plus-points form (`a[i] = i`, `c10`; `a[i] = 2·i` over `Int`, `c08`); a read at a compound index over an
+  infinite sort (`a[i + 1]`), certified only by the validity query; a goal over 4,096 nodes. **Measured on the final
+  tree** (`fuzz_qc`, 3,000 scripts, cap 20 s, 2 jobs, every published model evaluated exactly): seed 29093020
+  falsifying 141 → **0** (withheld 0; `sat` 2,574 → 2,864, `unknown` 502 → 73), fresh seed 29093021 **0** falsifying,
+  1 withheld of 2,940 `sat` (HEAD `c702310` on the same seed: 294 falsifying of 1,826 `sat`); recheck 13's nine repros all print certified models (each replayed). Pins
+  `round4_pass13_recheck_pins` §1–§4 (inverted), §14 (the net, the residue pinned as a hole).
+  **The `bench/` sweep on the final tree (decision (57), option (a)):** 0 verdict differences against `c702310`,
+  `c4b04b7` and re-fix pass 13; `(get-model)` responses differ in 24 / 28 / 4, every tree model verified correct (pinned
+  re-solve with the HEAD and 0.3.3 judges, a replay with every function fixed to its printed `define-fun`, or by hand
+  for `AUFLIRA/01` and `/03`). Against `c702310`: 17 decision (45) trajectories, 2 with an extra default-valued entry
+  at a `#P2b-60` point (`AUFLIA/array_sorted`, `AUFLIRA/06`), 2 fresh values of `#P2b-71` (`UFLIA/03_array_like_axioms`,
+  `qf_a/array_04`), 3 falsifying → correct (`AUFLIA/02_extensionality` and `AUFLIA/array_extensionality` by `#P2b-62`,
+  `UFLIA/surjective` by `#P2b-71`'s Skolem values); the 4 against pass 13 are those three and `array_update`'s entry
+  order (CHANGELOG `[0.3.4]` Known open). Decision (48) as restated by decision (57) — a correct candidate is never
+  *replaced* by a completion — holds: `AUFLIRA/06`'s candidate is printed with one more default-valued entry, never
+  swapped for a certified constant.
+  **Re-fix pass 15 (adversarial recheck 14; decisions (67), (68)) — every quantified `sat` is certified or withheld.**
+  Pass 14's net ran only where `has_array_ops` was set and read the solver's assertions after Skolemisation,
+  destructive equality resolution and vacuous-binder elimination had removed a quantifier: `q01` (scalar), `u04` (UF),
+  `n02` (an array read only under a binder) printed falsifying models (recheck 14: 50 on `g14a`, 7 on `bench/`), and
+  an application nested in another had no reading, so correct models were withheld (`n11`; 95 of 132 on `g14a`).
+  **Now** the scope is what was ASSERTED — any quantifier in an asserted term or a `check-sat-assuming` assumption,
+  whatever the theory (`printed_check::goal_is_quantified`) — and the certificate reads every uninterpreted function
+  from its printed `define-fun` table, bottom-up and under binders (as printed: where the congruence closure left two
+  entries at one tuple, the first); where its queries cannot decide, a query-free second layer evaluates the closed
+  goal exactly (`printed_eval`: closed sub-terms folded, a datatype-indexed read folded over the printed store chain by
+  value, `Bool`, bit-vectors to 2^12 and a guard-bounded `Int` box enumerated, an `exists` witnessed at the body's
+  literals and neighbours, an unbounded universal only through `mbqi::model_certify`'s region enumeration). Printed
+  `Real` values read back as the literals they denote; `(get-value)` of a quantified goal's compound term answers from
+  the printed model. **Measured, z3 4.15.4 as the judge:** `bench/` with `(get-model)` — `c702310` 11 falsifying of
+  144 models, pass 14 8, this tree **0**, 5 withheld, every one falsifying on `c702310` (`UFLRA/03_monotonicity`,
+  `UFLIA/monotone_basic`, `UFLRA/real_identity`, `real_interp`, `real_monotone`), 0 correct model withheld; `g14a`
+  (seed 30093001, 3,000 scripts, cap 10 s): falsifying 192 / 115 (`c702310` / pass 14) → **5**, all quantifier-free
+  (`#P2b-81`), withheld 0 / 132 → 17, every one falsifying on `c702310`, 124 of pass 14's withheld now printed and
+  replaying (re-taken on re-fix pass 17's final tree: falsifying 4, withheld 18 of 2,418 `sat`, two of them — `s00403#0`,
+  `s02163#0` — correct on `c702310` and pass 14, decision (24a)'s (G)). **What is withheld, by shape** (the printed model is not the interpretation the search certified, or the
+  certificate cannot decide it): a table whose else value breaks a universal the search satisfied through another
+  interpretation (a monotone `f`, `∀x. f(x) = x`; `repair_else_values` tries the table's entry values and the goal's
+  literals first); a table the congruence closure left two values at one point, read as printed (`#P2b-74`); a
+  nonlinear body over an unbounded domain; the array completion's own declines (above). The lever for the first is to
+  print the interpretation the search certified (a searched default as the else value, the projection as a step
+  function). Pins `round4_pass14_recheck_pins::{quantified_goals_outside_the_old_net_publish_a_certified_model,
+  a_correct_model_is_published_by_the_net}` (inverted), `round4_pass15_fix_pins::{a_skolemised_exists_and_a_vacuous_binder_are_certified_as_printed,
+  goals_the_queries_leave_open_are_certified_by_evaluation, a_datatype_indexed_read_under_a_vacuous_binder_is_certified,
+  get_value_of_a_quantified_goal_agrees_with_the_printed_model}`; mutation (isolated copy, z3-judged 224-script corpus
+  / the round-4 pin binaries): `NO_SCOPE` 16 falsifying models (from 2) / 5 red, `CERT_TRUE` 18 / 4, `NO_TABLES` 48
+  withheld (from 3) / 5, `NO_EVAL_CERT` 37 withheld / 2, `NO_DT_READS` 1 withheld / 1, `NO_GV_PRINTED_FIRST` 4 wrong
+  `(get-value)` / 1.
+- [x] **#P2b-58 (2026-09-21) — COMPLETENESS, honest `unknown`, base-decided: MBQI cannot certify a `sat` on a satisfiable quantified array script whose index sort is `(_ BitVec w)` with `w >= 7`, one bit above `finite_expand`'s 64-point budget.** — closed; the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-58), moved verbatim by re-fix pass 14 (decision (58)).
 - [x] **#P2b-59 (2026-09-21) — REGRESSION against `c4b04b7` and crates.io 0.3.3, present in the committed
   checkpoint `00add07`: a QUANTIFIER-FREE `QF_ABV` script's lazy array refinement does not converge.**
   **FIXED at the root 2026-09-22 (re-fix pass 10); the residual cost is reclassified to `#P2b-46` (f) with its
@@ -1677,94 +1679,116 @@ Line numbers below were re-verified on 2026-09-09, after the two file splits thi
 
   (e)'s fixpoint moves from 66 / 208 after 30,402 checks to **70 / 195 after 9,302**, and the swapped order is decided for the first time. Decision (35)(c)'s "decide `sat` in milliseconds" is **not met as written**: 0.16–0.36 s for the original order and 0.8–1.2 s for the swapped one, against 0.1 ms on `c4b04b7`. **Decision (44) is NOT met:** below 9,302 checks the count still grows with the budget (9 → 47 → 70 rounds at 500 / 5,000 / 50,000). Both variants it names were built on this tree and measured unbudgeted — every deferred family for every violated pair in each round (`q33_a01` 5 rounds but 27,700 checks, 1.0 s; swapped 9 rounds, 123,970 checks, 4.2 s) and the same staged behind the eager families (20 rounds, 74,363 checks, 2.1 s; swapped 18, 43,122) — and both **raise** the checks spent against 9,302 and 29,189, so neither landed (patches `$R/fixB/patches/p44_*`). Laddered at 500 / 5,000 / 20,000 / 50,000 checks (`$R/fixB/final/v44/`), neither meets the criterion itself either: every-family rounds `q33_a01` 2 / 2 / 2 / **5** (`sat` only at 50,000) and swapped 2 / 2 / 4 / 4 (**`unknown` at 50,000**, which the landed tree decides); staged 4 / 9 / 16 / 16 (`q33_a01` **`unknown` at 50,000**) and 4 / 5 / 13 / 18. Each variant loses one of the two verdicts the landed tree reaches at 50,000. **Decision (43)'s outer half is NOT met:** round 1 of the two orders asserts the same instances, and the trajectories part after it because the outer search numbers the assertions' SAT variables in the order written (70 / 195 against 124 / 295).
   **Pins, re-fix pass 12:** the plateau pin became `round4_pass9_recheck_pins::the_refinement_reaches_a_fixpoint_above_its_saturation_point` (`sat` with identical rounds / instances / checks at 20,000 and 50,000 and fewer checks spent than offered — the fixpoint (e) could only state, now cheap enough to assert); `round4_pass10_recheck_pins::the_same_script_with_its_two_assertions_swapped_is_not_decided` is inverted as `::the_same_script_with_its_two_assertions_swapped_is_decided` (both orders `sat`, each with identical rounds / instances / checks at 35,000 and 50,000 and fewer checks spent than offered — a fixpoint per order; the counters *between* the orders are the open hole below); the holes stay green with corrected docs — `::the_array_refinement_round_count_still_grows_with_the_budget` (47 / 158 at 5,000 against 64 / 188 at 8,000), `round4_pass11_recheck_pins::the_round_counts_at_five_hundred_and_five_thousand_checks_differ` (9 / 69 against 47 / 158) — and `round4_pass10_recheck_pins::the_two_assertion_orders_still_take_different_refinement_trajectories` is new. Unit tests `solver::array_axioms::canonical::tests::{two_interning_orders_give_every_term_the_same_key, distinct_structures_get_distinct_keys}`. `rk6/corpus/qmbqi120/q0033`, `q0047` and `q0103` could not be re-run (destroyed with the earlier scratch directory).
-- [x] **#P2b-60 (2026-09-28) — SOUNDNESS, REGRESSION vs `c4b04b7` on bit-vector indices: an array pinned by a
-  ground equality, read under a binder above the finite-expansion budget, answered a WRONG `sat`.** Found by the
-  rebuilt `score.py`, whose pin re-check CONFIRMED 19 of HEAD's 21 falsifying models on the regenerated corpus
-  2026-09-28 (gen_qmbqi.py seed 20260928, `$R/corpus/qmbqi120` — not `rk6/corpus/qmbqi120`). Minimal
-  (`$R/corpus/named/wsat1`): `a1 = (store ((as const (Array (_ BitVec 7) (_ BitVec 1))) #b0) #b0000000 #b1)`
-  beside `(forall ((i (_ BitVec 7))) (= (select a1 i) #b1))` — `unsat` (i = 1); `c4b04b7` / 0.3.3 `unknown`,
-  HEAD `sat`. Also `wsat3`, `wsat4`, the pinned regenerated `q0000`, and pre-existing wrong `sat`s on base and
-  0.3.3 too: `wsat6` (`Int` index), `wusort2` (declared index sort, two distinct constants); `wreal` (`Real`
-  index) HEAD only. **Cause**: `mbqi::sat_certify`'s saturation test instantiates an essentially-uninterpreted
-  universal over the index terms the model reads; an array is not an uninterpreted function — `store` / the
-  array constant pin it where no read names it — so the projection that extends the instances to the domain
-  was not a model. **Fixed at the root 2026-09-28 (re-fix pass 12)**: `mbqi/sat_certify/unnamed_region.rs`
-  completes the relevant set of an array index position at the saturation re-check (every named index value
-  — index-position and guard literals, model values of non-literal index terms — plus one representative per
-  gap of every order a guard uses; every ground term over a declared sort; every constructor of an enumeration
-  datatype — an arm nothing witnesses yet, the enumeration spelling `wdt` still answering `sat` through `#P2b-61`), and `Solver::certify_at_mbqi_saturation` concludes with a certified model completion before paying
-  for those instances (`$R/corpus/qeq120/q0033`, gen_qmbqi.py seed 20260931, was `sat` 12 ms on HEAD, no answer in 60 s with the instances every
-  round, `sat` 8-84 ms now). All eight repros answer correctly; `pinned_wrong_sat` 19 -> 0 and 10 -> 0 on the two regenerated
-  corpora (seeds 20260928 / 20260931). Six further spellings with a non-literal index (`$R/corpus/named/adv_*`: a free
-  store index, `k + 1`, two stores, two binders, two `Int` spellings) answer `unsat` here and a wrong `sat` on HEAD (five on
-  `c4b04b7`). Pins: `round4_pass12_unnamed_region_pins` (6 tests). Residue, wrong `sat`s on every build: `#P2b-64`. Cost:
-  `bench/…/AUFLIA/array_update.smt2` 7 / 24 -> 11 / 37 refinement rounds / instances (verdict `sat`,
-  re-attributed in `round4_pass8_budget_losses`).
-- [ ] **#P2b-61 (2026-09-28) — SOUNDNESS, pre-existing (`c4b04b7`, 0.3.3, HEAD): datatype constructors are not
-  distinct as array indices.** `(declare-datatypes ((Color 0)) (((red) (green) (blue))))`, `a = (store ((as const
-  (Array Color Int)) 0) red 1)` and `(assert (= (select a green) 1))` — QUANTIFIER-FREE, `unsat` — answers `sat`
-  on every build (`$R/corpus/named/wdt_ground.smt2`; the quantified `wdt.smt2` likewise). Read-over-write needs
-  `red ≠ green`, which the array refinement never receives from the datatype theory. Found by re-fix pass 12
-  while closing `#P2b-60`; not closed there (a QF array/datatype combination defect, outside decisions
-  (40)-(46)). Lever: constructor-distinctness lemmas for datatype-sorted index terms the array collector sees.
-- [ ] **#P2b-63 (2026-09-28) — where the completion DECLINES, a `sat` still publishes a model falsifying its own
-  universal (the reach `#P2b-51` leaves).** `#P2b-51`'s mechanism is closed (the completion now runs on every
-  `Sat`), but a goal it declines by `#P2b-58` (f)'s rules keeps the candidate model: `∀i:(_ BitVec 7). a[i] = #b1`
-  beside an unrelated uninterpreted function, beside a fourth array, or beside an `exists` — all `sat`, all
-  published with `a` false at most points; verdicts and models byte-identical on HEAD, so not a regression. Not
-  measured on either regenerated corpus (neither generates those shapes). Pinned green as a hole by
-  `round4_pass12_completion_pins::a_declined_completion_still_publishes_a_falsifying_model` (three shapes, each
-  replayed over 128 points). Lever: interpret the declined symbol from the candidate model (a function's entries
-  and default; the arrays the universal does not read at their candidate values; the Skolem witness) instead of
-  declining, and certify as before.
-- [ ] **#P2b-64 (2026-09-28) — SOUNDNESS, pre-existing on `c4b04b7`, 0.3.3, HEAD and this tree: `#P2b-60`'s family at
-  two index sorts its repair does not reach.** (1) A datatype with a field: `a = (store ((as const (Array L Int)) 0) nil
-  1)` beside `(forall ((x L)) (= (select a x) 1))`, false at `(cons 0 nil)`, answers `sat`
-  (`$R/corpus/named/dt_field.smt2`). (2) A declared index sort whose second element exists only as the Skolem
-  witness of `(exists ((x U)) (distinct x u))` (`usort_skolem.smt2`): decided `sat` by MBQI's exhaustive-universe
-  path, whose universe the Skolem constant is missing from (spelled `(g u)` it is `unsat` here). Levers: constructor
-  terms up to the goal's depth as index points; Skolem witnesses in the uninterpreted-sort universe.
-- [ ] **#P2b-65 (2026-09-28) — SOUNDNESS, a wrong `sat` on `c4b04b7`, HEAD and this tree (crates.io 0.3.3: `unknown`): a
-  disequality between two bound variables is accepted as an almost-uninterpreted guard.** `(forall ((i (_ BitVec 7))
-  (j (_ BitVec 7))) (=> (not (= i j)) (distinct (select a i) (select a j))))` beside `(= (select a #b0000000) #b0)`
-  is a pigeonhole (128 indices, 2 values) and `unsat`; it answers `sat` (`$R/corpus/named/pigeon2.smt2`). The
-  pinned twin `a = (store ((as const …) #b0) #b0000011 #b1)` is `unsat` here (HEAD `sat`), through `#P2b-60`.
-  Cause, read at the source: `mbqi::sat_certify::eu_walk` descends `Not` without tracking polarity, so
-  `(not (= i j))` in a premise passes as the monotone var-var `=` guard; `i ≠ j` is not preserved by the
-  projection (two unnamed indices map to one representative), so the saturated instance set proves nothing.
-  Found by re-fix pass 12's adversarial probes after its gates had run; not fixed there (a change to the
-  certifier's fragment test is its own measured change). Lever: reject a var-var comparison under an odd
-  number of negations in `premise_safe`.
-- [x] **#P2b-62 (2026-09-28) — a published model falsified its own GROUND assertion: a quantifier body's read
-  over its bound variable was rendered as an array entry (REGRESSION vs `c4b04b7`).**
-  `bench/z3_parity/benchmarks/AUFLIA/array_extensionality.smt2` with `(get-model)`: HEAD printed `a = (store
-  (store ((as const …) 0) 0 0) 1 20)` beside `(assert (= (select a 0) 10))` and a `(get-value)` answering
-  `10`; `extended_theories/AUFLIA/02_extensionality.smt2` the same. The body term `(select a i)` and the bound
-  `i` had model entries (0 / 0); laid down as a read at index 0 it shadowed `(select a 0) = 10`. **Fixed
-  2026-09-28 (re-fix pass 12)**: the renderer and its read-side twin skip every read mentioning a variable
-  a quantifier binds and no declaration names (`Context::bound_only_variables`). Both scripts now print
-  models their pinned re-check accepts (`$R/tools/sweep_models.py`).
-- [x] **#P2b-66 (2026-09-28) — SOUNDNESS, public API: `oxiz_sat::Solver::solve_with_assumptions` answered `sat`
-  with a model falsifying one of its own assumptions, and its core dropped the partner of a complementary pair.**
-  Found by re-fix pass 12 building decision (45) on it. (a) The assumptions were decided once, before the search
-  loop; a conflict backjumped to `max(bt, 1)`, a limited restart went to level 0, and nothing re-decided what they
-  undid, so a propagation could set an assumption false and the call still answered `sat` — pre-fix,
-  `oxiz-sat/tests/assumption_retention.rs` fails at its first instance (seed 1, round 0: incremental `Sat`, fresh
-  solver with the assumptions as units `Unsat`). (b) `analyze_final_core` keyed assumptions by *variable*, so with
-  `x` and `¬x` both assumed the core came back `{¬x}` — satisfiable on its own (found by `oxiz-theories`'
-  `bv_root_scoped_definitions` differential test, `a <u b` beside `a >=u b`). — **(fixed at the root:
-  `oxiz-sat/src/solver/assumption_search.rs` is MiniSat's scheme — assumption `i` owns level `i + 1`, an empty one
-  when already implied, and is re-decided after every backjump and restart; the core walk keys by literal. Learned
-  clauses stay valid across calls, which (45) relies on; the debug-only fixpoint scan runs at the `Sat` exit rather
-  than at every decision (a per-decision scan made the debug-build tests of an incremental caller two orders of
-  magnitude slower). Four tests.)**
-- [x] **#P2b-67 (2026-09-28) — `oxiz-opt` PMRES (WPM1) relaxed every core clause from its ORIGINAL body, so a core
-  needing two violations reproduced itself for ever — masked by `#P2b-66`.** A clause relaxed twice could be paid
-  only by its newest blocking variable; `pmres::tests::test_pmres_stratified` ("at most one of `x0..x2`", all three
-  wanted) passed only because the pre-fix solver dropped an assumption and answered `sat`, and hit nextest's 180 s
-  ceiling once `#P2b-66` was fixed. — **(fixed: the relaxed body keeps every blocking variable, WPM1 as published;
-  346 of 346 `oxiz-opt` tests pass.)**
-- [x] **#P2b-46 (2026-09-19) — the round-4 recheck, pass 5: `n`-ary `distinct` over arrays lost its verdict above the enumeration limit, and below it nothing deterministic bounded the run.** Eleven findings, at the root; condensed 2026-09-21 (re-fix pass 8) from 54 lines, nothing dropped. **(1) Verdict regression closed.** Eleven pairwise-distinct arrays over `(Array (_ BitVec 4) (_ BitVec 1))` — trivially `sat` — answered `unknown` against the base's 0.26 ms, attributed by instrumentation to `bv_bridge`'s partition-lemma loop giving up at `MAX_LEMMAS = 512` (the Skolem cascade mints `C(11,2) = 55` witness indices in one round). The bound is 8,192; n = 11 is `sat` in 0.91 s, 15 in 38.1 s, width 5 / n = 15 in 4.62 s. Guarded — not `#[ignore]`d, it is a verdict — by `round4_recheck_regressions::array_cardinality_above_the_enumeration_limit_is_decided`, with its own kill ceiling in `.config/nextest.toml`; mutation back to 512 reddens exactly that guard. **(2) The unbounded run is bounded, deterministically.** `Statistics::bv_embedded_checks` + `BV_EMBEDDED_CHECK_CEILING = 250_000` is the third currency beside `ARRAY_REFINEMENT_RESOLVE_CONFLICTS` (a loop that *searches*) and `ARRAY_REFINEMENT_LEMMA_BUDGET` (one that only *builds*), neither of which can see one round whose re-solve is enormous: `(distinct a0 … a19)` at width 3 answered nothing in 900.03 s and now answers `unknown` after exactly 250,002 checks (346.6 s; 1.0 s on re-fix pass 12's tree, `#P2b-46` (f) closed). Calibration: `bench/` peaks at 207 checks per script (1,200x headroom), the width-2 cost-pin ladder at 36,281 (6.9x), the most expensive script that still decides at 76,860 (3.3x). **(3)** `:named` labels go through `Parser::reject_reserved_symbol`. **(4) Decision (16) swept** `array_distinct_timing.rs` and `ext_shapes.rs`'s generator: the clock there did not only put a verdict behind the machine, it put the **tally** there, because `score` replays a model on the `sat` branch only. **(5)** The two `include_str!` guards in `round4_reserved_mints.rs` are behavioural. **(6)** `array_uf_campaign` gained its sibling's nextest override. **(7)-(11)** are measured record corrections. **(e) Deviation, declared with its measurements:** the lazy, model-guided extensionality family was implemented and is **worse** — it converges in `O(n)` rounds but a round is a whole re-solve (eight arrays at width 3 burned all 50,000 conflicts in 61.9 s where eager answers n = 9 in 28.6 ms) — so it did not ship, and `build_extensionality_and_congruence`'s doc carries the ladder. **(f) Left open with its measurement** as the separate `#P2b-46 (f)` entry above.
+  **Re-measured 2026-09-29 by adversarial recheck 12 and again on re-fix pass 13's final tree (decision (51); `$R/fix13b/camp/ladder_probe_tree_*`): the table's tree columns and `q0072` (`sat` 8 / 78 at 500, `unknown` at 5,000 / 8,000, `sat` 92 / 227 from 20,000, 16,017 checks) reproduce exactly — (43)'s outer half and (44) stay OPEN as measured.** Budgets a trajectory change makes lose, all satisfiable: `det_w3_n12` decided by `c702310` at 75,741 checks and here at 232,481; `$R/corpus/qmbqi120/g0103` (the ground twin) by `c702310` at 17,374 and here at 83,387 (16 / 1,340 at 20,000 `unknown`) — the latter is `#P2b-69`'s price; and (fresh corpora, decision (59)) `fq200/g0029`, `g0122`, `g0127`, `feq200/g0142`, decided by `c702310` at 5,785 / 7,548 / 7,400 / 8,501 checks and not here at 20,000. Re-fix pass 14's final tree reproduces every ladder above exactly (`$R/fix14/final/ladder_tree_*`: `q33_a01` 64 / 188 at 8,000 and `sat` 70 / 195 from 20,000; swapped 107 / 254 `unknown` at 20,000, `sat` 124 / 295; `q0072` `sat` 92 / 227 from 20,000; `det_w3_n12` 2.4 µs per check at 20k and 100k).
+  **Trajectory also depends on push/pop history (decision (61)(10); adversarial recheck 13, re-taken on re-fix pass
+  14's final tree, `$R/fix14/final/ord_*`).** `q33_a01`'s body checked in a fresh scope takes 70 / 195 rounds / instances
+  (9,302 checks); the identical body re-asserted after a `(push 1)` / `(pop 1)` around it takes 73 / 237 (13,528 checks),
+  `sat` both times; other spellings of the same formula: declarations permuted 70 / 195, `or` disjuncts swapped
+  103 / 302, the two assertions swapped 124 / 295; a fresh three-array `ite`-spine script in three orders 72 / 242,
+  70 / 256, 79 / 248 — every one `sat`. The same open half of decisions (43) / (44) as above: what the refinement
+  instantiates is order- and history-independent, the outer search's variable numbering is not.
+- [x] **#P2b-60 (2026-09-28) — SOUNDNESS, REGRESSION vs `c4b04b7` on bit-vector indices: an array pinned by a ground equality, read under a binder above the finite-expansion budget, answered a WRONG `sat`.** — closed; the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-60), moved verbatim by re-fix pass 14 (decision (58)).
+- [x] **#P2b-61 (2026-09-28) — SOUNDNESS, pre-existing (`c4b04b7`, 0.3.3, HEAD): datatype constructors were not distinct as array indices.** — closed; the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-61), moved verbatim by re-fix pass 14 (decision (58)).
+- [x] **#P2b-63 (2026-09-28) — where the completion DECLINED, a `sat` still published a model falsifying its own universal.** — closed; the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-63), moved verbatim by re-fix pass 14 (decision (58)).
+- [x] **#P2b-64 (2026-09-28) — SOUNDNESS, pre-existing on `c4b04b7`, 0.3.3, HEAD: `#P2b-60`'s family at two index sorts its repair did not reach.** — closed; the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-64), moved verbatim by re-fix pass 14 (decision (58)).
+- [x] **#P2b-65 (2026-09-28) — SOUNDNESS, a wrong `sat` on `c4b04b7`, HEAD and re-fix pass 12's tree: a disequality between two bound variables was accepted as an almost-uninterpreted guard.** — closed; the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-65), moved verbatim by re-fix pass 14 (decision (58)).
+- [x] **#P2b-68 (2026-09-29) — SOUNDNESS, a wrong `unsat` in an incremental QF_AUFBV script (regression against crates.io 0.3.3; present on HEAD `c702310`).** — closed; the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-68), moved verbatim by re-fix pass 14 (decision (58)).
+- [ ] **#P2b-69 (2026-09-29) — PERFORMANCE, the price of an embedded bit-vector check grows with the circuits of every
+  earlier array-refinement round (decision (45)'s cost on multi-round shapes; adversarial recheck 12).** On the
+  ground twins of the regenerated corpora the per-check price is a curve: `qmbqi120/g0072` 81.8 ms / 4,353 ms / 117 s at
+  5k / 20k / 50k checks (HEAD `c702310` 55 / 382 ms at 5k / 20k; re-taken on the final tree under load: counters 15 / 64 and 28 / 1,356 rounds / instances, 0.16 / 12.0 s / TIMEOUT at 130 s, HEAD 0.07 / 0.53 / 11.9 s), `qeq120/g0060` 250,000-check ceiling in 664.6 s (HEAD
+  95.3 s), and `qmbqi120/g0103` **loses its verdict at a deterministic budget**: `sat` on HEAD at 17,374 checks, on
+  this tree `sat` only at 83,387 (77–81 s; HEAD 6–12 s). Profiled (release, `g0072` at 20k, 2,049 of 2,276 samples
+  in the embedded solve): the time is `pick_branch_var` (VSIDS / VMTF pops), `propagate` and `backtrack` — every
+  check assigns every variable ever defined, and `Solver::rebase_theory_state_for_round` keeps every round's
+  circuits (`BvSolver::retract_assertions`). A/B of a full `BvSolver::reset` per round instead (re-fix pass 13,
+  `$R/fix13/keepreset_summary.txt`): `g0072` 20k 6.5 → 0.95 s and unbudgeted TIMEOUT → `sat` 27.8 s, `g0103` →
+  `sat` 27.4 s, qmbqi120 126 → 84 s with 4 TIMEOUT → `sat`; but qeq120 124 → 165 s with `g0033` `sat` → `unknown`
+  and `g0082` `sat` → TIMEOUT — neither policy dominates, so neither landed. Lever: decide only the variables in
+  the cone of the active assumptions (a definition outside it is satisfiable by extension), or compact per round
+  on a measured criterion.
+  **Deterministic-budget HEAD losses beside `g0103` (decisions (51), (59); re-taken on re-fix pass 14's final tree):**
+  `fq200/g0029`, `g0122`, `g0127` and `feq200/g0142` — HEAD `sat` at 5,785 / 7,548 / 7,400 / 8,501 embedded checks, this
+  tree `unknown` at 10,000 and 20,000 (counters in decision (24a)'s fresh-corpus leg; `g0122` is also mechanism (v)).
+- [x] **#P2b-70 (2026-09-29) — COMPLETENESS, a verdict HEAD `c702310` reaches and re-fix pass 12's second half does not: a bit-vector order guard over an array pinned by a ground equality.** — closed; the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-70), moved verbatim by re-fix pass 16 (decision (74)).
+- [x] **#P2b-71 (2026-09-29) — QUANTIFIER-FREE, pre-existing (0.3.3, `c4b04b7`, HEAD): numeric constants no theory valued printed one value for congruence classes the search kept apart.** — closed; the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-71), moved verbatim by re-fix pass 16 (decision (74)).
+- [x] **#P2b-72 (2026-09-29) — QUANTIFIER-FREE, pre-existing (0.3.3, `c4b04b7`, HEAD): a datatype-indexed array's `(get-model)` dropped every entry (the datatype twin of `#P2b-43`, which fixed the uninterpreted-sort index).** — closed; the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-72), moved verbatim by re-fix pass 16 (decision (74)).
+- [ ] **#P2b-73 (2026-09-29) — COMPLETENESS, every build: a quantifier-free `Real`-indexed store chain read at a point
+  no store names answers `unknown`.** `recheck13/atk/t07_real_replay.smt2`: `a = (store (store (store ((as const
+  (Array Real Int)) 0) (/ 1 2) 2) (/ 3 2) 1) 0.0 1)` beside `(> (select a 1000003.0) 0)` is `unsat` (the read is the
+  default `0`); 0.3.3, `c4b04b7`, HEAD and this tree answer `unknown`. Never wrong. It is why the completion certifies
+  a `Real`-indexed universal pointwise (`array_completion_certify/split.rs`) rather than by a validity query over the
+  chain. Filed by decision (61)(11); no fix this pass.
+- [x] **#P2b-74 (2026-09-30) — MODEL, pre-existing; filed by re-fix pass 14 so that no hole pin points at a closed item (decision (46)): a `(get-value)` beside `(get-model)` gives one uninterpreted function two interpretation entries at the same evaluated arguments.** — closed; the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-74), moved verbatim by re-fix pass 16 (decision (74)).
+- [x] **#P2b-75 (2026-09-30) — SOUNDNESS, a WRONG `sat` on every build (0.3.3, `c4b04b7`, `c702310`, re-fix pass 14): a universal whose guard holds on an interval open at its boundary.** — closed; the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-75), moved verbatim by re-fix pass 16 (decision (74)).
+- [x] **#P2b-76 (2026-09-30) — SOUNDNESS, a WRONG `sat` on every build, quantifier-free: two list values that differ two constructors deep were equated.** — fixed at the root by re-fix pass 15 (decision (66)); the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-76), moved verbatim by re-fix pass 15.
+- [x] **#P2b-77 (2026-09-30) — REGRESSION of re-fix pass 13: two list values sharing a prefix printed as one.** — fixed by `#P2b-76`'s two layers; the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-77), moved verbatim by re-fix pass 15.
+- [ ] **#P2b-78 (2026-09-30) — MODEL, pre-existing on HEAD `c702310` and every build: a `QF_FP` `sat` has no
+  `(get-model)`.** Seven `bench/` `qf_fp` scripts answer `sat` and then `(error "No model available")` (adversarial
+  recheck 14, decision (69)(10)). Filed; no fix this pass.
+- [x] **#P2b-79 (2026-09-30) — SOUNDNESS, a WRONG `sat` on every build (0.3.3, `c4b04b7`, `c702310`, re-fix pass 14): an `Int` term was solved over the reals under `(set-logic ALL)` or no logic.** — closed; the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-79), moved verbatim by re-fix pass 16 (decision (74)).
+- [ ] **#P2b-80 (2026-09-30) — COMPLETENESS, every build: real division `/` is never decided.** `(assert (< (/ 1 2)
+  1.0))`, `(= r (/ 1 2))` beside `(< r 0.25)` (`QF_LRA` too) and `(= (/ r 2.0) 1.0)` answer `unknown` (z3: `sat`, `unsat`,
+  `sat`): the parser builds `div` and `/` as one `Div` node of the dividend's sort (so `(/ 1 2)` over two numerals is an
+  `Int` node), the linear parse rejects a `Real` `Div` and the honesty gate answers `unknown`. Never wrong. It is why a
+  model printing `(/ 1 2)` does not replay on this solver (z3 replays it). The lever: `/` at `Real` sort always, and a
+  numeral divisor's definition `c·(/ m c) = m` in `arith_axioms`. Filed by re-fix pass 15; no fix this pass.
+- [ ] **#P2b-81 (2026-09-30) — MODEL, pre-existing on `c702310` and re-fix pass 14: five quantifier-free `sat`s of recheck
+  14's `g14a` print a model that falsifies their script** (z3 4.15.4 as the judge; `s00162` check 2, `s00739`, `s01164`,
+  `s02012`, `s02786`). One mechanism named: `s02786` asserts `(= ((as const (Array Int Int)) (- 3)) a)` and prints `a` as
+  the constant `0` (the default a negated literal spells is not read). There were fifteen on `c702310`, pass 14 and this
+  tree before `#P2b-79`; the other ten print correct models since it (their `Int`s had printed a relaxation's numerator).
+  A quantifier-free model is not certified (README). Filed by re-fix pass 15; no fix this pass. **Re-fix pass 16:** the
+  named mechanism fixed (`array_model::is_ground_value` reads a negated numeral as the default it spells; `s02786`
+  replays), and a second one found and fixed as `#P2b-84` (a function into a datatype, an enumeration or an
+  uninterpreted sort; dt6's datatype models are covered by decision (72)(a)'s net since). Left, z3-judged on the final
+  tree: `g14a` `s00162#1`, `s00739`, `s01164`, `s02012`; `gen14.py` seed 30093155 `s00206`, `s00253`, `s01478#0-1`,
+  `s02425`; `gen14.py` seed 30093164 (the fresh seed) `s00021#0`, `s00521#0`, `s00538#0`, falsifying on `c702310` and pass 14
+  too — quantifier-free, no datatype, mechanism not traced. **Re-taken on re-fix pass 17's final tree** (z3, cap 10 s):
+  the same twelve, plus seed 30100164 `s00635#0` (two `Int` arrays printed as one; pinned
+  `round4_pass16_recheck_pins::two_arrays_the_third_assertion_keeps_apart_print_as_one`) and seed 30100184 `s00981#0` — 14
+  checks of 12,134 on the five `gen14.py` corpora, every one falsifying on `c702310`, pass 14 and pass 16 alike, none with a
+  datatype, an enumeration or an uninterpreted sort, so decision (79)(a)'s net does not reach them (a quantifier-free model
+  over scalars and scalar arrays is not checked). Re-fix pass 17 also fixed the read side of the named mechanism (a
+  `select` of `((as const …) (- 3))` answers `-3` from `(get-value)` on a quantified goal); an array EQUALITY against such
+  a constant still echoes: `g14a/s01467`, `(= ((as const (Array Int Int)) (- 1)) (store b 0 0))` (recheck 16's minor 9).
+- [x] **#P2b-82 (2026-09-30) — SOUNDNESS, a WRONG `sat` on every build, quantifier-free: a selector over a constructor application inside an uninterpreted argument** — fixed at the root by re-fix pass 16 (decision (73)); its `d00239#0` falsifying model is withheld since re-fix pass 17 (decision (79)(a)); the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-82), moved verbatim by re-fix pass 17 (decision (79)).
+- [x] **#P2b-83 (2026-09-30) — SOUNDNESS, a WRONG `sat` on every build, quantifier-free: a cycle through an uninterpreted application two constructors deep** — fixed at the root by re-fix pass 16; the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-83), moved verbatim by re-fix pass 17 (decision (79)).
+- [x] **#P2b-84 (2026-09-30) — MODEL, every build since `c4b04b7`, quantifier-free: a function into a datatype, an enumeration or an uninterpreted sort printed one value at two points its arguments' theory valued alike** — fixed at the root by re-fix pass 16; its array twin is `#P2b-89`; the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-84), moved verbatim by re-fix pass 17 (decision (79)).
+- [x] **#P2b-85 (2026-09-30) — REGRESSION of re-fix pass 15 (printed model): a record field over an application printed a model falsifying its script.** — fixed at the root by re-fix pass 16; the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-85), moved verbatim by re-fix pass 16 (decision (74)).
+- [x] **#P2b-86 (2026-09-30) — REGRESSION of re-fix pass 15 (verdict): a false tester after a `push`/`pop` answered `unknown`.** — fixed at the root by re-fix pass 16; the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-86), moved verbatim by re-fix pass 16 (decision (74)).
+- [x] **#P2b-87 (2026-09-30) — REGRESSION of re-fix pass 15 (verdicts, against `c702310` and pass 14): `#P2b-79`'s integrality machinery changed the MBQI loop's trajectory.** — fixed at the root by re-fix pass 16; the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-87), moved verbatim by re-fix pass 16 (decision (74)).
+- [ ] **#P2b-88 (2026-10-01) — MODEL, pre-existing on every build: the datatype axioms and the model builder value the
+  terms of the assertions as written, while the search decides the assertions as encoded.** The encoder purifies a
+  numeric argument of an uninterpreted function (`encode::numeric_purification`: `(h 1)` is asserted as `(h n)` beside
+  `n = 1`) and eliminates every non-Bool `ite` to a proxy (`encode::bool_euf_encoding`: `(ite c a b)` is `p` beside `c
+  ⇒ p = a`, `¬c ⇒ p = b`); `solver::dt_axioms` scans `self.assertions`, which holds the pre-encoding terms, and
+  `model_builder::extract_datatype_model` rebuilds a value for those. Instances traced by re-fix pass 16 (lemma and
+  class dumps of the isolated copy): `#P2b-83`'s depth-two cycle (the size ordering over `(h 1)`, the atom over `(h
+  n)`), `#P2b-85`'s pq regression (the refinement's re-solve valued `(+ (q 3) 1)` apart from `(q n)`), `gen_dt.py` seed
+  30093154 `d00016` (the proxies of three `ite`s in a class of their own, `nil`, while the terms as written rebuilt
+  `(cons -1 nil)`) and `d00350` (a disequality the search held between a proxy and a constructor application, never
+  seen by the separation repair). **Its visible cost is churn:** every change of the search's trajectory turns some
+  correct datatype models into falsifying ones and more the other way — on dt6 (z3-judged, cap 10 s) pass 14 against
+  `c702310` 22 checks correct → falsifying, re-fix pass 15 against pass 14 22, and every configuration re-fix pass 16
+  built 14-31 against the checks both `c702310` and pass 14 got right, for 115-130 falsifying → correct. Re-fix pass
+  16 fixed the first two instances at the root (`#P2b-83`, `#P2b-85`); `d00016` and `d00350` stand, withheld now,
+  because a quantifier-free datatype model the printed check shows false is not published (decision (72)(a)); the
+  lever for the rest is to axiomatise and rebuild the encoded terms (the proxies
+  and purified applications) rather than the written ones — four model-builder patches in that direction (class-wide
+  recording, the encoded terms and `ite` proxies valued, a merged field never separated) were built and measured and
+  did not reduce the churn (23 against 16 without them), so they did not land. Filed by re-fix pass 16.
+  **Re-fix pass 17 (decision (79)(a)):** the printed check reads every comparison, `ite` and array read over datatype,
+  enumeration and uninterpreted-sort values by value (`printed_eval::ground_values`, interning nothing — a first version
+  that rebuilt terms moved later checks' trajectories, `d00261#2`), so the net withholds at EVERY check a model it can
+  show false: before it, `d00239`'s first model closed to an `ite` over `(+ 1 (- 1))` the evaluator could not read and
+  was published while its second and third were withheld. The net runs wherever a declared symbol's sort CONTAINS such
+  a sort (array index or element, function range or argument). Its churn rows are named under decision (24a).
+- [x] **#P2b-89 (2026-10-01) — MODEL, every build, quantifier-free: an array whose element sort is a datatype, an enumeration or an uninterpreted sort, read at two indices the arithmetic valued alike, printed one entry (the array twin of `#P2b-84`).** — fixed at the root by re-fix pass 17 (decision (79)(b)); the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-89), written there by re-fix pass 17.
+- [x] **#P2b-62 (2026-09-28) — a published model falsified its own GROUND assertion: a quantifier body's read over its bound variable was rendered as an array entry (REGRESSION vs `c4b04b7`).** — closed; the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-62), moved verbatim by re-fix pass 14 (decision (58)).
+- [x] **#P2b-66 (2026-09-28) — SOUNDNESS, public API: `oxiz_sat::Solver::solve_with_assumptions` answered `sat` with a model falsifying one of its own assumptions, and its core dropped the partner of a complementary pair.** — closed; the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-66), moved verbatim by re-fix pass 14 (decision (58)).
+- [x] **#P2b-67 (2026-09-28) — `oxiz-opt` PMRES (WPM1) relaxed every core clause from its ORIGINAL body, so a core needing two violations reproduced itself for ever — masked by `#P2b-66`.** — closed; the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-67), moved verbatim by re-fix pass 14 (decision (58)).
+- [x] **#P2b-46 (2026-09-19) — the round-4 recheck, pass 5: `n`-ary `distinct` over arrays lost its verdict above the enumeration limit, and below it nothing deterministic bounded the run.** Eleven findings, at the root; condensed 2026-09-21 (re-fix pass 8) from 54 lines, nothing dropped. **(1) Verdict regression closed.** Eleven pairwise-distinct arrays over `(Array (_ BitVec 4) (_ BitVec 1))` — trivially `sat` — answered `unknown` against the base's 0.26 ms, attributed by instrumentation to `bv_bridge`'s partition-lemma loop giving up at `MAX_LEMMAS = 512` (the Skolem cascade mints `C(11,2) = 55` witness indices in one round). The bound is 8,192; n = 11 is `sat` in 0.91 s, 15 in 38.1 s, width 5 / n = 15 in 4.62 s. Guarded — not `#[ignore]`d, it is a verdict — by `round4_recheck_regressions::array_cardinality_above_the_enumeration_limit_is_decided`, with its own kill ceiling in `.config/nextest.toml`; mutation back to 512 reddens exactly that guard. **(2) The unbounded run is bounded, deterministically.** `Statistics::bv_embedded_checks` + `BV_EMBEDDED_CHECK_CEILING = 250_000` is the third currency beside `ARRAY_REFINEMENT_RESOLVE_CONFLICTS` (a loop that *searches*) and `ARRAY_REFINEMENT_LEMMA_BUDGET` (one that only *builds*), neither of which can see one round whose re-solve is enormous: `(distinct a0 … a19)` at width 3 answered nothing in 900.03 s and now answers `unknown` after exactly 250,002 checks (346.6 s; 1.0 s on re-fix pass 12's tree, the leak of `#P2b-46` (f) closed). Calibration: `bench/` peaks at 207 checks per script (1,200x headroom), the width-2 cost-pin ladder at 36,281 (6.9x), the most expensive script that still decides at 76,860 (3.3x). **(3)** `:named` labels go through `Parser::reject_reserved_symbol`. **(4) Decision (16) swept** `array_distinct_timing.rs` and `ext_shapes.rs`'s generator: the clock there did not only put a verdict behind the machine, it put the **tally** there, because `score` replays a model on the `sat` branch only. **(5)** The two `include_str!` guards in `round4_reserved_mints.rs` are behavioural. **(6)** `array_uf_campaign` gained its sibling's nextest override. **(7)-(11)** are measured record corrections. **(e) Deviation, declared with its measurements:** the lazy, model-guided extensionality family was implemented and is **worse** — it converges in `O(n)` rounds but a round is a whole re-solve (eight arrays at width 3 burned all 50,000 conflicts in 61.9 s where eager answers n = 9 in 28.6 ms) — so it did not ship, and `build_extensionality_and_congruence`'s doc carries the ladder. **(f) Left open with its measurement** as the separate `#P2b-46 (f)` entry above.
 - [ ] **#P2b-26 — `(get-unsat-core)` re-solves every candidate subset from scratch; `(get-value …)`
   of any non-variable term printed its body.** cargo-formal's named form is ≥ 3.8× the plain script
   because `Solver::minimize_unsat_core` builds a fresh `Solver` per core member (c13: 1.8× here, 4

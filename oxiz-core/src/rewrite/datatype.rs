@@ -398,14 +398,16 @@ mod tests {
 
         let con1 = manager.mk_dt_constructor("Pair", vec![x1, y1], dt_sort);
         let con2 = manager.mk_dt_constructor("Pair", vec![x2, y2], dt_sort);
-        let eq = manager.mk_eq(con1, con2);
-
-        // The eq term should be an Eq with two DtConstructors
-        let eq_term = manager.get(eq).expect("eq term");
+        // `mk_eq` itself decomposes an equality of two applications of one
+        // constructor into its fields since `#P2b-76` (re-fix pass 15), so
+        // the unfolded node is interned directly: the rewriter's own rule for
+        // it is what this test exercises, and it must agree with `mk_eq`.
+        let bool_sort = manager.sorts.bool_sort;
+        let eq = manager.intern_term(TermKind::Eq(con1, con2), bool_sort);
+        let folded = manager.mk_eq(con1, con2);
         assert!(
-            matches!(eq_term.kind, TermKind::Eq(_, _)),
-            "Expected Eq term, got {:?}",
-            eq_term.kind
+            matches!(manager.get(folded).map(|t| &t.kind), Some(TermKind::And(_))),
+            "mk_eq decomposes the constructor equality into its fields"
         );
 
         let result = rewriter.rewrite(eq, &mut ctx, &mut manager);
@@ -445,7 +447,13 @@ mod tests {
 
         let con1 = manager.mk_dt_constructor("Red", vec![], dt_sort);
         let con2 = manager.mk_dt_constructor("Blue", vec![], dt_sort);
-        let eq = manager.mk_eq(con1, con2);
+        // `mk_eq` already folds an equality of two different constructors to
+        // `false` (`#P2b-61`), so the unfolded node is interned directly: the
+        // rewriter's own rule for it is what this test exercises.
+        let bool_sort = manager.sorts.bool_sort;
+        let eq = manager.intern_term(TermKind::Eq(con1, con2), bool_sort);
+        let folded = manager.mk_eq(con1, con2);
+        assert_eq!(folded, manager.mk_false());
 
         let result = rewriter.rewrite(eq, &mut ctx, &mut manager);
         assert!(result.was_rewritten());

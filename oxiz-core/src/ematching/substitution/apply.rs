@@ -1035,11 +1035,11 @@ fn rebuild(
         }
         TermKind::DtTester { constructor, arg } => {
             let arg = sub(arg);
-            manager.intern(TermKind::DtTester { constructor, arg }, sort)
+            manager.mk_dt_tester_spur(constructor, arg)
         }
         TermKind::DtSelector { selector, arg } => {
             let arg = sub(arg);
-            manager.intern(TermKind::DtSelector { selector, arg }, sort)
+            manager.mk_dt_selector_spur(selector, arg, sort)
         }
 
         TermKind::Forall { .. }

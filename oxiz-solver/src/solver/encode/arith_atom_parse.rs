@@ -43,6 +43,9 @@ impl Solver {
         self.arith_terms.insert(term_id);
         self.trail.push(TrailOp::ArithTermAdded { term: term_id });
         self.arith.intern(term_id);
+        if sort == manager.sorts.int_sort {
+            self.arith.mark_int_term(term_id);
+        }
     }
 
     /// Parse an arithmetic comparison and extract linear expression.

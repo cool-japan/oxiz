@@ -219,23 +219,23 @@ fn get_model_prints_a_quoted_symbol_with_its_bars() {
 }
 
 // ---------------------------------------------------------------------------
-// 4. PIN — decision (2)'s canonical class -> value map is not canonical, and
-//    its own `debug_assert!` says so.
+// 4. INVERTED (re-fix pass 15, `#P2b-74`) — the canonical class -> value map
+//    survives a `(get-value …)` query beside `(get-model)`.
 // ---------------------------------------------------------------------------
 
 /// Two entries of one interpretation with the same evaluated argument tuple
-/// and different values are what decision (2) declared impossible.  Asking for
-/// `(get-value …)` alongside `(get-model)` makes them happen: in a debug build
-/// `get_func_interp_raw`'s `debug_assert!` fires, and in a release build the
-/// contradictory interpretation is printed silently.  The same script without
-/// its `(get-value)` command does not panic, which is what localises the
-/// defect to the `(get-value)` path rather than to the map itself.
-///
-/// The panic is caught so the test reports the pin rather than aborting the
-/// run; `debug_assert!` is compiled out in release, where the assertion below
-/// records that the answer still comes back.
+/// and different values are what decision (2) declared impossible; asking for
+/// `(get-value …)` alongside `(get-model)` made them happen, and a debug build's
+/// `debug_assert!` in `get_func_interp_raw` fired.  The mechanism was theory
+/// combination: the congruence closure held two applications of `f` apart
+/// whose arguments the arithmetic valued alike, so the candidate was not a
+/// function.  Re-fix pass 15 closes it at the search for a quantifier-free
+/// goal (`solver::uf_consistency`: at the candidate model, the Ackermann lemma
+/// `⋀ aᵢ = bᵢ ⇒ f(a⃗) = f(b⃗)` for every such pair, and the search runs again),
+/// so the assertion no longer fires and the printed model is a function — and
+/// a model of the script.
 #[test]
-fn a_get_value_query_beside_get_model_breaks_the_one_reading() {
+fn a_get_value_query_beside_get_model_keeps_the_one_reading() {
     let script = "(set-logic QF_AUFLIA)\n\
          (declare-fun f (Int) Int)\n\
          (declare-fun g (Int Int) Int)\n\
@@ -250,24 +250,37 @@ fn a_get_value_query_beside_get_model_breaks_the_one_reading() {
          (get-model)\n\
          (get-value (j k v w (f j)))\n";
     let outcome = catch_unwind(AssertUnwindSafe(|| run(script)));
-    if cfg!(debug_assertions) {
-        assert!(
-            outcome.is_err(),
-            "THE HOLE IS CLOSED: the canonical class -> value map now survives \
-             a (get-value) query beside (get-model) in a debug build — invert \
-             this pin and close the #P2b-34 amendment."
-        );
-        return;
-    }
     let lines = match outcome {
         Ok(lines) => lines,
-        Err(_) => panic!("release build must not panic here"),
+        Err(_) => panic!(
+            "the canonical class -> value map is a function again: no build may \
+             trip `get_func_interp_raw`'s two-entry assertion here"
+        ),
     };
+    assert_eq!(verdict(&lines), "sat", "{}", lines.join("\n"));
+    let model = lines
+        .iter()
+        .find(|line| line.trim_start().starts_with("(model"))
+        .cloned()
+        .unwrap_or_default();
+    let definitions: String = model
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with("(define-fun "))
+        .map(|line| format!("{line}\n"))
+        .collect();
+    let replay = format!(
+        "(set-logic ALL)\n{definitions}\
+         (assert (distinct (+ (f (f 0)) (+ (f w) (g 1 3))) w))\n\
+         (assert (not (or (distinct (+ 2 1) j) \
+                          (= w (f (select (store ((as const (Array Int Int)) 0) j v) k))))))\n\
+         (check-sat)\n"
+    );
     assert_eq!(
-        verdict(&lines),
+        verdict(&run(&replay)),
         "sat",
-        "the release build prints the contradictory interpretation rather than \
-         failing, which is what makes the debug assertion the only signal"
+        "the published model satisfies the script\n{}",
+        lines.join("\n")
     );
 }
 

@@ -7,6 +7,7 @@
 //! (still in `mod.rs`) is `check_core`'s only caller.
 
 use super::array_refinement::ArrayRefinementStep;
+use super::integrality_exit::IntegralityAtExit;
 use super::*;
 
 impl Solver {
@@ -57,6 +58,11 @@ impl Solver {
         if self.encode_depth_exceeded {
             return SolverResult::Unknown;
         }
+        // A quantified goal decides the integrality of its `Int` terms where
+        // the MBQI loop would answer `sat`, never inside a round's search
+        // (`solver::integrality_exit`); a quantifier-free one inside the
+        // arithmetic solver, at every final check (`#P2b-79`).
+        self.arith.set_defer_integrality(self.has_quantifiers);
 
         // Supply the defining axioms of every internalised `div` / `mod` /
         // numeric-`ite` term before any stage inspects the arithmetic atoms:
@@ -741,17 +747,24 @@ impl Solver {
                     // follows outright and MBQI has nothing left to add.  When
                     // it does not, nothing changes: the certifier declines and
                     // the instantiation loop below runs exactly as before.
-                    if self.certify_quantified_sat(manager) {
-                        if self.quantified_model_refutes_ground_assertions(manager) {
-                            self.model = None;
+                    let certified_integral = match self.certify_quantified_sat(manager) {
+                        false => None,
+                        true => Some(self.integrality_at_quantified_exit()),
+                    };
+                    match certified_integral {
+                        Some(IntegralityAtExit::Integral) => {
+                            if self.quantified_model_refutes_ground_assertions(manager) {
+                                self.model = None;
+                                self.unsat_core = None;
+                                return SolverResult::Unknown;
+                            }
                             self.unsat_core = None;
-                            return SolverResult::Unknown;
+                            self.debug_check_invariants(
+                                "check_core: before returning sat (certified model)",
+                            );
+                            return SolverResult::Sat;
                         }
-                        self.unsat_core = None;
-                        self.debug_check_invariants(
-                            "check_core: before returning sat (certified model)",
-                        );
-                        return SolverResult::Sat;
+                        Some(IntegralityAtExit::Resume) | None => {}
                     }
 
                     // Run MBQI to check quantified formulas
@@ -761,33 +774,61 @@ impl Solver {
                         .map(|m| m.assignments().clone())
                         .unwrap_or_default();
 
-                    self.mbqi.note_goal(&self.assertions);
-                    let mbqi_result = self.mbqi.check_with_model(&model_assignments, manager);
+                    // The integrality taken back at the certified exit above:
+                    // skip the MBQI check and search again
+                    // (`solver::integrality_exit`).
+                    let mbqi_result = if certified_integral == Some(IntegralityAtExit::Resume) {
+                        MBQIResult::Satisfied
+                    } else {
+                        self.mbqi.note_goal(&self.assertions);
+                        self.mbqi.check_with_model(&model_assignments, manager)
+                    };
                     match mbqi_result {
+                        _ if certified_integral == Some(IntegralityAtExit::Resume) => {}
                         MBQIResult::NoQuantifiers => {
-                            if self.quantified_model_refutes_ground_assertions(manager) {
+                            // A candidate that leaves an `Int` term
+                            // fractional takes the integrality back and runs
+                            // another round (`solver::integrality_exit`) ...
+                            let integral = self.integrality_at_quantified_exit()
+                                == IntegralityAtExit::Integral;
+                            if integral && !self.quantified_model_refutes_ground_assertions(manager)
+                            {
+                                self.unsat_core = None;
+                                self.debug_check_invariants(
+                                    "check_core: before returning sat (no quantifiers)",
+                                );
+                                return SolverResult::Sat;
+                            }
+                            // A candidate that is not a function gets its
+                            // Ackermann lemmas and one more round
+                            // (`uf_consistency`); anything else is `unknown`.
+                            if integral && !self.assert_exit_consistency_lemmas(manager) {
                                 self.model = None;
                                 self.unsat_core = None;
                                 return SolverResult::Unknown;
                             }
-                            self.unsat_core = None;
-                            self.debug_check_invariants(
-                                "check_core: before returning sat (no quantifiers)",
-                            );
-                            return SolverResult::Sat;
                         }
                         MBQIResult::Satisfied => {
                             // All quantifiers satisfied by the current model.
-                            if self.quantified_model_refutes_ground_assertions(manager) {
+                            // As above: a fractional `Int` term runs another
+                            // round (`solver::integrality_exit`) ...
+                            let integral = self.integrality_at_quantified_exit()
+                                == IntegralityAtExit::Integral;
+                            if integral && !self.quantified_model_refutes_ground_assertions(manager)
+                            {
+                                self.unsat_core = None;
+                                self.debug_check_invariants(
+                                    "check_core: before returning sat (mbqi fixpoint)",
+                                );
+                                return SolverResult::Sat;
+                            }
+                            // ... and a refused candidate gets its Ackermann
+                            // lemmas and one more round, or `unknown`.
+                            if integral && !self.assert_exit_consistency_lemmas(manager) {
                                 self.model = None;
                                 self.unsat_core = None;
                                 return SolverResult::Unknown;
                             }
-                            self.unsat_core = None;
-                            self.debug_check_invariants(
-                                "check_core: before returning sat (mbqi fixpoint)",
-                            );
-                            return SolverResult::Sat;
                         }
                         MBQIResult::InstantiationLimit => {
                             // Too many instantiations - return unknown
@@ -822,6 +863,8 @@ impl Solver {
                             // the unnamed-region instances are fresh.  A
                             // certified completion concludes without them.
                             if self.mbqi.only_unnamed_region_pending()
+                                && self.integrality_at_quantified_exit()
+                                    == IntegralityAtExit::Integral
                                 && self.certify_at_mbqi_saturation(manager)
                             {
                                 self.unsat_core = None;
@@ -1013,7 +1056,14 @@ impl Solver {
                                 // Unknown — never fabricate Sat for an unverified
                                 // quantifier.
                                 self.unsat_core = None;
-                                if self.quantifiers_trivially_valid(manager) {
+                                // Giving up (or concluding) over a candidate
+                                // that leaves an `Int` term fractional takes
+                                // the integrality back and runs another round
+                                // (`solver::integrality_exit`).
+                                let integrality = self.integrality_at_quantified_exit();
+                                if integrality == IntegralityAtExit::Integral
+                                    && self.quantifiers_trivially_valid(manager)
+                                {
                                     self.build_model(manager);
                                     // Same ground-model gate as the other
                                     // quantified `Sat` exits: "every quantifier
@@ -1033,7 +1083,9 @@ impl Solver {
                                     );
                                     return SolverResult::Sat;
                                 }
-                                return SolverResult::Unknown;
+                                if integrality == IntegralityAtExit::Integral {
+                                    return SolverResult::Unknown;
+                                }
                             }
                             // Continue MBQI loop
                         }

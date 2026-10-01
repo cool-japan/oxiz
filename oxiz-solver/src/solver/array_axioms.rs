@@ -396,13 +396,27 @@ impl Solver {
             let Some(indices) = collected.read_indices.get(&array) else {
                 continue;
             };
-            let folded: Vec<(TermId, Option<EvalVal>, Option<EvalVal>)> = indices
+            // A read whose element sort is a datatype, an enumeration or an
+            // uninterpreted sort has no `EvalVal`, so it was never compared and
+            // the violated lemma never built: `a[x] = [1]`, `a[y] = [2]` over
+            // `x, y ∈ [0, 5]` printed `x = y = 0` beside one entry on every
+            // build (`#P2b-89`, the array twin of `#P2b-84`).  Such a read is
+            // compared by the value its class prints, keyed as `#P2b-84` keys a
+            // function's results (`Solver::theory_class_value`).
+            let keyed_by_class = array_element_is_value_sort(array, manager);
+            let folded: Vec<(TermId, Option<EvalVal>, Option<ReadKey>)> = indices
                 .iter()
                 .map(|&index| {
                     let index_value = self.eval_in_model(index, model, manager, 0);
-                    let read_value = reads
-                        .get(&(array, index))
-                        .and_then(|&read| self.eval_in_model(read, model, manager, 0));
+                    let read_value = reads.get(&(array, index)).and_then(|&read| {
+                        if keyed_by_class {
+                            self.theory_class_value(read, model, manager)
+                                .map(ReadKey::Class)
+                        } else {
+                            self.eval_in_model(read, model, manager, 0)
+                                .map(ReadKey::Value)
+                        }
+                    });
                     (index, index_value, read_value)
                 })
                 .collect();
@@ -989,6 +1003,30 @@ struct ArrayStructure {
     array_ites: Vec<(TermId, TermId, TermId, TermId)>,
     /// The dedup set behind [`ArrayStructure::array_ites`].
     array_ite_keys: FxHashSet<TermId>,
+}
+
+/// How a read's value is compared in [`Solver::build_index_congruence`]: by
+/// its exact value, or — for an element sort `EvalVal` has no value for — by
+/// the value its congruence class prints (`#P2b-89`).
+#[derive(PartialEq)]
+enum ReadKey {
+    Value(EvalVal),
+    Class(String),
+}
+
+/// Whether `array`'s element sort is a datatype (an enumeration is one) or
+/// an uninterpreted sort.
+fn array_element_is_value_sort(array: TermId, manager: &TermManager) -> bool {
+    let Some(sort) = manager.get(array).map(|t| t.sort) else {
+        return false;
+    };
+    let Some(SortKind::Array { range, .. }) = manager.sorts.get(sort).map(|s| &s.kind) else {
+        return false;
+    };
+    matches!(
+        manager.sorts.get(*range).map(|s| &s.kind),
+        Some(SortKind::Datatype(_) | SortKind::Uninterpreted(_))
+    )
 }
 
 /// The unordered key of an array pair, so the two sides' order never matters.

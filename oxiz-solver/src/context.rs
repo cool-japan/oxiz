@@ -182,6 +182,8 @@ pub struct Context {
     /// before returning.
     #[cfg(feature = "std")]
     proof_log_path: Option<PathBuf>,
+    /// What the last `sat` publishes (`model_fmt::published`).
+    published: model_fmt::PublishedModel,
 }
 
 impl Default for Context {
@@ -213,6 +215,7 @@ impl Context {
             recfun: recfun::RecFunState::default(),
             #[cfg(feature = "std")]
             proof_log_path: None,
+            published: model_fmt::PublishedModel::default(),
         }
     }
 
@@ -380,6 +383,7 @@ impl Context {
         self.discharge_recfun_scope();
         self.last_result = None;
         self.last_assumptions.clear();
+        self.settle_published_model(SolverResult::Unknown);
     }
 
     /// Add an assertion
@@ -448,6 +452,7 @@ impl Context {
         // report stale assumptions.
         self.last_assumptions.clear();
         self.last_result = Some(result);
+        self.settle_published_model(result);
 
         // Write a binary proof log if a path is configured (std-only).
         #[cfg(feature = "std")]
@@ -1107,6 +1112,7 @@ impl Context {
         match cached {
             Some(result) => {
                 self.last_result = Some(result);
+                self.settle_published_model(result);
                 self.last_assumptions = assumptions.to_vec();
             }
             None => self.invalidate_last_check(),
@@ -1270,6 +1276,7 @@ impl Context {
                         result = SolverResult::Unknown;
                     }
                     self.last_result = Some(result);
+                    self.settle_published_model(result);
                     output.push(match result {
                         SolverResult::Sat => "sat".to_string(),
                         SolverResult::Unsat => "unsat".to_string(),

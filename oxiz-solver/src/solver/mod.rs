@@ -16,12 +16,14 @@ pub(super) mod check_nlsat;
 pub(super) mod check_string;
 pub(super) mod config;
 pub(super) mod dt_axioms;
+pub(super) mod dt_refinement;
 pub(super) mod encode;
 pub(super) mod encode_guards;
 pub(super) mod eq_skeleton;
 pub(super) mod ground_instance;
 pub(super) mod int_case_split;
 pub(super) mod int_range_lp;
+pub(super) mod integrality_exit;
 pub(super) mod model_blocking;
 pub(super) mod model_builder;
 pub(super) mod model_eval;
@@ -32,6 +34,7 @@ pub(super) mod theory_bv_encode;
 pub(super) mod theory_manager;
 pub(super) mod trail;
 pub(super) mod types;
+pub(super) mod uf_consistency;
 pub(super) mod verdict_cache;
 
 pub use types::{
@@ -150,6 +153,12 @@ pub struct Solver {
     /// installed, so a second hook in the same `check` can tell a certified
     /// model from one that merely binds arrays to value terms.
     pub(super) certified_array_model: Option<FxHashMap<TermId, TermId>>,
+    /// The candidate model a completion replaced on a `Sat` no gate took away
+    /// (decision (48)): `Context` puts it back when it already satisfies
+    /// every assertion as printed.
+    pub(super) replaced_candidate: Option<array_completion_certify::ReplacedCandidate>,
+    /// Set when decision (48) put back a candidate certified as printed.
+    pub(super) candidate_certified_as_printed: bool,
     /// Exact model values for the nonlinear-real variables that [`Model`]
     /// cannot hold — the `(get-model)` side-channel for algebraic witnesses.
     ///
@@ -717,6 +726,8 @@ impl Solver {
             assumption_vars: FxHashMap::default(),
             model: None,
             certified_array_model: None,
+            replaced_candidate: None,
+            candidate_certified_as_printed: false,
             nl_algebraic_values: FxHashMap::default(),
             unsat_core: None,
             context_stack: Vec::new(),
@@ -961,6 +972,9 @@ impl Solver {
             return SolverResult::Unknown;
         }
         self.debug_check_invariants("check: exit");
+        if result == SolverResult::Sat {
+            self.debug_verify_published_dt_model(manager);
+        }
         result
     }
 

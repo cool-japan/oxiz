@@ -273,6 +273,17 @@ impl BvSolver {
                 .iter()
                 .all(|&lit| literal_holds(&self.last_sat_model, lit))
         {
+            // A variable minted since the model was found (a free leaf, a
+            // circuit's fresh bit before its first clause) occurs in no
+            // clause — any clause would have cleared `model_is_current` — so
+            // every value of it extends the model: the snapshot is widened to
+            // it (unassigned, read as `0`), which is what lets
+            // `snapshot_covers` tell such a variable from one the snapshot has
+            // never seen.
+            let vars = self.sat.num_vars();
+            if self.last_sat_model.len() < vars {
+                self.last_sat_model.resize(vars, oxiz_sat::LBool::Undef);
+            }
             return (SolverResult::Sat, None);
         }
         let allowance = self.remaining_conflict_budget();
@@ -287,8 +298,8 @@ impl BvSolver {
         (result, core)
     }
 
-    /// Whether the model snapshot of the last `Sat` check assigns every bit of
-    /// `term`'s circuit (`false` for a term with no circuit).
+    /// Whether every bit of `term`'s circuit existed when the model snapshot
+    /// of the last `Sat` check was taken (`false` for a term with no circuit).
     ///
     /// A circuit defined *after* that check — a definition installed while
     /// encoding an atom that was then never asserted (an operand the encoder
@@ -300,15 +311,20 @@ impl BvSolver {
     /// `oxiz-solver`) must refresh the snapshot with a check first; reading
     /// such a value is how the stale `#b1 = #b0` of the recheck-12 wrong
     /// `unsat` was manufactured.
+    ///
+    /// The test is on the variable's *index*, not on the snapshot holding a
+    /// defined value: a variable the last `Sat` search left unassigned is a
+    /// don't-care of that model (every clause is satisfied without it), and
+    /// reading it as `0` is a value of the model, while a variable minted
+    /// after the snapshot is not in it at all.  (Testing for a defined value
+    /// made a free leaf look stale after every refresh, and the exchange
+    /// re-checked until its round bound turned the verdict into `unknown`.)
     #[must_use]
     pub fn snapshot_covers(&self, term: TermId) -> bool {
-        self.term_to_bv.get(&term).is_some_and(|bv| {
-            bv.bits.iter().all(|var| {
-                self.last_sat_model
-                    .get(var.index())
-                    .is_some_and(|value| value.is_defined())
-            })
-        })
+        let known = self.last_sat_model.len();
+        self.term_to_bv
+            .get(&term)
+            .is_some_and(|bv| bv.bits.iter().all(|var| var.index() < known))
     }
 
     /// The terms to blame for a refutation whose failed assumptions are

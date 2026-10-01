@@ -397,95 +397,110 @@ fn a_quantifier_bodys_read_over_its_bound_variable_is_never_a_model_entry() {
 }
 
 // ---------------------------------------------------------------------------
-// OPEN HOLES — `#P2b-63`: where the completion DECLINES, a `sat` still
-// publishes the candidate model, and that model can falsify the quantifier.
+// CLOSED (re-fix pass 13) — `#P2b-63`: where the completion used to DECLINE,
+// a `sat` published the candidate model, and that model could falsify the
+// quantifier.
 // ---------------------------------------------------------------------------
 
-/// **THE HOLE IS CLOSED** when any replay below answers `sat`.
-///
-/// `#P2b-51`'s mechanism — the completion was never consulted on a `Sat` — is
-/// closed (decision (40)).  What is left is its reach: three shapes the
-/// completion declines by rule (`TODO.md` `#P2b-58` (f)), each `sat` and each
-/// still published with a model false at most points of the universal
-/// `∀i. a[i] = #b1` (or `a0[i]`), established here by replaying the model into
-/// the quantifier written out over all 128 points:
+/// Three shapes the completion declined by rule (`TODO.md` `#P2b-58` (f)),
+/// each `sat`, each published by HEAD `c702310` and re-fix pass 12's tree
+/// with a model false at most points of the universal `∀i. a[i] = #b1`:
 ///
 /// * an uninterpreted function anywhere in the goal (`f`, unrelated to `a`);
 /// * more than three array-sorted free variables (four here);
 /// * an `exists` beside the universal.
 ///
-/// Byte-identical verdicts on HEAD `c702310` (`sat`, falsifying) — not a
-/// regression.  To close: interpret the declined symbol from the candidate
-/// model instead of declining (a function's entries and default; the arrays
-/// the universal does not read at their candidate values; the existential's
-/// Skolem witness), certify, and flip the `unsat`s below to `sat`.
+/// Each is now interpreted from the candidate where no universal looks — the
+/// ground application `(f #b0000000)` and the arrays read only at ground
+/// indices keep their candidate values, the `exists` is certified by a
+/// witness — and the rest is completed and certified
+/// (`solver::array_completion_certify::declined`).  Each published array is
+/// replayed against the quantifier written out over all 128 points: `sat`.
 #[test]
-fn a_declined_completion_still_publishes_a_falsifying_model() {
+fn a_formerly_declined_completion_publishes_a_certified_model() {
     let arrays = |names: &[&str]| -> String {
         names
             .iter()
             .map(|n| format!("(declare-const {n} (Array (_ BitVec 7) (_ BitVec 1)))\n"))
             .collect()
     };
-    let cases: [(&str, String, String, &str); 3] = [
+    // (what, declarations, ground assertions, universal's array, arrays)
+    let cases: [(&str, String, String, &str, &[&str]); 3] = [
         (
             "an uninterpreted function",
             format!(
-                "{}(declare-fun f ((_ BitVec 7)) (_ BitVec 1))\n\
-                 (assert (= (f #b0000000) #b0))\n",
+                "{}(declare-fun f ((_ BitVec 7)) (_ BitVec 1))\n",
                 arrays(&["a"])
             ),
-            "(forall ((i (_ BitVec 7))) (= (select a i) #b1))".to_string(),
+            "(assert (= (f #b0000000) #b0))\n".to_string(),
             "a",
+            &["a"],
         ),
         (
             "four arrays",
-            format!(
-                "{}(assert (= (select a1 #b0000001) (select a2 #b0000010)))\n\
-                 (assert (= (select a3 #b0000011) #b0))\n",
-                arrays(&["a0", "a1", "a2", "a3"])
-            ),
-            "(forall ((i (_ BitVec 7))) (= (select a0 i) #b1))".to_string(),
+            arrays(&["a0", "a1", "a2", "a3"]),
+            "(assert (= (select a1 #b0000001) (select a2 #b0000010)))\n\
+             (assert (= (select a3 #b0000011) #b0))\n"
+                .to_string(),
             "a0",
+            &["a0", "a1", "a2", "a3"],
         ),
         (
             "an exists beside the universal",
-            format!(
-                "{}(assert (exists ((j (_ BitVec 7))) (= (select a j) #b1)))\n",
-                arrays(&["a"])
-            ),
-            "(forall ((i (_ BitVec 7))) (= (select a i) #b1))".to_string(),
+            arrays(&["a"]),
+            "(assert (exists ((j (_ BitVec 7))) (= (select a j) #b1)))\n".to_string(),
             "a",
+            &["a"],
         ),
     ];
-    for (what, prefix, universal, array) in cases {
+    for (what, decls, ground, array, all_arrays) in cases {
+        let universal = format!("(forall ((i (_ BitVec 7))) (= (select {array} i) #b1))");
         let lines = run(&format!(
-            "(set-logic ALL)\n(set-option :produce-models true)\n{prefix}(assert {universal})\n\
+            "(set-logic ALL)\n(set-option :produce-models true)\n{decls}{ground}(assert {universal})\n\
              (check-sat)\n(get-model)\n"
         ));
         assert_eq!(verdict(&lines), "sat", "({what})\n{}", lines.join("\n"));
-        let pins = model_equalities(&lines)
-            .lines()
-            .filter(|line| line.starts_with(&format!("(assert (= {array} ")))
-            .collect::<Vec<_>>()
-            .join("\n");
-        assert!(
-            !pins.is_empty(),
-            "({what}) `{array}` must be published\n{}",
-            lines.join("\n")
+        // The WHOLE published model, replayed against the WHOLE script: every
+        // array pinned to its printed value, every function by its printed
+        // `define-fun`, the ground assertions as written, and the universal
+        // written out over all 128 points.  The model is mixed — the
+        // universal's array completed, the rest left at the candidate's
+        // values (`array_completion_certify::declined`) — and it is the mix
+        // that must be a model.
+        let pins = model_equalities(&lines);
+        for name in all_arrays {
+            assert!(
+                pins.contains(&format!("(assert (= {name} ")),
+                "({what}) `{name}` must be published\n{}",
+                lines.join("\n")
+            );
+        }
+        let functions: String = lines
+            .iter()
+            .flat_map(|line| line.lines())
+            .map(str::trim)
+            .filter(|line| line.starts_with("(define-fun ") && !line.contains(" () "))
+            .map(|line| format!("{line}\n"))
+            .collect();
+        if decls.contains("declare-fun f") {
+            assert!(
+                functions.contains("(define-fun f "),
+                "({what}) `f` must be published\n{}",
+                lines.join("\n")
+            );
+        }
+        let mut replay = format!(
+            "(set-logic ALL)\n{}{functions}{pins}{ground}",
+            arrays(all_arrays)
         );
-        let mut replay = format!("(set-logic ALL)\n{}{pins}\n", arrays(&[array]));
         for point in points(7) {
             replay.push_str(&format!("(assert (= (select {array} {point}) #b1))\n"));
         }
         replay.push_str("(check-sat)\n");
         assert_verdict(
             &replay,
-            "unsat",
-            &format!(
-                "THE HOLE IS CLOSED ({what}): the published `{array}` now holds at \
-                 all 128 points. Flip this `unsat` to `sat` and close `#P2b-63`"
-            ),
+            "sat",
+            &format!("({what}): the whole published model must satisfy the whole script"),
         );
     }
 }

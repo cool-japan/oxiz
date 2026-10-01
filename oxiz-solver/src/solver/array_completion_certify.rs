@@ -37,8 +37,9 @@
 //!   converse is **not** sound for the same reason (a `Sat` says some
 //!   interpretation falsifies it, not that ours does), so a `forall` that
 //!   cannot be certified true makes the whole attempt decline rather than be
-//!   recorded as false.  `exists` is declined outright: certifying one true
-//!   needs a witness, which is the direction this argument does not give.
+//!   recorded as false.  An `exists` is certified true only by a witness — an
+//!   instance at one of the goal's points that is itself valid (`declined`) —
+//!   and a quantifier at negative polarity through its dual (`polarity`).
 //! * the assertions themselves are accepted only when
 //!   `(or (not A₁[completion]) … (not Aₙ[completion]))` is `Unsat`, which is
 //!   the same one-directional argument taken over all of them at once — one
@@ -85,6 +86,19 @@
 //! only proposes; the interpretation it proposes goes through the very same
 //! certificate, so a wrong proposal costs a query and never a verdict.
 //!
+//! # Decision (54): negated quantifiers, groups, infinite indices, the net
+//!
+//! A quantifier sub-term is certified at the value its polarity needs, a
+//! negated `exists` through its dual universal (`polarity`); arrays no
+//! assertion links are searched one group at a time, the three-array bound
+//! applying to a group (`groups`); over `Int` / `Real` the candidate's own
+//! points over a pooled default are proposed (`infinite`) and a universal is
+//! certified pointwise (`split`); an equality between two literal array values
+//! is decided exactly (`array_values`).  Where the completion still declines,
+//! `Context` certifies the model it is about to print through the same
+//! certificate and withholds one that fails, completing it around the groups
+//! it gets right where it can (`printed`).
+//!
 //! # What it is not
 //!
 //! It is not a decision procedure for the fragment and does not pretend to be:
@@ -108,9 +122,19 @@ use super::model_eval::EvalOutcome;
 use super::types::Model;
 use super::{EvalVal, Solver, SolverResult};
 
+mod array_values;
+mod candidate;
+mod declined;
+mod groups;
+mod infinite;
 mod pinned;
+mod polarity;
+mod printed;
+mod split;
 #[cfg(test)]
 mod tests;
+
+pub(crate) use candidate::ReplacedCandidate;
 
 /// Array-sorted free variables one attempt may complete.
 ///
@@ -158,6 +182,22 @@ struct Goal {
     arrays: Vec<TermId>,
     /// `scalar -> value`, the pins taken from the candidate model.
     scalar_pins: FxHashMap<TermId, TermId>,
+    /// Every maximal `exists` sub-term at positive polarity, certified by a
+    /// witness among the goal's points (`#P2b-63`, `declined`).
+    existentials: Vec<TermId>,
+    /// Ground terms left at the candidate model's value rather than
+    /// completed — ground applications of uninterpreted functions and ground
+    /// reads of arrays only ever read at ground indices (`#P2b-63`,
+    /// `declined`); empty on every goal the completion took before.
+    ground_values: FxHashMap<TermId, TermId>,
+    /// `(original, dual)` for every quantifier sub-term at negative polarity
+    /// (`polarity`): the dual is listed in `universals` / `existentials`, and
+    /// the original is `false` when the dual is certified.
+    negations: Vec<(TermId, TermId)>,
+    /// Facts every query of the certificate is read under: for a printed
+    /// model, that its uninterpreted-sort witnesses are pairwise distinct
+    /// (`printed`); empty for the completion's own searches.
+    hypotheses: Vec<TermId>,
 }
 
 impl Solver {
@@ -174,13 +214,27 @@ impl Solver {
         gate_pending: bool,
         manager: &mut TermManager,
     ) -> bool {
+        self.replaced_candidate = None;
+        self.candidate_certified_as_printed = false;
         match result {
             SolverResult::Unknown => self.certify_sat_by_array_completion(manager),
             SolverResult::Sat if gate_pending => self.certify_sat_by_array_completion(manager),
             SolverResult::Sat => {
                 // Decision (40): only the model may change here, so whether
                 // a completion was installed is deliberately not the verdict.
-                let _model_replaced = self.certify_sat_by_array_completion(manager);
+                // Decision (48): the candidate it replaced is recorded, and
+                // `Context` puts it back when the model it prints already
+                // satisfies every assertion (`candidate`).
+                let original = self.model.clone();
+                let already = original
+                    .as_ref()
+                    .is_some_and(|model| self.completion_already_installed(model));
+                if self.certify_sat_by_array_completion(manager)
+                    && !already
+                    && let Some(model) = original
+                {
+                    self.replaced_candidate = Some(ReplacedCandidate { model });
+                }
                 false
             }
             SolverResult::Unsat => false,
@@ -285,13 +339,50 @@ impl Solver {
             return None;
         }
         let goal = Goal::build(&assertions, &assignments, manager)?;
-        let pools = goal.default_pools(&assignments, manager);
+        let logic = self.logic.clone();
+        // The joint search first, exactly as before whenever it is within its
+        // bound, so a goal it certified keeps the interpretation it had.
+        if goal.arrays.len() <= MAX_COMPLETED_ARRAYS
+            && let Some(completion) =
+                self.search_goal_completion(&goal, &assignments, manager, logic.as_deref())
+        {
+            return Some((goal, completion));
+        }
+        // Then one search per independent group (`groups`), and the one
+        // certificate over every assertion on the union of what they found.
+        let groups = groups::array_groups(&goal.arrays, &goal.assertions, manager);
+        if groups.len() < 2 {
+            return None;
+        }
+        let mut merged: FxHashMap<TermId, TermId> = FxHashMap::default();
+        for group in &groups {
+            let sub_goal = goal.restricted_to(group, manager)?;
+            let completion =
+                self.search_goal_completion(&sub_goal, &assignments, manager, logic.as_deref())?;
+            merged.extend(completion);
+        }
+        let mut queries = 0usize;
+        goal.certificate_passes(self, &merged, manager, logic.as_deref(), &mut queries)
+            .then_some((goal, merged))
+    }
+
+    /// One search over `goal`'s arrays: a constant array per array over the
+    /// pooled defaults, then (over an `Int` / `Real` index) the candidate's
+    /// own points over a pooled default (`infinite`), then a default plus
+    /// pinned points (`pinned`).  `None` when none certifies.
+    fn search_goal_completion(
+        &self,
+        goal: &Goal,
+        assignments: &FxHashMap<TermId, TermId>,
+        manager: &mut TermManager,
+        logic: Option<&str>,
+    ) -> Option<FxHashMap<TermId, TermId>> {
+        let pools = goal.default_pools(assignments, manager);
         if pools.iter().any(Vec::is_empty) {
             return None;
         }
         let points = goal.points_by_sort(manager);
         let samples = goal.sample_instances(&points, manager)?;
-        let logic = self.logic.clone();
         let mut queries = 0usize;
         for combination in Combinations::new(&pools) {
             let mut completion: FxHashMap<TermId, TermId> = FxHashMap::default();
@@ -300,19 +391,22 @@ impl Solver {
                 let interpretation = const_array(sort, default, manager);
                 completion.insert(array, interpretation);
             }
-            if self.completion_refuted_by_evaluation(&goal, &completion, &samples, manager) {
+            if self.completion_refuted_by_evaluation(goal, &completion, &samples, manager) {
                 continue;
             }
-            if goal.certificate_passes(&completion, manager, logic.as_deref(), &mut queries) {
-                return Some((goal, completion));
+            if goal.certificate_passes(self, &completion, manager, logic, &mut queries) {
+                return Some(completion);
             }
             if queries >= MAX_CERTIFICATE_QUERIES {
                 break;
             }
         }
-        let completion =
-            self.search_pinned_completion(&goal, &samples, &points, manager, logic.as_deref())?;
-        Some((goal, completion))
+        if let Some(completion) =
+            self.search_candidate_point_completion(goal, assignments, &samples, manager, logic)
+        {
+            return Some(completion);
+        }
+        self.search_pinned_completion(goal, &samples, &points, manager, logic)
     }
 
     /// Whether `completion` (with the scalar pins) makes some assertion
@@ -331,6 +425,7 @@ impl Solver {
         }
         goal.assertions.iter().any(|&assertion| {
             let sampled = manager.substitute(assertion, samples);
+            let sampled = manager.substitute(sampled, &goal.ground_values);
             matches!(
                 self.eval_under_interpretation(sampled, &interpretation, manager),
                 EvalOutcome::Value(EvalVal::Bool(false))
@@ -401,62 +496,104 @@ fn mentions_any(term: TermId, targets: &FxHashSet<TermId>, manager: &TermManager
     false
 }
 
+/// The array-sorted free variables of `assertions` in first-encounter order,
+/// and the candidate model's value of every other free symbol it gives one.
+///
+/// A scalar with no value in the candidate model is left out of the pins:
+/// the certificate is a *validity* query, so a symbol it does not interpret
+/// can only make the query harder to discharge, never the conclusion weaker.
+fn free_symbols(
+    assertions: &[TermId],
+    assignments: &FxHashMap<TermId, TermId>,
+    manager: &TermManager,
+) -> Option<(Vec<TermId>, FxHashMap<TermId, TermId>)> {
+    let mut arrays: Vec<TermId> = Vec::new();
+    let mut scalar_pins: FxHashMap<TermId, TermId> = FxHashMap::default();
+    let mut seen: FxHashSet<TermId> = FxHashSet::default();
+    for &assertion in assertions {
+        let mut free: Vec<TermId> = manager.free_vars_including_patterns(assertion);
+        // `free_vars_including_patterns` answers from a set, so order it by
+        // the id the term manager already assigned: the attempt's combination
+        // order — and hence its verdict — must not depend on a hash iteration
+        // order.
+        free.sort_unstable_by_key(|term| term.raw());
+        for var in free {
+            if !seen.insert(var) {
+                continue;
+            }
+            let data = manager.get(var)?;
+            if is_array_sort(data.sort, manager) {
+                arrays.push(var);
+            } else if let Some(&value) = assignments.get(&var) {
+                scalar_pins.insert(var, value);
+            }
+        }
+    }
+    Some((arrays, scalar_pins))
+}
+
 impl Goal {
-    /// Classify the assertion set, or decline.
+    /// Classify the assertion set for the completion's search, or decline.
     fn build(
         assertions: &[TermId],
         assignments: &FxHashMap<TermId, TermId>,
-        manager: &TermManager,
+        manager: &mut TermManager,
     ) -> Option<Self> {
-        let mut universals: Vec<TermId> = Vec::new();
-        let mut seen_universals: FxHashSet<TermId> = FxHashSet::default();
-        for &assertion in assertions {
-            collect_maximal_quantifiers(assertion, manager, &mut universals, &mut seen_universals)?;
-        }
-        if universals.is_empty() {
-            // Nothing under a binder, so this module has nothing to add over
-            // the ordinary ground path.
+        let quantifiers = polarity::collect_quantifiers(assertions, manager)?;
+        if quantifiers.universals.is_empty() {
+            // Nothing to complete under a binder: an `exists`-only goal keeps
+            // the candidate's Skolem witness, which the published-model
+            // certificate (`printed`) then checks as printed.
             return None;
         }
-
-        let mut arrays: Vec<TermId> = Vec::new();
-        let mut scalar_pins: FxHashMap<TermId, TermId> = FxHashMap::default();
-        let mut seen: FxHashSet<TermId> = FxHashSet::default();
-        for &assertion in assertions {
-            let mut free: Vec<TermId> = manager.free_vars_including_patterns(assertion);
-            // `free_vars_including_patterns` answers from a set, so order it
-            // by the id the term manager already assigned: the attempt's
-            // combination order — and hence its verdict — must not depend on a
-            // hash iteration order.
-            free.sort_unstable_by_key(|term| term.raw());
-            for var in free {
-                if !seen.insert(var) {
-                    continue;
-                }
-                let data = manager.get(var)?;
-                if is_array_sort(data.sort, manager) {
-                    arrays.push(var);
-                    if arrays.len() > MAX_COMPLETED_ARRAYS {
-                        return None;
-                    }
-                } else if let Some(&value) = assignments.get(&var) {
-                    scalar_pins.insert(var, value);
-                }
-                // A scalar with no value in the candidate model is left free:
-                // the certificate below is a *validity* query, so a symbol it
-                // does not interpret can only make the query harder to
-                // discharge, never the conclusion weaker.
-            }
+        let (mut arrays, scalar_pins) = free_symbols(assertions, assignments, manager)?;
+        // Where the completion used to decline — an uninterpreted function
+        // in the goal, or more arrays than it searches over — the symbols the
+        // universals never read through a binder are interpreted from the
+        // candidate model instead (`#P2b-63`); every other goal is classified
+        // exactly as before.
+        let mut ground_values: FxHashMap<TermId, TermId> = FxHashMap::default();
+        let fix_arrays = arrays.len() > MAX_COMPLETED_ARRAYS;
+        if fix_arrays || declined::has_uninterpreted_application(assertions, manager) {
+            let (completed, values) = declined::interpret_from_candidate(
+                assertions,
+                &arrays,
+                assignments,
+                &scalar_pins,
+                fix_arrays,
+                manager,
+            )?;
+            arrays = completed;
+            ground_values = values;
         }
-        if arrays.is_empty() {
+        // The bound is on a *group* of arrays some assertion mentions
+        // together (`groups`): four arrays each under its own binder are four
+        // one-array searches.
+        if arrays.is_empty()
+            || groups::largest_group(&arrays, assertions, manager) > MAX_COMPLETED_ARRAYS
+        {
             return None;
         }
         Some(Self {
             assertions: assertions.to_vec(),
-            universals,
+            universals: quantifiers.universals,
             arrays,
             scalar_pins,
+            existentials: quantifiers.existentials,
+            ground_values,
+            negations: quantifiers.negations,
+            hypotheses: Vec::new(),
         })
+    }
+
+    /// `query` read under the goal's hypotheses.
+    fn under_hypotheses(&self, query: TermId, manager: &mut TermManager) -> TermId {
+        if self.hypotheses.is_empty() {
+            return query;
+        }
+        let mut parts = self.hypotheses.clone();
+        parts.push(query);
+        manager.mk_and(parts)
     }
 
     /// The default values tried for each array, in a deterministic order.
@@ -522,52 +659,275 @@ impl Goal {
     /// The quantifier-free certificate for one completion.
     ///
     /// Every step is a validity query discharged by refuting its negation; see
-    /// the module docs for why only that direction is taken.
+    /// the module docs for why only that direction is taken.  A closed
+    /// instance is *evaluated* exactly instead of queried: `true` is what the
+    /// query's `Unsat` would conclude and `false` what its `Sat` would, so the
+    /// evaluation changes which queries are spent, never what is accepted.
     fn certificate_passes(
         &self,
+        solver: &Solver,
         completion: &FxHashMap<TermId, TermId>,
         manager: &mut TermManager,
         logic: Option<&str>,
         queries: &mut usize,
     ) -> bool {
-        let mut substitution = self.scalar_pins.clone();
-        substitution.extend(completion.iter().map(|(&k, &v)| (k, v)));
+        let substitution = self.full_substitution(completion);
+        let dual_of: FxHashMap<TermId, TermId> = self
+            .negations
+            .iter()
+            .map(|&(original, dual)| (dual, original))
+            .collect();
+        let extra_points = completion_points(completion, manager);
 
-        // Step 1: every maximal `forall` must be certified *true* under the
-        // completion.  The bound variables become fresh reserved constants, so
+        // Step 1: every maximal `forall` is certified *true* under the
+        // completion where it can be (and one that cannot is left
+        // undetermined for step 2, `undetermined`).  The bound variables become fresh reserved constants, so
         // the query is quantifier-free and the bound name can never be
         // confused with a free one of the same name — which is exactly the
-        // collision shape of `rk8/atk/f5_binder_collide_index.smt2`.
+        // collision shape of `rk8/atk/f5_binder_collide_index.smt2`.  The dual
+        // `∀x⃗. ¬φ` of a negated `exists` certifies that `exists` *false*
+        // (`polarity`); where it does not, the `exists` itself may still be
+        // certified true by a witness, and the assertions then decide.
         let mut truths: FxHashMap<TermId, TermId> = FxHashMap::default();
         for (position, &universal) in self.universals.iter().enumerate() {
-            let Some(body) = peel_universal(universal, position, manager) else {
-                return false;
-            };
-            let body = manager.substitute(body, &substitution);
-            let negated = manager.mk_not(body);
-            if !matches!(
-                run_query(negated, manager, logic, queries),
-                Some(SolverResult::Unsat)
+            let original = dual_of.get(&universal).copied();
+            if self.universal_certified(
+                solver,
+                universal,
+                position,
+                &substitution,
+                manager,
+                logic,
+                queries,
             ) {
-                return false;
+                truths.insert(universal, manager.mk_true());
+                if let Some(original) = original {
+                    truths.insert(original, manager.mk_false());
+                }
+                continue;
             }
-            truths.insert(universal, manager.mk_true());
+            let Some(original) = original else {
+                truths.insert(universal, undetermined(manager, "u", position));
+                continue;
+            };
+            if !self.certify_existential(
+                solver,
+                original,
+                position,
+                &substitution,
+                &extra_points,
+                manager,
+                logic,
+                queries,
+            ) {
+                truths.insert(original, undetermined(manager, "u", position));
+                continue;
+            }
+            truths.insert(original, manager.mk_true());
+        }
+        // Step 1b: every maximal `exists` must be certified true by a witness
+        // (`#P2b-63`, `declined`); the dual `∃x⃗. ¬φ` of a negated `forall`
+        // certifies that `forall` false, and where it does not, the `forall`
+        // itself may still be certified true.
+        for (position, &existential) in self.existentials.iter().enumerate() {
+            let original = dual_of.get(&existential).copied();
+            if self.certify_existential(
+                solver,
+                existential,
+                position,
+                &substitution,
+                &extra_points,
+                manager,
+                logic,
+                queries,
+            ) {
+                truths.insert(existential, manager.mk_true());
+                if let Some(original) = original {
+                    truths.insert(original, manager.mk_false());
+                }
+                continue;
+            }
+            let Some(original) = original else {
+                truths.insert(existential, undetermined(manager, "e", position));
+                continue;
+            };
+            if !self.universal_certified(
+                solver,
+                original,
+                self.universals.len() + position,
+                &substitution,
+                manager,
+                logic,
+                queries,
+            ) {
+                truths.insert(original, undetermined(manager, "e", position));
+                continue;
+            }
+            truths.insert(original, manager.mk_true());
         }
 
-        // Step 2: one query for the assertions themselves.  `(or ¬A₁ … ¬Aₙ)`
-        // is `Unsat` exactly when every `Aᵢ` holds under the completion.
+        // Step 2: the assertions themselves.  Evaluated first; where every
+        // one evaluates, no query is spent.  Otherwise one query:
+        // `(or ¬A₁ … ¬Aₙ)` is `Unsat` exactly when every `Aᵢ` holds under the
+        // completion.
         let mut disjuncts: Vec<TermId> = Vec::with_capacity(self.assertions.len());
+        let mut all_true = true;
         for &assertion in &self.assertions {
             let grounded = manager.substitute(assertion, &truths);
             let grounded = manager.substitute(grounded, &substitution);
+            match evaluate_closed(solver, grounded, manager) {
+                Some(false) => return false,
+                Some(true) => {}
+                None => all_true = false,
+            }
             disjuncts.push(manager.mk_not(grounded));
         }
+        if all_true {
+            return true;
+        }
         let refutation = manager.mk_or(disjuncts);
+        let refutation = self.under_hypotheses(refutation, manager);
         matches!(
             run_query(refutation, manager, logic, queries),
             Some(SolverResult::Unsat)
         )
     }
+
+    /// The scalar pins, the fixed ground values and `completion`, as one map.
+    fn full_substitution(
+        &self,
+        completion: &FxHashMap<TermId, TermId>,
+    ) -> FxHashMap<TermId, TermId> {
+        let mut substitution = self.scalar_pins.clone();
+        substitution.extend(self.ground_values.iter().map(|(&k, &v)| (k, v)));
+        substitution.extend(completion.iter().map(|(&k, &v)| (k, v)));
+        substitution
+    }
+
+    /// Whether the universal `universal` (listed at `position`) is certified
+    /// true under `substitution`: by the point split over an infinite index
+    /// sort where it applies (`split`), else by the validity query.
+    #[allow(clippy::too_many_arguments)]
+    fn universal_certified(
+        &self,
+        solver: &Solver,
+        universal: TermId,
+        position: usize,
+        substitution: &FxHashMap<TermId, TermId>,
+        manager: &mut TermManager,
+        logic: Option<&str>,
+        queries: &mut usize,
+    ) -> bool {
+        if let Some(verdict) = split::universal_by_points(
+            solver,
+            universal,
+            position,
+            substitution,
+            &self.hypotheses,
+            manager,
+            logic,
+            queries,
+        ) {
+            return verdict;
+        }
+        let Some(body) = peel_universal(universal, position, manager) else {
+            return false;
+        };
+        let body = manager.substitute(body, substitution);
+        let negated = manager.mk_not(body);
+        let negated = self.under_hypotheses(negated, manager);
+        matches!(
+            run_query(negated, manager, logic, queries),
+            Some(SolverResult::Unsat)
+        )
+    }
+}
+
+/// A fresh Boolean constant standing for a quantifier sub-term neither of
+/// whose values could be certified.  The assertions' validity query then has
+/// to hold for *both* of its values, so an assertion that does not depend on
+/// the sub-term — `(=> p (forall …))` under `p = false` — still certifies, and
+/// one that does cannot: sound for the same reason every other symbol the
+/// query leaves free is.
+fn undetermined(manager: &mut TermManager, kind: &str, position: usize) -> TermId {
+    let bool_sort = manager.sorts.bool_sort;
+    manager.mk_var(
+        &reserved_name("qunk", &format!("{kind}{position}")),
+        bool_sort,
+    )
+}
+
+/// The value of a closed term, read exactly (every `select` over its
+/// `store` chain): what `(get-value)` prints for a term of the printed model
+/// (`context::model_fmt::printed_check`).  `None` when the evaluator cannot
+/// fold it.
+pub(crate) fn evaluate_closed_value(
+    solver: &Solver,
+    term: TermId,
+    manager: &mut TermManager,
+) -> Option<crate::solver::EvalVal> {
+    let term = array_values::fold_array_value_equalities(term, manager);
+    match solver.eval_under_interpretation(term, &Model::new(), manager) {
+        EvalOutcome::Value(value) => Some(value),
+        _ => None,
+    }
+}
+
+/// [`evaluate_closed_value`] without the array-value fold: the term read
+/// exactly, through a shared borrow, so it interns nothing.  The printed-model
+/// net's value reading (`context::model_fmt::printed_eval::ground_values`)
+/// calls it on every scalar sub-term of a check's assertions, and the term
+/// arena a later check's search reads must not move for it.
+pub(crate) fn evaluate_closed_value_pure(
+    solver: &Solver,
+    term: TermId,
+    manager: &TermManager,
+) -> Option<crate::solver::EvalVal> {
+    match solver.eval_under_interpretation(term, &Model::new(), manager) {
+        EvalOutcome::Value(value) => Some(value),
+        _ => None,
+    }
+}
+
+/// The exact value of a closed Boolean term, or `None` when the evaluator
+/// cannot fold it to one (a symbol it does not interpret, an array equality).
+pub(crate) fn evaluate_closed(
+    solver: &Solver,
+    term: TermId,
+    manager: &mut TermManager,
+) -> Option<bool> {
+    let term = array_values::fold_array_value_equalities(term, manager);
+    match solver.eval_under_interpretation(term, &Model::new(), manager) {
+        EvalOutcome::Value(EvalVal::Bool(value)) => Some(value),
+        _ => None,
+    }
+}
+
+/// Every literal `store` index of the completion's interpretations, by sort:
+/// the points the interpretation names, which a witness search must try
+/// (an `exists` witnessed where the candidate's Skolem constant was read).
+fn completion_points(
+    completion: &FxHashMap<TermId, TermId>,
+    manager: &TermManager,
+) -> FxHashMap<SortId, Vec<TermId>> {
+    let mut out: FxHashMap<SortId, Vec<TermId>> = FxHashMap::default();
+    let mut values: Vec<TermId> = completion.values().copied().collect();
+    values.sort_unstable_by_key(|term| term.raw());
+    for value in values {
+        let mut current = value;
+        while let Some(TermKind::Store(inner, index, _)) = manager.get(current).map(|d| &d.kind) {
+            if is_literal(*index, manager)
+                && let Some(sort) = manager.get(*index).map(|d| d.sort)
+            {
+                let list = out.entry(sort).or_default();
+                if !list.contains(index) {
+                    list.push(*index);
+                }
+            }
+            current = *inner;
+        }
+    }
+    out
 }
 
 /// Run one quantifier-free certificate query, or `None` when the query budget
@@ -587,6 +947,9 @@ fn run_query(
         return None;
     }
     *queries += 1;
+    // An equality between two literal array values is decided exactly here
+    // rather than left to extensionality in the sub-solver (`array_values`).
+    let goal = array_values::fold_array_value_equalities(goal, manager);
     let mut solver = Solver::new();
     solver.set_logic(logic.unwrap_or("ALL"));
     solver.config.max_conflicts = CERTIFICATE_CONFLICT_BUDGET;
@@ -655,45 +1018,6 @@ fn peel_universal_with_vars(
     Some((manager.substitute(current, &rename), fresh_vars))
 }
 
-/// Record every maximal quantifier sub-term of `term`, declining on an
-/// `exists` (see the module docs) and on anything the walk cannot read.
-fn collect_maximal_quantifiers(
-    term: TermId,
-    manager: &TermManager,
-    out: &mut Vec<TermId>,
-    seen: &mut FxHashSet<TermId>,
-) -> Option<()> {
-    let mut stack: Vec<TermId> = vec![term];
-    let mut visited: FxHashSet<TermId> = FxHashSet::default();
-    let mut children: Vec<TermId> = Vec::new();
-    while let Some(current) = stack.pop() {
-        if !visited.insert(current) {
-            continue;
-        }
-        let data = manager.get(current)?;
-        match &data.kind {
-            TermKind::Forall { .. } => {
-                if seen.insert(current) {
-                    out.push(current);
-                }
-                // Deliberately not descended into: the sub-term is handled as
-                // a whole by `peel_universal`.
-            }
-            TermKind::Exists { .. } => return None,
-            _ => {
-                children.clear();
-                children.extend(oxiz_core::ast::traversal::get_children(&data.kind));
-                stack.extend(children.iter().copied());
-            }
-        }
-    }
-    // The walk visits a hash-consed DAG, so `stack` order decides the order
-    // `out` is filled.  Sort it so the certificate's query order is a property
-    // of the term ids and not of the traversal.
-    out.sort_unstable_by_key(|term| term.raw());
-    Some(())
-}
-
 /// Every constant (literal) sub-term of `term`, in first-encounter order.
 fn collect_constants(
     term: TermId,
@@ -756,20 +1080,14 @@ fn contains_quantifier(term: TermId, manager: &TermManager) -> bool {
     false
 }
 
-/// Whether the goal is one an attempt can afford to try.
+/// Whether the goal is one an attempt can afford to try: at most
+/// [`MAX_GOAL_NODES`] assertion-DAG nodes.
 ///
-/// Two conditions, both about cost rather than about soundness.
-///
-/// * **Size.** See [`MAX_GOAL_NODES`].
-/// * **No uninterpreted application.** An application of a symbol this module
-///   does not interpret survives into the certificate's validity query, where
-///   the sub-solver is free to interpret it any way it likes — so the query is
-///   asking whether the goal holds for *every* interpretation of that symbol,
-///   which a satisfiable-but-not-valid goal never does.  That is sound (it can
-///   only decline) but it is certain to decline, so it is worth detecting up
-///   front instead of after twenty-four combinations.  The array constant
-///   `((as const A) d)` is an `Apply` under a reserved symbol and *is*
-///   interpreted, so it does not count.
+/// An uninterpreted application used to decline here as well (it survives
+/// into the validity query, where the sub-solver may interpret it any way it
+/// likes, so a satisfiable-but-not-valid goal never certifies).  It is now
+/// interpreted from the candidate model where it is ground, and declines in
+/// `Goal::build` where it is not (`#P2b-63`, `declined`).
 fn is_small_enough_to_certify(assertions: &[TermId], manager: &TermManager) -> bool {
     let mut visited: FxHashSet<TermId> = FxHashSet::default();
     let mut stack: Vec<TermId> = assertions.to_vec();
@@ -784,9 +1102,6 @@ fn is_small_enough_to_certify(assertions: &[TermId], manager: &TermManager) -> b
         let Some(data) = manager.get(current) else {
             return false;
         };
-        if matches!(data.kind, TermKind::Apply { .. }) && !is_const_array(current, manager) {
-            return false;
-        }
         children.clear();
         children.extend(oxiz_core::ast::traversal::get_children(&data.kind));
         stack.extend(children.iter().copied());

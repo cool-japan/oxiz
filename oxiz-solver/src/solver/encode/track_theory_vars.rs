@@ -97,6 +97,9 @@ impl Solver {
                             self.arith_terms.insert(current);
                             self.trail.push(TrailOp::ArithTermAdded { term: current });
                             self.arith.intern(current);
+                            if is_int {
+                                self.arith.mark_int_term(current);
+                            }
                         }
                     } else if let Some(sort) = manager.sorts.get(term.sort)
                         && sort.is_bitvec()
@@ -249,6 +252,9 @@ impl Solver {
                         self.arith_terms.insert(current);
                         self.trail.push(TrailOp::ArithTermAdded { term: current });
                         self.arith.intern(current);
+                        if is_int {
+                            self.arith.mark_int_term(current);
+                        }
                     }
                 }
 
@@ -285,6 +291,9 @@ impl Solver {
                         self.arith_terms.insert(current);
                         self.trail.push(TrailOp::ArithTermAdded { term: current });
                         self.arith.intern(current);
+                        if is_int {
+                            self.arith.mark_int_term(current);
+                        }
                     }
                 }
 

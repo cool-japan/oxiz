@@ -80,7 +80,7 @@ Finite-range quantifier expansion (`AUFLIA`), Skolem witness synthesis with CEGA
 Models, unsat cores and proofs are invalidated on `push`/`pop`/`assert`, so a stale answer can never be handed back; an unjustified conflict clause now yields `Unknown` instead of a fabricated `Unsat`; derived reasons are Solver-owned and stamped with absolute scope depth; e-matching trigger inference is restricted to uninterpreted heads (matching Z3's `pattern_inference`, and fixing a matching loop); and `(get-unsat-core)` works when `:produce-unsat-cores` is enabled mid-session, because assertion names are now recorded unconditionally.
 
 ### Repeated `(check-sat)` behavior
-Long incremental sessions no longer accumulate cost. The embedded bit-vector solver installs every circuit at the root and scopes only what is asserted (each asserted atom is an assumption of one `solve_with_assumptions` per check, and a refutation is explained by the failed-assumption core), so a popped circuit is never re-encoded with fresh variables and one embedded check costs the same after a hundred thousand checks as after two thousand; `Solver::solve_with_assumptions` itself now re-decides its assumptions after every backjump and restart (it used to drop them and could answer `sat` with a model violating one). Hyper-binary-resolution clauses are registered in the learned/assertion ledgers, so clause-DB reduction, `forget` and `pop` can actually reclaim them; `Solver::pop` retracts Tseitin memo entries per-entry through the undo journal instead of clearing the memo wholesale (the wholesale clear caused unbounded re-encoding — one goal grew from 25 to 361 original clauses over 30 push/pop-plus-check cycles); MBQI search state is checkpointed and restored around each check, which also fixes MBQI silently ceasing to instantiate after roughly ten checks on the same goal. New: a **verdict cache** makes a repeated `(check-sat)` on an untouched goal an O(1) cache hit, invalidated by `assert`/`push`/`pop`/`reset` and by every settings mutator.
+Long incremental sessions no longer accumulate cost. The embedded bit-vector solver installs every circuit at the root and scopes only what is asserted (each asserted atom is an assumption of one `solve_with_assumptions` per check, and a refutation is explained by the failed-assumption core), so a popped circuit is never re-encoded with fresh variables and, within one search, one embedded check costs the same after a hundred thousand checks as after two thousand (across many array-refinement rounds the circuits of every round stay defined and the price grows with them — `#P2b-69`, open); `Solver::solve_with_assumptions` itself now re-decides its assumptions after every backjump and restart (it used to drop them and could answer `sat` with a model violating one). Hyper-binary-resolution clauses are registered in the learned/assertion ledgers, so clause-DB reduction, `forget` and `pop` can actually reclaim them; `Solver::pop` retracts Tseitin memo entries per-entry through the undo journal instead of clearing the memo wholesale (the wholesale clear caused unbounded re-encoding — one goal grew from 25 to 361 original clauses over 30 push/pop-plus-check cycles); MBQI search state is checkpointed and restored around each check, which also fixes MBQI silently ceasing to instantiate after roughly ten checks on the same goal. New: a **verdict cache** makes a repeated `(check-sat)` on an untouched goal an O(1) cache hit, invalidated by `assert`/`push`/`pop`/`reset` and by every settings mutator.
 
 ### Quality gates
 `clippy::unwrap_used` is denied in all 17 member crates, and clippy is clean in both the dev and release profiles; `rustdoc -D warnings` is clean; `cargo deny check bans` is clean; every source file is under the 2,000-line cap. `to_cnf_tseitin` (an equisatisfiable, linear-size CNF encoding) was added to `oxiz-core` and `TseitinCnfTactic` rewired to it.
@@ -216,7 +216,7 @@ The original 8-logic, 88-benchmark quickstart core (QF_LIA, QF_LRA, QF_NIA, QF_B
 
 - ✅ **Every Benchmark Decisive, Every Answer Matching**: all 19 logic families reach 100% Correct, with no `Unknown`, no timeout and no process error anywhere in the run. Because the comparator refuses to score `Unknown` as a match, the score cannot be inflated by declining to answer — 170/170 means OxiZ committed to a verdict on every benchmark and z3 agreed with all of them.
 - ⚠️ **100% of the Suite, Not "100% Z3 Compatibility"**: this is a claim about the differential parity suite and nothing wider. The suite is 170 benchmarks across 19 logics; it does not cover `QF_NRA`, `HORN`, or the long tail of SMT-LIB, and a perfect score on it is not evidence that any given formula outside it will be decided. Coverage gaps are tracked in [`TODO.md`](TODO.md).
-- ⚠️ **Not a General Production-Readiness Claim**: the 2026-07-16 audit, 0.3.0's hardening waves, 0.3.1's soundness sweep and this release's soundness sweep found and fixed soundness gaps across the parser, quantifier elimination, MBQI, SAT conflict analysis, NLSAT, math, MaxSAT/QE, Spacer, EUF/arithmetic theory combination, and proof checking — but items such as NLSAT irrational-root isolation remain open; see [`TODO.md`](TODO.md) for the itemized gaps and fix status before relying on OxiZ outside this suite's scope
+- ⚠️ **Not a General Production-Readiness Claim**: the 2026-07-16 audit, 0.3.0's hardening waves, 0.3.1's soundness sweep and this release's soundness sweep found and fixed soundness gaps across the parser, quantifier elimination, MBQI, SAT conflict analysis, NLSAT, math, MaxSAT/QE, Spacer, EUF/arithmetic theory combination, and proof checking — including, in 0.3.4, a wrong `unsat` in an incremental `QF_AUFBV` script (a bit-vector literal read off a stale circuit model and merged with a different literal, `#P2b-68`, a regression against 0.3.3 found by an adversarial recheck's differential fuzzer) — but items such as NLSAT irrational-root isolation remain open; see [`TODO.md`](TODO.md) for the itemized gaps and fix status before relying on OxiZ outside this suite's scope
 - ✅ **Pure Rust**: Achieved without any C/C++ dependencies
 
 This snapshot validates OxiZ's arithmetic, BV, datatype, array, string, FP, combined-theory and quantified reasoning against Z3 across the whole differential suite, while being explicit that logics outside the suite remain ongoing work.
@@ -409,8 +409,10 @@ Status reflects results on the `bench/z3_parity` suite against a real `z3` 4.15.
 
 ### Theory Solvers
 - EUF with congruence closure
-- LRA with Simplex
-- LIA with branch-and-bound, Cuts
+- LRA with Simplex (real division `/` is not decided yet: any atom with one answers `unknown`, `#P2b-80`)
+- LIA with branch-and-bound, Cuts; an `Int` term under `(set-logic ALL)` or no logic is decided by the
+  same branch-and-bound over the `Int` terms at each final check (0.3.4, `#P2b-79`: before it such a term was
+  solved over the reals, and `(= (* 2 x) 1)` answered `sat`)
 - BV with bit-blasting and word-level reasoning
 - Arrays with extensionality
 - Strings with automata
@@ -430,25 +432,64 @@ Status reflects results on the `bench/z3_parity` suite against a real `z3` 4.15.
 > claim. Above the finite expansion's 64-point budget — an index sort of `(_ BitVec 7)` or wider — a
 > *satisfiable* quantified array script is decided when the arrays can be completed to a total
 > interpretation that passes a quantifier-free certificate (`solver::array_completion_certify`: a
-> validity query per universal and one over every assertion; a wrong completion is refused, never
-> published). The completion is a constant array over a searched default and, over bit-vector and `Bool`
-> index sorts, a default **plus finitely many pinned points** taken from the index terms the goal names
-> (0.3.4, `#P2b-58`); it also runs on every quantified array `sat`, where it changes only the published
-> **model** and never the verdict (`#P2b-51`). Outside that shape — an interpretation that differs from
-> its default at an index the goal never names, a goal carrying an uninterpreted function, more than
-> three arrays, an `exists`, or a *declared* sort whose cardinality nothing pins — the completion
-> declines: the verdict is whatever the ordinary path reaches (often `sat` or `unsat`, an honest
-> `unknown` when it reaches neither), and on a `sat` the candidate model is published unchanged and may
-> still falsify the universal (`#P2b-63`). Wrong verdicts measured in this area so far, tracked in
-> [`TODO.md`](TODO.md) with their repros (a measurement, not a claim that nothing else exists):
-> `#P2b-60` (an array pinned by a ground equality and read under a binder answered `sat` where it is
-> `unsat`) is fixed in 0.3.4 over bit-vector, `Int`, `Real`, `Bool` and declared index sorts; the same
-> family over a datatype index sort with a field, and over a declared sort whose second element exists
-> only as a Skolem witness, still answers `sat` (`#P2b-64`, **open**, pre-existing in 0.3.3); and
-> datatype constructors are not distinct as array indices, so `a = (store ((as const …) 0) red 1)`
-> beside `(= (select a green) 1)` answers `sat` (`#P2b-61`, **open**, pre-existing in 0.3.3).
-> A two-variable pigeonhole under a `(not (= i j))` guard answers `sat` (`#P2b-65`, **open**).
-> `#P2b-50` (declared sorts whose cardinality nothing pins) stays open.
+> validity query per universal, a witness per `exists`, one check over every assertion; a wrong completion
+> is refused, never published). The completion is a constant array over a searched default and, over
+> bit-vector and `Bool` index sorts, a default **plus finitely many pinned points** taken from the index
+> terms the goal names (0.3.4, `#P2b-58`); over `Int` / `Real` it keeps the candidate's own points over a
+> default drawn from the script's constants and their `± 1`, certified pointwise. It also runs on every
+> quantified array `sat`, where it changes only the published **model** and never the verdict (`#P2b-51`) —
+> and a candidate model that already satisfies every assertion as printed is kept. A negated `exists` is
+> completed as the universal it is, arrays under independent binders are completed one group at a time, an
+> `exists` is certified by a witness (its Skolem constant now prints a value of its own), and symbols no
+> universal reads through a binder keep their candidate values (`#P2b-63`). **A quantified `sat` publishes a
+> certified model or none:** every `sat` whose *asserted* goal holds a quantifier — any theory, including a
+> quantifier the search removed by Skolemisation, destructive equality resolution or vacuous-binder
+> elimination — has its model certified as `(get-model)` prints it, every uninterpreted function read from
+> its printed `define-fun` table; a model that does not certify is withheld: `(get-model)` answers
+> `(error "model not certified: …")` naming the first failing assertion and, where one is found, the point,
+> `(get-value)` answers the same for a term that reads an uncertified symbol, and the `sat` itself stands.
+> What is withheld, as measured (`TODO.md` `#P2b-51`), is a printed model that is not the interpretation the
+> search certified — an uninterpreted function whose printed table's else value breaks a universal the
+> search satisfied another way (a monotone `f`, `∀x. f(x) = x`), a table the candidate gives two values at
+> one point, read as printed (`#P2b-74`), a completion the arrays decline (a group of more than three arrays
+> one chain of assertions links, `a[i] = i`) — and a goal the certificate cannot decide (a nonlinear body
+> over an unbounded domain). A quantifier-free `sat` is not certified: its model is the one theory
+> combination built — kept a function by an Ackermann lemma at the candidate wherever the congruence
+> closure left two values at one point, whether the function's range is a number, a datatype, an
+> enumeration or an uninterpreted sort (`#P2b-74`, `#P2b-84`), and an array into such a sort kept one by
+> the same key (`#P2b-89`) — and checked where the printer's fresh values changed it (`#P2b-71`). Where a
+> declared symbol's sort *contains* a datatype, an enumeration or an uninterpreted sort (a constant of
+> one, an array over or into one, a function over or into one) the printed model is checked at every
+> `sat` and withheld where the check shows it false: the datatype values are rebuilt after the search
+> from the terms as written while the search decided the terms as encoded (`#P2b-88`, open), so which
+> datatype models come out right moves with the search's trajectory. The check reads every comparison,
+> `ite` and array read over such values exactly, but it is a check, not a certificate: an assertion it
+> cannot read is not checked. On the generated corpora the round measured (seeds in `TODO.md` decision
+> (24a)) it printed no falsifying datatype model; some *correct* datatype models are withheld with the
+> falsifying ones when the search's trajectory moves, and are named there. A *declared* sort whose
+> cardinality nothing pins stays open (`#P2b-50`). Wrong verdicts
+> measured in this area, tracked in [`TODO.md`](TODO.md) with their repros (a measurement, not a claim that
+> nothing else exists), all fixed in 0.3.4: an array pinned by a ground equality and read under a binder
+> (`#P2b-60`, and at a datatype index with a field or a declared sort whose second element is a Skolem
+> witness, `#P2b-64`); datatype constructors that were not distinct as array indices (`#P2b-61`,
+> quantifier-free, pre-existing in 0.3.3); a two-variable pigeonhole under a `(not (= i j))` guard that the
+> certifier admitted as a monotone guard (`#P2b-65`; a regression against 0.3.3 at an `Int` index with a
+> bit-vector element); a universal whose guard holds on an interval open at its boundary,
+> `(forall ((q Int)) (=> (> q 7) false))` (`#P2b-75`, every earlier build, at every sort a guard compares);
+> two list values that differ several constructors deep, equated (`#P2b-76`, quantifier-free, every
+> earlier build); a selector over a constructor application inside an uninterpreted argument,
+> `(distinct (f 1) (f (hd (cons 1 l1))))` (`#P2b-82`, quantifier-free, every earlier build); and a cycle
+> through an uninterpreted application two constructors deep, `(= (h 1) (cons x (cons 2 (h 1))))`
+> (`#P2b-83`, quantifier-free, every earlier build). Quantifier-free model defects, pre-existing in 0.3.3,
+> fixed in 0.3.4: congruence classes no theory valued — constants, nested applications, reads — printed
+> one value for classes the search kept apart (`#P2b-71`), a function into a datatype, an enumeration or
+> an uninterpreted sort printed one value at two points its arguments were valued alike (`#P2b-84`), an
+> array into one printed one entry for two reads valued alike (`#P2b-89`), a datatype-indexed array
+> printed none of its entries (`#P2b-72`), and `(get-value)` echoed compound terms (it now answers from
+> the printed model). **Still open:** a quantifier-free model over integers and integer arrays, with no
+> datatype in it, that falsifies its script (`#P2b-81`, every build: 14 checks of 12,134 on five seeds of
+> the round's generated `gen14.py` corpora, falsifying on `c702310` too, each named in `TODO.md`), and
+> the datatype values `#P2b-88` names above (withheld where the check shows them false).
 
 ### Optimization
 - MaxSAT (Fu-Malik, RC2, LNS)

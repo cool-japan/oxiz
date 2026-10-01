@@ -1176,6 +1176,9 @@ impl Solver {
                         self.trail.push(TrailOp::ArithTermAdded { term });
                         // Register with arithmetic solver
                         self.arith.intern(term);
+                        if is_int {
+                            self.arith.mark_int_term(term);
+                        }
                     }
                 } else if let Some(sort) = manager.sorts.get(t.sort)
                     && sort.is_bitvec()

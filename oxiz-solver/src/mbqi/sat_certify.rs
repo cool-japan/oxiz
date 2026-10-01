@@ -83,6 +83,8 @@ use oxiz_core::sort::SortId;
 use super::model_completion::CompletedModel;
 use super::{Instantiation, InstantiationReason, QuantifiedFormula};
 
+mod datatype_points;
+mod real_regions;
 mod unnamed_region;
 
 /// Result of collecting the complete instantiation set for every tracked
@@ -142,6 +144,11 @@ pub(crate) fn collect_fragment_instances(
             augment_guard_grounds(quantifier, &mut relevant, manager);
         }
     }
+    // Over `Real`, `t ± 1` does not reach the open region between two guard
+    // values: the midpoint of every pair does (`real_regions`, `#P2b-75`).
+    if !real_regions::add_real_midpoints(quantifiers, &mut relevant, manager) {
+        return CertifyResult::NotEligible;
+    }
 
     // The third half, for arrays (`#P2b-60`), on the saturation re-check
     // only: a representative of the index region no term names, so the
@@ -161,9 +168,18 @@ pub(crate) fn collect_fragment_instances(
         return CertifyResult::NotEligible;
     }
 
+    // Every eligibility decision is taken before any instance is built: a
+    // round that ends `NotEligible` must leave the term manager as it found
+    // it.  Building the instances of the quantifiers that came first and then
+    // declining on a later one interned every substituted body for nothing.
+    // E-matching (`oxiz_core::ematching`) matches every trigger against
+    // every interned term, so the discarded bodies fed the search: with the
+    // guard neighbours above (`#P2b-75`) `recheck14/corpus/g14a/s00942` took
+    // 100 MBQI rounds and 10.6 s to `unknown`, against 19 rounds and 0.1 s
+    // with the neighbours interned but kept out of the relevant set (pin
+    // `tests::a_declined_round_interns_no_instance`).
     let mut saw_quantifier = false;
-    let mut instances: Vec<Instantiation> = Vec::new();
-
+    let mut planned: Vec<(&QuantifiedFormula, Vec<Vec<TermId>>)> = Vec::new();
     for quantifier in quantifiers {
         if !quantifier.can_instantiate() {
             continue;
@@ -176,28 +192,42 @@ pub(crate) fn collect_fragment_instances(
             return CertifyResult::NotEligible;
         }
 
-        match universal_instances(quantifier, model, &relevant, manager, cap, generation) {
-            Some(mut insts) => instances.append(&mut insts),
+        match universal_tuples(quantifier, model, &relevant, manager, cap) {
+            Some(tuples) => planned.push((quantifier, tuples)),
             None => return CertifyResult::NotEligible,
         }
     }
+    if !saw_quantifier {
+        return CertifyResult::NotEligible;
+    }
 
-    if !saw_quantifier || instances.is_empty() {
+    let mut instances: Vec<Instantiation> = Vec::new();
+    for (quantifier, tuples) in planned {
+        for tuple in &tuples {
+            // A substitution that leaves a bound variable free is an internal
+            // error; decline rather than emit a lemma with a stray variable.
+            let Some(ground) = substitute_tuple(quantifier, tuple, manager) else {
+                return CertifyResult::NotEligible;
+            };
+            instances.push(make_instantiation(quantifier, tuple, ground, generation));
+        }
+    }
+
+    if instances.is_empty() {
         return CertifyResult::NotEligible;
     }
     CertifyResult::Instances(instances)
 }
 
-/// Build the complete instantiation set for one universal quantifier, or `None`
-/// when it is outside the certifiable fragment.
-fn universal_instances(
+/// The complete instantiation tuples for one universal quantifier, or `None`
+/// when it is outside the certifiable fragment.  Builds no instance.
+fn universal_tuples(
     quantifier: &QuantifiedFormula,
     model: &CompletedModel,
     relevant: &FxHashMap<SortId, Vec<TermId>>,
     manager: &mut TermManager,
     cap: usize,
-    generation: u32,
-) -> Option<Vec<Instantiation>> {
+) -> Option<Vec<Vec<TermId>>> {
     // Prefer the exhaustive bounded-box domain (needs no model-extension
     // argument); otherwise fall back to the essentially-/almost-uninterpreted
     // relevant-term domain.
@@ -211,15 +241,7 @@ fn universal_instances(
         // No relevant instantiation exists at all; we cannot certify.
         return None;
     }
-
-    let mut instances = Vec::with_capacity(tuples.len());
-    for tuple in &tuples {
-        // A substitution that leaves a bound variable free is an internal error;
-        // decline rather than emit a lemma with a stray variable.
-        let ground = substitute_tuple(quantifier, tuple, manager)?;
-        instances.push(make_instantiation(quantifier, tuple, ground, generation));
-    }
-    Some(instances)
+    Some(tuples)
 }
 
 /// Collect, per sort, the ground terms that appear as an argument of some
@@ -354,7 +376,7 @@ const MAX_PEELED_PREMISES: usize = 16;
 fn augment_guard_grounds(
     quantifier: &QuantifiedFormula,
     relevant: &mut FxHashMap<SortId, Vec<TermId>>,
-    manager: &TermManager,
+    manager: &mut TermManager,
 ) {
     let var_names: FxHashSet<Spur> = quantifier.bound_vars.iter().map(|(n, _)| *n).collect();
     if var_names.is_empty() {
@@ -370,6 +392,17 @@ fn augment_guard_grounds(
 
     let mut ground_terms: Vec<TermId> = Vec::new();
     collect_guard_ground_terms(guard, &var_names, manager, &mut ground_terms);
+    // Both sides of every boundary (`#P2b-75`): `x > t`, `x < t` and
+    // `¬(x = t)` are false at `t` itself, so with `t` alone every instance was
+    // vacuous and `(forall ((q Int)) (=> (> q 7) false))` saturated `sat`.
+    // `t ± 1` as terms — a declared `m` in `(> x m)` gets `(+ m 1)`, which
+    // stays one point however the model moves `m`, where a value-keyed
+    // representative would chase it round after round.
+    let neighbours: Vec<TermId> = ground_terms
+        .iter()
+        .flat_map(|&term| guard_neighbours(term, manager))
+        .collect();
+    ground_terms.extend(neighbours);
 
     for term in ground_terms {
         if let Some(sort) = manager.get(term).map(|t| t.sort) {
@@ -381,8 +414,54 @@ fn augment_guard_grounds(
     }
 }
 
-/// Walk a guard conjunction (through `And` / `Or` / `Not`) and collect the
-/// ground side of every `bound-variable ⊕ ground` comparison.
+/// `t - 1` and `t + 1` for a guard ground `t` of an ordered sort (`Int`,
+/// `Real`, bit-vectors modulo the width), folded where `t` is a literal;
+/// nothing for any other sort.
+fn guard_neighbours(term: TermId, manager: &mut TermManager) -> Vec<TermId> {
+    let Some(data) = manager.get(term).cloned() else {
+        return Vec::new();
+    };
+    match (
+        &data.kind,
+        manager.sorts.get(data.sort).map(|s| s.kind.clone()),
+    ) {
+        (TermKind::IntConst(value), _) => {
+            vec![manager.mk_int(value - 1u8), manager.mk_int(value + 1u8)]
+        }
+        (TermKind::RealConst(value), _) => {
+            let one = num_rational::Rational64::from_integer(1);
+            [
+                num_traits::CheckedSub::checked_sub(value, &one),
+                num_traits::CheckedAdd::checked_add(value, &one),
+            ]
+            .into_iter()
+            .flatten()
+            .map(|v| manager.mk_real(v))
+            .collect()
+        }
+        (_, Some(oxiz_core::sort::SortKind::Int)) => {
+            let one = manager.mk_int(1);
+            vec![manager.mk_sub(term, one), manager.mk_add([term, one])]
+        }
+        (_, Some(oxiz_core::sort::SortKind::Real)) => {
+            let one = manager.mk_real(num_rational::Rational64::from_integer(1));
+            vec![manager.mk_sub(term, one), manager.mk_add([term, one])]
+        }
+        (_, Some(oxiz_core::sort::SortKind::BitVec(width))) => {
+            let one = manager.mk_bitvec(1u8, width);
+            vec![manager.mk_bv_sub(term, one), manager.mk_bv_add(term, one)]
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// Walk a guard (through every connective, `ite` and operator in it) and
+/// collect the ground side of every `bound-variable ⊕ ground` comparison.
+///
+/// [`eu_walk`] admits such a comparison anywhere in the premise — under an
+/// `=>`, in an `ite` condition, inside an arithmetic `ite` — so the walk
+/// descends everywhere: a comparison it missed would be a boundary without
+/// an instance on its far side.
 ///
 /// Iterative with an explicit heap stack: the guard shape is
 /// caller-controlled input and the results flow through `out` with no error
@@ -408,21 +487,17 @@ fn collect_guard_ground_terms(
         let Some(node) = manager.get(current) else {
             continue;
         };
-        match &node.kind {
-            TermKind::And(args) | TermKind::Or(args) => {
-                for &a in args.iter().rev() {
-                    stack.push(a);
-                }
-            }
-            TermKind::Not(a) => stack.push(*a),
-            TermKind::Le(l, r)
-            | TermKind::Ge(l, r)
-            | TermKind::Lt(l, r)
-            | TermKind::Gt(l, r)
-            | TermKind::Eq(l, r) => {
-                push_guard_ground(*l, *r, vars, manager, out);
-            }
-            _ => {}
+        if let TermKind::Le(l, r)
+        | TermKind::Ge(l, r)
+        | TermKind::Lt(l, r)
+        | TermKind::Gt(l, r)
+        | TermKind::Eq(l, r) = &node.kind
+        {
+            push_guard_ground(*l, *r, vars, manager, out);
+        }
+        let children = oxiz_core::ast::traversal::get_children(&node.kind);
+        for &child in children.iter().rev() {
+            stack.push(child);
         }
     }
 }
@@ -1035,6 +1110,60 @@ fn make_instantiation(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Re-fix pass 15 (`#P2b-75`): a round that ends `NotEligible` leaves the
+    /// term arena as it found it.  The certificate used to build and intern
+    /// the instances of the quantifiers that came first and then decline on
+    /// a later one; E-matching matches its triggers against every interned
+    /// term, so those discarded bodies fed the search (recheck 14's
+    /// `g14a/s00942`: 100 MBQI rounds and 10.6 s where 19 rounds sufficed).
+    #[test]
+    fn a_declined_round_interns_no_instance() {
+        let mut m = TermManager::new();
+        let int = m.sorts.int_sort;
+        let x = m.mk_var("x", int);
+        let y = m.mk_var("y", int);
+        let five = m.mk_int(5);
+        let zero = m.mk_int(0);
+        // `∀x. x > 5 ⇒ f(x) ≥ 0` is eligible (its guard grounds are 5, 4, 6)…
+        let f_x = m.mk_apply("f", [x], int);
+        let guard = m.mk_gt(x, five);
+        let f_x_ge = m.mk_ge(f_x, zero);
+        let body = m.mk_implies(guard, f_x_ge);
+        let universal = m.mk_forall([("x", int)], body);
+        // …and `∃y. g(y) = 0`, which comes second, is not.
+        let g_y = m.mk_apply("g", [y], int);
+        let witness_body = m.mk_eq(g_y, zero);
+        let existential = m.mk_exists([("y", int)], witness_body);
+        let quantifiers = [
+            QuantifiedFormula::new(
+                universal,
+                smallvec::smallvec![(var_spur(&m, x), int)],
+                body,
+                true,
+            ),
+            QuantifiedFormula::new(
+                existential,
+                smallvec::smallvec![(var_spur(&m, y), int)],
+                witness_body,
+                false,
+            ),
+        ];
+        // The relevant set's own terms (the guard neighbours) are interned
+        // before any eligibility decision; only instances must not be.
+        let _ = m.mk_int(4);
+        let _ = m.mk_int(6);
+        let before = m.len();
+        let result =
+            collect_fragment_instances(&quantifiers, &CompletedModel::new(), None, &mut m, 64, 0);
+        assert!(matches!(result, CertifyResult::NotEligible));
+        assert_eq!(
+            m.len(),
+            before,
+            "a declined round interned {} terms",
+            m.len() - before
+        );
+    }
 
     /// The interned name of a `Var` term.
     fn var_spur(m: &TermManager, v: TermId) -> Spur {

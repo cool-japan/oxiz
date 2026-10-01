@@ -66,6 +66,17 @@ pub struct ArithSolver {
     /// that per-equation GCD reasoning and pure branch-and-bound over unbounded
     /// variables miss.  Push/pop-scoped via `ContextState`.
     int_equalities: Vec<IntEquation>,
+    /// Terms of sort `Int` in a solver that runs over the reals (`LRA` mode,
+    /// the default under `(set-logic ALL)` or no logic at all): the variables
+    /// branch-and-bound must make integral (`mark_int_term`, the `mixed`
+    /// module).  Always empty in `LIA` mode, where every variable is one.
+    /// Kept across `reset()`: it records sorts, which never change.
+    int_terms: FxHashSet<TermId>,
+    /// Whether the integrality of `int_terms` is decided by the caller, at
+    /// the end of a search, rather than inside this solver (the `mixed`
+    /// module, [`ArithSolver::set_defer_integrality`]): the solver then runs
+    /// exactly as it does with no `Int` term marked.  Kept across `reset()`.
+    defer_integrality: bool,
 }
 
 /// A linear equality over the integers: `sum(coeff_i · var_i) = rhs`.
@@ -116,6 +127,8 @@ impl ArithSolver {
             shared_equalities: Vec::new(),
             lia_model: FxHashMap::default(),
             int_equalities: Vec::new(),
+            int_terms: FxHashSet::default(),
+            defer_integrality: false,
         }
     }
 
@@ -283,6 +296,9 @@ impl ArithSolver {
 
         // For LIA, check GCD-based infeasibility BEFORE normalization
         // (normalization divides by GCD, which would lose the infeasibility signal)
+        if !self.is_integer && self.mixed_integer_row_infeasible(lhs, &expr, reason) {
+            return;
+        }
         if self.is_integer {
             // Extract integer coefficients
             let coeffs: Vec<i64> = expr
@@ -367,6 +383,12 @@ impl ArithSolver {
             self.assert_le(lhs, rhs - Rational64::one(), reason);
             return;
         }
+        // The same over an all-`Int` row of a mixed solver (the `mixed`
+        // module): an integer below `rhs` is at most `⌈rhs⌉ − 1`.
+        if self.is_integral_row(lhs) {
+            self.assert_le(lhs, rhs.ceil() - Rational64::one(), reason);
+            return;
+        }
 
         // For reals, use delta-rationals
         // lhs < rhs is equivalent to lhs - rhs < 0
@@ -395,6 +417,12 @@ impl ArithSolver {
         if self.is_integer {
             // Transform: lhs > rhs becomes lhs >= rhs + 1
             self.assert_ge(lhs, rhs + Rational64::one(), reason);
+            return;
+        }
+        // The same over an all-`Int` row of a mixed solver (the `mixed`
+        // module): an integer above `rhs` is at least `⌊rhs⌋ + 1`.
+        if self.is_integral_row(lhs) {
+            self.assert_ge(lhs, rhs.floor() + Rational64::one(), reason);
             return;
         }
 
@@ -430,13 +458,15 @@ impl ArithSolver {
     #[must_use]
     pub fn value(&self, term: TermId) -> Option<Rational64> {
         self.term_to_var.get(&term).map(|&var| {
-            if self.is_integer {
-                // Prefer the integral assignment found by branch-and-bound when
-                // the last check() proved Sat — the raw LP optimum may be
-                // fractional for Int variables.
-                if let Some(v) = self.lia_model.get(&var) {
-                    return *v;
-                }
+            // Prefer the assignment branch-and-bound found when the last
+            // check() proved Sat — the raw LP optimum may be fractional for
+            // Int variables.  In a mixed solver (`LRA` mode with `Int` terms)
+            // the snapshot holds every variable, so the reals it reports agree
+            // with the integers (the `mixed` module).
+            if let Some(v) = self.lia_model.get(&var) {
+                return *v;
+            }
+            if self.is_integer || self.rounds_as_integer(term) {
                 // Get the full delta-rational value
                 let dval = self.simplex.delta_value(var);
 
@@ -525,6 +555,7 @@ impl ArithSolver {
         let mut vars: Vec<VarId> = self
             .var_to_term
             .iter()
+            .filter(|term| self.is_integer || self.int_terms.contains(term))
             .filter_map(|term| self.term_to_var.get(term).copied())
             .collect();
         vars.sort_unstable();
@@ -532,12 +563,27 @@ impl ArithSolver {
         vars
     }
 
-    /// Find the first interned Int variable whose current LP value is fractional.
-    fn find_fractional_int_var(&self, int_vars: &[VarId]) -> Option<(VarId, Rational64)> {
+    /// Find the first interned Int variable whose current LP value is not an
+    /// integer, with the two branch bounds `(var, down, up)`: `var ≤ down` or
+    /// `var ≥ up`.  A value `r ± δ` at an integral `r` (a strict bound the
+    /// relaxation sits at, possible only in a mixed solver, where strict
+    /// bounds keep their infinitesimal) is no integer either: `r − δ`
+    /// branches to `≤ r − 1` / `≥ r`, `r + δ` to `≤ r` / `≥ r + 1`.
+    fn find_fractional_int_var(
+        &self,
+        int_vars: &[VarId],
+    ) -> Option<(VarId, Rational64, Rational64)> {
         for &var in int_vars {
-            let val = self.simplex.value(var);
-            if !val.is_integer() {
-                return Some((var, val));
+            let value = self.simplex.delta_value(var);
+            let real = value.real;
+            if !real.is_integer() {
+                return Some((var, real.floor(), real.ceil()));
+            }
+            if value.delta.is_negative() {
+                return Some((var, real - Rational64::one(), real));
+            }
+            if value.delta.is_positive() {
+                return Some((var, real, real + Rational64::one()));
             }
         }
         None
@@ -717,6 +763,10 @@ impl ArithSolver {
     /// `value()` reports the integral model after branch-and-bound unwinds.
     fn snapshot_lia_model(&mut self, int_vars: &[VarId]) {
         self.lia_model.clear();
+        if !self.is_integer {
+            self.snapshot_mixed_model();
+            return;
+        }
         for &var in int_vars {
             self.lia_model.insert(var, self.simplex.value(var));
         }
@@ -879,17 +929,14 @@ impl ArithSolver {
         *nodes += 1;
 
         // Find a fractional Int variable at the current LP optimum.
-        let (var, value) = match self.find_fractional_int_var(int_vars) {
+        let (var, floor_v, ceil_v) = match self.find_fractional_int_var(int_vars) {
             None => {
                 // Fully integral leaf: record the model, then report Sat.
                 self.snapshot_lia_model(int_vars);
                 return Ok(TheoryResult::Sat);
             }
-            Some(vv) => vv,
+            Some(found) => found,
         };
-
-        let floor_v = value.floor();
-        let ceil_v = value.ceil();
 
         // Track whether any explored branch was left unresolved (Unknown) so we
         // never collapse an Unknown into a spurious Unsat.
@@ -1042,7 +1089,10 @@ impl Theory for ArithSolver {
             }
         }
 
-        // Step 2 (LRA): the LP relaxation is exact — feasible LP ⇒ Sat.
+        // Step 2 (LRA): the LP relaxation is exact — feasible LP ⇒ Sat.  An
+        // `Int` term among the variables makes it the relaxation of a
+        // mixed-integer problem; its integrality is decided once, at the end
+        // of a search, by `check_integrality` (the `mixed` module).
         if !self.is_integer {
             return Ok(TheoryResult::Sat);
         }
@@ -1110,6 +1160,10 @@ impl Theory for ArithSolver {
         self.shared_equalities.clear();
         self.lia_model.clear();
         self.int_equalities.clear();
+        // `int_terms` stays: a term's sort never changes, and the solver's
+        // rebases (`Solver::rebase_theory_state`) reset this solver and
+        // replay the asserted constraints without registering their terms
+        // again.
     }
 
     fn get_model(&self) -> Vec<(TermId, TermId)> {
@@ -1294,6 +1348,8 @@ impl ArithSolver {
         result
     }
 }
+
+mod mixed;
 
 #[cfg(test)]
 mod tests;

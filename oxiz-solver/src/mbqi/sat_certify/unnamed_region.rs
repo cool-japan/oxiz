@@ -127,13 +127,19 @@ pub(super) fn add_unnamed_index_points(
         .flat_map(|q| q.bound_vars.iter().map(|(name, _)| *name))
         .collect();
     collect_named_indices(goal, &bound_names, &mut named, manager);
-    // The relevant set's own non-literal index terms name values too (a
-    // declared index constant the model reads, an extensionality witness).
+    // The relevant set's own non-literal terms name values too (a declared
+    // index constant the model reads, an extensionality witness).  Its
+    // literals do not: the ones the goal spells are named by the walk
+    // above, and every other one is an instance point this module chose —
+    // naming those would move the representatives every round, and the set
+    // would never saturate.  A point in the relevant set is a fixed point of
+    // the projection either way (the projection sends a value to the largest
+    // point of its gap at or below it, or the smallest one above it).
     for (&sort, entry) in named.iter_mut() {
         if let Some(terms) = relevant.get(&sort) {
-            entry
-                .terms
-                .extend(terms.iter().copied().filter(|&t| !is_literal(t, manager)));
+            entry.terms.extend(terms.iter().copied().filter(|&t| {
+                !is_literal(t, manager) && !super::datatype_points::is_ground_value(t, manager)
+            }));
         }
     }
     for sort in order {
@@ -205,9 +211,33 @@ pub(super) fn add_unnamed_index_points(
                 // there at all: the caller is told to decline (`#P2b-64`
                 // (1): `∀x:L. a[x] = 1` beside `a = store(K0, nil, 1)` was
                 // certified over `{nil}` and answered `sat`).
+                //
+                // Re-fix pass 15 (`#P2b-75`): a datatype with a field gets
+                // one value no named term denotes (`datatype_points`) — the
+                // projection sends every unnamed value there, and an
+                // equality guard reads alike at all of them.  Only when a
+                // named term has no ground value, or no such value can be
+                // spelled, does the caller still decline.
                 match enumeration_constructors(sort, manager) {
                     Some(constructors) => points.extend(constructors),
-                    None => return false,
+                    None => {
+                        let mut dt_named: Vec<TermId> = Vec::new();
+                        for &term in entry.literals.iter().chain(&entry.terms) {
+                            match super::datatype_points::named_value(term, model, manager) {
+                                Some(value) => dt_named.push(value),
+                                None => return false,
+                            }
+                        }
+                        dt_named.sort_unstable_by_key(|term| term.raw());
+                        dt_named.dedup();
+                        let Some(representative) =
+                            super::datatype_points::unnamed_value(sort, &dt_named, manager)
+                        else {
+                            return false;
+                        };
+                        points.extend(dt_named);
+                        points.push(representative);
+                    }
                 }
             }
             // No representative is known for any other index sort, so no
@@ -224,9 +254,18 @@ pub(super) fn add_unnamed_index_points(
     true
 }
 
-/// The sorts a bound variable indexes an array at, in first-encounter order,
-/// with the guard literals / terms of each and whether a quantifier orders a
-/// bound variable of the sort.
+/// The sorts a bound variable indexes an array at **or is compared at** (a
+/// guard `x ⊕ t` over a sort no term-based point brackets, `#P2b-75`), in
+/// first-encounter order, with the guard literals / terms of each and whether
+/// a quantifier orders a bound variable of the sort.
+///
+/// A compared sort needs points exactly as an index sort does: the
+/// projection must send every value to one that satisfies every guard it
+/// satisfies, so `¬(x = a)` over a declared sort needs every element the goal
+/// names, not `a` alone.  The ordered scalar sorts are bracketed in the first
+/// pass instead, by terms (`t ± 1`, midpoints), which stay one point however
+/// the model moves — a value-keyed point there moved with every candidate and
+/// kept a repeated check adding instances.
 fn index_sorts(
     quantifiers: &[QuantifiedFormula],
     manager: &TermManager,
@@ -281,6 +320,16 @@ fn index_sorts(
                         let Some(sort) = bound_sort(side) else {
                             continue;
                         };
+                        // A compared sort of no order the first pass can
+                        // bracket with terms (`sat_certify::guard_neighbours`
+                        // covers `Int`, `Real` and bit-vectors with `t ± 1`
+                        // and midpoints) needs this module's points: every
+                        // ground term of a declared sort, every value of an
+                        // enumeration, a value no named term denotes over a
+                        // datatype with a field (`#P2b-75`).
+                        if !order.contains(&sort) && !is_ordered_scalar(sort, manager) {
+                            order.push(sort);
+                        }
                         let entry = named.entry(sort).or_default();
                         entry.ordered |= is_order;
                         if !mentions_bound(other) {
@@ -306,9 +355,12 @@ fn index_sorts(
     (order, named)
 }
 
-/// Every term in a `select` / `store` index position of the goal (bodies
-/// included) whose sort is one of `named`'s and which mentions no variable a
-/// tracked quantifier binds: literals go to `literals`, the rest to `terms`.
+/// Every term in a `select` / `store` index position or an uninterpreted
+/// function's argument position of the goal (bodies included) whose sort is
+/// one of `named`'s and which mentions no variable a tracked quantifier binds:
+/// literals go to `literals`, the rest to `terms`.  An argument spelled only
+/// inside a binder (`(f 2)` in `(=> (> q 1) (< (f 2) (f q)))`) pins `f` at a
+/// value the model's interpretation graph need not name yet.
 ///
 /// A declared constant that happens to share a name with a bound variable is
 /// read as bound and left out — that costs this module one named value, and
@@ -330,16 +382,26 @@ fn collect_named_indices(
         let Some(data) = manager.get(current) else {
             continue;
         };
-        if let TermKind::Select(_, index) | TermKind::Store(_, index, _) = &data.kind
-            && let Some(sort) = manager.get(*index).map(|t| t.sort)
-            && let Some(entry) = named.get_mut(&sort)
-        {
-            if is_literal(*index, manager) {
-                entry.literals.push(*index);
-            } else if !manager.free_vars_including_patterns(*index).iter().any(|&v| {
+        let positions: &[TermId] = match &data.kind {
+            TermKind::Select(_, index) | TermKind::Store(_, index, _) => {
+                std::slice::from_ref(index)
+            }
+            TermKind::Apply { args, .. } => args.as_slice(),
+            _ => &[],
+        };
+        for &position in positions {
+            let Some(sort) = manager.get(position).map(|t| t.sort) else {
+                continue;
+            };
+            let Some(entry) = named.get_mut(&sort) else {
+                continue;
+            };
+            if is_literal(position, manager) {
+                entry.literals.push(position);
+            } else if !manager.free_vars_including_patterns(position).iter().any(|&v| {
                 matches!(manager.get(v).map(|t| &t.kind), Some(TermKind::Var(n)) if bound_names.contains(n))
             }) {
-                entry.terms.push(*index);
+                entry.terms.push(position);
             }
         }
         children.clear();
@@ -470,25 +532,43 @@ fn ground_terms_of_sort(goal: &[TermId], sort: SortId, manager: &TermManager) ->
     out
 }
 
-/// Every constant (`Var`) of `sort` the candidate model assigns, other than a
-/// bound variable's name, in term-id order.
+/// Every constant (`Var`) of `sort` occurring in a term the candidate model
+/// assigns — the atoms the search decided mention every ground constant the
+/// encoded problem has, a Skolem witness's `(distinct sk u)` included — other
+/// than a bound variable's name, in term-id order.
 fn model_constants_of_sort(
     model: &CompletedModel,
     sort: SortId,
     bound_names: &FxHashSet<Spur>,
     manager: &TermManager,
 ) -> Vec<TermId> {
-    let mut out: Vec<TermId> = model
-        .assignments
-        .keys()
-        .copied()
-        .filter(|&term| {
-            manager.get(term).is_some_and(|data| {
-                data.sort == sort
-                    && matches!(&data.kind, TermKind::Var(name) if !bound_names.contains(name))
-            })
-        })
-        .collect();
+    let mut out: Vec<TermId> = Vec::new();
+    let mut visited: FxHashSet<TermId> = FxHashSet::default();
+    let mut stack: Vec<TermId> = model.assignments.keys().copied().collect();
+    let mut children: Vec<TermId> = Vec::new();
+    while let Some(current) = stack.pop() {
+        if !visited.insert(current) {
+            continue;
+        }
+        let Some(data) = manager.get(current) else {
+            continue;
+        };
+        match &data.kind {
+            TermKind::Var(name) => {
+                if data.sort == sort && !bound_names.contains(name) {
+                    out.push(current);
+                }
+            }
+            // A binder's body is not ground; its constants are reached
+            // through the instances the search decided, if anywhere.
+            TermKind::Forall { .. } | TermKind::Exists { .. } | TermKind::Let { .. } => {}
+            kind => {
+                children.clear();
+                children.extend(oxiz_core::ast::traversal::get_children(kind));
+                stack.extend(children.iter().copied());
+            }
+        }
+    }
     out.sort_unstable_by_key(|term| term.raw());
     out
 }
@@ -516,6 +596,14 @@ fn enumeration_constructors(sort: SortId, manager: &mut TermManager) -> Option<V
             .iter()
             .map(|ctor| manager.mk_dt_constructor(ctor, [], sort))
             .collect(),
+    )
+}
+
+/// Whether `sort` is `Int`, `Real` or a bit-vector sort.
+fn is_ordered_scalar(sort: SortId, manager: &TermManager) -> bool {
+    matches!(
+        manager.sorts.get(sort).map(|s| &s.kind),
+        Some(SortKind::Int | SortKind::Real | SortKind::BitVec(_))
     )
 }
 

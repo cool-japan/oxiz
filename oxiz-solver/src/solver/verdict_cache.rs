@@ -170,6 +170,8 @@ impl Solver {
     ///   cleared through exactly the same hook.
     pub(super) fn invalidate_results(&mut self) {
         self.model = None;
+        self.replaced_candidate = None;
+        self.candidate_certified_as_printed = false;
         // The other half of the model — the exact algebraic values `Model`
         // cannot hold (see `Solver::nl_algebraic_values`). It describes the
         // discarded verdict's assignment just as `model` does, so a stale

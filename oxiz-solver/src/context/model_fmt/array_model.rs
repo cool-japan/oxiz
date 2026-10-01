@@ -277,7 +277,13 @@ impl Context {
                 reads.push((term, index, value));
             }
         }
-        reads.sort_unstable_by_key(|&(term, _, _)| term.raw());
+        // A read at an index that *is* a value (a literal, a constructor) goes
+        // before a read at a symbol the model merely assigns that value: the
+        // first entry per position wins, and a solver-internal symbol (an
+        // extensionality witness) can carry a sort default that coincides
+        // with a position another read names — `a[ext] = 5` beside `a[red] =
+        // 1` with `ext` defaulted to `red` printed `red ↦ 5` (`#P2b-72`).
+        reads.sort_unstable_by_key(|&(term, index, _)| (!self.is_value_index(index), term.raw()));
         for (_, index, value) in reads {
             self.push_entry(
                 index,
@@ -300,9 +306,15 @@ impl Context {
         // `row0` as `{0 ↦ 42}` side by side, contradicting the equality
         // between them (`#P2b-34`, `bench/z3_parity/benchmarks/qf_a/array_07`).
         //
-        // The term-graph scan is confined to this case: an array whose range
-        // is not itself an array has all its reads in the model.
-        if self.range_is_array(sort) {
+        // The term-graph scan is confined to this case and to an
+        // uninterpreted range: an array whose range is a scalar or a datatype
+        // has all its reads in the model, while a read of an uninterpreted
+        // sort has no model value either — its value is its class's
+        // `@uc_S_n` witness ([`Self::entry_value`]).  Without the scan an
+        // array into `U` read at `x` and `y` printed as one constant beside
+        // two different witnesses for the reads (`#P2b-89`).
+        let uninterpreted_range = self.range_is_uninterpreted(sort);
+        if self.range_is_array(sort) || uninterpreted_range {
             let mut nested: Vec<(TermId, TermId)> = Vec::new();
             for index in 0..(self.terms.len() as u32) {
                 let term = TermId(index);
@@ -311,6 +323,7 @@ impl Context {
                 };
                 if let TermKind::Select(read_array, read_index) = data.kind
                     && members.contains(&read_array)
+                    && !(uninterpreted_range && self.mentions_bound_variable(term, &bound))
                 {
                     nested.push((read_index, term));
                 }
@@ -529,12 +542,12 @@ impl Context {
                 continue;
             };
             // The one index the store overwrote says nothing about the base.
+            // Spelled the way every entry's index is spelled, so a constructor
+            // or an uninterpreted-sort index is excluded too (`#P2b-72`).
             let written = model.get(store_index).unwrap_or(store_index);
-            let written_str = if is_ground_value(written, &self.terms) {
-                self.format_value(written)
-            } else {
-                String::new()
-            };
+            let written_str = self
+                .index_position_string(written, class_values)
+                .unwrap_or_default();
             for (index_str, value_str) in outer_entries {
                 if index_str == written_str || !seen.insert(index_str.clone()) {
                     continue;
@@ -734,14 +747,24 @@ impl Context {
                 reads.push((term, value));
             }
         }
-        reads.sort_unstable_by_key(|&(term, _)| term.raw());
+        // The same order the renderer lays its entries down in.
+        reads.sort_unstable_by_key(|&(term, _)| {
+            let literal_index = matches!(
+                self.terms.get(term).map(|t| &t.kind),
+                Some(TermKind::Select(_, index)) if self.is_value_index(*index)
+            );
+            (!literal_index, term.raw())
+        });
         if let Some(&(_, value)) = reads.first() {
             return self.entry_value(value, sort, model, class_values, depth);
         }
         // An *array-sorted* read is never in `model.assignments()` — no term
         // denotes a whole array — so the read itself is the value, rendered
         // from its own class one level down (the array-of-arrays case).
-        if self.range_is_array(sort) && !background_only {
+        // A read of an uninterpreted sort has no model value either: the same
+        // scan, as the renderer makes it (`#P2b-89`).
+        let uninterpreted_range = self.range_is_uninterpreted(sort);
+        if (self.range_is_array(sort) || uninterpreted_range) && !background_only {
             let mut nested: Vec<TermId> = Vec::new();
             for index in 0..(self.terms.len() as u32) {
                 let term = TermId(index);
@@ -751,6 +774,7 @@ impl Context {
                 if let TermKind::Select(read_array, read_index) = data.kind
                     && members.contains(&read_array)
                     && model.get(read_index).unwrap_or(read_index) == index_value
+                    && !(uninterpreted_range && self.mentions_bound_variable(term, &bound))
                 {
                     nested.push(term);
                 }
@@ -837,6 +861,15 @@ impl Context {
         None
     }
 
+    /// Whether `array_sort`'s range is an uninterpreted sort.
+    fn range_is_uninterpreted(&self, array_sort: SortId) -> bool {
+        let Some(SortKind::Array { range, .. }) = self.terms.sorts.get(array_sort).map(|s| &s.kind)
+        else {
+            return false;
+        };
+        self.is_uninterpreted_sort(*range)
+    }
+
     /// Whether `array_sort`'s range is itself an array sort.
     fn range_is_array(&self, array_sort: SortId) -> bool {
         let Some(SortKind::Array { range, .. }) = self.terms.sorts.get(array_sort).map(|s| &s.kind)
@@ -885,7 +918,9 @@ impl Context {
         index_value: TermId,
         class_values: &super::class_values::ClassValues,
     ) -> Option<String> {
-        if is_ground_value(index_value, &self.terms) {
+        if is_ground_value(index_value, &self.terms)
+            || is_constructor_value(index_value, &self.terms)
+        {
             return Some(self.format_value(index_value));
         }
         let sort = self.terms.get(index_value)?.sort;
@@ -947,10 +982,21 @@ impl Context {
             .get(range)
             .is_some_and(|s| matches!(s.kind, SortKind::Array { .. }));
         if !range_is_array {
+            if is_ground_value(value, &self.terms) || is_constructor_value(value, &self.terms) {
+                return Some(self.format_value(value));
+            }
+            // An uninterpreted element has no literal; the model names it by
+            // the `@uc_S_n` witness `build_class_values` minted for its class,
+            // which every other renderer prints for that class too (`#P2b-89`).
+            if self.is_uninterpreted_sort(range) {
+                return class_values
+                    .get(self.class_key(value))
+                    .map(ToString::to_string);
+            }
             // A value the model left symbolic has no printable form: the `?`
             // placeholder `format_value` falls back to is not SMT-LIB, and a
             // store chain carrying one cannot be read back at all.
-            return is_ground_value(value, &self.terms).then(|| self.format_value(value));
+            return None;
         }
         // An array-sorted entry is an array in its own right: render its class
         // the same way, one level down.
@@ -984,7 +1030,7 @@ impl Context {
         if self.last_result != Some(SolverResult::Sat) {
             return lines;
         }
-        let Some(solver_model) = self.solver.model() else {
+        let Some(solver_model) = self.published_model() else {
             return lines;
         };
         let class_values = self.build_class_values(solver_model);
@@ -994,10 +1040,15 @@ impl Context {
             .filter(|d| !d.interpreted && !d.arg_sorts.is_empty())
             .map(|d| (d.name.clone(), d.arg_sorts.clone(), d.ret_sort))
             .collect();
+        // A quantified goal's tables were certified as printed (`#P2b-74`:
+        // where the congruence closure left two entries at one tuple, the
+        // first one printed is the one the certificate checked), so the
+        // printer's own two-entry assertion is for quantifier-free goals.
+        let assert_function = !self.goal_is_quantified();
         for (name, arg_sorts, ret_sort) in uninterpreted {
             let name = name.as_str();
-            let Some((entries, else_value, arity)) =
-                self.func_interp_from(name, solver_model, &class_values)
+            let Some(((entries, else_value, arity), _)) =
+                self.func_interp_reading(name, solver_model, &class_values, assert_function)
             else {
                 continue;
             };
@@ -1047,22 +1098,62 @@ impl Context {
     }
 }
 
+impl Context {
+    /// Whether an index term is itself a value (a literal or a constructor
+    /// value), rather than a symbol the model assigns one.
+    fn is_value_index(&self, index: TermId) -> bool {
+        is_ground_value(index, &self.terms) || is_constructor_value(index, &self.terms)
+    }
+}
+
+/// Whether `term` is a datatype **value**: a constructor applied to values
+/// (literals or constructor values), which `format_value` prints verbatim
+/// (`#P2b-72`).
+///
+/// A constructor-valued array index used to be dropped from the printed
+/// `store` chain — neither a literal nor an uninterpreted-sort class, it named
+/// "no position" — so `(assert (= (select a red) 1))` over `(Array C Int)`
+/// printed `a = ((as const (Array C Int)) 0)`, a model falsifying its one
+/// assertion, while `(get-value ((select a red)))` answered `1`.
+pub(super) fn is_constructor_value(term: TermId, manager: &TermManager) -> bool {
+    let mut stack: Vec<TermId> = vec![term];
+    let mut seen = 0usize;
+    while let Some(current) = stack.pop() {
+        seen += 1;
+        if seen > 4_096 {
+            return false;
+        }
+        match manager.get(current).map(|t| &t.kind) {
+            Some(TermKind::DtConstructor { args, .. }) => stack.extend(args.iter().copied()),
+            Some(_) if current != term && is_ground_value(current, manager) => {}
+            _ => return false,
+        }
+    }
+    true
+}
+
 /// Whether `term` is a ground value literal — the shapes a model entry can
 /// carry and the shapes `format_value` renders verbatim.
 ///
 /// Used to decide whether an index can be placed in a `store` chain: an index
 /// the model left symbolic names no position in the array.
+///
+/// A negated numeral is one: `((as const (Array Int Int)) (- 3))` spells its
+/// default so, and reading it as symbolic printed the array as the constant
+/// `0` beside a `(get-value)` answering `-3` (`#P2b-81`'s named mechanism,
+/// re-fix pass 16).
 fn is_ground_value(term: TermId, manager: &TermManager) -> bool {
-    manager.get(term).is_some_and(|t| {
-        matches!(
-            t.kind,
-            TermKind::IntConst(_)
-                | TermKind::RealConst(_)
-                | TermKind::BitVecConst { .. }
-                | TermKind::True
-                | TermKind::False
-                | TermKind::StringLit(_)
-        )
+    manager.get(term).is_some_and(|t| match &t.kind {
+        TermKind::IntConst(_)
+        | TermKind::RealConst(_)
+        | TermKind::BitVecConst { .. }
+        | TermKind::True
+        | TermKind::False
+        | TermKind::StringLit(_) => true,
+        TermKind::Neg(inner) => manager
+            .get(*inner)
+            .is_some_and(|i| matches!(i.kind, TermKind::IntConst(_) | TermKind::RealConst(_))),
+        _ => false,
     })
 }
 

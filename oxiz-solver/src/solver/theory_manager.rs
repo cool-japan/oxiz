@@ -21,6 +21,7 @@ mod bv_budget;
 
 mod conflict_clause;
 mod derived_reasons;
+mod integrality;
 mod intern;
 mod nelson_oppen;
 pub(crate) use derived_reasons::DerivedReasons;
@@ -1770,10 +1771,9 @@ impl TheoryCallback for TheoryManager<'_> {
                         // Arithmetic is consistent: run full (bidirectional)
                         // Nelson-Oppen theory combination so that an
                         // arithmetic-entailed equality/disequality over a
-                        // shared UF-argument term reaches EUF, not merely the
-                        // EUF-derived-equality direction `Sat` used to check
-                        // by itself.
-                        self.nelson_oppen_combine()
+                        // shared UF-argument term reaches EUF, then the
+                        // integrality of the `Int` terms (`integrality`).
+                        self.combine_then_integrality()
                     }
                     oxiz_theories::TheoryCheckResult::Unsat(conflict_terms) => {
                         // Arithmetic conflict detected - convert to SAT conflict clause

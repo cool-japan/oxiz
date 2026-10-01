@@ -86,6 +86,19 @@ impl Solver {
         conflicts_so_far: u64,
         deadline: Option<oxiz_time::Instant>,
     ) -> ArrayRefinementStep {
+        // Constructor injectivity / distinctness through the congruence
+        // closure first (`#P2b-76`, `solver::dt_refinement`): a candidate that
+        // is not a datatype model is not offered to the array rules either.
+        let datatype_step = self.dt_refinement_round(manager, rounds, conflict_budget, deadline);
+        if datatype_step != ArrayRefinementStep::NoLemma {
+            return datatype_step;
+        }
+        // …and, quantifier-free, one that agrees with itself as a function
+        // (`solver::uf_consistency`, model-based theory combination).
+        let function_step = self.uf_consistency_round(manager, rounds, conflict_budget, deadline);
+        if function_step != ArrayRefinementStep::NoLemma {
+            return function_step;
+        }
         if !self.has_array_ops || !self.instantiate_array_axioms(manager) {
             return ArrayRefinementStep::NoLemma;
         }

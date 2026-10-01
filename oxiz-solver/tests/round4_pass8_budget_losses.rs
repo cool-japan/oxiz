@@ -341,6 +341,16 @@ fn widening_the_budget_buys_back_the_verdict_on_the_same_shape() {
 /// 345,764 and 3,022 without it, the same 239 of 240 decided — which is why it
 /// stays; this script is its cost, and `:bv-embedded-checks 0` still says the
 /// bit-blaster plays no part.
+///
+/// **Moved by re-fix pass 15, and attributed:** 16 → **11** rounds, 53 → **43**
+/// instances and 100 → 52 outer conflicts, verdict `sat` unchanged — the cost
+/// FELL.  The move is `#P2b-75`'s guard neighbours: the relevant set of
+/// `∀i. i ≠ k ⇒ b[i] = a[i]` now carries `k - 1` and `k + 1` as terms
+/// (`sat_certify::guard_neighbours`), so the instances on both sides of the
+/// guard's boundary arrive in the first round instead of being reached one
+/// refinement at a time (measured in the isolated copy with only that switch,
+/// `OXIZ_MUT15_NO_NEIGHBOURS`, set: 16 / 53 and 100 conflicts again; every
+/// other switch of the pass leaves 11 / 43).
 #[test]
 fn the_auflia_array_update_cost_is_the_quantified_refinement_round() {
     let script = "(set-logic AUFLIA)\n\
@@ -374,17 +384,17 @@ fn the_auflia_array_update_cost_is_the_quantified_refinement_round() {
         .cloned()
         .unwrap_or_default();
     assert!(
-        stats.contains(":array-refinement-rounds 16"),
-        "this script's cost is sixteen quantified array-refinement rounds \
+        stats.contains(":array-refinement-rounds 11"),
+        "this script's cost is eleven quantified array-refinement rounds \
          (seven before re-fix pass 12, eleven with `#P2b-60`'s completed \
-         relevant set, sixteen in decision (43)'s canonical order); a \
-         different number means the cost moved and its attribution in this \
-         test is out of date.  Got: {stats}"
+         relevant set, sixteen in decision (43)'s canonical order, eleven with \
+         `#P2b-75`'s guard neighbours); a different number means the cost moved \
+         and its attribution in this test is out of date.  Got: {stats}"
     );
     assert!(
-        stats.contains(":array-lemma-instances 53"),
-        "and 53 lemma instances (24 before re-fix pass 12, 37 after its first \
-         half).  Got: {stats}"
+        stats.contains(":array-lemma-instances 43"),
+        "and 43 lemma instances (24 before re-fix pass 12, 37 after its first \
+         half, 53 after its second, 43 in re-fix pass 15).  Got: {stats}"
     );
     assert!(
         stats.contains(":bv-embedded-checks 0"),

@@ -21,8 +21,15 @@ use super::{Context, RawFuncInterp};
 /// Array `store`-chain values and declared-function interpretations
 /// (`#P2b-34`).
 mod array_model;
+mod candidate_model;
 mod class_values;
 mod get_value;
+mod mint;
+mod printed_check;
+mod printed_eval;
+mod published;
+
+pub(super) use published::PublishedModel;
 
 /// Render a nonlinear-real exact value as SMT-LIB2 text.
 ///
@@ -235,7 +242,25 @@ fn render_eval_value(
 impl Context {
     /// Get the model (if SAT)
     /// Returns a list of (name, sort, value) tuples
+    ///
+    /// `None` as well for a model that failed the published-model certificate
+    /// (decision (54), `published`): a model that does not certify is not
+    /// published.
     pub fn get_model(&self) -> Option<Vec<(String, String, String)>> {
+        if self.published_model_withheld() {
+            return None;
+        }
+        self.model_rows()
+    }
+
+    /// Whether the last `sat`'s model failed its certificate.
+    fn published_model_withheld(&self) -> bool {
+        self.uncertified_model_error().is_some()
+    }
+
+    /// The rows [`Context::get_model`] prints, certified or not — the
+    /// published-model certificate renders the model through this.
+    pub(super) fn model_rows(&self) -> Option<Vec<(String, String, String)>> {
         if self.last_result != Some(SolverResult::Sat) {
             return None;
         }
@@ -258,7 +283,7 @@ impl Context {
         // nothing weaker: widening it to "assertions non-empty" would fabricate
         // a sort-default model for every other modelless `sat` in the tree.
         let empty_model;
-        let solver_model = match self.solver.model() {
+        let solver_model = match self.published_model() {
             Some(solver_model) => solver_model,
             None if self.assertions.is_empty() || !self.solver.nl_algebraic_values().is_empty() => {
                 empty_model = crate::solver::Model::new();
@@ -369,7 +394,7 @@ impl Context {
         if self.last_result != Some(SolverResult::Sat) {
             return None;
         }
-        let solver_model = self.solver.model()?;
+        let solver_model = self.published_model()?;
         let class_values = self.build_class_values(solver_model);
         self.func_interp_from(func_name, solver_model, &class_values)
     }
@@ -383,6 +408,24 @@ impl Context {
         solver_model: &crate::solver::Model,
         class_values: &class_values::ClassValues,
     ) -> Option<RawFuncInterp> {
+        self.func_interp_reading(func_name, solver_model, class_values, true)
+            .map(|(interp, _)| interp)
+    }
+
+    /// [`Context::func_interp_from`] plus whether the table is a function:
+    /// `false` when two entries at one printed argument tuple carry
+    /// different values (`#P2b-74`).  `assert_function` keeps the printing
+    /// path's `debug_assert!`; the printed-model certificate reads the same
+    /// table without it and treats a non-function as a failure (a model that
+    /// is not one is withheld, never printed as certified).
+    pub(super) fn func_interp_reading(
+        &self,
+        func_name: &str,
+        solver_model: &crate::solver::Model,
+        class_values: &class_values::ClassValues,
+        assert_function: bool,
+    ) -> Option<(RawFuncInterp, bool)> {
+        let mut is_function = true;
         // Find the declared function so we know its arity and default sort.
         let decl = self.declared_funs.iter().find(|d| d.name == func_name)?;
         let arity = decl.arg_sorts.len();
@@ -411,7 +454,7 @@ impl Context {
         // No application of this function exists in the E-graph: the function is
         // declared but never applied, so its interpretation is purely the default.
         let Some(func_id) = func_id else {
-            return Some((Vec::new(), default_else, arity));
+            return Some(((Vec::new(), default_else, arity), true));
         };
 
         // Pull congruence-closed application entries from the EUF solver.  Each
@@ -492,8 +535,9 @@ impl Context {
                 })
                 .collect();
             if let Some((seen_keys, seen_value)) = seen_arg_keys.get(&arg_strs) {
+                is_function &= *seen_value == val_str;
                 debug_assert!(
-                    *seen_value == val_str,
+                    !assert_function || *seen_value == val_str,
                     "two interpretation entries for {func_name}{arg_strs:?} disagree: the \
                      canonical class -> value map gave {val_str} and {seen_value} (argument \
                      classes {class_keys:?} and {seen_keys:?})"
@@ -531,8 +575,11 @@ impl Context {
         // Pick `else_value`: the most common entry value (ties → first seen),
         // matching Z3's habit of reusing an existing value as the default.
         let else_value = Self::most_common_value(&entries).unwrap_or(default_else);
+        // An else value the published-model certificate chose because the
+        // most common one broke a universal (`published::repair_else_values`).
+        let else_value = self.else_override(func_name).unwrap_or(else_value);
 
-        Some((entries, else_value, arity))
+        Some(((entries, else_value, arity), is_function))
     }
 
     /// Resolve an equivalence class (its member `TermId`s) to a formatted model
@@ -919,6 +966,20 @@ impl Context {
             Some(TermKind::Var(spur)) if self.is_rounding_mode_term(term) => {
                 self.terms.resolve_str(*spur).to_string()
             }
+            // A negated numeral — an array default a script spelled `(- 3)` —
+            // is the literal it denotes (`#P2b-81`, re-fix pass 16).
+            Some(TermKind::Neg(inner)) => match self.terms.get(*inner).map(|t| &t.kind) {
+                Some(TermKind::IntConst(n)) => (-n.clone()).to_string(),
+                Some(TermKind::RealConst(r)) => {
+                    let negated = -*r;
+                    if *negated.denom() == 1 {
+                        format!("{}.0", negated.numer())
+                    } else {
+                        format!("(/ {} {})", negated.numer(), negated.denom())
+                    }
+                }
+                _ => "?".to_string(),
+            },
             _ => "?".to_string(),
         }
     }
@@ -1131,6 +1192,9 @@ impl Context {
         // (`#P2b-34`): omitting them left `(get-model)` printing the constants
         // of a `(f x)` goal and nothing about `f`, so the model could be
         // neither replayed nor checked.
+        if let Some(error) = self.uncertified_model_error() {
+            return error;
+        }
         let func_lines = self.func_interp_lines();
         match self.get_model() {
             None => "(error \"No model available\")".to_string(),

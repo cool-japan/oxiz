@@ -741,6 +741,11 @@ impl Statistics {
 pub struct Model {
     /// Variable assignments
     assignments: FxHashMap<TermId, TermId>,
+    /// Terms whose entry is only the sort default the model builder filled
+    /// in because no theory valued them (`#P2b-71`): the printer may give such
+    /// a term's congruence class a fresh value instead.  Cleared for a term
+    /// the moment it is [`set`](Self::set) again.
+    defaulted: FxHashSet<TermId>,
 }
 
 impl Model {
@@ -749,7 +754,21 @@ impl Model {
     pub fn new() -> Self {
         Self {
             assignments: FxHashMap::default(),
+            defaulted: FxHashSet::default(),
         }
+    }
+
+    /// Record `value` for `term` as a sort default no theory chose
+    /// (`#P2b-71`).
+    pub(crate) fn set_default(&mut self, term: TermId, value: TermId) {
+        self.assignments.insert(term, value);
+        self.defaulted.insert(term);
+    }
+
+    /// Whether `term`'s entry is a sort default no theory chose.
+    #[must_use]
+    pub(crate) fn is_defaulted(&self, term: TermId) -> bool {
+        self.defaulted.contains(&term)
     }
 
     /// Get the value of a term in the model
@@ -761,6 +780,9 @@ impl Model {
     /// Set a value in the model
     pub fn set(&mut self, term: TermId, value: TermId) {
         self.assignments.insert(term, value);
+        if !self.defaulted.is_empty() {
+            self.defaulted.remove(&term);
+        }
     }
 
     /// Remove the entry for `term`, returning the value it had.

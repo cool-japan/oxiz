@@ -599,7 +599,10 @@ impl Solver {
             .filter(|(a, b)| a != b)
             .map(|(&a, &b)| manager.mk_eq(a, b))
             .collect();
-        let conclusion = manager.mk_eq(left, right);
+        // The conclusion is the atom itself: `mk_eq` would decompose it into
+        // the premise (`#P2b-76`), and this lemma exists to MERGE the two
+        // applications, which the congruence closure holds as opaque leaves.
+        let conclusion = manager.mk_eq_atom(left, right);
         let lemma = if premises.is_empty() {
             // Every field is syntactically shared, so the two applications are
             // the same term and `mk_eq` has already folded this to `true`;
@@ -627,7 +630,7 @@ impl Solver {
     /// [`Solver::array_axiom_instances`]: the clause is retracted with the
     /// scope's clauses, so the mark has to go with it or a later scope would
     /// never re-assert an axiom it still needs.
-    fn assert_dt_lemma(&mut self, lemma: TermId, manager: &mut TermManager) {
+    pub(super) fn assert_dt_lemma(&mut self, lemma: TermId, manager: &mut TermManager) {
         // The builders fold trivial instances (`(= x x)`, a one-constructor
         // exhaustiveness disjunction under an already-true guard) straight to
         // `true`; asserting those would only burn a lemma slot.

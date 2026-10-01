@@ -411,7 +411,15 @@ impl Solver {
         // reads back its default at every index, so no published read of the
         // base is needed — or exists (`#P2b-36`).
         if let Some(default) = crate::solver::array_axioms::const_array_default(base, manager) {
-            let value = parse_value_term(default, manager);
+            let value = match parse_value_term(default, manager) {
+                EvalOutcome::Value(value) => EvalOutcome::Value(value),
+                // A negated numeral is a literal too: `((as const (Array Int
+                // Int)) (- 3))` reads `-3` at every index.  Read as a leaf it
+                // left `(get-value)` of `(select … (f j))` on a quantified goal
+                // echoing its body where the default `3` answered (recheck
+                // 16's minor 9, `#P2b-81`'s named mechanism on the reading side).
+                _ => negated_numeral(default, manager),
+            };
             if matches!(value, EvalOutcome::Value(_)) {
                 return (levels, value);
             }
@@ -439,5 +447,20 @@ impl Solver {
                 parse_value_term(value, manager)
             });
         (levels, fallback)
+    }
+}
+
+/// The value of a negated numeral `(- n)` (`n` an `Int` or `Real` literal),
+/// `Undetermined` for any other term.
+fn negated_numeral(term: TermId, manager: &TermManager) -> EvalOutcome {
+    let Some(TermKind::Neg(inner)) = manager.get(term).map(|t| &t.kind) else {
+        return EvalOutcome::UNDETERMINED;
+    };
+    match parse_value_term(*inner, manager) {
+        EvalOutcome::Value(EvalVal::Num(number)) => match number.numer().checked_neg() {
+            Some(numer) => EvalOutcome::number(Rational64::new(numer, *number.denom())),
+            None => EvalOutcome::UNDETERMINED,
+        },
+        _ => EvalOutcome::UNDETERMINED,
     }
 }
