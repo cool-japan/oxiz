@@ -65,6 +65,9 @@ const MAX_GROUND_DEPTH: u32 = 512;
 /// Constructor fields one value comparison may visit.
 const MAX_VALUE_PAIRS: usize = 4_096;
 
+/// Entries one array value may hold (a longer printed store chain is open).
+const MAX_ARRAY_ENTRIES: usize = 4_096;
+
 /// The value of a closed term.
 #[derive(Clone, Debug, PartialEq)]
 enum GroundValue {
@@ -74,6 +77,16 @@ enum GroundValue {
     Constructor(Spur, Vec<GroundValue>),
     /// An uninterpreted-sort witness: an element of its own.
     Witness(TermId),
+    /// An array (re-fix pass 18, decision (85)): its default, its stored
+    /// entries (the latest first), and whether its index sort is infinite
+    /// (`Int` / `Real`: two arrays whose defaults differ then differ at an
+    /// index neither names).  An array of arrays reads by value at every
+    /// level (recheck 17's `b05`, `#P2b-89` one level down).
+    Array {
+        default: Box<GroundValue>,
+        entries: Vec<(GroundValue, GroundValue)>,
+        infinite_index: bool,
+    },
 }
 
 impl Context {
@@ -236,6 +249,38 @@ impl GroundReader<'_> {
                 let index = self.value(index, next)?;
                 self.read(array, &index, next)
             }
+            TermKind::Store(inner, key, stored) => {
+                let GroundValue::Array {
+                    default,
+                    mut entries,
+                    infinite_index,
+                } = self.value(inner, next)?
+                else {
+                    return None;
+                };
+                if entries.len() >= MAX_ARRAY_ENTRIES {
+                    return None;
+                }
+                let key = self.value(key, next)?;
+                let stored = self.value(stored, next)?;
+                entries.insert(0, (key, stored));
+                Some(GroundValue::Array {
+                    default,
+                    entries,
+                    infinite_index,
+                })
+            }
+            TermKind::Apply { func, args }
+                if args.len() == 1
+                    && self.ctx.terms.resolve_str(func) == oxiz_core::smtlib::CONST_ARRAY_FUNC =>
+            {
+                let default = self.value(*args.first()?, next)?;
+                Some(GroundValue::Array {
+                    default: Box::new(default),
+                    entries: Vec::new(),
+                    infinite_index: self.infinite_index(sort),
+                })
+            }
             TermKind::Neg(inner) => {
                 let number = self.number(inner, next)?;
                 let numer = number.numer().checked_neg()?;
@@ -334,9 +379,83 @@ impl GroundReader<'_> {
                 {
                     return self.value(*args.first()?, steps);
                 }
-                _ => return None,
+                // Any other array term — a read of an array of arrays —
+                // is read by value.
+                _ => {
+                    let array = self.value(level, steps)?;
+                    return self.read_value(&array, index);
+                }
             }
         }
+    }
+
+    /// The value the array value `array` reads at `index`: the latest entry
+    /// whose key equals it, passing every key that differs, then the
+    /// default; open where a key comparison is.
+    fn read_value(&self, array: &GroundValue, index: &GroundValue) -> Option<GroundValue> {
+        let GroundValue::Array {
+            default, entries, ..
+        } = array
+        else {
+            return None;
+        };
+        for (key, stored) in entries {
+            if self.equal(key, index)? {
+                return Some(stored.clone());
+            }
+        }
+        Some((**default).clone())
+    }
+
+    /// Whether two array values are one: they read alike at every key either
+    /// names and their defaults agree; two different defaults over an
+    /// infinite index sort differ at an index neither names, and over a
+    /// finite one the reading is open.
+    fn equal_arrays(&self, left: &GroundValue, right: &GroundValue) -> Option<bool> {
+        let (
+            GroundValue::Array {
+                default: da,
+                entries: ea,
+                infinite_index,
+            },
+            GroundValue::Array {
+                default: db,
+                entries: eb,
+                ..
+            },
+        ) = (left, right)
+        else {
+            return None;
+        };
+        let mut open = false;
+        for (key, _) in ea.iter().chain(eb.iter()) {
+            let (a, b) = (self.read_value(left, key), self.read_value(right, key));
+            match (a, b) {
+                (Some(a), Some(b)) => match self.equal(&a, &b) {
+                    Some(true) => {}
+                    Some(false) => return Some(false),
+                    None => open = true,
+                },
+                _ => open = true,
+            }
+        }
+        match self.equal(da, db) {
+            Some(true) => (!open).then_some(true),
+            Some(false) if *infinite_index => Some(false),
+            _ => None,
+        }
+    }
+
+    /// Whether the index sort of the array sort `sort` is infinite.
+    fn infinite_index(&self, sort: SortId) -> bool {
+        let sorts = &self.ctx.terms.sorts;
+        let Some(SortKind::Array { domain, .. }) = sorts.get(sort).map(|s| &s.kind) else {
+            return false;
+        };
+        matches!(
+            sorts.get(*domain).map(|s| &s.kind),
+            Some(SortKind::Int | SortKind::Real)
+        )
     }
 
     /// Whether two values are one: `Some(true)` / `Some(false)` where they
@@ -371,6 +490,11 @@ impl GroundReader<'_> {
                         return None;
                     }
                     pairs.extend(fields_a.iter().zip(fields_b.iter()));
+                }
+                (GroundValue::Array { .. }, GroundValue::Array { .. }) => {
+                    if !self.equal_arrays(a, b)? {
+                        return Some(false);
+                    }
                 }
                 _ => return None,
             }
@@ -545,6 +669,59 @@ mod tests {
             Some(true),
             "[1], [], [1, 1]"
         );
+    }
+
+    /// An array of arrays into an uninterpreted sort (recheck 17's `b05`,
+    /// `#P2b-89` one level down): a read of a read is decided by value, and
+    /// two array values compare by their entries and defaults.
+    #[test]
+    fn a_read_of_a_read_of_an_array_of_arrays_is_decided() {
+        let (mut ctx, _, uninterpreted) = context();
+        let int = ctx.terms.sorts.int_sort;
+        let inner_sort = ctx.terms.sorts.array(int, uninterpreted);
+        let outer_sort = ctx.terms.sorts.array(int, inner_sort);
+        let w0 = ctx.terms.mk_var("w0", uninterpreted);
+        let w1 = ctx.terms.mk_var("w1", uninterpreted);
+        let witnesses: FxHashSet<TermId> = [w0, w1].into_iter().collect();
+        let zero = ctx.terms.mk_int(0);
+        let one = ctx.terms.mk_int(1);
+        let inner_base = ctx
+            .terms
+            .mk_apply(oxiz_core::smtlib::CONST_ARRAY_FUNC, [w0], inner_sort);
+        let outer_base = ctx.terms.mk_apply(
+            oxiz_core::smtlib::CONST_ARRAY_FUNC,
+            [inner_base],
+            outer_sort,
+        );
+        // `a = [0 ↦ [0 ↦ w0]]`, read at `a[0][0]` and at `a[1][0]` (the
+        // outer default, whose default is `w0` as well).
+        let entry = ctx.terms.mk_store(inner_base, zero, w0);
+        let printed = ctx.terms.mk_store(outer_base, zero, entry);
+        let at_zero = ctx.terms.mk_select(printed, zero);
+        let read_zero = ctx.terms.mk_select(at_zero, zero);
+        let at_one = ctx.terms.mk_select(printed, one);
+        let read_one = ctx.terms.mk_select(at_one, zero);
+        let holds = ctx.terms.mk_eq(read_zero, w0);
+        assert_eq!(ctx.ground_truth(holds, &witnesses), Some(true));
+        let other = ctx.terms.mk_eq(read_one, w1);
+        assert_eq!(
+            ctx.ground_truth(other, &witnesses),
+            Some(false),
+            "a[1][0] reads the default w0, not w1"
+        );
+        // Two inner arrays: equal by value though spelled apart, and apart
+        // where an entry differs; over `Int`, two defaults that differ make
+        // them differ.
+        let same = ctx.terms.mk_eq(at_zero, entry);
+        assert_eq!(ctx.ground_truth(same, &witnesses), Some(true));
+        let changed = ctx.terms.mk_store(inner_base, zero, w1);
+        let apart = ctx.terms.mk_eq(at_zero, changed);
+        assert_eq!(ctx.ground_truth(apart, &witnesses), Some(false));
+        let other_base = ctx
+            .terms
+            .mk_apply(oxiz_core::smtlib::CONST_ARRAY_FUNC, [w1], inner_sort);
+        let defaults = ctx.terms.mk_eq(inner_base, other_base);
+        assert_eq!(ctx.ground_truth(defaults, &witnesses), Some(false));
     }
 
     /// Witnesses compare by identity (two witnesses are two elements); a

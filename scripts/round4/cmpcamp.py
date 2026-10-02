@@ -47,6 +47,11 @@ def classes(rec):
             pc[int(ev[1])] = "WRONG:" + pc.get(int(ev[1]), "?")
         elif ev[0] == "FALSIFYING_PIN":
             pc[int(ev[1])] = "sat/falsifying_pin"
+        elif ev[0] == "UC_SAT":
+            # A quantified script's refuted `@uc_` model is unresolved (the
+            # universe's cardinality), whatever an older zjudge wrote in
+            # per_check (adversarial recheck 17's minor 7; re-fix pass 18).
+            pc[int(ev[1])] = "sat/uc_unresolved"
     fill = {"timeout": "TIMEOUT", "panic": "PANIC", "killed": "KILLED"}.get(rec.get("status"), "none")
     return pc, fill, "prefix_checks" in rec
 

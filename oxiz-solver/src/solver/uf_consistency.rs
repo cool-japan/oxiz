@@ -40,6 +40,32 @@ use rustc_hash::FxHashMap;
 use super::Solver;
 use super::array_refinement::ArrayRefinementStep;
 
+/// Whether `sort` CONTAINS a datatype (an enumeration is one) or an
+/// uninterpreted sort: is one, or is an array whose index or element sort
+/// contains one, at any depth.
+pub(super) fn sort_contains_value_sort(
+    sort: oxiz_core::sort::SortId,
+    manager: &TermManager,
+) -> bool {
+    let mut pending = vec![sort];
+    let mut seen: Vec<oxiz_core::sort::SortId> = Vec::new();
+    while let Some(current) = pending.pop() {
+        if seen.contains(&current) {
+            continue;
+        }
+        seen.push(current);
+        match manager.sorts.get(current).map(|s| &s.kind) {
+            Some(SortKind::Datatype(_) | SortKind::Uninterpreted(_)) => return true,
+            Some(SortKind::Array { domain, range }) => {
+                pending.push(*domain);
+                pending.push(*range);
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
 impl Solver {
     /// One functional-consistency round against the candidate model (see
     /// the module docs): `NoLemma` when every function agrees with itself,
@@ -205,12 +231,31 @@ impl Solver {
     /// comparable key: a model entry of a member that is not a default, a
     /// literal member, or — for a compound member such as `(+ p 1)`, which
     /// has no entry of its own — the value its leaves fold to.
+    ///
+    /// An ARRAY whose sort contains a datatype, an enumeration or an
+    /// uninterpreted sort has no comparable value of its own (it reads such
+    /// values), so it is keyed by its congruence class, as an uninterpreted
+    /// element is (decision (86), re-fix pass 18): two reads of an array of
+    /// arrays into `U`, or two results of a function into `(Array Int C)`, that
+    /// the closure kept apart at arguments the theories valued alike earn the
+    /// lemma, and their own reads then merge.  An array of scalars stays as it
+    /// was (no key).
     pub(super) fn theory_class_value(
         &self,
         term: TermId,
         model: &crate::solver::Model,
         manager: &TermManager,
     ) -> Option<String> {
+        if manager.get(term).is_some_and(|t| {
+            matches!(
+                manager.sorts.get(t.sort).map(|s| &s.kind),
+                Some(SortKind::Array { .. })
+            ) && sort_contains_value_sort(t.sort, manager)
+        }) {
+            return self
+                .euf_class_representative(term)
+                .map(|class| format!("array{class}"));
+        }
         let mut members = self.euf_class_terms(term);
         members.sort_unstable_by_key(|member| member.raw());
         for &member in &members {

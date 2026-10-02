@@ -403,6 +403,9 @@ impl Solver {
             // build (`#P2b-89`, the array twin of `#P2b-84`).  Such a read is
             // compared by the value its class prints, keyed as `#P2b-84` keys a
             // function's results (`Solver::theory_class_value`).
+            // An element sort that is an ARRAY containing such a sort (an
+            // array of arrays into `U`, recheck 17's `b05`) is keyed by its
+            // congruence class (decision (86), `theory_class_value`).
             let keyed_by_class = array_element_is_value_sort(array, manager);
             let folded: Vec<(TermId, Option<EvalVal>, Option<ReadKey>)> = indices
                 .iter()
@@ -1014,8 +1017,8 @@ enum ReadKey {
     Class(String),
 }
 
-/// Whether `array`'s element sort is a datatype (an enumeration is one) or
-/// an uninterpreted sort.
+/// Whether `array`'s element sort CONTAINS a datatype (an enumeration is
+/// one) or an uninterpreted sort, at any depth (decision (86)).
 fn array_element_is_value_sort(array: TermId, manager: &TermManager) -> bool {
     let Some(sort) = manager.get(array).map(|t| t.sort) else {
         return false;
@@ -1023,10 +1026,7 @@ fn array_element_is_value_sort(array: TermId, manager: &TermManager) -> bool {
     let Some(SortKind::Array { range, .. }) = manager.sorts.get(sort).map(|s| &s.kind) else {
         return false;
     };
-    matches!(
-        manager.sorts.get(*range).map(|s| &s.kind),
-        Some(SortKind::Datatype(_) | SortKind::Uninterpreted(_))
-    )
+    super::uf_consistency::sort_contains_value_sort(*range, manager)
 }
 
 /// The unordered key of an array pair, so the two sides' order never matters.

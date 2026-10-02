@@ -452,7 +452,7 @@ impl Context {
         // report stale assumptions.
         self.last_assumptions.clear();
         self.last_result = Some(result);
-        self.settle_published_model(result);
+        let result = self.settle_published_model(result);
 
         // Write a binary proof log if a path is configured (std-only).
         #[cfg(feature = "std")]
@@ -780,14 +780,9 @@ impl Context {
             "version" => format!("(:version \"{}\")", env!("CARGO_PKG_VERSION")),
             "authors" => "(:authors \"COOLJAPAN OU (Team Kitasan)\")".to_string(),
             "error-behavior" => "(:error-behavior continued-execution)".to_string(),
-            "reason-unknown" => {
-                // Report why the last check returned `unknown`, or `unsupported`
-                // when the last result was decided (sat/unsat) or absent.
-                match self.last_result {
-                    Some(SolverResult::Unknown) => "(:reason-unknown incomplete)".to_string(),
-                    _ => "(:reason-unknown \"not applicable\")".to_string(),
-                }
-            }
+            // Why the last check returned `unknown` (the honesty net's reason
+            // where it took a `sat` back), or "not applicable".
+            "reason-unknown" => self.reason_unknown_info(),
             _ => format!(
                 "(error {})",
                 oxiz_core::smtlib::format_string_literal(&format!(
@@ -1108,12 +1103,15 @@ impl Context {
         // `(get-model)` then served a stale or absent interpretation while the
         // session claimed `sat`.  Report the restore verdict honestly instead.
         let restore = self.check_with_assumptions_raw(assumptions);
-        let (status, cached) = consequences_restore_state(restore);
+        let (mut status, cached) = consequences_restore_state(restore);
         match cached {
             Some(result) => {
                 self.last_result = Some(result);
-                self.settle_published_model(result);
                 self.last_assumptions = assumptions.to_vec();
+                // The honesty net can take the `sat` back (decision (85)).
+                if self.settle_published_model(result) == SolverResult::Unknown {
+                    status = "unknown";
+                }
             }
             None => self.invalidate_last_check(),
         }
@@ -1276,7 +1274,7 @@ impl Context {
                         result = SolverResult::Unknown;
                     }
                     self.last_result = Some(result);
-                    self.settle_published_model(result);
+                    let result = self.settle_published_model(result);
                     output.push(match result {
                         SolverResult::Sat => "sat".to_string(),
                         SolverResult::Unsat => "unsat".to_string(),

@@ -51,6 +51,12 @@ impl TermManager {
         if let Some(field) = self.selector_over_constructor(selector, arg, result_sort) {
             return field;
         }
+        // `#P2b-90`: a selector of a datatype `ite` reads its branches.
+        if let Some(lifted) = self.lift_over_dt_ite(arg, &mut |manager, branch| {
+            manager.mk_dt_selector_spur(selector, branch, result_sort)
+        }) {
+            return lifted;
+        }
         self.intern(TermKind::DtSelector { selector, arg }, result_sort)
     }
 
@@ -59,6 +65,12 @@ impl TermManager {
     pub fn mk_dt_tester_spur(&mut self, constructor: Spur, arg: TermId) -> TermId {
         if let Some(holds) = self.tester_over_constructor(constructor, arg) {
             return if holds { self.true_id } else { self.false_id };
+        }
+        // `#P2b-90`: a tester of a datatype `ite` reads its branches.
+        if let Some(lifted) = self.lift_over_dt_ite(arg, &mut |manager, branch| {
+            manager.mk_dt_tester_spur(constructor, branch)
+        }) {
+            return lifted;
         }
         let bool_sort = self.sorts.bool_sort;
         self.intern(TermKind::DtTester { constructor, arg }, bool_sort)

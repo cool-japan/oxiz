@@ -1124,6 +1124,14 @@ impl Solver {
                     // consequences committed at the root, and the replay below
                     // re-derives the theory state from exactly those.  Nothing is
                     // re-encoded, so no clause is duplicated.
+                    //
+                    // An instance of this round can hold a datatype term no
+                    // axiom covers yet (`Solver::register_ground_dt_root`,
+                    // `#P2b-90`): axiomatise it before the next search.
+                    // Idempotent; nothing to do on a datatype-free goal.
+                    if !self.ground_dt_roots.is_empty() {
+                        self.instantiate_dt_axioms(manager);
+                    }
                     self.rebase_theory_state_for_round();
                     theory_manager = TheoryManager::new(
                         manager,

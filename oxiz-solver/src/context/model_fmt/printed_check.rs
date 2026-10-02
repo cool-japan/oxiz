@@ -96,6 +96,17 @@ fn numeric_literal_equality(
 /// Every printed function table, by the function's name.
 pub(in crate::context) type PrintedFunctions = FxHashMap<String, PrintedFunction>;
 
+/// One declared function's printed table, read back
+/// (`Context::read_printed_table`).
+enum TableReading {
+    /// The function prints no table.
+    Absent,
+    /// The table, parsed back.
+    Read(PrintedFunction),
+    /// A printed value of the table does not parse back.
+    Unreadable,
+}
+
 /// The pieces the parse-back of printed values needs, gathered once.
 pub(in crate::context) struct ParseBack {
     /// Uninterpreted sorts a witness `@uc_S_n` can belong to, by name.
@@ -197,8 +208,9 @@ impl Context {
     }
 
     /// Every declared uninterpreted function's printed table, parsed back.
-    /// `Err` names a function whose table does not parse back into closed
-    /// values.
+    /// `Err` names the first function whose table does not parse back into
+    /// values; the tables after it are not read (so nothing past it is
+    /// interned).
     pub(in crate::context) fn printed_functions(
         &mut self,
         parse: &mut ParseBack,
@@ -208,53 +220,124 @@ impl Context {
             return Ok(out);
         };
         let class_values = self.build_class_values(&solver_model);
-        let names: Vec<String> = self
-            .declared_funs
+        for name in self.uninterpreted_function_names() {
+            match self.read_printed_table(&name, &solver_model, &class_values, parse) {
+                TableReading::Absent => {}
+                TableReading::Read(table) => {
+                    out.insert(name, table);
+                }
+                TableReading::Unreadable => {
+                    return Err(format!(
+                        "the printed interpretation of {name} does not read back"
+                    ));
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Every declared uninterpreted function's printed table that parses
+    /// back into values closed up to witnesses, and the names of those that
+    /// do not — the honesty net's reader (decision (92)(d), re-fix pass 19):
+    /// one unreadable table must not switch off the reading of every
+    /// assertion, so every other table is still read.  A table counts as
+    /// unreadable when a printed value does not parse (a constructor named
+    /// `|(a|` prints unquoted as `(a`) or parses into something that is not a
+    /// value (a sort named `|W X|` prints its witnesses as `@uc_W X_n`, which
+    /// parses by truncation into a free symbol).
+    pub(in crate::context) fn printed_functions_readable(
+        &mut self,
+        parse: &mut ParseBack,
+    ) -> (PrintedFunctions, FxHashSet<String>) {
+        let mut out: PrintedFunctions = FxHashMap::default();
+        let mut unreadable: FxHashSet<String> = FxHashSet::default();
+        let Some(solver_model) = self.published_model().cloned() else {
+            return (out, unreadable);
+        };
+        let class_values = self.build_class_values(&solver_model);
+        for name in self.uninterpreted_function_names() {
+            match self.read_printed_table(&name, &solver_model, &class_values, parse) {
+                TableReading::Absent => {}
+                TableReading::Read(table) if self.table_is_closed(&table, parse) => {
+                    out.insert(name, table);
+                }
+                TableReading::Read(_) | TableReading::Unreadable => {
+                    unreadable.insert(name);
+                }
+            }
+        }
+        (out, unreadable)
+    }
+
+    /// The names of the declared uninterpreted functions with arguments, in
+    /// declaration order.
+    fn uninterpreted_function_names(&self) -> Vec<String> {
+        self.declared_funs
             .iter()
             .filter(|d| !d.interpreted && !d.arg_sorts.is_empty())
             .map(|d| d.name.clone())
-            .collect();
-        for name in names {
-            // Two entries at one argument tuple with different values (the
-            // congruence closure kept two applications apart that the
-            // arithmetic valued alike, `#P2b-74`) are read exactly as
-            // `(get-model)` prints them — the first entry at a tuple wins —
-            // and the certificate judges that function.
-            let Some(((entries, else_text, arity), _)) =
-                self.func_interp_reading(&name, &solver_model, &class_values, false)
-            else {
+            .collect()
+    }
+
+    /// One function's printed table parsed back: its else value first, then
+    /// its entries in order, stopping at the first value that does not parse.
+    fn read_printed_table(
+        &mut self,
+        name: &str,
+        solver_model: &crate::solver::Model,
+        class_values: &super::class_values::ClassValues,
+        parse: &mut ParseBack,
+    ) -> TableReading {
+        // Two entries at one argument tuple with different values (the
+        // congruence closure kept two applications apart that the
+        // arithmetic valued alike, `#P2b-74`) are read exactly as
+        // `(get-model)` prints them — the first entry at a tuple wins —
+        // and the certificate judges that function.
+        let Some(((entries, else_text, arity), _)) =
+            self.func_interp_reading(name, solver_model, class_values, false)
+        else {
+            return TableReading::Absent;
+        };
+        let Some(else_value) = self.parse_printed_value(&else_text, parse) else {
+            return TableReading::Unreadable;
+        };
+        let mut table: Vec<(Vec<TermId>, TermId)> = Vec::with_capacity(entries.len());
+        for (args, value) in entries {
+            if args.len() != arity {
                 continue;
-            };
-            let unreadable = || format!("the printed interpretation of {name} does not read back");
-            let else_value = self
-                .parse_printed_value(&else_text, parse)
-                .ok_or_else(unreadable)?;
-            let mut table: Vec<(Vec<TermId>, TermId)> = Vec::with_capacity(entries.len());
-            for (args, value) in entries {
-                if args.len() != arity {
-                    continue;
-                }
-                let mut points: Vec<TermId> = Vec::with_capacity(args.len());
-                for arg in &args {
-                    points.push(
-                        self.parse_printed_value(arg, parse)
-                            .ok_or_else(unreadable)?,
-                    );
-                }
-                let value = self
-                    .parse_printed_value(&value, parse)
-                    .ok_or_else(unreadable)?;
-                table.push((points, value));
             }
-            out.insert(
-                name,
-                PrintedFunction {
-                    entries: table,
-                    else_value,
-                },
-            );
+            let mut points: Vec<TermId> = Vec::with_capacity(args.len());
+            for arg in &args {
+                let Some(point) = self.parse_printed_value(arg, parse) else {
+                    return TableReading::Unreadable;
+                };
+                points.push(point);
+            }
+            let Some(value) = self.parse_printed_value(&value, parse) else {
+                return TableReading::Unreadable;
+            };
+            table.push((points, value));
         }
-        Ok(out)
+        TableReading::Read(PrintedFunction {
+            entries: table,
+            else_value,
+        })
+    }
+
+    /// Whether every point and value of a parsed table is closed up to the
+    /// witnesses the parse resolved.
+    fn table_is_closed(&self, table: &PrintedFunction, parse: &ParseBack) -> bool {
+        let closed = |term: TermId| {
+            self.terms
+                .free_vars_including_patterns(term)
+                .into_iter()
+                .all(|var| parse.witnesses.values().any(|&witness| witness == var))
+        };
+        closed(table.else_value)
+            && table
+                .entries
+                .iter()
+                .all(|(points, value)| closed(*value) && points.iter().all(|&point| closed(point)))
     }
 
     /// `term` with every application of a printed function replaced by its

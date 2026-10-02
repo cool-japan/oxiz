@@ -281,6 +281,10 @@ def judge(script_text: str, stdout: str, cap: int, check_verdicts=True):
                     if has_uc and quantified(asserts):
                         out["uc_unresolved"] += 1
                         out["events"].append(("UC_SAT", last[2]))
+                        # Unresolved, not falsifying: only a quantifier can see
+                        # the universe's cardinality (adversarial recheck 17's
+                        # minor 7; re-fix pass 18).
+                        out["per_check"][last[2]] = "sat/uc_unresolved"
                     else:
                         out["falsifying"] += 1
                         out["events"].append(("FALSIFYING", last[2]))

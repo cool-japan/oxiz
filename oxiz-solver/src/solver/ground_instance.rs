@@ -151,6 +151,7 @@ impl Solver {
             rewritten
         };
         self.register_ground_array_root(rewritten, manager);
+        self.register_ground_dt_root(rewritten, manager);
         rewritten
     }
 
@@ -284,11 +285,42 @@ impl Solver {
         // **withdrawn** (adversarial recheck pass 10), it cannot hold, and the
         // outcome is unchanged either way because the duplicate spelling is
         // removed by the substitution above and not by this exit.
+        // A quantified assertion's encoding holds ground datatype terms the
+        // datatype axioms' scan of `self.assertions` never reaches — it stops
+        // at the binder (`#P2b-90`, re-fix pass 18).
+        if encoded != asserted
+            && super::encode::finite_expand::contains_quantifier(asserted, manager)
+        {
+            self.register_ground_dt_root(encoded, manager);
+        }
         let encoded = self.array_root_spelling(encoded, manager);
         if encoded == asserted {
             return;
         }
         self.register_ground_array_root(encoded, manager);
+    }
+
+    /// Record `term` as a root of the datatype axioms
+    /// ([`Solver::instantiate_dt_axioms`]), when its ground part holds a
+    /// datatype-sorted term (`#P2b-90`, re-fix pass 18).
+    ///
+    /// The axioms' scan walks `self.assertions` and stops at a binder, so a
+    /// datatype term that only a quantifier's encoding brings into the search
+    /// — the ground expansion of a bounded universal, a Skolemised
+    /// existential, a guard obligation, an MBQI / e-matching / blind /
+    /// finite-domain instance — had no axiom at all: a tester over it was a
+    /// free Boolean.  `(= l1 l2)`, `((_ is cons) l1)`, `((_ is cons) (tl l1))`
+    /// beside `(forall ((n Int)) (=> (and (<= 0 n) (<= n 2)) ((_ is nil) (tl
+    /// l2))))` answered `sat` on every build (0.3.3 through re-fix pass 17; z3
+    /// `unsat`), found by this pass's `gen_dtite.py`.  Every axiom is a
+    /// theorem of the datatype theory, so a root that outlives the instance
+    /// it came from costs lemmas, never a verdict; it is journalled so a `pop`
+    /// retracts it with the scope.
+    pub(super) fn register_ground_dt_root(&mut self, term: TermId, manager: &TermManager) {
+        if !mentions_datatype_term(term, manager) || !self.ground_dt_roots.insert(term) {
+            return;
+        }
+        self.trail.push(TrailOp::GroundDtRootAdded { term });
     }
 
     /// Record `term` as a root for the next `collect_array_structure` round,
@@ -313,6 +345,18 @@ impl Solver {
         self.trail.push(TrailOp::GroundArrayRootAdded { term });
         self.has_array_ops = true;
     }
+}
+
+/// Whether `term`'s ground part (no binder entered) holds a datatype-sorted
+/// sub-term.
+fn mentions_datatype_term(term: TermId, manager: &TermManager) -> bool {
+    super::encode::bool_euf_encoding::collect_ground_subterms(term, manager)
+        .into_iter()
+        .any(|sub| {
+            manager
+                .get(sub)
+                .is_some_and(|t| manager.sorts.is_datatype(t.sort))
+        })
 }
 
 /// Whether `term` mentions a `select`, a `store` or any array-sorted sub-term

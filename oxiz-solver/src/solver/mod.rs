@@ -343,6 +343,11 @@ pub struct Solver {
     /// that produced.  Journalled with `TrailOp::GroundArrayRootAdded`, so a
     /// `pop` retracts the root together with the instance's clauses.
     pub(super) ground_array_roots: FxHashSet<TermId>,
+    /// The ground terms of a quantified assertion's encoding and of every
+    /// quantifier instance that hold a datatype term, read by the datatype
+    /// axioms beside `self.assertions` (`#P2b-90`; see `ground_instance`).
+    /// Journalled with `TrailOp::GroundDtRootAdded`.
+    pub(super) ground_dt_roots: FxHashSet<TermId>,
     /// `div` / `mod` / numeric-`ite` terms whose defining axioms have already
     /// been asserted (see [`Solver::instantiate_arith_axioms`]).  The linear
     /// solver treats those terms as opaque atoms, so this set is what tells the
@@ -761,6 +766,7 @@ impl Solver {
             has_array_ops: false,
             array_axiom_instances: FxHashSet::default(),
             ground_array_roots: FxHashSet::default(),
+            ground_dt_roots: FxHashSet::default(),
             arith_defined_terms: FxHashSet::default(),
             numeric_trichotomy_atoms: FxHashSet::default(),
             dt_axiom_instances: FxHashSet::default(),
@@ -971,10 +977,13 @@ impl Solver {
             self.unsat_core = None;
             return SolverResult::Unknown;
         }
+        // The dev profile's datatype-model net (`debug_verify_dt_model`) that
+        // stood here asserted that a `sat` candidate never falsifies a
+        // datatype assertion; since re-fix pass 18 that is not an invariant of
+        // the search but the honesty net's business at the `Context` layer,
+        // which reads the printed candidate exactly and answers `unknown` on a
+        // false one in every profile (decision (85)).
         self.debug_check_invariants("check: exit");
-        if result == SolverResult::Sat {
-            self.debug_verify_published_dt_model(manager);
-        }
         result
     }
 
@@ -1671,6 +1680,9 @@ impl Solver {
                             // are lemmas about nothing.
                             self.ground_array_roots.remove(&term);
                         }
+                        TrailOp::GroundDtRootAdded { term } => {
+                            self.ground_dt_roots.remove(&term);
+                        }
                         TrailOp::JustifiedQuantifierAdded { term } => {
                             // The clauses that justify this quantifier's
                             // literal — the MBQI registration, or the guarded
@@ -1881,6 +1893,7 @@ impl Solver {
         self.has_array_ops = false;
         self.array_axiom_instances.clear();
         self.ground_array_roots.clear();
+        self.ground_dt_roots.clear();
         self.array_axioms_incomplete = false;
         self.quantifier_literal_unconstrained = false;
         self.justified_quantifiers.clear();

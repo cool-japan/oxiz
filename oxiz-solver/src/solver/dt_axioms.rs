@@ -278,6 +278,60 @@ fn dt_size(term: TermId, manager: &mut TermManager) -> TermId {
 }
 
 impl Solver {
+    /// [`scan_datatype_terms`] over the assertion set, with every member
+    /// spelled as the search decides it (`#P2b-90`, re-fix pass 18): a
+    /// non-Bool `ite` the encoder replaced by a proxy (`Solver::ite_elim_aliases`,
+    /// `encode::bool_euf_encoding`) is read as that proxy, so `(v (ite c a b))`
+    /// is the member `(v p)` — the application the congruence closure and the
+    /// SAT search actually hold.  The axioms are asserted over these members
+    /// and the model builder rebuilds their values, so the lemmas and the
+    /// values speak of the terms the search decided.  Before, both read the
+    /// terms as written: a tester over the written `ite` and the tester over
+    /// its proxy were two unrelated atoms (the wrong `sat` of `#P2b-90`), and
+    /// an application over an `ite` was valued from atoms the search never
+    /// constrained (`#P2b-88`).  Members with no eliminated `ite` are as
+    /// written.
+    ///
+    /// The scan covers the assertions and every ground datatype root
+    /// (`Solver::ground_dt_roots`: a quantified assertion's encoding and every
+    /// quantifier instance), in term-id order.
+    pub(super) fn encoded_dt_scan(&self, manager: &mut TermManager) -> Option<DtScan> {
+        let mut roots: Vec<TermId> = self.assertions.clone();
+        let mut extra: Vec<TermId> = self.ground_dt_roots.iter().copied().collect();
+        extra.sort_unstable();
+        roots.extend(extra);
+        let mut scan = scan_datatype_terms(&roots, manager)?;
+        if self.ite_elim_aliases.is_empty() {
+            return Some(scan);
+        }
+        let spelling: FxHashMap<TermId, TermId> = self
+            .ite_elim_aliases
+            .iter()
+            .map(|(&proxy, &ite)| (ite, proxy))
+            .collect();
+        for (_, terms) in &mut scan.members {
+            let mut mapped: Vec<TermId> = Vec::with_capacity(terms.len());
+            for &term in terms.iter() {
+                let mut map: FxHashMap<TermId, TermId> = FxHashMap::default();
+                for sub in super::encode::bool_euf_encoding::collect_ground_subterms(term, manager)
+                {
+                    if let Some(&proxy) = spelling.get(&sub) {
+                        map.insert(sub, proxy);
+                    }
+                }
+                mapped.push(if map.is_empty() {
+                    term
+                } else {
+                    manager.substitute(term, &map)
+                });
+            }
+            mapped.sort_unstable();
+            mapped.dedup();
+            *terms = mapped;
+        }
+        Some(scan)
+    }
+
     /// Assert the defining axioms of every datatype term reachable from the
     /// current assertion set.
     ///
@@ -287,7 +341,7 @@ impl Solver {
     /// re-derives whatever it still needs.  Idempotent — re-running it inside
     /// the refinement loop of [`Solver::check`] adds nothing new.
     pub(super) fn instantiate_dt_axioms(&mut self, manager: &mut TermManager) {
-        let Some(scan) = scan_datatype_terms(&self.assertions, manager) else {
+        let Some(scan) = self.encoded_dt_scan(manager) else {
             return;
         };
 

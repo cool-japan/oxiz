@@ -456,17 +456,26 @@ Status reflects results on the `bench/z3_parity` suite against a real `z3` 4.15.
 > over an unbounded domain). A quantifier-free `sat` is not certified: its model is the one theory
 > combination built — kept a function by an Ackermann lemma at the candidate wherever the congruence
 > closure left two values at one point, whether the function's range is a number, a datatype, an
-> enumeration or an uninterpreted sort (`#P2b-74`, `#P2b-84`), and an array into such a sort kept one by
-> the same key (`#P2b-89`) — and checked where the printer's fresh values changed it (`#P2b-71`). Where a
-> declared symbol's sort *contains* a datatype, an enumeration or an uninterpreted sort (a constant of
-> one, an array over or into one, a function over or into one) the printed model is checked at every
-> `sat` and withheld where the check shows it false: the datatype values are rebuilt after the search
-> from the terms as written while the search decided the terms as encoded (`#P2b-88`, open), so which
-> datatype models come out right moves with the search's trajectory. The check reads every comparison,
-> `ite` and array read over such values exactly, but it is a check, not a certificate: an assertion it
-> cannot read is not checked. On the generated corpora the round measured (seeds in `TODO.md` decision
-> (24a)) it printed no falsifying datatype model; some *correct* datatype models are withheld with the
-> falsifying ones when the search's trajectory moves, and are named there. A *declared* sort whose
+> enumeration or an uninterpreted sort (`#P2b-74`, `#P2b-84`), and an array into such a sort — or an
+> array of arrays over one — kept one by the same key (`#P2b-89`) — and checked where the printer's fresh
+> values changed it (`#P2b-71`). Where a quantifier-free goal mentions a datatype, an enumeration, an
+> uninterpreted sort or an array over one (a declared constant, array or function over or into one, or
+> any term of one in an assertion), the model is read exactly as `(get-model)` would print it against
+> every assertion at every `sat`, and **a `sat` is never answered over a model this reading shows
+> false**: the check answers `unknown` instead, `(get-model)` answers `(error "model not certified: model
+> check failed: assertion N reads false under the candidate model")` and `(get-info :reason-unknown)`
+> gives that reason (0.3.4, decision (85)). The datatype values are rebuilt after the search from the
+> assertions' terms, while the search decided some of them through the encoder's proxies (`#P2b-88`,
+> open), so which checks get a model that holds moves with the search's trajectory — and where it is
+> false the price is a lost verdict, named in `TODO.md` decision (24a). The reading covers every
+> comparison, `ite`, selector, tester and array read (nested arrays too) over such values, but it is a
+> check, not a certificate: an assertion it cannot read is not checked (one the structural evaluator
+> reads false is confirmed by a fresh solver and withheld on its `unsat`; one over a function whose
+> printed table does not read back — a symbol that needs `|…|` quoting prints unquoted on every build —
+> is withheld unless it holds under every interpretation of that function, and every other assertion is
+> still read, re-fix pass 19). On the generated corpora the
+> round measured (seeds in `TODO.md` decision (24a), including adversarial rechecks 17's and 18's fresh seeds) no
+> falsifying datatype model is printed. A *declared* sort whose
 > cardinality nothing pins stays open (`#P2b-50`). Wrong verdicts
 > measured in this area, tracked in [`TODO.md`](TODO.md) with their repros (a measurement, not a claim that
 > nothing else exists), all fixed in 0.3.4: an array pinned by a ground equality and read under a binder
@@ -478,18 +487,29 @@ Status reflects results on the `bench/z3_parity` suite against a real `z3` 4.15.
 > `(forall ((q Int)) (=> (> q 7) false))` (`#P2b-75`, every earlier build, at every sort a guard compares);
 > two list values that differ several constructors deep, equated (`#P2b-76`, quantifier-free, every
 > earlier build); a selector over a constructor application inside an uninterpreted argument,
-> `(distinct (f 1) (f (hd (cons 1 l1))))` (`#P2b-82`, quantifier-free, every earlier build); and a cycle
+> `(distinct (f 1) (f (hd (cons 1 l1))))` (`#P2b-82`, quantifier-free, every earlier build); a cycle
 > through an uninterpreted application two constructors deep, `(= (h 1) (cons x (cons 2 (h 1))))`
-> (`#P2b-83`, quantifier-free, every earlier build). Quantifier-free model defects, pre-existing in 0.3.3,
+> (`#P2b-83`, quantifier-free, every earlier build); and a tester, a selector or an equality over a
+> datatype-sorted `ite`, `(< 0 (ite ((_ is cons) (ite c l1 nil)) 1 0))` beside `(not c)`, or over a
+> datatype term only a quantifier body names (`#P2b-90`, every earlier build — found on a fresh corpus
+> seed by an adversarial recheck after the seventeen seeds measured before it showed none: these lists
+> are what was measured, not a proof that nothing else exists; never wrong at any chain size measured,
+> but the verdict is reached only for an `ite` chain of at most 256 nodes, `#P2b-93` below). Quantifier-free model defects, pre-existing in 0.3.3,
 > fixed in 0.3.4: congruence classes no theory valued — constants, nested applications, reads — printed
 > one value for classes the search kept apart (`#P2b-71`), a function into a datatype, an enumeration or
 > an uninterpreted sort printed one value at two points its arguments were valued alike (`#P2b-84`), an
-> array into one printed one entry for two reads valued alike (`#P2b-89`), a datatype-indexed array
+> array into one — or an array of arrays over one — printed one entry for two reads valued alike
+> (`#P2b-89`), a datatype-indexed array
 > printed none of its entries (`#P2b-72`), and `(get-value)` echoed compound terms (it now answers from
 > the printed model). **Still open:** a quantifier-free model over integers and integer arrays, with no
 > datatype in it, that falsifies its script (`#P2b-81`, every build: 14 checks of 12,134 on five seeds of
-> the round's generated `gen14.py` corpora, falsifying on `c702310` too, each named in `TODO.md`), and
-> the datatype values `#P2b-88` names above (withheld where the check shows them false).
+> the round's generated `gen14.py` corpora, none on adversarial recheck 17's fresh sixth and 3 of 1,303 on
+> recheck 18's fresh seventh, falsifying on `c702310` too, each named in `TODO.md`; an array
+> of arrays of integers is one such shape), the datatype values `#P2b-88` names above (where the
+> reading shows them false the check answers `unknown`), a tester, a selector or an equality over a
+> datatype `ite` chain of more than 256 nodes, not decided (`#P2b-93`, never wrong), and a strict
+> `Int` bound at `i64::MAX`, which a debug build panics on and a release build answers `unknown`
+> (`#P2b-92`; the bit-vector bound near 2^63 it was filed for is decided since `#P2b-28`).
 
 ### Optimization
 - MaxSAT (Fu-Malik, RC2, LNS)

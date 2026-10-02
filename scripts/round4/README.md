@@ -33,11 +33,13 @@ processes and never beside a build or a test run; `common.py` refuses brute forc
 | `qc_classify.py` | buckets `fuzz_qc.py`'s falsifying cases by shape |
 | `qc_twin_head.py` | re-judges a tree's `fuzz_qc` unsats on the ground twin with an independent probe |
 | `zjudge.py` | recheck 14's independent judge: every verdict against z3's, every printed model and `(get-value)` replayed by z3, withheld models counted; a refuted `@uc_` model of a quantifier-free script counts as falsifying |
-| `camp14.py` | `zjudge.py` over a directory of scripts with at most two workers (`results.jsonl`, `summary.json`, `flagged/`); a timed-out script's longest answered prefix is judged (`prefix_checks`) |
+| `camp14.py` | `zjudge.py` over a directory of scripts with at most two workers (`results.jsonl`, `summary.json`, `flagged/`); a timed-out script's longest answered prefix is judged (`prefix_checks`), and a script flagged on its prefix keeps that prefix (`flagged/<script>.prefix.smt2`) and the prefix's responses in `flagged/<script>.out` (re-fix pass 19; it kept the whole script's empty stdout before) |
 | `gen14.py` | recheck 14's seeded mixed-theory generator (`QF_UFLIA` / `QF_UFLRA` / `QF_AUFLIA`, quantified UF and arrays, datatypes, push/pop) |
 | `gen_mix.py` | recheck 15's seeded mixed `Int` / `Real` generator (`to_real`, `ite`, UF, a guarded universal in 15 %, push/pop) |
 | `gen_dt.py` | recheck 15's seeded quantifier-free datatype generator (list / enumeration / record, an uninterpreted sort, UFs into them) |
 | `gen_guard.py` | recheck 15's seeded guarded-universal generator (`Int` / `Real` / bit-vector guards under every connective, UF and array bodies) |
+| `gen_dtite.py` | re-fix pass 18's seeded generator for `#P2b-90`'s family: testers, selectors and datatype equalities over datatype `ite`s (chains, nests, under uninterpreted and constructor arguments, enumeration and uninterpreted-sort `ite`s, push/pop, a bounded universal); judge with `camp14.py` |
+| `selcheck.py` | re-fix pass 18: for each printed model `zjudge.py` calls falsifying, z3 asked whether the model satisfies the assertions for SOME value of the terms it leaves unspecified (a selector of the wrong constructor, `(hd nil)`): `sat` = the judge chose the unspecified value, `unsat` = a real falsification |
 | `cmpcamp.py` | per-check comparison of two `camp14.py` runs: LOST (a timed-out script's unanswered checks included), GAINED, model regressions (`sat/ok` → withheld / falsifying / unresolved) and improvements, every class change; prefix-judged checks marked |
 | `ddmin.py` | greedy line reducer over a verdict property of two probes |
 

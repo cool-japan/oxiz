@@ -2,7 +2,11 @@
 //! reads, with fresh values for the classes no theory valued (`#P2b-71`,
 //! `context::model_fmt::mint`), and — for every `sat` whose asserted goal
 //! holds a quantifier — the verdict of the published-model certificate
-//! (`#P2b-51`, decisions (54), (67), (68)).
+//! (`#P2b-51`, decisions (54), (67), (68)); for a quantifier-free `sat` over
+//! a datatype, an enumeration, an uninterpreted sort or an array over one,
+//! the honesty net (decision (85), re-fix pass 18): a candidate model the
+//! exact value reader shows false makes the check `unknown` — the verdict is
+//! only as good as the model behind it.
 //!
 //! # Fresh values (`#P2b-71`)
 //!
@@ -55,6 +59,26 @@ pub(in crate::context) struct PublishedModel {
     /// Else values of printed function tables the certificate chose over
     /// the most common entry value (`Context::repair_else_values`).
     else_overrides: FxHashMap<String, String>,
+    /// Why the last check answers `unknown` where the search answered `sat`:
+    /// the honesty net read an assertion false under the candidate model
+    /// (decision (85)); `(get-info :reason-unknown)` reports it.
+    unknown_reason: Option<String>,
+}
+
+/// What the quantifier-free net reads of a candidate model
+/// ([`Context::printed_datatype_model_refuted`]).
+enum NetReading {
+    /// Every assertion holds or stays open.
+    Clean,
+    /// The exact value reader reads this assertion (1-based) false.
+    False(usize),
+    /// The structural evaluator reads this assertion (1-based) false where
+    /// the value reader is open, and a fresh solver refutes it closed.
+    Refuted(usize),
+    /// This assertion (1-based) applies a function whose printed table does
+    /// not read back (named), and a fresh solver does not show it true under
+    /// every interpretation of that function (decision (92)(d)).
+    Unread(usize, String),
 }
 
 /// Else values the repair may certify.
@@ -84,10 +108,19 @@ impl Context {
     /// * at a quantifier-free `sat` the fresh values changed, check the
     ///   printed model exactly and print the solver's own model instead when
     ///   the fresh values made an assertion false (decision (64)).
-    pub(in crate::context) fn settle_published_model(&mut self, result: SolverResult) {
+    ///
+    /// Returns the verdict the check answers: `result`, except a
+    /// quantifier-free `sat` whose candidate model the honesty net reads
+    /// false (decision (85)), which answers `unknown` — and then
+    /// `last_result` is set to `unknown` here, since the net renders the
+    /// model through a `sat` `last_result`.
+    pub(in crate::context) fn settle_published_model(
+        &mut self,
+        result: SolverResult,
+    ) -> SolverResult {
         self.published = PublishedModel::default();
         if result != SolverResult::Sat {
-            return;
+            return result;
         }
         self.keep_a_correct_candidate_model();
         self.refresh_published_model();
@@ -102,44 +135,103 @@ impl Context {
             if !covered {
                 self.certify_published_model();
             }
-            return;
+            return result;
         }
         if minted && self.printed_model_falsifies().is_some() {
             let fresh = self.published.model.take();
             // Neither reading holds: the fresh values stay out, so the model
             // printed is the solver's own, as on every earlier build.
             if self.printed_model_falsifies().is_none() {
-                return;
+                return result;
             }
             drop(fresh);
         }
-        self.withhold_a_falsifying_datatype_model();
+        self.withhold_a_falsifying_datatype_model(result)
     }
 
-    /// A quantifier-free `sat` over values no theory prints exactly — a
-    /// declared symbol whose sort CONTAINS a datatype, an enumeration or an
-    /// uninterpreted sort: a constant of one, an array whose index or element
-    /// sort is one, a function into or over one — whose printed model
-    /// definitely falsifies an assertion is not published (decision (72)(a),
-    /// re-fix pass 16; widened to every such sort by decision (79)(a), re-fix
-    /// pass 17): `(get-model)` answers the certificate's error and the
-    /// verdict stands.  The datatype values are rebuilt after the search from
-    /// the terms of the assertions as written, while the search decided the
-    /// assertions as encoded (`#P2b-88`), so a model can print one value for
-    /// two terms the search kept apart; an array into such a sort can print
-    /// one entry for two reads the arithmetic valued alike (`#P2b-89`).  The
-    /// printed check evaluates exactly what is printed — a selector or tester
-    /// over a printed constructor value folds, and every comparison, `ite`
-    /// and array read over values is decided by value
-    /// (`printed_eval::ground_values`) — and withholds only a model it shows
-    /// false.
-    fn withhold_a_falsifying_datatype_model(&mut self) {
-        if !self.goal_has_value_sort_symbols() {
-            return;
+    /// `(get-info :reason-unknown)`: the honesty net's reason where it took a
+    /// `sat` back (decision (85)), `incomplete` for any other `unknown`.
+    pub(in crate::context) fn reason_unknown_info(&self) -> String {
+        match (self.last_result, self.published.unknown_reason.as_ref()) {
+            (Some(SolverResult::Unknown), Some(reason)) => format!(
+                "(:reason-unknown {})",
+                oxiz_core::smtlib::format_string_literal(reason)
+            ),
+            (Some(SolverResult::Unknown), None) => "(:reason-unknown incomplete)".to_string(),
+            _ => "(:reason-unknown \"not applicable\")".to_string(),
         }
-        let Some(reason) = self.printed_datatype_model_refuted() else {
-            return;
-        };
+    }
+
+    /// The honesty net (decision (85), re-fix pass 18) over a
+    /// quantifier-free `sat` whose problem mentions a value no theory prints
+    /// exactly — a declared symbol whose sort CONTAINS a datatype, an
+    /// enumeration or an uninterpreted sort (a constant of one, an array whose
+    /// index or element sort is one at any depth, a function into or over
+    /// one), or an assertion with a term of such a sort (decisions (72)(a),
+    /// (79)(a), (85)).  The candidate model, exactly as `(get-model)` would
+    /// print it, is read against every assertion in scope:
+    ///
+    /// * an assertion the exact value reader (`printed_eval::ground_values`)
+    ///   reads FALSE makes the verdict `unknown` ("model check failed:
+    ///   assertion N reads false under the candidate model") and
+    ///   `(get-model)` answers the certified-or-absent error: a `sat` is never
+    ///   answered over a model the solver itself shows false, and no fresh
+    ///   solver is asked to overrule that reading — recheck 17 measured one
+    ///   (`gen_dt.py` seed 30100192 `d00318`, its second check) answering
+    ///   `sat` on the closed, false assertion (`#P2b-90`), so the model was
+    ///   printed;
+    /// * an assertion the value reader leaves OPEN and the structural
+    ///   evaluator (`array_completion_certify::evaluate_closed`) reads false
+    ///   goes to a fresh solver as before: its `unsat` withholds the model
+    ///   (the verdict stands), its `sat` or `unknown` prints it, since nothing
+    ///   then shows the model false (the structural evaluator alone once read
+    ///   a correct model false, `gen_dt.py` seed 30093154 `d00074`);
+    /// * an assertion that applies a function whose printed table does not
+    ///   read back is OPEN, never clean (decision (92)(d), re-fix pass 19):
+    ///   it goes to a fresh solver with that function uninterpreted, and the
+    ///   model is withheld unless the assertion's negation is refuted there —
+    ///   the assertion true under every interpretation of the function —
+    ///   while every other assertion is still read as above, so one
+    ///   unreadable table no longer switches the net off (a constructor
+    ///   named `|(a|` printed unquoted as `(a` let a falsifying model through
+    ///   on every build since the net, `round4_pass19_fix_pins`).
+    ///
+    /// The datatype values are rebuilt after the search from the terms of
+    /// the assertions as written, while the search decided the assertions as
+    /// encoded (`#P2b-88`), so a candidate can print one value for two terms
+    /// the search kept apart; this is where that is caught.  Returns the
+    /// verdict the check answers.
+    fn withhold_a_falsifying_datatype_model(&mut self, result: SolverResult) -> SolverResult {
+        if !self.goal_has_value_sort_symbols() && !self.goal_mentions_value_sort() {
+            return result;
+        }
+        match self.printed_datatype_model_refuted() {
+            NetReading::Clean => result,
+            NetReading::False(number) => {
+                let reason = format!(
+                    "model check failed: assertion {number} reads false under the candidate model"
+                );
+                self.withhold_every_symbol(&reason);
+                self.published.unknown_reason = Some(reason);
+                self.last_result = Some(SolverResult::Unknown);
+                SolverResult::Unknown
+            }
+            NetReading::Refuted(number) => {
+                self.withhold_every_symbol(&format!("assertion {number} is false"));
+                result
+            }
+            NetReading::Unread(number, name) => {
+                self.withhold_every_symbol(&format!(
+                    "the printed interpretation of {name} does not read back (assertion {number})"
+                ));
+                result
+            }
+        }
+    }
+
+    /// Withhold every declared constant and function of the model, with
+    /// `reason` as the error `(get-model)` answers.
+    fn withhold_every_symbol(&mut self, reason: &str) {
         self.published.uncertified = Some(format!("model not certified: {reason}"));
         self.published.uncertified_arrays =
             self.declared_consts.iter().map(|decl| decl.term).collect();
@@ -151,43 +243,57 @@ impl Context {
             .collect();
     }
 
-    /// The first assertion the printed model makes **definitely** false, as
-    /// [`Self::printed_model_falsifies`] finds it, and confirmed: the closed
-    /// assertion (every declared symbol replaced by what `(get-model)`
-    /// prints) is refuted by a fresh solver as well, under the hypothesis
+    /// The first assertion the printed model makes false, read as
+    /// [`Self::withhold_a_falsifying_datatype_model`] documents: by the exact
+    /// value reader (`printed_eval::ground_values`, interning nothing) —
+    /// before decision (79)(a) the net only saw what the term builder folded
+    /// while the model was substituted in, and `gen_dt.py` seed 30093154
+    /// `d00239` published its first, falsifying model while its second and
+    /// third were withheld — and, where that reader is open, by the
+    /// structural evaluator confirmed by a fresh solver under the hypothesis
     /// that distinct `@uc_` witnesses are distinct elements (what the printed
-    /// model says).  The structural evaluator alone read an equality of an
-    /// `ite` over datatype values as false where it holds and withheld a
-    /// correct model (`gen_dt.py` seed 30093154, `d00074`); an assertion the
-    /// fresh solver does not refute, or one whose closing leaves a symbol
-    /// other than a witness, withholds nothing.
-    ///
-    /// Where the exact evaluator is open the assertion is read by value
-    /// (`printed_eval::ground_values`, interning nothing): before decision
-    /// (79)(a) the evaluator had no value for a datatype or
-    /// uninterpreted-sorted comparison, so the net only saw what the term
-    /// builder folded while the model was substituted in, and `gen_dt.py`
-    /// seed 30093154 `d00239` published its first, falsifying model while
-    /// its second and third were withheld.
-    fn printed_datatype_model_refuted(&mut self) -> Option<String> {
-        let (printed, mut parse) = self.printed_constants()?;
-        let funcs = self.printed_functions(&mut parse).ok()?;
+    /// model says).  An assertion whose closing leaves a symbol other than a
+    /// witness reads open.  The structural evaluator and the confirming
+    /// solver run exactly where they ran before decision (85): both intern
+    /// terms, and a later check's search reads the term arena.
+    fn printed_datatype_model_refuted(&mut self) -> NetReading {
+        let Some((printed, mut parse)) = self.printed_constants() else {
+            return NetReading::Clean;
+        };
+        // A table that does not read back leaves its function uninterpreted
+        // in the assertions; every other table is read (decision (92)(d)).
+        let (funcs, unreadable) = self.printed_functions_readable(&mut parse);
         let witnesses: FxHashSet<TermId> = parse.witnesses.values().copied().collect();
+        // The first assertion over an unreadable table that is not true under
+        // every interpretation of it: the model is withheld for it only after
+        // every assertion was read, so a later one the value reader reads
+        // false still makes the check `unknown`.
+        let mut unread: Option<NetReading> = None;
         for (number, assertion) in self.certified_goal().into_iter().enumerate() {
             let expanded = self.expand_printed_functions(assertion, &funcs);
             let closed = self.terms.substitute(expanded, &printed);
             let closed = self.terms.fold_constructor_accessors(closed);
             let free = self.terms.free_vars_including_patterns(closed);
+            if !unreadable.is_empty() && self.applies_one_of(closed, &unreadable) {
+                if unread.is_none() && !self.holds_under_every_reading(closed, &free, &parse) {
+                    let name = self.first_applied_of(closed, &unreadable);
+                    unread = Some(NetReading::Unread(number + 1, name));
+                }
+                continue;
+            }
             if !free.iter().all(|var| witnesses.contains(var)) {
                 continue;
             }
-            let holds = crate::solver::array_completion_certify::evaluate_closed(
+            let structural = crate::solver::array_completion_certify::evaluate_closed(
                 &self.solver,
                 closed,
                 &mut self.terms,
-            )
-            .or_else(|| self.ground_truth(closed, &witnesses));
-            if holds != Some(false) {
+            );
+            let exact = self.ground_truth(closed, &witnesses);
+            if exact == Some(false) {
+                return NetReading::False(number + 1);
+            }
+            if structural.or(exact) != Some(false) {
                 continue;
             }
             let mut confirm = crate::solver::Solver::new();
@@ -203,10 +309,77 @@ impl Context {
             }
             confirm.assert(closed, &mut self.terms);
             if confirm.check(&mut self.terms) == SolverResult::Unsat {
-                return Some(format!("assertion {} is false", number + 1));
+                return NetReading::Refuted(number + 1);
             }
         }
-        None
+        unread.unwrap_or(NetReading::Clean)
+    }
+
+    /// Whether `closed` — an assertion with the printed model substituted in
+    /// and some function left uninterpreted because its printed table does
+    /// not read back — holds under EVERY interpretation of what it leaves
+    /// open: a fresh solver refutes its negation (decision (92)(d)).  Any
+    /// other answer, `unknown` included, is `false`.
+    fn holds_under_every_reading(
+        &mut self,
+        closed: TermId,
+        free: &[TermId],
+        parse: &super::printed_check::ParseBack,
+    ) -> bool {
+        let mut confirm = crate::solver::Solver::new();
+        confirm.set_conflict_limit(DATATYPE_NET_CONFLICTS);
+        confirm.set_logic("ALL");
+        if free
+            .iter()
+            .any(|var| parse.witnesses.values().any(|w| w == var))
+        {
+            for hypothesis in self.witness_hypotheses(&parse.witnesses) {
+                confirm.assert(hypothesis, &mut self.terms);
+            }
+        }
+        let negated = self.terms.mk_not(closed);
+        confirm.assert(negated, &mut self.terms);
+        confirm.check(&mut self.terms) == SolverResult::Unsat
+    }
+
+    /// The first function named in `names` that `term` applies, by name
+    /// order (for the error `(get-model)` answers).
+    fn first_applied_of(&self, term: TermId, names: &FxHashSet<String>) -> String {
+        let mut sorted: Vec<&String> = names.iter().collect();
+        sorted.sort();
+        for name in sorted {
+            let single: FxHashSet<String> = std::iter::once(name.clone()).collect();
+            if self.applies_one_of(term, &single) {
+                return name.clone();
+            }
+        }
+        String::new()
+    }
+
+    /// Whether an assertion in scope has a sub-term whose sort contains a
+    /// datatype, an enumeration or an uninterpreted sort — the net's trigger
+    /// for a goal that declares no symbol of one (a ground formula over
+    /// constructor literals, recheck 17's `c318_b`).
+    fn goal_mentions_value_sort(&self) -> bool {
+        let mut stack: Vec<TermId> = self.certified_goal();
+        let mut visited: FxHashSet<TermId> = FxHashSet::default();
+        let mut sorts: FxHashMap<SortId, bool> = FxHashMap::default();
+        while let Some(current) = stack.pop() {
+            if !visited.insert(current) {
+                continue;
+            }
+            let Some(data) = self.terms.get(current) else {
+                continue;
+            };
+            let valued = *sorts
+                .entry(data.sort)
+                .or_insert_with(|| self.sort_contains_value_sort(data.sort));
+            if valued {
+                return true;
+            }
+            stack.extend(oxiz_core::ast::traversal::get_children(&data.kind));
+        }
+        false
     }
 
     /// Whether a declared constant's sort, or a declared function's argument
@@ -586,15 +759,21 @@ impl Context {
     /// for an array, its index and element sorts.
     pub(super) fn witness_sorts(&self) -> FxHashMap<String, SortId> {
         let mut out: FxHashMap<String, SortId> = FxHashMap::default();
-        for decl in &self.declared_consts {
-            let mut sorts = vec![decl.sort];
-            if let Some(SortKind::Array { domain, range }) =
-                self.terms.sorts.get(decl.sort).map(|s| &s.kind)
-            {
-                sorts.push(*domain);
-                sorts.push(*range);
-            }
-            for sort in sorts {
+        for root in self.declared_value_roots() {
+            // Through array index and element sorts at any depth (an array
+            // of arrays into `U`, recheck 17's `b05`).
+            let mut pending: Vec<SortId> = vec![root];
+            let mut seen: FxHashSet<SortId> = FxHashSet::default();
+            while let Some(sort) = pending.pop() {
+                if !seen.insert(sort) {
+                    continue;
+                }
+                if let Some(SortKind::Array { domain, range }) =
+                    self.terms.sorts.get(sort).map(|s| &s.kind)
+                {
+                    pending.push(*domain);
+                    pending.push(*range);
+                }
                 if self.is_uninterpreted_sort(sort) {
                     out.insert(self.format_sort_name(sort), sort);
                 }
@@ -655,7 +834,7 @@ impl Context {
     /// symbol / an uninterpreted application and is rebuilt here.
     pub(super) fn value_constructors(&self) -> FxHashMap<String, SortId> {
         let mut out: FxHashMap<String, SortId> = FxHashMap::default();
-        let mut pending: Vec<SortId> = self.declared_consts.iter().map(|d| d.sort).collect();
+        let mut pending: Vec<SortId> = self.declared_value_roots();
         let mut seen: FxHashSet<SortId> = FxHashSet::default();
         while let Some(sort) = pending.pop() {
             if !seen.insert(sort) || seen.len() > 256 {
@@ -759,6 +938,20 @@ impl Context {
             done.insert(term, rebuilt);
         }
         done.get(&value).copied().unwrap_or(value)
+    }
+
+    /// The sorts a printed value can be read at: every declared constant's,
+    /// and every declared function's range and argument sorts (a table of a
+    /// function into `(Array Int C)` spells `red`, a witness of a function
+    /// over `U` spells `@uc_U_n`; before re-fix pass 18 neither read back, so
+    /// the table was open to the net, recheck-18 battery `n16`).
+    fn declared_value_roots(&self) -> Vec<SortId> {
+        let mut roots: Vec<SortId> = self.declared_consts.iter().map(|d| d.sort).collect();
+        for decl in self.declared_funs.iter().filter(|d| !d.interpreted) {
+            roots.push(decl.ret_sort);
+            roots.extend(decl.arg_sorts.iter().copied());
+        }
+        roots
     }
 
     /// `(distinct w₀ w₁ …)` over the witnesses of each sort.

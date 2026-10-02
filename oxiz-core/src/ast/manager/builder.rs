@@ -283,6 +283,13 @@ impl TermManager {
                     return folded;
                 }
             }
+            // A datatype-sorted `ite` on either side: the equality reads its
+            // branches (`#P2b-90`, `dt_ite_lift`).
+            (Some(TermKind::Ite(..)), _) | (_, Some(TermKind::Ite(..))) => {
+                if let Some(lifted) = self.lift_dt_ite_eq(lhs, rhs) {
+                    return lifted;
+                }
+            }
             _ => {}
         }
 

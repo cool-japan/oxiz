@@ -13,6 +13,7 @@ mod builder;
 pub mod bv_fold;
 mod dt_eq;
 mod dt_fold;
+mod dt_ite_lift;
 mod query;
 mod rounding_mode;
 pub mod str_fold;

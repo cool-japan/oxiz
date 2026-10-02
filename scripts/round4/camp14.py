@@ -7,7 +7,9 @@ processes run at once.  A script that times out is re-run prefix by prefix
 (`check_prefixes`) and its longest answered prefix is judged (`prefix_checks`
 in its record; re-fix pass 16, recheck 15's minor 14): the probe prints at
 exit, so a timeout otherwise discards every check the script had answered.  Writes <out>/results.jsonl, <out>/summary.json and copies
-every flagged script (and the probe's stdout) into <out>/flagged/.
+every flagged script (and the probe's stdout) into <out>/flagged/; for a
+script flagged on its judged prefix, the prefix (<script>.prefix.smt2) and
+that prefix's responses (re-fix pass 19, recheck 18's minor 5).
 """
 from __future__ import annotations
 
@@ -102,7 +104,15 @@ def main():
                 base = os.path.join(args.out, "flagged", os.path.basename(path))
                 shutil.copy(path, base)
                 with open(base + ".out", "w") as fh:
-                    fh.write(r["stdout"])
+                    if "prefix_checks" in rec:
+                        # The flag was raised on the judged prefix: keep its
+                        # text and its responses, not the timed-out whole
+                        # script's empty stdout (recheck 18's minor 5).
+                        with open(base + ".prefix.smt2", "w") as pfx:
+                            pfx.write(judged_text)
+                        fh.write(";; judged prefix: %d check(s), <script>.prefix.smt2\n"
+                                 % rec["prefix_checks"])
+                    fh.write(judged_stdout)
                     fh.write("\n;; stderr\n" + r["stderr"])
             if totals["scripts"] % 200 == 0:
                 print(json.dumps(totals), flush=True)

@@ -75,6 +75,10 @@ fn definitions(model: &str) -> String {
     out
 }
 
+// The exact evaluator of the round-4 datatype pins (re-fix pass 18).
+#[path = "support/dt_eval.rs"]
+mod dt_eval;
+
 fn is_withheld(response: &str) -> bool {
     response.contains("model not certified")
 }
@@ -118,6 +122,13 @@ const DT_DECLS: &str = "(declare-fun h (Int) L)\n(declare-fun g (Int) C)\n(decla
 //     comparison, `ite` and array read over values by value (`printed_eval::ground_values`) and withholds
 //     the model at every check.  `TODO.md` `#P2b-88`'s churn decides which model the search finds; the
 //     inverted pin asserts that none it prints is false.
+//
+//     Re-fix pass 18 (decision (85)): a candidate the exact value reader shows false makes the check
+//     `unknown` instead of `sat` with the model withheld, so all three checks answer `unknown` with the
+//     net's reason today.  The pin is re-derived to the property that matters, by design and not by
+//     weakening: never `unsat` (z3: `sat`), every printed model satisfies every assertion in scope, a check
+//     that prints none says why, and the first check's model — the one pass 16 let through — is never
+//     printed.
 // ---------------------------------------------------------------------------
 
 const D00239_MIN: &str = "(declare-datatypes ((L 0) (C 0) (P 0)) (((nil) (cons (hd Int) (tl L))) ((red) (green) (blue)) ((mk (px Int) (pc C)))))\n\
@@ -152,62 +163,47 @@ const D00239_MIN: &str = "(declare-datatypes ((L 0) (C 0) (P 0)) (((nil) (cons (
 #[test]
 fn a_datatype_model_the_net_shows_false_is_withheld_at_every_check() {
     let lines = run(D00239_MIN);
-    assert_eq!(
-        verdicts(&lines),
-        vec!["sat", "sat", "sat"],
+    let got = verdicts(&lines);
+    assert_eq!(got.len(), 3, "{}", lines.join("\n"));
+    assert!(
+        got.iter().all(|verdict| verdict != "unsat"),
         "z3: sat at every check\n{}",
         lines.join("\n")
     );
-    let prelude = "(declare-datatypes ((L 0) (C 0) (P 0)) (((nil) (cons (hd Int) (tl L))) ((red) (green) \
-         (blue)) ((mk (px Int) (pc C)))))\n(declare-sort U 0)\n";
-    // Every assertion in scope at each check (the fifth from the second on).
-    let first = "(and (<= (- 4) x 4) (<= (- 4) y 4) (<= (- 4) z 4) (or (distinct l3 l2) (= l3 l2)) \
-                 (= (cons (k (v nil)) l3) (h (+ 1 (- 1)))) (= (k l2) 1) (or (= l1 (h 1)) (distinct (k \
-                 (cons 1 l1)) y)) (distinct (h (k (h y))) (cons (q red) l3)))";
-    let later = format!("(and {first} (= (h (px p)) l3))");
     let printed = responses(&lines);
     assert_eq!(printed.len(), 3, "{}", lines.join("\n"));
-    for (check, response) in printed.iter().enumerate() {
-        if is_withheld(response) {
-            continue;
-        }
-        let claim = if check == 0 {
-            first.to_string()
-        } else {
-            later.clone()
-        };
-        let got = replay(
-            prelude,
-            // The uninterpreted-sort witnesses (`@uc_U_n`) are not symbols the
-            // replay can read, and no assertion mentions `u1` / `u2`.
-            &definitions(response)
-                .lines()
-                .filter(|line| !line.contains("@uc_"))
-                .map(|line| format!("{line}\n"))
-                .collect::<String>(),
-            &claim,
-        );
-        assert_eq!(
-            got,
-            "sat",
-            "check {check}: a printed model must satisfy every assertion (or be withheld)\n{}",
+    // Every printed model is judged by EXACT EVALUATION (`support/dt_eval.rs`)
+    // over the assertions in scope at its check — never by a replay through
+    // this solver (re-fix pass 19, adversarial recheck 18's minor 6).
+    for (check, (verdict, reading)) in dt_eval::judge(D00239_MIN, &lines).iter().enumerate() {
+        assert!(
+            verdict != "sat"
+                || matches!(
+                    reading,
+                    dt_eval::ModelReading::Holds | dt_eval::ModelReading::Withheld
+                ),
+            "check {check}: a printed model must satisfy every assertion (or be withheld): \
+             {reading:?}\n{}",
             lines.join("\n")
         );
     }
     // The first check's model is the one the net let through before; it is
-    // withheld now, with the assertion it falsifies named.
+    // never printed now — withheld, or the check answers `unknown` with the
+    // net's reason (decision (85)) — with the assertion it falsifies named.
     assert!(
         printed
             .first()
             .is_some_and(|response| is_withheld(response)),
-        "the first model is withheld\n{}",
+        "the first model is not printed\n{}",
         lines.join("\n")
     );
 }
 
 // ---------------------------------------------------------------------------
-// §2. HOLE — `#P2b-88`'s churn on a five-assertion goal: both models `c702310` and pass 14 print correctly
-//     (z3) are withheld.
+// §2. CLOSED by re-fix pass 18 (the datatype-valued field separation, `solver::model_builder::separation`);
+//     inverted.  Was a HOLE — `#P2b-88`'s churn on a five-assertion goal: both models `c702310` and pass 14
+//     print correctly (z3) were withheld.  Both checks now print a model; each is judged here by EXACT
+//     EVALUATION (`support/dt_eval.rs`) — every assertion in scope true — and z3 confirms both.
 //
 //     `gen_dt.py` seed 30093154 `d00507`, verbatim.  `c702310` and pass 14 print `k` constantly 1, `v`
 //     constantly `(cons 0 nil)`, `q` constantly 0, `l3 = nil`, `p = (mk 0 red)`, `z = 0`; the tree withholds
@@ -217,7 +213,7 @@ fn a_datatype_model_the_net_shows_false_is_withheld_at_every_check() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn a_datatype_model_c702310_prints_is_withheld_at_both_checks() {
+fn a_datatype_model_c702310_prints_is_printed_at_both_checks() {
     let script = format!(
         "(set-logic ALL)\n{DT_SORTS}{DT_DECLS}\
          (assert (and (<= (- 4) x 4) (<= (- 4) y 4) (<= (- 4) z 4)))\n\
@@ -240,30 +236,33 @@ fn a_datatype_model_c702310_prints_is_withheld_at_both_checks() {
         "the oracle: c702310's model satisfies every assertion"
     );
     let lines = run(&script);
-    assert_eq!(verdicts(&lines), vec!["sat", "sat"], "{}", lines.join("\n"));
-    let printed = responses(&lines);
-    if !printed.iter().all(|response| is_withheld(response)) {
-        panic!(
-            "THE HOLE IS CLOSED (`d00507`, `#P2b-88`): a model is printed again — invert this pin \
-             and replay it on `{claim}`\n{}",
-            lines.join("\n")
-        );
-    }
+    let got = dt_eval::judge(&script, &lines);
+    assert_eq!(
+        got,
+        vec![
+            ("sat".to_string(), dt_eval::ModelReading::Holds),
+            ("sat".to_string(), dt_eval::ModelReading::Holds)
+        ],
+        "`d00507` (z3: sat at both checks): each printed model holds\n{}",
+        lines.join("\n")
+    );
 }
 
 // ---------------------------------------------------------------------------
-// §3. HOLE — a REGRESSION of re-fix pass 16 (verdict, against pass 14 and pass 15): a satisfiable
-//     quantifier-free datatype goal answers `unknown`.
+// §3. CLOSED by re-fix pass 18 (`#P2b-90`'s fix moved the trajectory: the check answers `sat` with a model
+//     that replays); inverted.  Was a HOLE — a REGRESSION of re-fix pass 16 (verdict, against pass 14 and
+//     pass 15): a satisfiable quantifier-free datatype goal answers `unknown`.
 //
 //     `gen_dt.py` seed 30093154 `d00389`, its first check (the one-check prefix the round's `camp14.py`
 //     writes; the full script answers the same).  z3, pass 14 and pass 15 answer `sat` (pass 14 in 127
 //     conflicts), the tree `unknown` ("incomplete") after 405 conflicts; `c702310` `unknown` too.  In
 //     recheck 16's isolated copy `OXIZ_MUT16_NO_DT_FOLD` (the selector / tester fold of `#P2b-82`) answers
-//     `sat` again; no other switch does.  Not named in `TODO.md` decision (24a).
+//     `sat` again; no other switch does.  Not named in `TODO.md` decision (24a).  The model is judged by
+//     exact evaluation since re-fix pass 19 (it was a replay through this solver; recheck 18's minor 6).
 // ---------------------------------------------------------------------------
 
 #[test]
-fn a_satisfiable_datatype_goal_pass_fourteen_decides_answers_unknown() {
+fn a_satisfiable_datatype_goal_pass_fourteen_decides_is_decided() {
     let script = format!(
         "(set-logic ALL)\n{DT_SORTS}{DT_DECLS}\
          (assert (and (<= (- 4) x 4) (<= (- 4) y 4) (<= (- 4) z 4)))\n\
@@ -275,20 +274,21 @@ fn a_satisfiable_datatype_goal_pass_fourteen_decides_answers_unknown() {
          (check-sat)\n(get-model)\n"
     );
     let lines = run(&script);
-    let got = verdicts(&lines).first().cloned().unwrap_or_default();
-    assert_ne!(
-        got,
-        "unsat",
-        "a WRONG unsat (z3: sat)\n{}",
+    assert_eq!(
+        verdicts(&lines),
+        vec!["sat"],
+        "`d00389` (pass 14 and z3: sat)\n{}",
         lines.join("\n")
     );
-    if got != "unknown" {
-        panic!(
-            "THE HOLE IS CLOSED (`d00389`): answered `{got}` (pass 14 and z3: sat); invert this \
-             pin and replay the model\n{}",
-            lines.join("\n")
-        );
-    }
+    // The printed model is judged by EXACT EVALUATION (`support/dt_eval.rs`),
+    // not by a replay through this solver (adversarial recheck 18's minor 6;
+    // re-fix pass 19): every assertion in scope reads true.
+    assert_eq!(
+        dt_eval::judge(&script, &lines),
+        vec![("sat".to_string(), dt_eval::ModelReading::Holds)],
+        "the printed model satisfies every assertion\n{}",
+        lines.join("\n")
+    );
 }
 
 // ---------------------------------------------------------------------------

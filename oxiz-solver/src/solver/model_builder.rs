@@ -8,7 +8,7 @@ use oxiz_core::sort::{SortId, SortKind};
 use smallvec::SmallVec;
 
 use super::Solver;
-use super::dt_axioms::{DeclInfo, resolve_decl, scan_datatype_terms};
+use super::dt_axioms::{DeclInfo, resolve_decl};
 
 /// Publishing the opaque leaves an array model rests on (`#P2b-34`).
 mod opaque_leaves;
@@ -464,7 +464,7 @@ impl Solver {
         if self.dt_axiom_instances.is_empty() {
             return;
         }
-        let Some(scan) = scan_datatype_terms(&self.assertions, manager) else {
+        let Some(scan) = self.encoded_dt_scan(manager) else {
             return;
         };
 
@@ -532,17 +532,6 @@ impl Solver {
         }
 
         self.separate_disequal_dt_values(&decls, model, manager);
-    }
-
-    /// The dev profile's datatype-model net ([`debug_verify_dt_model`]), run
-    /// on the model a `sat` publishes — never on a candidate a refinement
-    /// round is about to refute (recheck 15's minor 12: the net fired on the
-    /// candidates `solver::dt_refinement` refutes, so the dev build panicked
-    /// where the release build answered `unsat`).
-    pub(super) fn debug_verify_published_dt_model(&self, manager: &TermManager) {
-        if let Some(model) = self.model.as_ref() {
-            debug_verify_dt_model(&self.assertions, model, manager);
-        }
     }
 
     /// The datatype-sorted term pairs whose equality atom the search decided
@@ -1308,223 +1297,6 @@ fn bool_value(term: TermId, manager: &TermManager) -> Option<bool> {
         TermKind::True => Some(true),
         TermKind::False => Some(false),
         _ => None,
-    }
-}
-
-/// Release build: the datatype model-validity net compiles away entirely.
-#[cfg(not(debug_assertions))]
-#[inline]
-fn debug_verify_dt_model(_assertions: &[TermId], _model: &Model, _manager: &TermManager) {}
-
-/// Debug-only model-validity net for the datatype reconstruction.
-///
-/// Substitutes the reconstructed values back into the original assertions and
-/// evaluates their *datatype fragment* — testers and datatype equalities, under
-/// the Boolean structure that connects them.  An assertion that comes out
-/// definitively `false` means the printed model does not satisfy the formula,
-/// which is precisely the defect this pass exists to remove: before it,
-/// `((_ is cons) l) ∧ (= (head l) 7)` was answered `sat` with the witness
-/// `l = nil`, and the tester evaluates to `false` under exactly that witness.
-///
-/// Deliberately three-valued and tolerant.  Anything outside the datatype
-/// fragment — arithmetic, bit-vectors, uninterpreted applications, a term with
-/// no reconstructed value — is *inconclusive*, and inconclusive poisons every
-/// enclosing connective, so only a violation the reconstruction is genuinely
-/// responsible for can fire.  A datatype equality follows the same asymmetry
-/// [`Solver::eval_in_model`] uses for numbers: two *different* values falsify
-/// it, but two identical values are not evidence that it holds, because the
-/// theories below do not always separate the witnesses of terms they merely
-/// proved distinct.  Compiles to nothing in release builds.
-#[cfg(debug_assertions)]
-fn debug_verify_dt_model(assertions: &[TermId], model: &Model, manager: &TermManager) {
-    for &assertion in assertions {
-        debug_assert!(
-            dt_fragment_value(assertion, model, manager) != Some(false),
-            "reconstructed datatype model falsifies an assertion: {}",
-            oxiz_core::smtlib::Printer::new(manager).print_term(assertion)
-        );
-    }
-}
-
-/// Three-valued evaluation of `term`'s datatype fragment under `model`;
-/// `None` means inconclusive.  See [`debug_verify_dt_model`].
-///
-/// Iterative (explicit frame stack), so the net keeps working — instead of
-/// overflowing the stack or silently going inconclusive past a depth cap — on
-/// arbitrarily deep Boolean structure.  Short-circuiting matches the
-/// recursive original: `and` stops at the first definite `false`, `or` at the
-/// first definite `true`, while an inconclusive operand only taints the
-/// result; `=>` evaluates both sides.
-#[cfg(debug_assertions)]
-fn dt_fragment_value(term: TermId, model: &Model, manager: &TermManager) -> Option<bool> {
-    /// One pending connective of the three-valued walk.
-    enum FragFrame {
-        Not,
-        And {
-            args: SmallVec<[TermId; 4]>,
-            next: usize,
-            all_true: bool,
-        },
-        Or {
-            args: SmallVec<[TermId; 4]>,
-            next: usize,
-            all_false: bool,
-        },
-        ImpliesLhs {
-            rhs: TermId,
-        },
-        ImpliesRhs {
-            lhs: Option<bool>,
-        },
-    }
-
-    let mut frames: Vec<FragFrame> = Vec::new();
-    let mut current = term;
-    'open: loop {
-        // Evaluate leaves; descend through connectives.
-        let mut value: Option<bool> = loop {
-            let Some(node) = manager.get(current) else {
-                break None;
-            };
-            match &node.kind {
-                TermKind::True => break Some(true),
-                TermKind::False => break Some(false),
-                TermKind::Not(arg) => {
-                    frames.push(FragFrame::Not);
-                    current = *arg;
-                }
-                TermKind::And(args) => match args.first() {
-                    Some(&first) => {
-                        frames.push(FragFrame::And {
-                            args: args.clone(),
-                            next: 1,
-                            all_true: true,
-                        });
-                        current = first;
-                    }
-                    None => break Some(true),
-                },
-                TermKind::Or(args) => match args.first() {
-                    Some(&first) => {
-                        frames.push(FragFrame::Or {
-                            args: args.clone(),
-                            next: 1,
-                            all_false: true,
-                        });
-                        current = first;
-                    }
-                    None => break Some(false),
-                },
-                TermKind::Implies(a, b) => {
-                    frames.push(FragFrame::ImpliesLhs { rhs: *b });
-                    current = *a;
-                }
-                // `is_C(t)` is decided by the constructor of `t`'s
-                // reconstructed value.
-                TermKind::DtTester { constructor, arg } => {
-                    let expected = *constructor;
-                    let arg = *arg;
-                    break model
-                        .get(arg)
-                        .and_then(|value| match &manager.get(value)?.kind {
-                            TermKind::DtConstructor {
-                                constructor: actual,
-                                ..
-                            } => Some(*actual == expected),
-                            _ => None,
-                        });
-                }
-                // Datatype values are hash-consed ground trees, so structural
-                // equality is term-id equality.  Only the *negative* direction
-                // is evidence.
-                TermKind::Eq(left, right)
-                    if manager
-                        .get(*left)
-                        .is_some_and(|node| manager.sorts.is_datatype(node.sort)) =>
-                {
-                    let (left, right) = (*left, *right);
-                    break match (model.get(left), model.get(right)) {
-                        (Some(left_value), Some(right_value)) => {
-                            (left_value != right_value).then_some(false)
-                        }
-                        _ => None,
-                    };
-                }
-                _ => break None,
-            }
-        };
-
-        // Fold the finished operand into the pending connectives.
-        loop {
-            let Some(frame) = frames.pop() else {
-                return value;
-            };
-            match frame {
-                FragFrame::Not => value = value.map(|v| !v),
-                FragFrame::And {
-                    args,
-                    next,
-                    mut all_true,
-                } => {
-                    match value {
-                        // Definite `false` decides the conjunction; the
-                        // remaining operands are not evaluated.
-                        Some(false) => {
-                            value = Some(false);
-                            continue;
-                        }
-                        Some(true) => {}
-                        None => all_true = false,
-                    }
-                    if let Some(&child) = args.get(next) {
-                        frames.push(FragFrame::And {
-                            args,
-                            next: next + 1,
-                            all_true,
-                        });
-                        current = child;
-                        continue 'open;
-                    }
-                    value = all_true.then_some(true);
-                }
-                FragFrame::Or {
-                    args,
-                    next,
-                    mut all_false,
-                } => {
-                    match value {
-                        Some(true) => {
-                            value = Some(true);
-                            continue;
-                        }
-                        Some(false) => {}
-                        None => all_false = false,
-                    }
-                    if let Some(&child) = args.get(next) {
-                        frames.push(FragFrame::Or {
-                            args,
-                            next: next + 1,
-                            all_false,
-                        });
-                        current = child;
-                        continue 'open;
-                    }
-                    value = all_false.then_some(false);
-                }
-                FragFrame::ImpliesLhs { rhs } => {
-                    frames.push(FragFrame::ImpliesRhs { lhs: value });
-                    current = rhs;
-                    continue 'open;
-                }
-                FragFrame::ImpliesRhs { lhs } => {
-                    value = match (lhs, value) {
-                        (Some(false), _) | (_, Some(true)) => Some(true),
-                        (Some(true), Some(false)) => Some(false),
-                        _ => None,
-                    };
-                }
-            }
-        }
     }
 }
 

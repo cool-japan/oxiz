@@ -949,30 +949,69 @@ Line numbers below were re-verified on 2026-09-09, after the two file splits thi
   falsifying datatype models (`c702310` 484, pass 16 14) and 14 falsifying models in all, every one `#P2b-81`'s
   (falsifying on H, P and pass 16 too).** Every model the quantifier-free net withholds is false: 254 of 254 on the
   four `gen_dt.py` corpora and `g14a`, judged by z3 on the identical trajectory with `OXIZ_MUT17_NET_PRINT` (the net
-  computes, the model is printed; verdicts identical). Rows, by mechanism, with the rate over the corpora it acts on:
-  * **(A) `#P2b-88`'s churn: a datatype model withheld because the model the search found is false (the folds of
-    `#P2b-76` / `#P2b-82` and the datatype refinement move the trajectory) — 58 checks of gen_dt.py's 2,850 (H 47, P
-    43):** `gen_dt.py` 30093154: `d00013#0-1` (pfx) P m (inconclusive: the copy needs > 20 s), `d00016#0` P m
-    DT_FOLD|EQ_ATOM, `d00058#0-1` HP m EQ_ATOM|CTOR_FOLD, `d00187#1` HP m DT_FOLD, `d00210#0` H m EQ_ATOM|OCCURS,
-    `d00210#1` P m DT_FOLD|EQ_ATOM|OCCURS, `d00236#0` H m none, `d00236#1` H m EQ_ATOM, `d00239#0` HP m
-    DT_FOLD|EQ_ATOM|CTOR_FOLD|MIXED_INT, `d00324#0` H m DT_FOLD|EQ_ATOM|MIXED_INT, `d00342#0-1` H m
-    DT_FOLD|CLASS_KEY|SEP_CHECK|UFC, `d00350#0-1` HP m DT_FOLD|EQ_ATOM|CTOR_FOLD, `d00375#1` HP m
-    DT_FOLD|CTOR_FOLD|QF_NET, `d00383#0` HP m SEP_CHECK, `d00383#1` HP m DT_FOLD, `d00391#1` HP m
-    DT_FOLD|EQ_ATOM|CTOR_FOLD|SEP_CHECK|QF_NET, `d00403#2` P m DT_REFINE, `d00507#0-1` HP m DT_FOLD|EQ_ATOM,
-    `d00509#0` H m DT_FOLD|CTOR_FOLD, `d00509#1` HP m DT_FOLD|CTOR_FOLD, `d00509#2` P m DT_FOLD|CTOR_FOLD,
-    `d00577#0-2` HP m DT_FOLD|EQ_ATOM, `d00590#1` P m EQ_ATOM|QF_NET, `gen_dt.py` 30093162: `d00000#1` HP m
-    DT_FOLD|EQ_ATOM, `d00078#0` HP m DT_FOLD|DT_REFINE, `d00101#1` HP m DT_FOLD|EQ_ATOM|CTOR_FOLD, `d00263#0` H m
-    none, `d00272#1` HP m DT_FOLD|EQ_ATOM|DT_REFINE|OCCURS|QF_NET, `d00291#1` P m none, `d00297#0` HP m EQ_ATOM,
-    `gen_dt.py` 30100162: `d00027#0` HP m DT_FOLD|EQ_ATOM, `d00053#2` H m
-    DT_FOLD|EQ_ATOM|DT_REFINE|OCCURS|SEP_CHECK|MIXED_INT|QF_NET, `d00058#0` HP m DT_FOLD|EQ_ATOM|CTOR_FOLD|DT_REFINE,
-    `d00199#0-1` HP m DT_FOLD|CLASS_KEY|UFC, `d00199#2` P m DT_FOLD, `d00226#1` HP m DT_FOLD, `d00266#0-1` H m
-    EQ_ATOM, `d00284#0` H m DT_FOLD|CTOR_FOLD|MIXED_INT, `d00290#2` HP m DT_FOLD|CTOR_FOLD|MIXED_INT, `gen_dt.py`
-    30100182: `d00038#0-1` HP m DT_FOLD|EQ_ATOM, `d00229#0-1` HP m EQ_ATOM|SEP_CHECK, `d00239#1` P m
-    EQ_ATOM|CTOR_FOLD|QF_NET, `d00242#1` HP m EQ_ATOM, `d00272#0` H m EQ_ATOM|MIXED_INT, `d00277#2` H m none,
-    `d00289#0` H m none, `d00298#0` P m DT_FOLD|EQ_ATOM|CTOR_FOLD|DT_REFINE|OCCURS|MIXED_INT.
-  * **(B) `#P2b-88`'s churn, verdicts (the same switches) — 3 checks of gen_dt.py's 2,850 (H 2, P 2):** `gen_dt.py`
-    30093154: `d00389#0` P DT_FOLD, `d00552#0` HP DT_FOLD|EQ_ATOM|CTOR_FOLD|DT_REFINE|MIXED_INT, `gen_dt.py` 30100162:
-    `d00063#0` H DT_FOLD|MIXED_INT.
+  computes, the model is printed; verdicts identical). **Re-measured by re-fix pass 18 on its final tree (below):** the
+  `gen_guard.py`, `gen_mix.py` and `gen14.py` rows reproduce against pass 17's binary with no new loss (a row moved
+  only where the honesty net turned a withheld model into `unknown`), with recheck 17's major and fresh-seed rows added
+  in place; the `gen_dt.py` rows (A) and (B) are restated as re-fix pass 18's leg. Rows, by mechanism, with the rate
+  over the corpora it acts on:
+  * **(A), (B) — `gen_dt.py`, restated by re-fix pass 18 (decisions (85), (87)).** Pass 17 named 58 withheld datatype
+    models (A) and 3 verdicts (B) here; under decision (85) a model the exact value reader shows false makes the check
+    `unknown`, so (A)'s rows are verdict losses now, and re-fix pass 18's fixes (`#P2b-90`'s lift and encoded spelling,
+    the datatype-valued field separation) moved the search's trajectory on every `gen_dt.py` seed (pass 17 → this tree:
+    251 checks gained, 271 lost, 133 models improved, 0 printed models regressed). Measured on re-fix pass 18's final
+    tree (sha256 `82b744f7…`, `$R/fix18/final/`, `$R/fix18/REBUILD.md`) over the five `gen_dt.py` seeds (dt6, 30093162,
+    30100162, 30100182 and adversarial recheck 17's fresh 30100192; 4,040 checks) and `g14a`; the net's rows attributed
+    on the identical trajectory (`probe_iso18` with `OXIZ_MUT18_NET_PRINT`: 322 models the net turns into `unknown`,
+    every one z3-falsifying), the rest by the `OXIZ_MUT18_*` switches (the next two bullets). On all twenty-one seeds of
+    this leg and the one above (37,574 checks) this tree gives 0 wrong verdicts (`c702310` 613, pass 14 604, pass 17 1 —
+    `#P2b-90`'s `d00370`) and prints 0 falsifying datatype models (14 in all, every one `#P2b-81`'s); against H 252
+    checks and against P 240 are rows:
+  * **(A′) the honesty net (decision (85)): the candidate model the search found reads false under the exact value
+    reader, so the check answers `unknown`; on the identical trajectory with the net printing instead
+    (`probe_iso18`, `OXIZ_MUT18_NET_PRINT`) every one of these models is z3-falsifying — 183 checks (H 172, P 182):**
+    `gen_dt.py` 30093154: `d00003#0` HP, `d00013#0-1` (pfx) P, `d00016#0` HP, `d00058#0-1` HP, `d00078#1`
+    HP, `d00081#0` HP, `d00205#0` HP, `d00217#0-2` HP, `d00236#0-1` HP, `d00239#0-2` HP, `d00240#0` HP, `d00279#0`
+    HP, `d00301#0-1` HP, `d00303#0` HP, `d00337#0-1` HP, `d00371#0` P, `d00375#1` HP, `d00376#0-1` HP, `d00383#0-1`
+    HP, `d00401#0` HP, `d00418#0` HP, `d00437#0` HP, `d00438#1-2` HP, `d00454#0-2` HP, `d00456#0-1` HP, `d00509#0-2`
+    HP, `d00550#1` HP, `d00555#0` (pfx) HP, `d00577#0-2` HP, `d00578#0` HP, `d00585#1` HP, `d00590#1` HP, `d00591#0`
+    HP, `gen_dt.py` 30093162: `d00053#0` HP, `d00053#2` HP, `d00077#0` (pfx) HP, `d00078#0` HP, `d00083#0-2` HP,
+    `d00087#1` HP, `d00107#0` (pfx) HP, `d00117#0-1` HP, `d00143#0` HP, `d00148#0` HP, `d00168#0` HP, `d00186#2` HP,
+    `d00204#0-1` HP, `d00219#1-2` HP, `d00245#0-2` HP, `d00263#0` HP, `d00292#0-2` HP, `gen_dt.py` 30100162:
+    `d00004#2` HP, `d00027#0` HP, `d00034#0` (pfx) HP, `d00083#0` HP, `d00086#0-1` HP, `d00094#1` HP, `d00109#0` HP,
+    `d00113#0` HP, `d00127#0-1` P, `d00141#0` HP, `d00165#1` HP, `d00170#1` (pfx) P, `d00226#1` HP, `d00251#0-1` HP,
+    `d00262#0-1` (pfx) HP, `d00264#0` HP, `d00266#0-1` HP, `d00271#0-1` HP, `d00290#2` HP, `gen_dt.py` 30100182:
+    `d00001#0-1` HP, `d00020#0` HP, `d00029#0-1` HP, `d00065#0-1` HP, `d00084#0-1` HP, `d00097#0-2` HP, `d00174#2`
+    HP, `d00177#0` HP, `d00216#0` HP, `d00229#0-1` HP, `d00246#0` H, `d00266#0-1` (pfx) HP, `d00272#0` HP,
+    `d00277#1-2` HP, `d00286#2` HP, `d00298#2` HP, `gen_dt.py` 30100192: `d00011#0` HP, `d00054#0` (pfx) HP,
+    `d00085#0` HP, `d00101#0-2` HP, `d00104#0-1` HP, `d00172#1-2` HP, `d00177#0` HP, `d00185#0` HP, `d00203#0-1` HP,
+    `d00225#0-1` HP, `d00255#0` HP, `d00259#0-2` HP, `d00267#0` (pfx) HP, `d00267#1` (pfx) P, `d00276#1` HP,
+    `d00280#0` HP, `d00292#1` HP, `d00319#2` (pfx) P, `d00331#0` HP, `d00335#0-2` HP, `d00343#1` HP, `d00382#0` HP,
+    `d00391#0` P, `d00411#0` HP, `d00422#0` HP, `d00428#0` HP, `d00450#0` HP, `d00453#1` (pfx) P, `d00462#0` HP,
+    `d00463#0` HP, `d00504#0` HP, `d00521#0-2` HP, `d00529#1` HP, `d00550#0-1` HP, `d00552#0` HP, `d00559#0-1` HP,
+    `d00563#2` (pfx) P, `d00574#0` HP, `d00590#0` HP, `gen14.py` 30093001: `s00403#0` HP, `s02163#0` HP.
+  * **(B) unchanged since pass 17 (pass 17's (B), with its switches) — 1 check (H 1, P 0):** `gen_dt.py`
+    30100162: `d00063#0` H DT_FOLD|MIXED_INT (pass 17).
+  * **(A′) against re-fix pass 17 (decisions (85), (88)):** 203 checks move from `sat` with a withheld model (202) or a
+    falsifying one (1) to `unknown` (dt6 62, 30093162 24, 30100162 30, 30100182 32, 30100192 52 withheld + 1 falsifying —
+    `d00318#1`, pass 17's falsifying model —, `g14a` 2 — the net's rule, by name in (A′) above where H
+    or P decided them); the checks where pass 17 printed a model z3 confirms and this tree does not, each named:
+    * **(A′, pass 17's model correct) the search's trajectory moved under re-fix pass 18's fixes and its new candidate
+      reads false (z3-falsifying on the identical trajectory, as above) — 64 checks of 4,040:**
+      `gen_dt.py` 30093154: `d00003#0`, `d00078#1`, `d00081#0`, `d00217#0-2`, `d00232#0-1`, `d00301#0-1`, `d00500#0`,
+      `d00535#1-2` (pfx), `d00550#1`, `d00578#0`, `d00591#0`, `d00599#0-1`, `gen_dt.py` 30093162: `d00087#1`,
+      `d00117#0-1`, `d00148#0`, `d00168#0`, `d00186#2`, `d00204#0-1`, `d00264#2` (pfx), `d00286#1` (pfx), `gen_dt.py`
+      30100162: `d00086#0-1`, `d00094#1`, `d00107#0`, `d00109#0`, `d00113#0`, `d00165#1`, `d00262#0-1` (pfx),
+      `gen_dt.py` 30100182: `d00065#1`, `d00088#0`, `d00216#0`, `d00246#0`, `d00252#0`, `d00266#2` (pfx), `d00284#0`,
+      `d00286#2`, `d00298#2`, `gen_dt.py` 30100192: `d00085#0`, `d00140#0` (pfx), `d00172#1-2`, `d00203#0-1`,
+      `d00225#0-1`, `d00259#2`, `d00276#1`, `d00428#0`, `d00450#0`, `d00473#1` (pfx), `d00504#0`, `d00529#1`,
+      `d00538#1`, `d00550#1`, `d00563#2` (pfx).
+    * **(B′) `#P2b-90`'s fix moved the trajectory and no answer is reached (a solver honesty gate, `:reason-unknown
+      incomplete`); only both switches together restore it — 2 checks:** `gen_dt.py` 30100192: `d00401#0-1`
+      ITE_LIFT+ENCODED_SCAN (`c702310` and pass 14 do not decide them either; decision (88)'s stop-and-report,
+      reported).
+    * **(cap) cap-edge (the rule of (cap) below; the copy decides each inside 30 s) — 4 checks:** `gen_dt.py`
+      30100162: `d00204#2` (pfx), `gen_dt.py` 30100182: `d00013#0` (pfx), `gen_dt.py` 30100192: `d00290#0` (pfx),
+      `d00347#1` (pfx).
   * **(C) `#P2b-75`'s certifier (eligibility first, guard neighbours, real midpoints): the trajectory cost of its
     soundness fix — 27 checks of gen_guard.py / gen14.py's 17,096 (H 25, P 25):** `gen_guard.py` 30093152: `g00280#0`
     HP ELIG_FIRST, `g01284#0` HP m REAL_MIDPOINTS, `gen_guard.py` 30093163: `g00211#0` HP m NEIGHBOURS|REAL_MIDPOINTS,
@@ -985,21 +1024,26 @@ Line numbers below were re-verified on 2026-09-09, after the two file splits thi
     `g00773#0` HP NEIGHBOURS|REAL_MIDPOINTS|TABLES (no answer alone in 130 s), `g00942#0` HP
     ELIG_FIRST|NEIGHBOURS|REAL_MIDPOINTS, `gen14.py` 30093155: `s00836#0` P NEIGHBOURS (unsat alone in 50.1 s),
     `s01487#0` HP NEIGHBOURS, `s02638#0` P ELIG_FIRST, `gen14.py` 30093164: `s00650#0` HP NEIGHBOURS (no answer alone
-    in 130 s).
-  * **(D) `#P2b-87`'s take-back / `#P2b-79`'s integrality on a quantified goal — 11 checks of gen_guard.py /
-    gen14.py's 17,096 (H 7, P 10):** `gen_guard.py` 30100163: `g00284#0` HP
+    in 130 s); recheck 17's fresh seed (+ 2): `gen_guard.py` 30100193: `g00225#0` HP ELIG_FIRST, `g00858#0` HP m
+    REAL_MIDPOINTS.
+  * **(D) `#P2b-87`'s take-back / `#P2b-79`'s integrality on a quantified goal — 12 checks of gen_guard.py /
+    gen14.py's 17,096 (H 7, P 11; + 1 on recheck 17's fresh seed):** `gen_guard.py` 30100163: `g00284#0` HP
     NEIGHBOURS|DEFER_INT|TAKEBACK|MIXED_INT|TIGHTEN|MIXED_EQ|UFC|EXIT_ACK|TABLES (sat alone in 19.0 s), `g00733#0` HP
     DEFER_INT|TAKEBACK|MIXED_INT|TABLES (sat alone in 29.2 s), `gen_guard.py` 30100183: `g00707#0` HP
-    TAKEBACK|MIXED_INT|TABLES (sat alone in 25.5 s), `gen14.py` 30093001: `s02748#0` P ELIG_FIRST|TAKEBACK|MIXED_INT,
+    TAKEBACK|MIXED_INT|TABLES (sat alone in 25.5 s), `gen14.py` 30093001: `s00140#1` P DEFER_INT (pass 14 `sat` in 5.6 s /
+    1,405 conflicts, this tree `unknown` in 7.0 s / 1,460; adversarial recheck 17's major), `s02748#0` P
+    ELIG_FIRST|TAKEBACK|MIXED_INT,
     `gen14.py` 30093155: `s00186#1` (pfx) HP NEIGHBOURS|DEFER_INT|TAKEBACK|MIXED_INT|TABLES (sat alone in 29.8 s),
     `s00262#0` (pfx) P DEFER_INT|TAKEBACK|MIXED_INT, `s00262#1` (pfx) HP DEFER_INT (no answer alone in 130 s),
     `s00852#2` (pfx) P TAKEBACK|MIXED_INT (unknown alone in 9.8 s), `s02298#2` H m
     DEFER_INT|TAKEBACK|MIXED_INT|TIGHTEN, `gen14.py` 30093164: `s00586#0` HP m DEFER_INT|TAKEBACK|MIXED_INT,
-    `s00596#0` P NEIGHBOURS|DEFER_INT|TAKEBACK|MIXED_INT|TIGHTEN.
+    `s00596#0` P NEIGHBOURS|DEFER_INT|TAKEBACK|MIXED_INT|TIGHTEN, `gen14.py` 30100194: `s00471#0` HP
+    DEFER_INT|TAKEBACK|MIXED_INT (no answer at the 10 s cap).
   * **(E) `#P2b-79`'s integrality on a quantifier-free `gen_mix.py` goal (`c702310` and pass 14 answer `sat`, most
     with a falsifying model) — 6 checks of gen_mix.py's 12,077 (H 6, P 6):** `gen_mix.py` 30093161: `m00240#1-2` HP
     MIXED_INT, `m00573#1` HP MIXED_INT, `m00660#0` HP MIXED_INT, `gen_mix.py` 30100161: `m00666#1` HP
-    MIXED_INT|TIGHTEN|MIXED_EQ|UFC, `gen_mix.py` 30100181: `m00848#1` HP MIXED_INT.
+    MIXED_INT|TIGHTEN|MIXED_EQ|UFC, `gen_mix.py` 30100181: `m00848#1` HP MIXED_INT, `gen_mix.py` 30100191: `m00257#1-2`
+    HP MIXED_INT|TAKEBACK, `m00323#0` HP MIXED_INT|TIGHTEN, `m00469#0` HP MIXED_INT (+ 4 on recheck 17's fresh seed).
   * **(F) lost against `c702310` only, already on pass 14 (no switch of passes 15-17 restores it; of its 19 verdicts
     16 are `unknown` on re-fix pass 12's tree already, `g00123` and `g00714` are lost in pass 14, `g00106` in pass 13)
     — 21 checks of gen_guard.py / gen14.py's 17,096 (H 21, P 0):** `gen_guard.py` 30093152: `g00123#0` H, `g00656#0`
@@ -1007,20 +1051,97 @@ Line numbers below were re-verified on 2026-09-09, after the two file splits thi
     alone in 24.2 s), `g00248#0` H, `g00546#0` H, `g00725#0` H, `g00970#0` H, `gen_guard.py` 30100163: `g00600#0` H,
     `g00778#0` H, `gen_guard.py` 30100183: `g00117#0` H, `g00360#0` H, `g00528#0` H, `g00565#0` H, `g00596#0` H,
     `gen14.py` 30093001: `s02865#0` H, `gen14.py` 30093155: `s01433#2` H m, `s01481#0` H, `s02036#1` H m, `gen14.py`
-    30100184: `s00699#0` H.
-  * **(G) no switch restores it, or the attribution is inconclusive — 6 checks of gen_guard.py / gen14.py's 17,096 (H
-    5, P 6):** `gen_guard.py` 30093152: `g00242#0` P m, `g01407#0` HP (inconclusive: the copy needs > 20 s; sat alone
-    in 104.0 s), `gen_guard.py` 30093163: `g00221#0` HP (inconclusive: the copy needs > 20 s; sat alone in 65.8 s),
-    `gen_guard.py` 30100163: `g00858#0` HP m, `gen14.py` 30093001: `s00403#0` HP m, `s02163#0` HP m.
-  * **(cap) cap-edge: the copy itself decides it inside 20 s, and alone inside 130 s — 4 checks of every corpus's
-    32,023 (H 3, P 4):** `gen_dt.py` 30093154: `d00364#1-2` (pfx) HP (unsat alone in 8.2 s), `gen_guard.py` 30093163:
-    `g00149#0` HP (sat alone in 18.3 s), `gen14.py` 30093001: `s00454#2` (pfx) P (unsat alone in 11.7 s).
+    30100184: `s00699#0` H; recheck 17's fresh seeds (+ 6): `gen_guard.py` 30100193: `g00275#0` H, `g00387#0` H,
+    `g00435#0` H, `g00774#0` H, `g00842#0` H, `gen14.py` 30100194: `s00780#0` H (no answer at the 10 s cap).
+  * **(G) no switch restores it, or the attribution is inconclusive — 4 checks of gen_guard.py / gen14.py's 17,096 (H
+    3, P 4; + 1 on recheck 17's fresh seed):** `gen_guard.py` 30093152: `g00242#0` P m, `g01407#0` HP (inconclusive:
+    the copy needs > 20 s; sat alone in 104.0 s), `gen_guard.py` 30093163: `g00221#0` HP (inconclusive: the copy needs
+    > 20 s; sat alone in 65.8 s), `gen_guard.py` 30100163: `g00858#0` HP m, `gen_guard.py` 30100193: `g00078#0` HP.
+    (`gen14.py` 30093001 `s00403#0` and `s02163#0`, named here by pass 17 as withheld models, are verdict losses of the
+    honesty net now — re-fix pass 18's (A′) below.)
+  * **(cap) cap-edge, as a RULE (adversarial recheck 17's minor): a check this tree leaves unanswered at the 10 s cap
+    belongs here when it is decided alone inside 130 s, or by the isolated copy inside 20 s; which checks fall in it
+    moves with the machine's load from run to run, so the list is the runs', not the class.** Measured by adversarial
+    recheck 17 and re-fix pass 18: `gen_guard.py` 30093152: `g00882#0` HP (recheck 17's run; sat alone in 8.25 s / 186
+    conflicts, as on pass 16, and inside the cap in re-fix pass 18's run),
+    `gen_guard.py` 30093163: `g00149#0` HP (sat alone in 18.3 s), `gen14.py` 30093001: `s00454#2` (pfx) HP (unsat
+    alone in 11.7 s), `gen14.py` 30093155: `s02254#0` (pfx) P (judged on its prefix; its prefixes flip pass 14 against
+    pass 16 both ways, `scripts/round4/README.md`), `gen14.py` 30100194: `s00969#0` HP (the copy: sat inside 20 s).
+    (`gen_dt.py` 30093154 `d00364#1-2`, named here by pass 17, are decided now.)
   * **`fuzz_qc.py`** (models by the exact evaluator, every row re-judged by z3; seeds 30100165 (3,000 scripts),
     30100166 (1,000) and re-fix pass 17's fresh 30100185 (3,000); 9,492 checks): 30100165 `982#0` P ELIG_FIRST
     (mechanism (C); pinned
     `round4_pass16_recheck_pins::a_bool_array_true_everywhere_and_false_but_at_one_point_answers_unknown`), `2751#1` P
     TABLES (decision (68)'s printed tables); 30100166 none; 30100185 `1344#1` H, `1865#0` H (mechanism (F): `unknown`
     on pass 14 already).
+  **Adversarial recheck 18's fresh seeds and family corpora, recorded by re-fix pass 19 (decision (92)(a)).** Measured by
+  the recheck on re-fix pass 18's final tree (sha256 `82b744f7…`; `camp14.py`, z3 4.15.4, cap 10 s, 2 workers;
+  `$R/recheck18/final/`; rows by `$R/recheck18/tools/cmp18r.py`, attributed on `probe_iso18` at 20 s,
+  `$R/recheck18/logs/attr_fresh.jsonl`) against H, P and **S** (re-fix pass 17, sha `88bfac0a…`); a row's tag names
+  every baseline it stands against. Re-fix pass 19's one code change (the net over a table that does not read back)
+  acts only where a printed table does not parse back: pass 18's binary and this tree answer response for response
+  alike on the 217 `bench/` scripts (plain and with `(get-model)`) and on `gen_dt.py` 30102003 (563 scripts both answer
+  in 10 s; `d00408`, at the cap's edge, identical alone in 7.5 s). Corpora and this tree's
+  checks: `gen_dt.py` 30102003 (600 scripts; 1,143), `gen_guard.py` 30102004 (1,000; 994), `gen14.py` 30102005 (1,000;
+  1,303), `gen_mix.py` 30102006 (1,000; 2,046) — 5,486 checks: wrong verdicts 0 (H 84, P 80, S 0), falsifying models 3,
+  each `#P2b-81`'s (H 963, P 943, S 3); the family corpora `gen_dtite.py` 30102002 (300; 454) and the recheck's own
+  `gen_r18.py` 30102001 (400; 645; `$R/recheck18/tools/`), where H and S ran on the first 150 scripts only and P not at
+  all (rows against P there are unmeasured, not zero). Rows: H 72, P 58, S 88 — fresh seeds keep adding rows of the
+  classes above, and one new class, (H):
+  * **(A′) the honesty net — 73 of the 1,143 `gen_dt.py` checks (H 49, P 47, S 72) and 5 of the 1,099 family checks
+    (S 5); every candidate the net withheld on these 77 rows z3-falsifying under `OXIZ_MUT18_NET_PRINT` (0 misfires;
+    `d00244#2` not judged):** `gen_dt.py` 30102003:
+    `d00043#0` (pfx) S, `d00063#0-1` HPS, `d00076#0` (pfx) HPS, `d00101#1` HPS, `d00103#0` HPS, `d00109#0` HPS,
+    `d00115#2` (pfx) S, `d00117#0-2` HPS, `d00120#0` HPS, `d00128#0-2` HPS, `d00129#1-2` HPS, `d00144#0` HPS,
+    `d00167#0-2` HPS, `d00173#0` S, `d00188#0` HPS, `d00189#0` (pfx) HPS, `d00189#1-2` (pfx) S, `d00216#0-1` HPS,
+    `d00228#2` S, `d00236#0-1` HPS, `d00244#2` S, `d00245#0` HPS, `d00260#0-2` HS, `d00263#1` (pfx) S, `d00268#0` HPS,
+    `d00282#0-1` S, `d00294#0` HPS, `d00307#0` (pfx) HPS, `d00307#1-2` (pfx) S, `d00359#0-2` HPS, `d00371#0-2` HPS,
+    `d00374#0` (pfx) S, `d00408#1` (pfx) P, `d00410#1` HPS, `d00429#0-2` HPS, `d00456#0` HPS, `d00463#1` (pfx) PS,
+    `d00466#0` HPS, `d00471#0` HPS, `d00475#0-1` S, `d00482#1-2` S, `d00507#0-1` S, `d00511#0` S, `d00533#0` HPS,
+    `d00561#1` S, `d00565#1` S, `d00587#0-1` HPS, `d00593#0` HS; `gen_r18.py` 30102001: `r00066#0-1` S, `r00070#0`
+    (pfx) S; `gen_dtite.py` 30102002: `t00033#0` (pfx) S, `t00060#0` S. `d00244#2` was seen only with the script run
+    alone (`sat`, `sat`, then `unknown`, "assertion 10 reads false"): a check behind a script's 10 s timeout is never
+    judged, so further (A′) rows may sit behind the corpus's 35 timeouts.
+  * **(B′) `#P2b-90`'s fix moved the trajectory and no answer is reached (`:reason-unknown incomplete`, not the net) —
+    3 of 1,143 (H 3, S 3):** `gen_dt.py` 30102003: `d00498#0-2` HS — pass 17 `sat` ×3 with z3-confirmed models in
+    5.4 s, this tree `unknown` ×3 in 4.0 s; `MUT15_NO_CTOR_FOLD` restores all three, ITE_LIFT+ENCODED_SCAN together #1-2,
+    no single pass-18 switch; beside `d00401` above, pinned
+    `round4_pass18_recheck_pins::a_fresh_datatype_goal_pass_seventeen_decides_answers_unknown`.
+  * **(B) — 1 of 1,143 (H 1, P 1):** `gen_dt.py` 30102003: `d00582#0` HP DT_FOLD (pass 17 `unknown` too).
+  * **(cap) the rule above — 4 of 1,143 (H 1, P 1, S 4):** `gen_dt.py` 30102003: `d00222#2` (pfx) S (`sat` alone in
+    8.7 s), `d00225#2` (pfx) S (10.5 s), `d00244#0` (pfx) S (12.1 s), `d00598#1` (pfx) HPS (its prefix answered
+    `unknown` at the cap under two workers; the copy decides it with no switch inside 20 s).
+  * **(C) `#P2b-75`'s certifier — 4 of the 994 `gen_guard.py` checks and 1 of the 1,303 `gen14.py` ones (H 5, P 5):**
+    `gen_guard.py` 30102004: `g00481#0` HP m NEIGHBOURS, `g00737#0` HP NEIGHBOURS (`unknown` alone in 105.2 s),
+    `g00880#0` HP ELIG_FIRST, `g00940#0` HP m NEIGHBOURS; `gen14.py` 30102005: `s00310#0` HP TABLES (`sat` alone in
+    55.6 s).
+  * **(C)/(D) — 1 of 1,303 (P 1):** `gen14.py` 30102005: `s00043#1` (pfx) P NEIGHBOURS|TAKEBACK|MIXED_INT (not re-taken
+    alone; the copy times out at 20 s with no switch).
+  * **(E) `#P2b-79`'s integrality on quantifier-free `gen_mix.py` goals — 3 of 2,046 (H 3, P 3):** `gen_mix.py`
+    30102006: `m00693#0-1` HP MIXED_INT|TIGHTEN (H and P printed falsifying models), `m00902#1` HP MIXED_INT (H and P
+    printed z3-confirmed models).
+  * **(F) lost against `c702310` only, already on pass 14 (no switch restores it) — 5 of 994 and 3 of 1,303 (H 8):**
+    `gen_guard.py` 30102004: `g00069#0` H, `g00795#0` H, `g00833#0` H, `g00946#0` H, `g00958#0` H; `gen14.py`
+    30102005: `s00073#0-1` H, `s00518#0` H.
+  * **(F)/(G) — 1 of 994 (H 1):** `gen_guard.py` 30102004: `g00823#0` H — no answer alone in 130 s; pass 14 and pass
+    17 also unanswered at the cap; no switch restores it (pass 14 not re-taken alone).
+  * **(H) NEW, the quantified datatype roots of re-fix pass 18 (`Solver::register_ground_dt_root`, `#P2b-90`'s
+    quantified half: every quantified assertion's encoding and every quantifier instance that holds a datatype term
+    is a root of the datatype axioms, axiomatised before each MBQI round) — 4 of the 1,099 family checks (H 1, S 4):**
+    `gen_dtite.py` 30102002: `t00067#1` (pfx) HS (`c702310` and pass 17 `unsat`, pass 17 `[unknown, unsat, unknown]` in
+    15.9 s alone; this tree no answer alone in 130 s) DT_ROOTS, `t00008#0` (pfx) S m (pass 17's model z3-confirmed;
+    withheld here, "assertion 4 … could not be certified") DT_ROOTS or MUT15_NO_EQ_ATOM, `t00011#1` (pfx) S m (the
+    certificate refutes its own new candidate, "assertion 5 (forall …) is false at n 0") ITE_LIFT; `gen_r18.py`
+    30102001: `r00092#0` (pfx) S (pass 17 `[sat, sat, unknown]` in 17.0 s; this tree no answer alone in 130 s)
+    DT_ROOTS. The cost of a soundness fix: `NO_DT_ROOTS` brings back the wrong `sat`s `q1`, `q2`, `q5` and `t00088`.
+    The levers: register a root only for an instance whose datatype terms are new to the scan, and re-axiomatise
+    incrementally rather than rescanning every root at each MBQI round.
+  **Rates by mechanism** (recorded seeds of the legs above | recheck 17's fresh 3010019x, inside those legs where
+  named | recheck 18's fresh 3010200x): (A′) 181 of 4,040 `gen_dt.py` and 2 of `g14a`'s 4,011 checks | — | 73 of 1,143
+  and 5 of 1,099 family checks; (B′) 2 of 4,040 | — | 3 of 1,143; (B) 1 | — | 1; (C) 27 of 17,096 | + 2 | 5 of 2,297 (+ 1
+  (C)/(D)); (D) 12 of 17,096 | + 1 | the (C)/(D) row; (E) 6 of 12,077 | + 4 | 3 of 2,046; (F) 21 of 17,096 | + 6 | 8 of
+  2,297 (+ 1 (F)/(G)); (G) 4 of 17,096 | + 1 | the (F)/(G) row; (H) — | — | 4 of 1,099 family checks; (cap) a rule, not
+  a rate.
   **Slower, never wrong** (alone, release): the take-back's `g14b/s00186#1` 29.8 s / 2,635 conflicts (`c702310` 0.2 s /
   163), `s00836` 50.1 s / 6,842, `gen_guard.py` 30100163 `g00284` 19.0 s / 1,847 and `g00733` 29.2 s / 247 conflicts
   (`c702310` 0.02 / 0.01 s; `NO_DEFER_INT` / `NO_TAKEBACK` 76 and 30-52 conflicts, recheck 16) — a cost decision (79) left
@@ -1459,234 +1580,7 @@ Line numbers below were re-verified on 2026-09-09, after the two file splits thi
   withheld (from 3) / 5, `NO_EVAL_CERT` 37 withheld / 2, `NO_DT_READS` 1 withheld / 1, `NO_GV_PRINTED_FIRST` 4 wrong
   `(get-value)` / 1.
 - [x] **#P2b-58 (2026-09-21) — COMPLETENESS, honest `unknown`, base-decided: MBQI cannot certify a `sat` on a satisfiable quantified array script whose index sort is `(_ BitVec w)` with `w >= 7`, one bit above `finite_expand`'s 64-point budget.** — closed; the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-58), moved verbatim by re-fix pass 14 (decision (58)).
-- [x] **#P2b-59 (2026-09-21) — REGRESSION against `c4b04b7` and crates.io 0.3.3, present in the committed
-  checkpoint `00add07`: a QUANTIFIER-FREE `QF_ABV` script's lazy array refinement does not converge.**
-  **FIXED at the root 2026-09-22 (re-fix pass 10); the residual cost is reclassified to `#P2b-46` (f) with its
-  counters — see the close-out at the end of this entry, which also WITHDRAWS two of the claims below.** Opened by
-  the cargo-formal adversarial recheck pass 9, by delta-debugging `rk6/corpus/qmbqi120/q0033.smt2` one and two
-  assertions at a time. The minimal script is `rk9/min/q33_a01.smt2`: two width-8 arrays with `ite`-selected
-  bases, one `store` each, one `(as const …)`, and `grep -c forall` is **0** — no binder is involved at all, so
-  none of this round's quantifier work can be the reason. **Measured, release, four probes on that one script:**
-  `c4b04b7` `sat` 7.3 ms; crates.io 0.3.3 `sat` 8.4 ms; the pass-6 checkpoint `00add07` (`rk8/probe_p6`) **no
-  answer in 120 s**; this tree **no answer in 90 s**. The regression therefore arrived at or before `00add07` —
-  it is in the **committed** work, not in re-fix passes 7, 8 or 9. Its siblings decide: `q33_a0` `sat` 581.9 ms,
-  `q33_a1` 2.4 ms, `q33_a2` 0.5 ms, `q33_a02` 69.8 ms, `q33_a12` 5.6 ms; only the pair of the two
-  quantifier-free assertions hangs.
-  **It fails to terminate rather than being slow, and the deterministic counters say so**
-  (`rk9/min/q33_a01_b{500,5000}.smt2`): at `(set-option :max-bv-embedded-checks 500)` it is `unknown` in 19.0 ms
-  with `:array-refinement-rounds 7` and `:array-lemma-instances 68`; at `5000` it is `unknown` in 477.7 ms with
-  `:array-refinement-rounds 26` and `:array-lemma-instances 104`. **The round count grows with whatever budget
-  it is given instead of reaching a fixpoint**, and each round then pays `#P2b-46` (f)'s `O(num_vars)`
-  embedded-check price. Four more members of the family are in the same corpus — `rk6/corpus/qmbqi120/q0033`,
-  `q0047`, `q0103` and `q0107`, `sat` in 6.6–11.4 ms on the base, no answer in 120 s here, and their ground twins
-  do not finish either. *(`q0107` is **WITHDRAWN** from that list on 2026-09-22: it is `sat` in 160.2 ms on the
-  fixed tree — see the close-out, (e).)*
-  **The mechanism is named by counters rather than by bisection.** `#P2b-48`'s hoist of
-  `Solver::array_refinement_round` out of `check_core`'s `!has_quantifiers` branch is what makes the refinement
-  machinery run on scripts where the base never ran it: on
-  `bench/z3_parity/benchmarks/AUFLIA/array_update.smt2` this tree and `00add07` are counter-IDENTICAL
-  (`:conflicts 17 :propagations 1308 :array-refinement-rounds 7 :array-lemma-instances 24`) while `c4b04b7`
-  publishes **no array-refinement counters at all** (`:conflicts 6 :propagations 141`) — the same signature at a
-  survivable size, which is why `#P2b-46` (f) already attributes that one `bench/` regression to the same hoist.
-  **What this is NOT.** Not `#P2b-46` (f): no budget is installed on the script and `:conflicts` is tiny, where
-  that entry is about scripts a `:max-conflicts` budget stops. Not any quantifier item — not `#P2b-50`,
-  `#P2b-51`, `#P2b-53`, `#P2b-54`, `#P2b-55`, `#P2b-56`, `#P2b-57` or `#P2b-58` — because the script carries no
-  binder, which the pin **asserts** rather than assumes.
-  **Lever**: `Solver::array_refinement_round`'s termination argument on `ite`-selected array bases. 7 → 26 rounds
-  as the budget grows means the round is re-deriving lemmas it already has, or the `ite` spine is minting a fresh
-  array root per round. Bisecting passes 1–6 of this round will name the commit; the recheck deliberately did not,
-  and the bracket it measured is `c4b04b7` fast / `00add07` and later not terminating. Pinned by
-  `round4_pass9_recheck_pins::a_quantifier_free_array_script_the_base_decides_is_undecided_here` *(inverted
-  and since renamed `the_refinement_round_count_is_bounded_and_equal_inside_the_plateau`)*, which asserts
-  that the script carries no binder, asserts `unknown` at two deterministic budgets (500 and 2,000 in the pin;
-  500 and 5,000 in the measurement above) and asserts that the refinement-round count **strictly grows** between
-  them — so a tree that converged reddens it.
-
-  ---
-
-  **CLOSE-OUT (2026-09-22, re-fix pass 10, decision (35)). Two claims above are withdrawn in place, by
-  measurement.**
-
-  **(a) The bisection the entry asked for, run rather than reasoned** (decision (35)(a); one reused detached
-  `git worktree` under the scratchpad, removed afterwards, `git worktree prune` run, `git worktree list` back to
-  two entries; driver and logs at `rf11/bisect/`). Every row is `rk9/min/q33_a01.smt2` at
-  `:max-bv-embedded-checks` 500 / 5,000, release:
-
-  | commit | 500 | 5,000 | counters |
-  |---|---|---|---|
-  | `c4b04b7` (base) | `sat` 8.1 ms | `sat` 0.34 ms | `:conflicts 0 :propagations 9`; no refinement counters exist yet |
-  | `9dcfd0d` MOS | `sat` 80.5 s | `sat` 50.2 s | `:conflicts 1465 :propagations 140238` |
-  | `7cd140c` MOS | no answer in 120 s | no answer in 120 s | — |
-  | `b402c80` MOS | `sat` 13.0 ms | `sat` 5.9 ms | `:conflicts 15 :propagations 1928` |
-  | `ed101fb` MOS | no answer in 120 s | no answer in 120 s | — |
-  | `400988e` (passes 4–5) | no answer in 120 s | no answer in 120 s | — |
-  | `8a423bd` MOS | no answer in 120 s | no answer in 120 s | — |
-  | `00add07` (pass 6) | `unknown` 10.2 ms | `unknown` 194.3 ms | 7 rounds / 68 instances; 26 / 104 |
-  | `0559fb3` (HEAD) | `unknown` 11.0 ms | `unknown` 186.7 ms | 7 / 68; 26 / 104 — **counter-identical to `00add07`** |
-
-  `:max-bv-embedded-checks` did not exist before `400988e`, which is why the two columns agree on the earlier
-  rows. The first departure from the base is **`9dcfd0d`** (0.34 ms → 50 s), the last commit that still decides
-  it is **`b402c80`**, and from **`ed101fb`** on it never finishes again. So the regression lives in the
-  array-axiom families of `9dcfd0d`…`ed101fb` and **not** in `#P2b-48`'s hoist: `00add07` and HEAD are
-  counter-identical, and the script carries no binder, so a mechanism that only fires on quantified input cannot
-  reach it. **The "named by counters rather than by bisection" attribution above is WITHDRAWN**; the
-  `array_update.smt2` half of it stands on its own and stays under `#P2b-46` (f).
-
-  **(b) "It fails to terminate rather than being slow" is WITHDRAWN.** The ladder was measured at 500 vs 5,000,
-  inside the ramp. Above it the counts saturate: HEAD gives 91 rounds / 226 instances at 20,000 checks and
-  **93 / 228** at 50,000 — +2 and +2 for 2.5x the budget — while the wall clock goes 552 ms → 45,401 ms and the
-  conflicts 1,973 → 11,968. The lemma set is deduplicated on the interned lemma term and it does reach a
-  fixpoint; what grows is the search over it. The second lever decision (35)(b) named — "a lemma already derived
-  is never re-derived" — is therefore **not** the defect, and was not implemented.
-
-  **(c) The mechanism, measured at index width 8 — above the extensionality enumeration limit, which is where
-  the fix is restricted to** (`rf11/out/struct20k.txt`, an instrumented release probe printing the collected
-  `ArrayStructure` each round). `Solver::assert` stores the **pre**-rewrite term in
-  `Solver::assertions` and registered the **encoded** term as a ground array root
-  (`register_encoded_assertion_root`, the pass-5 seam). Where the encoding chain replaced an array-sorted
-  `(ite c a b)` with the fresh proxy `eliminate_nonbool_ite` mints, the collector — which walks both root sets —
-  saw the same array twice: **19** array terms where 13 is the truth (five `\oxiz.iteelim!*` proxies plus one
-  `store` over a proxy), **21** extensionality witnesses of which ten pair a term with the proxy of the same
-  array, and 58 of 226 asserted lemmas spelled over a proxy. Every pair set is quadratic in that count, and
-  phases 3a/3b/3c/4 spend one *round* — one whole re-solve — per pair. Ruled out on the way: the model-guided
-  filter is not degenerate (`rf11/out/eval.txt`: 4,485 candidate instances skipped because the candidate model
-  already satisfies them, against 142 asserted).
-
-  **(d) The fix** is `Solver::array_root_spelling` (`solver/ground_instance.rs`) over the new
-  `Solver::ite_elim_aliases` map (proxy → the `ite` term it names, recorded by `eliminate_nonbool_ite`, keyed on
-  the `ite`'s own id so a re-mint re-learns the same entry and no trail op is needed): an assertion's encoded
-  root is registered in the **`ite`** spelling, the one the other half of the root set already uses and the one
-  that carries the branches for `build_array_ite_reads`. Nothing is lost on the encoding side — every lemma goes
-  back through `Solver::encode`, which re-derives the proxy for the SAT core. **It is narrowed twice, each time
-  by a measurement rather than by taste.** (i) *To the assertion path.* Applying it to ground instances too took
-  `rk6/corpus/qmbqi120/q0075` from `unknown` in 18.4 ms to no answer in 120 s and `q0106` from 78.5 ms to
-  205.5 ms, while leaving `q33_a01` — which has no quantifier and so no instance — bit-identical; only an
-  assertion has the *same term* already in the root set, so only an assertion is re-spelled. (ii) *To index
-  sorts above `ARRAY_INDEX_ENUMERATION_LIMIT`.* An enumerated pair mints no Skolem witness, so the duplicate
-  spelling costs at most a constant factor of lemmas over one shared index set, while putting the `ite` back
-  hands `build_array_ite_reads` a conditional read pair at every element of the domain for every read the
-  enumerated family creates. Measured on the 300-pair width-1/2 corpus of `round4_pass5_recheck_pins`: pair 10
-  (a `forall` over `(_ BitVec 2)` beside a ground `ite` over two `store`s) went `sat` 8.5 ms → `sat` **2,702 ms**
-  with the verdict unchanged, and the whole test went from passing to a **TIMEOUT at the gate's 180 s ceiling**;
-  with the limit respected that pair is `sat` in **2.9 ms**, faster than before the fix, and the test runs in
-  10.6 s. Both halves are pinned (see (g)).
-
-  **(e) Measured on the final tree**, release, two runs of every unbudgeted figure.
-  `rk9/min/q33_a01.smt2` unbudgeted: **`sat` in 30.4 s** (66 refinement rounds, 208 lemma
-  instances, 30,402 embedded checks, 8,294 conflicts) where HEAD gave no answer in 90 s and the
-  pass-9 tree none in 400 s.
-  **The budget ladder, re-measured (adversarial recheck pass 10; the "reaches a fixpoint" reading of
-  it is WITHDRAWN).** What re-fix pass 10 recorded — "the budget ladder reaches a fixpoint: 10 / 76 at
-  2,000 and 10 / 76 at 5,000" — is false as a fixpoint claim: the equality is a **plateau inside a
-  ramp**, and the same method one rung higher gives 41 / 129.
-
-  | `:max-bv-embedded-checks` | verdict | rounds / instances |
-  |---|---|---|
-  | 500 | `unknown` | 9 / 75 |
-  | 2,000 | `unknown` | 10 / 76 |
-  | 5,000 | `unknown` | 10 / 76 |
-  | **8,000** | `unknown` | **41 / 129** |
-  | 10,000 | `unknown` | 51 / 181 |
-  | 12,000 | `unknown` | 57 / 197 |
-  | 20,000 | `unknown` | 59 / 199 |
-  | **50,000** | **`sat`** | **66 / 208**, 30,402 of 50,002 checks spent |
-
-  The refinement **does** reach a fixpoint — at **66 rounds / 208 instances**, where it stops asking
-  for budget and publishes `sat`. Every rung below that is a *truncation by the budget*, not a
-  fixpoint at a smaller place, and decision (35)(c)'s "counts IDENTICAL at 500 and 5,000" is **refuted
-  at its own two budgets** — 9 / 75 at 500 against 10 / 76 at 5,000, as the table above prints (recheck
-  pass 11 re-measured both). The only budgets at which the counts are identical are above the 30,402-check
-  saturation point: 50,000 and 200,000 both answer `sat` with byte-identical 66 / 208 / 30,402 / 8,294.
-  Taking that assertion costs 30–50 s of release time and minutes of the gate's, which is why no test
-  takes it and why this entry states the ladder instead; the gate pins the plateau
-  (`round4_pass9_recheck_pins::the_refinement_round_count_is_bounded_and_equal_inside_the_plateau`) and
-  the recheck's `round4_pass11_recheck_pins::the_round_counts_at_five_hundred_and_five_thousand_checks_differ`
-  keeps the two figures apart.
-
-  **(f) What is left, and where it belongs.** `q33_a01`'s 30.4 s against the base's 0.34 ms is **`#P2b-46` (f)**,
-  not this entry. The price is the `O(num_vars)` embedded check, and it is **a curve, not a rate**: on this
-  script the tree spends 532.1 ms on 8,002 checks (**0.07 ms each**), 4,618.3 ms on 20,002 (**0.23 ms each**)
-  and 30,433.4 ms on 30,402 (**1.00 ms each**). A per-check cost that grows as the variable table grows *is*
-  mechanism (i); the single point "~1.0 ms each" that stood here until 2026-09-22 was the last rung of that
-  curve quoted as a rate, which would have a later pass budget a script by multiplying its check count by a
-  millisecond. (`rf6/cal/st10_w3.smt2` sits further along the same curve at ~1.8 ms per check over 250,002.) At
-  `(set-option :max-conflicts 200)` — the spelling mechanism (i)'s five named scripts use — `q33_a01` is
-  `unknown` in 22.8 ms having spent 194 of its 200 conflicts, which is that family's signature. Three qmbqi120
-  members — `q0033`, `q0047` and `q0103` — still do not finish in 130 s and are carried to `#P2b-46` (f) **by
-  path**, as instances of mechanism (i) rather than of a refinement that fails to converge; the fourth,
-  `q0107`, is decided here.
-  **A fourth script is carried there too, and it is this entry's own repro in the other spelling.**
-  `rk11/atk/x10_q33_swapped.smt2` is `rk9/min/q33_a01.smt2` with its two assertions written in the opposite
-  order and nothing else changed (the sorted assertion lists `diff` empty, so it is the same formula).
-  `c4b04b7` and crates.io 0.3.3 answer `sat` in 0.1 ms; this tree gives **no answer in 300 s**, and its ladder
-  is 8 / 74 at 500 embedded checks, 25 / 97 at 2,000, 33 / 122 at 5,000 and at 20,000, and 52 / 171 at 50,000
-  with all 50,002 checks spent — while at 120,000 checks it produces **no answer in 900 s**
-  (`rf12/min/sw_b120000.smt2`, exit 124), so its saturation point is not quoted because reaching it costs more
-  than the measurement budget. `array_root_spelling` normalises the array-root **spelling**; it does not
-  normalise the assertion **order**, and the order is what decides which foreign pair the one-pair-per-round
-  phases (`#P2b-46` (2)'s phases 3a/3b/3c/4) reach first, so the two spellings take different trajectories
-  through the same lemma set. **`#P2b-59` is therefore NOT closed with no open scripts of its own** — that
-  sentence, written by re-fix pass 10, is withdrawn — and this spelling is open under mechanism (i) with its
-  path, pinned by `round4_pass10_recheck_pins::the_same_script_with_its_two_assertions_swapped_is_not_decided`,
-  whose in-test control asserts that the *original* order's count does not climb, so the pin is a statement
-  about the order and not about the script.
-  Decision (35)(c)'s target — "decide `sat` in milliseconds" — is not met for either spelling and is not
-  reported as reached: the original order decides in 30.4 s and the swapped order does not decide.
-
-  **(g) Pin** (decision (35)(d)): `round4_pass9_recheck_pins::the_refinement_round_count_is_bounded_and_equal_inside_the_plateau`
-  — the pass-9 hole pin inverted, and **renamed on 2026-09-22** (re-fix pass 11) from
-  `a_quantifier_free_array_script_reaches_a_refinement_fixpoint`, which named a property the ladder in (e)
-  refutes. It still asserts the script carries **no binder**, and asserts that `:array-refinement-rounds` and
-  `:array-lemma-instances` are identical at budgets 2,000 and 5,000 and at or below 12 / 90 — a **bounded,
-  equal count inside the plateau**, which is what it measures. It remains a working regression guard: the
-  pass-9 tree reports 20 and 26 at exactly those two budgets and fails both halves. Beside it,
-  `round4_pass10_recheck_pins::the_array_refinement_round_count_still_grows_with_the_budget` pins the cheapest
-  rung that breaks the plateau (5,000 against 8,000: 10 / 76 against 41 / 129), so a tree whose plateau
-  *moved* reddens there rather than passing silently, and
-  `::the_same_script_with_its_two_assertions_swapped_is_not_decided` pins the open half with the original
-  order's stable count as its control. Two white-box unit tests in
-  `solver::array_axioms::tests::one_spelling_per_array_tests` state the rule and its boundary directly:
-  `an_ite_selected_array_base_is_one_array_and_not_two` (at index width 8 the collector reaches four array
-  terms and no proxy, where the unfixed tree reaches five) and
-  `below_the_enumeration_limit_the_proxy_deliberately_stays` (at index width 2 the proxy is still there,
-  which reddens if a later pass widens the rule past the enumeration limit and re-creates the 2,702 ms case).
-  A third pin carries the verdict the fix buys back:
-  `round4_pass9_recheck_pins::the_corpus_member_the_root_spelling_buys_back_is_decided` is
-  `rk6/corpus/qmbqi120/q0107.smt2` verbatim, `sat` in 0.51 s in the gate profile.
-  Mutation table, re-fix pass 10, with **M10a's one inferred row replaced by the measurement**
-  (adversarial recheck pass 10; the pass had written "1 timed out" and inferred which test it was):
-
-  | mutation | effect |
-  |---|---|
-  | **M10a** `array_root_spelling` returns its input | 3 red: the width-8 unit test (5 array terms, one of them `(store \oxiz.iteelim!9 …)`), the plateau pin (`[20, 26]` rounds), and the `q0107` verdict pin. **Measured** rather than inferred for the third: the unfixed solver (`rf10/bin/probe_p9`, which is M10a behaviourally) answers `unknown` on `q0107` in **174,103.3 ms** release against the fixed tree's `sat` in 160.6 ms — so the pin reddens on the **verdict**, and 174 s release would also cross the gate's 180 s ceiling in the dev profile. The boundary test stays green. |
-  | **M10b** drop the equality half of the plateau pin, keep only the `<= 12` cap | insufficient **in general**: the unfixed tree reports 91 and 93 rounds at 20,000 and 50,000 checks, so any bound above 93 passes on it. |
-  | **M10c** drop the cap, keep only the equality | insufficient **in general**: 91 vs 93 is two apart, so an equality test with any tolerance passes on the unfixed tree. |
-  | **M10d** widen the re-spelling past `ARRAY_INDEX_ENUMERATION_LIMIT` | `below_the_enumeration_limit_the_proxy_deliberately_stays` goes red while `an_ite_selected_array_base_is_one_array_and_not_two` stays green (so the boundary is pinned independently of the rule), and the 300-pair width-1/2 corpus goes from 10.6 s to a TIMEOUT at 180 s. |
-
-  M10b and M10c are stated as what they are — an argument from the measured ladder, not two more builds —
-  which is why the delivered pin asserts the conjunction at budgets 2,000 and 5,000, where the unfixed tree
-  gives 20 vs 26 and fails both halves.
-  **(h) Re-measured 2026-09-29 on re-fix pass 12's final tree (decisions (43)-(45); release, `$R/fixB/final/ladder_*`, both probes back to back beside two campaign workers; `c702310` is the pre-pass tree).** Decision (45) — root-scoped bit-blasting with failed-assumption cores, `#P2b-46` (f) — is what decides both spellings; decision (43)'s canonical order is in; decision (44) did not land.
-
-  | `:max-bv-embedded-checks` | `q33_a01` `c702310` | `q33_a01` this tree | swapped `c702310` | swapped this tree |
-  |---|---|---|---|---|
-  | 500 | `unknown` 9 / 75 | `unknown` 9 / 69 | `unknown` 8 / 74 | `unknown` 6 / 74 |
-  | 2,000 | `unknown` 10 / 76 | `unknown` 30 / 108 | `unknown` 25 / 97 | `unknown` 26 / 110 |
-  | 5,000 | `unknown` 10 / 76 | `unknown` 47 / 158 | `unknown` 33 / 122 | `unknown` 52 / 144 |
-  | 8,000 | `unknown` 41 / 129 | `unknown` 64 / 188 | `unknown` 33 / 122 | `unknown` 66 / 173 |
-  | 20,000 | `unknown` 59 / 199, 6.0 s | **`sat` 70 / 195**, 9,302 checks | `unknown` 33 / 122, 42.7 s | `unknown` 107 / 254, 0.5–0.9 s |
-  | 50,000 | `sat` 66 / 208, 30,402 checks, 59.1 s | **`sat` 70 / 195**, 9,302 checks, 0.16–0.36 s | no answer in 130 s | **`sat` 124 / 295**, 29,189 checks, 0.8–1.2 s |
-
-  (e)'s fixpoint moves from 66 / 208 after 30,402 checks to **70 / 195 after 9,302**, and the swapped order is decided for the first time. Decision (35)(c)'s "decide `sat` in milliseconds" is **not met as written**: 0.16–0.36 s for the original order and 0.8–1.2 s for the swapped one, against 0.1 ms on `c4b04b7`. **Decision (44) is NOT met:** below 9,302 checks the count still grows with the budget (9 → 47 → 70 rounds at 500 / 5,000 / 50,000). Both variants it names were built on this tree and measured unbudgeted — every deferred family for every violated pair in each round (`q33_a01` 5 rounds but 27,700 checks, 1.0 s; swapped 9 rounds, 123,970 checks, 4.2 s) and the same staged behind the eager families (20 rounds, 74,363 checks, 2.1 s; swapped 18, 43,122) — and both **raise** the checks spent against 9,302 and 29,189, so neither landed (patches `$R/fixB/patches/p44_*`). Laddered at 500 / 5,000 / 20,000 / 50,000 checks (`$R/fixB/final/v44/`), neither meets the criterion itself either: every-family rounds `q33_a01` 2 / 2 / 2 / **5** (`sat` only at 50,000) and swapped 2 / 2 / 4 / 4 (**`unknown` at 50,000**, which the landed tree decides); staged 4 / 9 / 16 / 16 (`q33_a01` **`unknown` at 50,000**) and 4 / 5 / 13 / 18. Each variant loses one of the two verdicts the landed tree reaches at 50,000. **Decision (43)'s outer half is NOT met:** round 1 of the two orders asserts the same instances, and the trajectories part after it because the outer search numbers the assertions' SAT variables in the order written (70 / 195 against 124 / 295).
-  **Pins, re-fix pass 12:** the plateau pin became `round4_pass9_recheck_pins::the_refinement_reaches_a_fixpoint_above_its_saturation_point` (`sat` with identical rounds / instances / checks at 20,000 and 50,000 and fewer checks spent than offered — the fixpoint (e) could only state, now cheap enough to assert); `round4_pass10_recheck_pins::the_same_script_with_its_two_assertions_swapped_is_not_decided` is inverted as `::the_same_script_with_its_two_assertions_swapped_is_decided` (both orders `sat`, each with identical rounds / instances / checks at 35,000 and 50,000 and fewer checks spent than offered — a fixpoint per order; the counters *between* the orders are the open hole below); the holes stay green with corrected docs — `::the_array_refinement_round_count_still_grows_with_the_budget` (47 / 158 at 5,000 against 64 / 188 at 8,000), `round4_pass11_recheck_pins::the_round_counts_at_five_hundred_and_five_thousand_checks_differ` (9 / 69 against 47 / 158) — and `round4_pass10_recheck_pins::the_two_assertion_orders_still_take_different_refinement_trajectories` is new. Unit tests `solver::array_axioms::canonical::tests::{two_interning_orders_give_every_term_the_same_key, distinct_structures_get_distinct_keys}`. `rk6/corpus/qmbqi120/q0033`, `q0047` and `q0103` could not be re-run (destroyed with the earlier scratch directory).
-  **Re-measured 2026-09-29 by adversarial recheck 12 and again on re-fix pass 13's final tree (decision (51); `$R/fix13b/camp/ladder_probe_tree_*`): the table's tree columns and `q0072` (`sat` 8 / 78 at 500, `unknown` at 5,000 / 8,000, `sat` 92 / 227 from 20,000, 16,017 checks) reproduce exactly — (43)'s outer half and (44) stay OPEN as measured.** Budgets a trajectory change makes lose, all satisfiable: `det_w3_n12` decided by `c702310` at 75,741 checks and here at 232,481; `$R/corpus/qmbqi120/g0103` (the ground twin) by `c702310` at 17,374 and here at 83,387 (16 / 1,340 at 20,000 `unknown`) — the latter is `#P2b-69`'s price; and (fresh corpora, decision (59)) `fq200/g0029`, `g0122`, `g0127`, `feq200/g0142`, decided by `c702310` at 5,785 / 7,548 / 7,400 / 8,501 checks and not here at 20,000. Re-fix pass 14's final tree reproduces every ladder above exactly (`$R/fix14/final/ladder_tree_*`: `q33_a01` 64 / 188 at 8,000 and `sat` 70 / 195 from 20,000; swapped 107 / 254 `unknown` at 20,000, `sat` 124 / 295; `q0072` `sat` 92 / 227 from 20,000; `det_w3_n12` 2.4 µs per check at 20k and 100k).
-  **Trajectory also depends on push/pop history (decision (61)(10); adversarial recheck 13, re-taken on re-fix pass
-  14's final tree, `$R/fix14/final/ord_*`).** `q33_a01`'s body checked in a fresh scope takes 70 / 195 rounds / instances
-  (9,302 checks); the identical body re-asserted after a `(push 1)` / `(pop 1)` around it takes 73 / 237 (13,528 checks),
-  `sat` both times; other spellings of the same formula: declarations permuted 70 / 195, `or` disjuncts swapped
-  103 / 302, the two assertions swapped 124 / 295; a fresh three-array `ite`-spine script in three orders 72 / 242,
-  70 / 256, 79 / 248 — every one `sat`. The same open half of decisions (43) / (44) as above: what the refinement
-  instantiates is order- and history-independent, the outer search's variable numbering is not.
+- [x] **#P2b-59 (2026-09-21) — REGRESSION against `c4b04b7` and crates.io 0.3.3, present in the committed checkpoint `00add07`: a QUANTIFIER-FREE `QF_ABV` script's lazy array refinement does not converge.** — fixed at the root by re-fix pass 10 (`Solver::array_root_spelling`); its close-out (a)–(h) — the bisection, the budget ladder (e), what is left and where it belongs (f), the pins (g), the trajectory dependence on assertion order (h) — and every later amendment are in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-59), moved verbatim by re-fix pass 18 (decision (87)).
 - [x] **#P2b-60 (2026-09-28) — SOUNDNESS, REGRESSION vs `c4b04b7` on bit-vector indices: an array pinned by a ground equality, read under a binder above the finite-expansion budget, answered a WRONG `sat`.** — closed; the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-60), moved verbatim by re-fix pass 14 (decision (58)).
 - [x] **#P2b-61 (2026-09-28) — SOUNDNESS, pre-existing (`c4b04b7`, 0.3.3, HEAD): datatype constructors were not distinct as array indices.** — closed; the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-61), moved verbatim by re-fix pass 14 (decision (58)).
 - [x] **#P2b-63 (2026-09-28) — where the completion DECLINED, a `sat` still published a model falsifying its own universal.** — closed; the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-63), moved verbatim by re-fix pass 14 (decision (58)).
@@ -1749,7 +1643,11 @@ Line numbers below were re-verified on 2026-09-09, after the two file splits thi
   `round4_pass16_recheck_pins::two_arrays_the_third_assertion_keeps_apart_print_as_one`) and seed 30100184 `s00981#0` — 14
   checks of 12,134 on the five `gen14.py` corpora, every one falsifying on `c702310`, pass 14 and pass 16 alike, none with a
   datatype, an enumeration or an uninterpreted sort, so decision (79)(a)'s net does not reach them (a quantifier-free model
-  over scalars and scalar arrays is not checked). Re-fix pass 17 also fixed the read side of the named mechanism (a
+  over scalars and scalar arrays is not checked). Re-fix pass 18: the same 14 on its final tree (and recheck 17's fresh
+  `gen14.py` seed 30100194 adds none; adversarial recheck 18's fresh 30102005 adds `s00588#1`, `s00779#0`, `s00917#0`,
+  3 of 1,303, falsifying on `c702310`, pass 14 and pass 17 too); one more shape, pinned as this item's hole
+  (`round4_pass18_fix_pins::an_int_only_array_of_arrays_still_prints_one_entry`): `a : (Array Int (Array Int Int))` read
+  at `a[x][0] = 1`, `a[y][0] = 2` prints `x = y = 0` beside one entry — `#P2b-89`'s nested shape over `Int` elements. Re-fix pass 17 also fixed the read side of the named mechanism (a
   `select` of `((as const …) (- 3))` answers `-3` from `(get-value)` on a quantified goal); an array EQUALITY against such
   a constant still echoes: `g14a/s01467`, `(= ((as const (Array Int Int)) (- 1)) (store b 0 0))` (recheck 16's minor 9).
 - [x] **#P2b-82 (2026-09-30) — SOUNDNESS, a WRONG `sat` on every build, quantifier-free: a selector over a constructor application inside an uninterpreted argument** — fixed at the root by re-fix pass 16 (decision (73)); its `d00239#0` falsifying model is withheld since re-fix pass 17 (decision (79)(a)); the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-82), moved verbatim by re-fix pass 17 (decision (79)).
@@ -1784,7 +1682,87 @@ Line numbers below were re-verified on 2026-09-09, after the two file splits thi
   show false: before it, `d00239`'s first model closed to an `ite` over `(+ 1 (- 1))` the evaluator could not read and
   was published while its second and third were withheld. The net runs wherever a declared symbol's sort CONTAINS such
   a sort (array index or element, function range or argument). Its churn rows are named under decision (24a).
-- [x] **#P2b-89 (2026-10-01) — MODEL, every build, quantifier-free: an array whose element sort is a datatype, an enumeration or an uninterpreted sort, read at two indices the arithmetic valued alike, printed one entry (the array twin of `#P2b-84`).** — fixed at the root by re-fix pass 17 (decision (79)(b)); the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-89), written there by re-fix pass 17.
+  **Re-fix pass 18 (decisions (84), (85)).** Adversarial recheck 17 found the net's escape route: it decided an
+  assertion false by value and then asked a fresh solver to confirm, and that solver, hit by `#P2b-90`, answered `sat`
+  on the closed false assertion — `gen_dt.py` seed 30100192 `d00318`#1 printed a falsifying model on every build. Now an
+  assertion the exact value reader reads FALSE makes the check `unknown` (`(error "model not certified: model check
+  failed: assertion N reads false under the candidate model")`, and `:reason-unknown` says so) whatever a solver says;
+  an assertion the reader leaves open and the structural evaluator reads false still goes to the confirming solver
+  (its `unsat` withholds the model; `sat` / `unknown` prints it). The reader reads array values (nested ones too), and
+  the net also runs where an assertion mentions such a sort with no declared symbol of it. This item's churn rows are
+  therefore VERDICT losses now — decision (24a)'s (A′) leg names them with the rate — and no quantifier-free model the
+  reader shows false is published. Half of the lever is pulled: the datatype axioms and the model builder read a written
+  `ite` as its proxy (`Solver::encoded_dt_scan`, `#P2b-90`); a purified numeric argument is still read as written. And
+  the model builder's separation repair moves a datatype-valued field no assertion mentions, not only a numeric one:
+  `(not ((_ is empty) b1))` beside `(not (= b1 (full red)))` over `Box = empty | full (item Col)` rebuilt `b1` as `(full
+  red)` (the reconstruction axiom's `(item b1)` is not axiomatised again, so it took its sort's default) — withheld on
+  pass 17, `unknown` under the rule above (20 of the 696 formulas of
+  `solver_final_regression::test_dt_differential_against_brute_force_oracle`), `(full green)` now; `gen_dt.py` seed
+  30093154 `d00507`, whose two correct models pass 16 and 17 withheld, prints both
+  (`round4_pass16_recheck_pins::a_datatype_model_c702310_prints_is_printed_at_both_checks`, inverted); mutation
+  `OXIZ_MUT18_NO_DT_FIELD_SEP`: `b1` and both `d00507` checks `unknown` again. A field is moved only when no class member
+  spells it otherwise (a constructor application's own argument pins it) and no decided equality breaks.
+  **Re-fix pass 19 (decision (92)(d)):** one declared function whose printed table did not read back switched the whole
+  net off (adversarial recheck 18's finding 4, a code read; measured here as an escape: `gen_dt.py` seed 30093154
+  `d00236` beside a function into a datatype with a constructor `|(a|`, which every build prints unquoted as `(a`,
+  printed `sat` and a model falsifying its third assertion at both checks, as `c702310` does — re-fix pass 17's
+  trajectory printed a correct one). Such a function now reads OPEN: every other assertion is read as above, and an
+  assertion that applies it is withheld unless a fresh solver, the function uninterpreted, refutes its negation
+  (`round4_pass19_fix_pins`; a table that parses into a non-value, a sort `|W X|`'s `@uc_W X_n`, counts as unreadable).
+- [x] **#P2b-89 (2026-10-01) — MODEL, every build, quantifier-free: an array whose element sort is a datatype, an enumeration or an uninterpreted sort, read at two indices the arithmetic valued alike, printed one entry (the array twin of `#P2b-84`).** — fixed at the root by re-fix pass 17 (decision (79)(b)); REOPENED by adversarial recheck 17 for an array of ARRAYS into such a sort (`b05`, falsifying on every build) and closed again at the root by re-fix pass 18 (decision (86)); the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-89), written there by re-fix passes 17 and 18.
+- [x] **#P2b-90 (2026-10-01) — SOUNDNESS, a WRONG `sat` on every build (0.3.3 through re-fix pass 17): a tester, a selector or an equality over a datatype-sorted `ite` was not tied to the `ite`'s value (`m15`: `c` false beside `(< 0 (ite ((_ is cons) (ite c l1 nil)) 1 0))`; adversarial recheck 17's fresh `gen_dt.py` seed 30100192 `d00370`), and a datatype term only a quantifier body names had no datatype axiom (`q2`: `(forall ((n Int)) (=> (and (<= 0 n) (<= n 2)) ((_ is nil) (tl l2))))` beside `(= l1 l2)`, `((_ is cons) l1)`, `((_ is cons) (tl l1))`).** — found by adversarial recheck 17 (and its quantified half by re-fix pass 18's `gen_dtite.py`), fixed at the root by re-fix pass 18 (decision (84)): no wrong verdict at any size measured, and the verdict reached for an `ite` chain of at most `MAX_ITE_LIFT_NODES` (256) nodes — past the bound it is `#P2b-93`'s (open; scoped by re-fix pass 19, decision (92)(b)); the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-90), written there by re-fix pass 18.
+- [ ] **#P2b-91 (2026-10-02) — MODEL, every build: a printed datatype model gives no value to a selector applied to
+  the wrong constructor, so a judge that completes the printed model may complete it falsely.** `b2 = empty` beside
+  `(= (item b2) green)` over `Box = empty | full (item Col)` (`$R/fix18/atk/box/b2.smt2`) prints `b2` and no table for
+  `item`; `(item empty)` is unspecified in SMT-LIB, the script is satisfied for `item(empty) = green`, and z3 replaying the
+  printed model picks another value and calls it falsifying. The same on `scripts/round4/gen_dtite.py --v1` seed 30101802
+  (selectors not guarded by their tester): 14 checks zjudge calls falsifying (`t00032#0`, `t00083#0-1`, `t00089#1`,
+  `t00143#0`, `t00164#0-1`, `t00173#1`, `t00207#2`, `t00217#1`, `t00261#0-1`, `t00286#0-1`), three of them correct on
+  re-fix pass 17's trajectory (`t00207#2`, `t00286#0-1`: cmpcamp's MODEL_REGRESSED rows). `scripts/round4/selcheck.py`
+  asks z3 whether each printed model satisfies the script for SOME value of the unspecified terms: all fifteen do, so
+  no printed model is false — but none is a complete interpretation either. The lever: print the selectors'
+  interpretations on the other constructors (`(define-fun item ((x Box)) Col …)`, as z3 does), chosen to satisfy the
+  assertions that read them. Filed by re-fix pass 18; no fix this pass. The round's `gen_dt.py` corpora guard every
+  selector by its tester, so they never meet it.
+- [ ] **#P2b-92 (2026-10-02, filed by cargo-formal wave 5.8) — ROBUSTNESS: a bound against a constant near 2^63
+  overflows the solver's own arithmetic — a debug build panics with "attempt to add with overflow", a release build
+  answers `unknown`; the `bvule` shape filed is fixed on 0.3.4, an `Int` bound at `i64::MAX` is not.** Filed for `(not (bvule x #x7fffffffffffffff))` beside a 64-bit
+  multiplication (cargo-formal's capacity rule, `crates/formal-vcgen/src/builtins/seq.rs`, encodes the bound as "the
+  bits above it are zero" to avoid it). Re-fix pass 19 reduced it (`$R/fix19/atk/p2b92/`): on 0.3.3 that shape panics in
+  `ArithSolver::assert_gt` (`x > k` asserted as `x >= k + 1`; the bit-vector comparison was mirrored into the arithmetic
+  solver) and answers `unknown` in release; on `c702310` and this tree it answers `sat` (this tree: the pin in the dev profile, the release probe), since `#P2b-28`
+  retired the mirror (as cargo-formal's conformance fixture `u14` records), so cargo-formal can drop its workaround on
+  0.3.4 — pinned `round4_pass19_fix_pins::a_bit_vector_bound_near_two_to_the_sixty_third_is_decided_without_overflow`
+  (the shape with and without the multiplication, two `unsat` twins). The root is still reachable from an `Int`: `(> x
+  9223372036854775807)` and `(not (<= x 9223372036854775807))` in `QF_LIA` panic in debug
+  (`oxiz-theories/src/arithmetic/solver.rs`, `assert_gt`'s `rhs + Rational64::one()`, and the all-`Int` row's
+  `rhs.floor() + 1`) and answer `unknown` in release (z3: `sat`), on 0.3.3 and this tree alike — never a wrong verdict;
+  pinned as this item's hole (`::an_int_bound_at_i64_max_still_overflows_the_arithmetic_solver`, the panic caught). The
+  lever: checked arithmetic on the bound (`checked_add`, declining to an exact `BigRational` path or to `unknown`
+  explicitly). No fix this pass (decision (92)(f)).
+- [ ] **#P2b-93 (2026-10-02) — COMPLETENESS, every build, narrowed by re-fix pass 18: a tester, a selector or an
+  equality over a datatype `ite` chain past `MAX_ITE_LIFT_NODES` (256) nodes is not decided.** Found by adversarial
+  recheck 18 (`$R/recheck18/atk/chain/cNNN.smt2`): `n + 1` lists `q_i` each asserted `((_ is nil) q_i)`, `n` free
+  Booleans and `((_ is cons) (ite b0 q0 (ite b1 q1 … qn)))` — `unsat` (z3) at every size. On re-fix pass 18's tree
+  (release) 250 nodes `unsat` in 0.47 s, 258 no answer in 130 s; under `:max-conflicts 200 :max-decisions 2000`
+  250 `unsat` in 0.55 s and 258 `unknown` in 1.08 s. Past the bound `dt_ite_lift` leaves the tester as written and the
+  proxy route (`Solver::encoded_dt_scan`) decides it alone, which does not scale: with `OXIZ_MUT18_NO_ITE_LIFT` 10 nodes
+  0.02 s, 60 0.12 s, 120 0.42 s, 150 22.4 s, 180 / 210 / 250 no answer in 130 s. The selector form and the equality
+  product (two 17-node `ite`s, 289 > 256) time out at 60 s too. `c702310` has no answer in 60 s at 30, 120 and 300
+  nodes, re-fix pass 17 none at 30 and above (10 nodes: `unknown` in 16.4 s): pre-existing, narrowed by pass 18 to
+  past 256 nodes, never a wrong verdict at any size measured (`#P2b-90`'s soundness closure is unbounded; its decision
+  is not). Pinned `round4_pass18_recheck_pins::a_tester_over_an_ite_chain_past_the_lift_bound_is_not_decided` (§1
+  HOLE, under the budget). The levers: bound only the equality's product (the tester and selector lifts are linear and
+  memoised per node, so they can lift any size), or one axiom family per proxy rather than per member in the encoded
+  scan. Filed by re-fix pass 19 (decision (92)(b)); no fix this pass.
+- [ ] **#P2b-94 (2026-10-02, filed by the orchestrator from re-fix pass 19's finding) — OUTPUT, every build (0.3.3, `c702310`,
+  this tree): a symbol that needs `|…|` quoting prints unquoted.** `(declare-datatypes ((D 0)) (((|(a|) (b))))` prints
+  `(define-fun d () D (a)` (unbalanced parentheses), and a sort `|W X|` prints as `W X` with witnesses `@uc_W X_n` — malformed
+  SMT-LIB that breaks a downstream model parser (cargo-formal's included). Reproducers: `$R/fix19/atk/unread/{pr1,s1,s3}.smt2`.
+  Re-fix pass 19's honesty net now treats such a table as unreadable (OPEN, never Clean), so the model is withheld or the
+  verdict is `unknown` wherever the table matters; the printing itself is not fixed. The lever is quoting every printed symbol
+  by the SMT-LIB lexical rule at the printer (one place, `context/model_fmt`), with a pin per shape; the pass-19 pins carry a
+  vehicle guard that must be re-derived when this closes.
 - [x] **#P2b-62 (2026-09-28) — a published model falsified its own GROUND assertion: a quantifier body's read over its bound variable was rendered as an array entry (REGRESSION vs `c4b04b7`).** — closed; the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-62), moved verbatim by re-fix pass 14 (decision (58)).
 - [x] **#P2b-66 (2026-09-28) — SOUNDNESS, public API: `oxiz_sat::Solver::solve_with_assumptions` answered `sat` with a model falsifying one of its own assumptions, and its core dropped the partner of a complementary pair.** — closed; the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-66), moved verbatim by re-fix pass 14 (decision (58)).
 - [x] **#P2b-67 (2026-09-28) — `oxiz-opt` PMRES (WPM1) relaxed every core clause from its ORIGINAL body, so a core needing two violations reproduced itself for ever — masked by `#P2b-66`.** — closed; the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-67), moved verbatim by re-fix pass 14 (decision (58)).

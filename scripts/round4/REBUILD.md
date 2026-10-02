@@ -125,3 +125,24 @@ run; every probe under `timeout 130` (a corpus never gets 900).
 * `camp14.py` judges the longest answered prefix of a timed-out script (`--no-prefixes` turns it off), `zjudge.py`
   counts a refuted `@uc_` model of a quantifier-free script as falsifying, and `det.py` names cap-edge pairs and re-runs
   them uncapped.  Re-fix pass 16's campaigns are `$R/fix16/final_camp.sh` (see `$R/fix16/REBUILD.md`).
+
+## Re-fix pass 18 additions (2026-10-02)
+
+* `gen_dtite.py --seed 30101803 --count 300 --out <dir>`: `TODO.md` `#P2b-90`'s family by construction (testers,
+  selectors and datatype equalities over datatype `ite`s — chains, nests, under uninterpreted and constructor
+  arguments, enumeration and uninterpreted-sort `ite`s, push/pop, a quantified assertion in about a third of the
+  scripts); judged with `camp14.py --jobs 2 --cap 10 --zcap 10`.  Seed 30101802 with `--v1` is the first version's corpus (byte-identical regeneration checked), whose
+  selectors are not guarded by their tester: a printed model leaves `(hd nil)` unspecified and z3 then chooses a value
+  that falsifies the script, so `selcheck.py PROBE SCRIPT...` re-asks z3 whether the model satisfies the assertions for
+  SOME value of the unspecified terms (every one of that corpus's 14 "falsifying" models does).
+* `zjudge.py` writes `sat/uc_unresolved` in `per_check` for a quantified script's refuted `@uc_` model, and
+  `cmpcamp.py` re-classes a `UC_SAT` event the same way (adversarial recheck 17's minor 7; no such event occurred on
+  any corpus).  Re-fix pass 18's campaigns are `$R/fix18/phases.sh` (see `$R/fix18/REBUILD.md`).
+
+## Re-fix pass 19 additions (2026-10-02)
+
+* `camp14.py` keeps, for a script flagged on its judged prefix, the prefix (`flagged/<script>.prefix.smt2`) and that
+  prefix's responses in `flagged/<script>.out` (adversarial recheck 18's minor 5: the whole script's empty stdout was
+  kept, so `r00005` needed `check_prefixes` by hand).  No new campaign: re-fix pass 19 records adversarial recheck 18's
+  rows (`$R/recheck18/final/`, compared by `$R/fix19/tools/cmp19.py`, recheck 18's `cmp18r.py` widened to its fresh
+  seeds and to decision (24a)'s mechanism (H)); see `$R/fix19/REBUILD.md`.
