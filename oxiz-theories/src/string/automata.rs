@@ -483,13 +483,17 @@ impl Dfa {
             let mut new_partitions = Vec::new();
 
             for partition in &partitions {
-                if partition.len() <= 1 {
-                    new_partitions.push(partition.clone());
-                    continue;
-                }
+                // A partition of at most one state cannot be split; any other
+                // has a first state to split against.
+                let first = match partition.iter().next() {
+                    Some(&first) if partition.len() > 1 => first,
+                    _ => {
+                        new_partitions.push(partition.clone());
+                        continue;
+                    }
+                };
 
                 // Try to split partition
-                let first = *partition.iter().next().expect("partition non-empty");
                 let mut same = FxHashSet::default();
                 let mut different = FxHashSet::default();
                 same.insert(first);

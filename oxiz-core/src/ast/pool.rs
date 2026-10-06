@@ -27,6 +27,15 @@ impl Chunk {
         }
     }
 
+    /// Create a chunk with the specified capacity holding `term` in its first
+    /// slot: what `try_alloc` makes of a fresh chunk, with no full case to
+    /// handle because the chunk is new
+    fn with_first(capacity: usize, term: Term) -> Self {
+        let mut terms = Vec::with_capacity(capacity);
+        terms.push(term);
+        Self { terms, used: 1 }
+    }
+
     /// Try to allocate a term in this chunk
     /// Returns the index if successful, None if chunk is full
     fn try_alloc(&mut self, term: Term) -> Option<usize> {
@@ -137,12 +146,8 @@ impl TermPool {
             return global_idx;
         }
 
-        // Last chunk is full, allocate a new chunk
-        let mut new_chunk = Chunk::new(CHUNK_SIZE);
-        new_chunk
-            .try_alloc(term)
-            .expect("New chunk should have space");
-        self.chunks.push(new_chunk);
+        // Last chunk is full, allocate a new chunk with the term in it
+        self.chunks.push(Chunk::with_first(CHUNK_SIZE, term));
 
         let global_idx = self.total_terms;
         self.total_terms += 1;

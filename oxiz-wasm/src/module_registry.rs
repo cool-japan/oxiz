@@ -321,15 +321,15 @@ impl ModuleRegistry {
 
     /// Unregister a module
     pub fn unregister_module(&mut self, id: &str) -> RegistryResult<()> {
-        if !self.modules.contains_key(id) {
-            return Err(RegistryError::NotFound(id.to_string()));
-        }
-
-        if self.active.contains(id) {
+        // An unregistered id is `NotFound` even when it is listed as active,
+        // so the active check applies to a registered module only.
+        if self.active.contains(id) && self.modules.contains_key(id) {
             return Err(RegistryError::ModuleActive(id.to_string()));
         }
 
-        let info = self.modules.remove(id).expect("module exists");
+        let Some(info) = self.modules.remove(id) else {
+            return Err(RegistryError::NotFound(id.to_string()));
+        };
 
         // Remove from capability index
         for cap in &info.capabilities {
@@ -469,9 +469,8 @@ impl ModuleRegistry {
 
     /// Clear all modules (only if none are active)
     pub fn clear(&mut self) -> RegistryResult<()> {
-        if !self.active.is_empty() {
-            let active_id = self.active.iter().next().expect("not empty").clone();
-            return Err(RegistryError::ModuleActive(active_id));
+        if let Some(active_id) = self.active.iter().next() {
+            return Err(RegistryError::ModuleActive(active_id.clone()));
         }
 
         self.modules.clear();
@@ -710,5 +709,41 @@ mod tests {
         let stats = registry.stats();
         assert_eq!(stats.total_modules, 2);
         assert_eq!(stats.total_size_bytes, 3072);
+    }
+
+    #[test]
+    fn test_unregister_and_clear_report_the_offending_module() {
+        let mut registry = ModuleRegistry::new();
+        let info = ModuleInfo::new("test", Version::new(1, 0, 0)).with_size(512);
+        let id = info.id.clone();
+
+        assert!(matches!(
+            registry.unregister_module(&id),
+            Err(RegistryError::NotFound(ref missing)) if *missing == id
+        ));
+
+        registry
+            .register_module(info)
+            .expect("test operation should succeed");
+        registry
+            .activate_module(&id)
+            .expect("test operation should succeed");
+        assert!(matches!(
+            registry.unregister_module(&id),
+            Err(RegistryError::ModuleActive(ref active)) if *active == id
+        ));
+        assert!(matches!(
+            registry.clear(),
+            Err(RegistryError::ModuleActive(ref active)) if *active == id
+        ));
+        assert!(registry.is_registered(&id));
+
+        registry
+            .deactivate_module(&id)
+            .expect("test operation should succeed");
+        assert!(registry.unregister_module(&id).is_ok());
+        assert!(!registry.is_registered(&id));
+        assert_eq!(registry.total_size(), 0);
+        assert!(registry.clear().is_ok());
     }
 }

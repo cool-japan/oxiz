@@ -21,9 +21,13 @@ use crate::Args;
 /// Filename used to persist the learned tactic-selection model.
 const MODEL_FILENAME: &str = "ml_tactic_model.json";
 
-/// Environment variable that overrides the model path. Primarily for tests
-/// (so they never touch the real user config dir), but also lets a user point
-/// the persisted model at a location of their choosing.
+/// Environment variable that overrides the model path. It lets a user point
+/// the persisted model at a location of their choosing, and lets the
+/// integration tests, which run the binary as a child process, keep it out of
+/// the real user config dir. The unit tests pass their path to
+/// [`begin_with_model_path`] instead, so that they never change the process
+/// environment, which tests running on other threads of the same process may
+/// read.
 const MODEL_PATH_ENV: &str = "OXIZ_ML_MODEL";
 
 /// Resolve the on-disk model path (best-effort). Uses `OXIZ_ML_MODEL` when set,
@@ -100,8 +104,12 @@ fn apply_tactic(ctx: &mut Context, tactic_name: &str) {
 /// session (which carries a human-readable comment and will record feedback on
 /// [`MlSession::finish`]).
 pub fn begin(ctx: &mut Context, script: &str, _args: &Args) -> MlSession {
-    let path = model_path();
+    begin_with_model_path(ctx, script, model_path())
+}
 
+/// [`begin`] with the model persisted at `path` (not persisted when `None`)
+/// instead of the path [`model_path`] resolves.
+fn begin_with_model_path(ctx: &mut Context, script: &str, path: Option<PathBuf>) -> MlSession {
     let mut engine = MlTacticEngine::new();
     if let Some(ref p) = path
         && let Ok(bytes) = std::fs::read(p)
@@ -135,21 +143,18 @@ mod tests {
 
     #[test]
     fn begin_produces_recommendation_comment() {
-        // Redirect model persistence to a temp file so the test never touches
-        // the real user config dir. nextest runs each test in its own process,
-        // so this env mutation is isolated.
+        // Persist the model to a temp file so the test never touches the real
+        // user config dir. The path is handed to the session directly rather
+        // than through OXIZ_ML_MODEL: under `cargo test` the crate's unit
+        // tests share one process, so changing its environment would race
+        // with tests on other threads.
         let model = std::env::temp_dir().join(format!("oxiz_ml_test_{}.json", std::process::id()));
-        // SAFETY: single-threaded test process (nextest process-per-test).
-        unsafe {
-            std::env::set_var(MODEL_PATH_ENV, &model);
-        }
 
         let mut ctx = Context::new();
-        let args = default_args();
-        let session = begin(
+        let session = begin_with_model_path(
             &mut ctx,
             "(declare-const x Int)\n(assert (> x 0))\n(check-sat)\n",
-            &args,
+            Some(model.clone()),
         );
         assert!(
             session
@@ -162,10 +167,5 @@ mod tests {
         session.finish(true, Duration::from_millis(1));
 
         let _ = std::fs::remove_file(&model);
-    }
-
-    fn default_args() -> Args {
-        use clap::Parser;
-        Args::parse_from(["oxiz"])
     }
 }

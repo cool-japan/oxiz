@@ -40,18 +40,19 @@ impl AigBvBuilder {
 
     /// Create a new bit vector variable
     pub fn new_bv(&mut self, term: TermId, width: u32, prefix: &str) -> &[AigEdge] {
-        if !self.term_to_bits.contains_key(&term) {
+        // The entry is the lookup and the insertion in one: the inputs are
+        // created only when `term` has no bits yet, and the bits returned are
+        // the ones the map holds for `term`.
+        let circuit = &mut self.circuit;
+        self.term_to_bits.entry(term).or_insert_with(|| {
             let mut bits = SmallVec::new();
             for i in 0..width {
                 let name = format!("{}_{}", prefix, i);
-                let edge = self.circuit.new_input(name);
+                let edge = circuit.new_input(name);
                 bits.push(edge);
             }
-            self.term_to_bits.insert(term, bits);
-        }
-        self.term_to_bits
-            .get(&term)
-            .expect("BitVector should exist after insertion")
+            bits
+        })
     }
 
     /// Get the bits for a term

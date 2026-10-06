@@ -52,7 +52,10 @@ pub fn try_resume(script: &str, args: &Args) -> Option<Vec<String>> {
 /// Persist a completed-solve checkpoint (problem + config + real post-solve
 /// counters + full output) so a later `--resume` can replay it.
 ///
-/// Best-effort — a write failure warns but never aborts the solve.
+/// Best-effort for the write itself — a write failure warns but never aborts
+/// the solve. A system clock that reads a time before the Unix epoch leaves no
+/// timestamp to name the checkpoint by; that stops the process with exit
+/// status 1 and a message, as any other unusable environment does.
 pub fn write(script: &str, args: &Args, ctx: &Context, output: &[String]) {
     let Some(dir) = checkpoint_dir(args) else {
         return;
@@ -80,13 +83,19 @@ pub fn write(script: &str, args: &Args, ctx: &Context, output: &[String]) {
         "completed-solve record; mid-search SAT internals are not captured".to_string(),
     );
 
-    let mut cp = checkpoint::Checkpoint::new(
+    let mut cp = match checkpoint::Checkpoint::new(
         script.to_string(),
         args.logic.clone(),
         state,
         progress,
         Vec::new(),
-    );
+    ) {
+        Ok(cp) => cp,
+        Err(e) => {
+            eprintln!("error: cannot write checkpoint: {e}");
+            std::process::exit(1);
+        }
+    };
     cp.set_result(status, output);
 
     match cp.save(&dir) {

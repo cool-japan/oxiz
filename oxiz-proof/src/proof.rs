@@ -400,12 +400,48 @@ impl Proof {
     }
 
     /// Convert to string
+    ///
+    /// The text is the same as [`Self::write`] produces; it is built directly
+    /// into a `String`, so no I/O or UTF-8 conversion step is involved.
     #[must_use]
     pub fn to_string_repr(&self) -> String {
-        let mut buf = Vec::new();
-        self.write(&mut buf)
-            .expect("writing to Vec should not fail");
-        String::from_utf8(buf).expect("proof output is UTF-8")
+        let mut out = format!("; Proof with {} nodes\n\n", self.len());
+
+        for node in &self.nodes {
+            match &node.step {
+                ProofStep::Axiom { conclusion } => {
+                    out.push_str(&format!("{}: (axiom {})\n", node.id, conclusion));
+                }
+                ProofStep::Inference {
+                    rule,
+                    premises,
+                    conclusion,
+                    args,
+                } => {
+                    out.push_str(&format!("{}: ({} [", node.id, rule));
+                    for (i, p) in premises.iter().enumerate() {
+                        if i > 0 {
+                            out.push_str(", ");
+                        }
+                        out.push_str(&p.to_string());
+                    }
+                    out.push(']');
+                    if !args.is_empty() {
+                        out.push_str(" :args [");
+                        for (i, arg) in args.iter().enumerate() {
+                            if i > 0 {
+                                out.push_str(", ");
+                            }
+                            out.push_str(arg);
+                        }
+                        out.push(']');
+                    }
+                    out.push_str(&format!(" => {})\n", conclusion));
+                }
+            }
+        }
+
+        out
     }
 
     /// Add multiple axioms at once and return their IDs

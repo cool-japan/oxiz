@@ -235,6 +235,12 @@ fn spec_lit_from_code_contract() {
 /// `debug_assert!`; 1 proved at `to_dimacs`'s `:113`). The undecided site is
 /// the same one the `#[harness]` twin `dimacs_negation_harness` reports as
 /// undecided in this run; z3 4.15.4 answers `unsat` on this one.
+///
+/// Re-measured 2026-10-06: **`panic` proved** on all of its 5 sites (`:89`,
+/// `:113`, and the `Var::new`, `Lit::pos` and `Lit::neg` debug assertions
+/// reached through `from_dimacs`, which the encoder now raises); every other
+/// verdict above is unchanged. `README.md` (*Evidence grade*) has the whole
+/// re-measure.
 #[requires(dimacs != 0 && dimacs != i32::MIN)]
 #[ensures(|r| r.to_dimacs() == dimacs)]
 #[ensures(|r| r.is_pos() == (dimacs > 0))]

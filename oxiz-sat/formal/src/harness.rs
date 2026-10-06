@@ -234,6 +234,13 @@ fn dimacs_roundtrip_harness() {
 /// answer became `unknown` rather than a `refuted` with an unvalidated
 /// witness -- the same weakness that keeps the `LBool` identities undecided.
 ///
+/// Re-measured 2026-10-06: **refuted** again, counterexample
+/// `dimacs = -2147483648`, at `:89`; the verification conditions the encoder
+/// now emits raise 5 `panic` sites here (the `Var::new`, `Lit::pos` and
+/// `Lit::neg` debug assertions reached through `from_dimacs` besides `:89` and
+/// `:113`), and the other 4 are proved. `README.md` (*Evidence grade*) has the
+/// whole re-measure.
+///
 /// This is `dimacs_roundtrip_harness` with the `i32::MIN` precondition
 /// removed, so that the one input DIMACS cannot represent is inside the
 /// harness's domain. Two facts are measured here, and together they are the

@@ -57,17 +57,14 @@ pub fn simd_poly_eval<T>(coeffs: &[T], x: &T) -> T
 where
     T: Clone + Add<Output = T> + Mul<Output = T> + Zero,
 {
-    if coeffs.is_empty() {
+    let Some((leading, lower)) = coeffs.split_last() else {
         return T::zero();
-    }
+    };
 
     // Horner's method: p(x) = a0 + x(a1 + x(a2 + x(...)))
-    let mut result = coeffs
-        .last()
-        .expect("collection should not be empty")
-        .clone();
+    let mut result = leading.clone();
 
-    for coeff in coeffs.iter().rev().skip(1) {
+    for coeff in lower.iter().rev() {
         result = coeff.clone() + result * x.clone();
     }
 
@@ -226,11 +223,11 @@ pub fn poly_dot_product(a: &[i64], b: &[i64]) -> Result<i64, i128> {
 ///
 /// Coefficients are stored in ascending order of degree (constant term first).
 pub fn poly_eval_horner_i64(coeffs: &[i64], x: i64) -> i64 {
-    if coeffs.is_empty() {
+    let Some((&leading, lower)) = coeffs.split_last() else {
         return 0;
-    }
-    let mut result = *coeffs.last().expect("non-empty slice has a last element");
-    for &c in coeffs.iter().rev().skip(1) {
+    };
+    let mut result = leading;
+    for &c in lower.iter().rev() {
         result = c + result * x;
     }
     result

@@ -29,10 +29,9 @@ impl TotalizerClause {
 struct TotalizerNode {
     /// Output literals for this node (index i represents "at least i+1 inputs are true")
     outputs: Vec<Option<Lit>>,
-    /// Left child index (None for leaf nodes)
-    left: Option<usize>,
-    /// Right child index (None for leaf nodes)
-    right: Option<usize>,
+    /// Left and right child indices (None for leaf nodes). An internal node
+    /// always has both children, so they are stored as one pair.
+    children: Option<(usize, usize)>,
     /// Size (number of inputs in this subtree)
     size: usize,
 }
@@ -42,8 +41,7 @@ impl TotalizerNode {
     fn leaf(lit: Lit) -> Self {
         Self {
             outputs: vec![Some(lit)],
-            left: None,
-            right: None,
+            children: None,
             size: 1,
         }
     }
@@ -53,8 +51,7 @@ impl TotalizerNode {
         let size = left_size + right_size;
         Self {
             outputs: vec![None; size],
-            left: Some(left_idx),
-            right: Some(right_idx),
+            children: Some((left_idx, right_idx)),
             size,
         }
     }
@@ -92,8 +89,7 @@ impl Totalizer {
             return Self {
                 nodes: vec![TotalizerNode {
                     outputs: Vec::new(),
-                    left: None,
-                    right: None,
+                    children: None,
                     size: 0,
                 }],
                 root_idx: 0,
@@ -189,15 +185,10 @@ impl Totalizer {
 
     /// Encode a node up to bound k
     fn encode_node(&mut self, node_idx: usize, k: usize) {
-        let node = &self.nodes[node_idx];
-
         // Leaf nodes are already encoded (output = input)
-        if node.left.is_none() {
+        let Some((left_idx, right_idx)) = self.nodes[node_idx].children else {
             return;
-        }
-
-        let left_idx = node.left.expect("left child exists after is_none check");
-        let right_idx = node.right.expect("right child exists when left exists");
+        };
 
         // Recursively encode children
         self.encode_node(left_idx, k);

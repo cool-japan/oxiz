@@ -26,6 +26,18 @@ pub struct CacheEntry {
     pub last_access: u64,
 }
 
+/// Seconds since the Unix epoch by the system clock.
+///
+/// # Errors
+///
+/// Returns an error naming the clock when it reads a time before the epoch.
+pub(crate) fn unix_time_secs() -> Result<u64, String> {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs())
+        .map_err(|e| format!("the system clock reads a time before the Unix epoch ({e})"))
+}
+
 /// Result cache manager
 pub struct ResultCache {
     /// Cache directory
@@ -77,19 +89,21 @@ impl ResultCache {
     }
 
     /// Check if result is cached (updates LRU access time)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the system clock reads a time before the Unix
+    /// epoch, which leaves no access time to record.
     #[allow(dead_code)]
-    pub fn get(&mut self, input: &str) -> Option<CacheEntry> {
+    pub fn get(&mut self, input: &str) -> Result<Option<CacheEntry>, String> {
         let hash = Self::hash_input(input);
-        let now = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .expect("serialization should succeed")
-            .as_secs();
+        let now = unix_time_secs()?;
 
         // Check memory cache first
         if let Some(entry) = self.memory_cache.get_mut(&hash) {
             // Update last access time for LRU
             entry.last_access = now;
-            return Some(entry.clone());
+            return Ok(Some(entry.clone()));
         }
 
         // Check disk cache
@@ -103,10 +117,10 @@ impl ResultCache {
 
             // Add to memory cache with LRU eviction if needed
             self.insert_with_lru_eviction(hash, entry.clone());
-            return Some(entry);
+            return Ok(Some(entry));
         }
 
-        None
+        Ok(None)
     }
 
     /// Insert entry with LRU eviction if cache is full
@@ -129,13 +143,15 @@ impl ResultCache {
     }
 
     /// Store result in cache
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the system clock reads a time before the Unix
+    /// epoch, which leaves no timestamp to store; nothing is cached then.
     #[allow(dead_code)]
-    pub fn put(&mut self, input: &str, result: &str, time_ms: u128) {
+    pub fn put(&mut self, input: &str, result: &str, time_ms: u128) -> Result<(), String> {
         let hash = Self::hash_input(input);
-        let now = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .expect("serialization should succeed")
-            .as_secs();
+        let now = unix_time_secs()?;
 
         let entry = CacheEntry {
             input_hash: hash.clone(),
@@ -154,6 +170,7 @@ impl ResultCache {
         if let Ok(json) = serde_json::to_string_pretty(&entry) {
             let _ = fs::write(cache_file, json);
         }
+        Ok(())
     }
 
     /// Clear all cache entries
@@ -325,13 +342,23 @@ mod tests {
         let result = "sat";
 
         // Initially not cached
-        assert!(cache.get(input).is_none());
+        assert!(
+            cache
+                .get(input)
+                .expect("clock should be readable")
+                .is_none()
+        );
 
         // Put in cache
-        cache.put(input, result, 100);
+        cache
+            .put(input, result, 100)
+            .expect("clock should be readable");
 
         // Should be cached now
-        let cached = cache.get(input).expect("key should exist in map");
+        let cached = cache
+            .get(input)
+            .expect("clock should be readable")
+            .expect("key should exist in map");
         assert_eq!(cached.result, result);
         assert_eq!(cached.time_ms, 100);
 
@@ -352,8 +379,12 @@ mod tests {
         };
 
         // Add 2 entries
-        cache.put("(assert (= x 1))", "sat", 100);
-        cache.put("(assert (= x 2))", "sat", 200);
+        cache
+            .put("(assert (= x 1))", "sat", 100)
+            .expect("clock should be readable");
+        cache
+            .put("(assert (= x 2))", "sat", 200)
+            .expect("clock should be readable");
 
         assert_eq!(cache.memory_cache.len(), 2);
 
@@ -369,7 +400,9 @@ mod tests {
         }
 
         // Add 3rd entry - should evict hash1 (has oldest last_access)
-        cache.put("(assert (= x 3))", "sat", 300);
+        cache
+            .put("(assert (= x 3))", "sat", 300)
+            .expect("clock should be readable");
         let hash3 = ResultCache::hash_input("(assert (= x 3))");
 
         // Verify: cache should still have 2 entries

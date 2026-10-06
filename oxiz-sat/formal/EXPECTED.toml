@@ -183,6 +183,42 @@
 # oxiz-sat/formal` shows only D2's five files (`EXPECTED.toml`, `README.md`,
 # `src/harness.rs`, `src/lib.rs`, `src/spec.rs`); `oxiz-sat/src/` itself is
 # untouched by the concurrent OxiZ solver workflow.
+#
+# Re-measured 2026-10-06 with a release CLI and driver built from the
+# cargo-formal tree at 174ab2b; OxiZ 0.3.3, rustc nightly-2026-06-20,
+# --jobs 2, a fresh --target-dir, --no-cache; on this package as it stands and
+# the oxiz-sat, oxiz-core and oxiz-math sources beside it. 53 of the 55 rows
+# below reproduce. TWO MOVED (README.md's table, whose row 7 already read
+# `refuted`, sees only the second), both on the `debug_assert!` at
+# `../src/literal.rs:89`, and neither because a source moved: the same two
+# rows move the same way with the binaries built at e3a3053 on the sources as
+# they stood before (OxiZ d1802da). The encoder's verification conditions
+# differ from the 2026-09-15 ones -- the run lowers 32 dependency bodies (19
+# reachable) where that run lowered 19, and `dimacs_roundtrip_harness`,
+# `dimacs_negation_harness`, `spec_lit_from_dimacs_contract` and
+# `spec_lit_from_dimacs_nonzero_contract` raise five `panic` sites each where
+# that run counted two (the `Var::new`, `Lit::pos` and `Lit::neg` debug
+# assertions reached through `from_dimacs` are new, all proved) -- and on
+# these scripts `dimacs_negation_harness`'s `panic` is `refuted`
+# again (counterexample dimacs = -2147483648, the 2026-09-08/09 and 2026-09-14
+# value) and `spec_lit_from_dimacs_contract`'s `panic` is `proved` on all five
+# sites. Tally: 55 rows over 18 harnesses -- 43 proved / 4 refuted / 8 unknown
+# (the nine `spec_*` harnesses 28 / 2 / 7). Layer counters: bmc 125 proved /
+# 4 refuted / 0 timeout / 3 unknown and contract 15 proved / 0 refuted /
+# 7 unknown over 154 obligations, all 154 with a `vc/NNNN.smt2`
+# reproduction; solver-model-rejected 10; hygiene PASS over 3 files; exit 1
+# for the four intended refutations. Every `proved` row is "reproduction only
+# (claim unmet)" under the default `claim-requires` (claim unmet 140 of 140
+# proved). The default run cross-checks every proved obligation at bit level
+# (bit-blasted, solved by oxiz-sat, its proof checked by oxiz-proof): of the
+# 140, 64 confirmed, 76 folded (the encoder reduced an assertion to the
+# constant `false`), 0 contradicted, 0 not confirmed, no soundness incident.
+# `cargo formal check --evidence lrat` (the same binaries, a fresh
+# --target-dir, --no-cache): 0 soundness incidents, exit 1 for the four
+# intended refutations; of the 36 vacuity `unsat` answers 32 confirmed and 4
+# folded at bit level (proved vacuously: 36 of 138 checked); 15 of the 140
+# proved obligations carry an LRAT certificate checked by oxiz-proof (12 bmc,
+# 3 contract), all 15 under the self-host discount.
 
 [[harness]]
 name = "lit_pos_roundtrip_bounded_harness"
@@ -258,7 +294,10 @@ name = "dimacs_negation_harness"
 # answers `sat` on the same script and `plain_tests` panics on `i32::MIN` --
 # and the contract twin `spec_lit_from_dimacs_nonzero_contract` records it as
 # `refuted` with that counterexample in the same run.
-"panic" = "unknown"
+# Re-measured 2026-10-06: `refuted` again at `:89`, counterexample
+# dimacs = -2147483648, over the 5 `panic` sites the encoder now raises here
+# (the other 4 proved); see the 2026-10-06 paragraph in the header.
+"panic" = "refuted"
 # Proved here, `refuted` in the vendored pre-fix twin: this is the overflow the
 # upstream fix removed, and the refutation moved to the `panic` row above.
 "neg-overflow" = "proved"
@@ -365,7 +404,11 @@ name = "spec_lit_from_dimacs_contract"
 # does: `from_dimacs`'s `debug_assert!` (`:89`) is `solver-model-rejected`,
 # and `to_dimacs`'s unconditional panic (`:113`) is proved vacuously. z3
 # answers `unsat` on the undecided one.
-"panic" = "unknown"
+# Re-measured 2026-10-06: `proved` on all 5 `panic` sites the encoder now
+# raises here (`:89`, `:113`, and the `Var::new`, `Lit::pos` and `Lit::neg`
+# debug assertions reached through `from_dimacs`); see the 2026-10-06
+# paragraph in the header.
+"panic" = "proved"
 "neg-overflow" = "proved"    # `-magnitude` in `try_to_dimacs` (`:129`)
 
 [[harness]]

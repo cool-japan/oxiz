@@ -150,12 +150,13 @@ impl StructureAnalyzer {
 
     /// Analyze the problem structure and return statistics.
     pub fn analyze(&mut self) -> &StructureStats {
-        if self.stats.is_none() {
-            self.stats = Some(self.compute_stats());
-        }
-        self.stats
-            .as_ref()
-            .expect("stats initialized during construction")
+        // Take the cached value (or compute it when there is none) and put it
+        // back: `Option::insert` hands out a reference to what it stores.
+        let stats = match self.stats.take() {
+            Some(stats) => stats,
+            None => self.compute_stats(),
+        };
+        self.stats.insert(stats)
     }
 
     /// Compute structure statistics.

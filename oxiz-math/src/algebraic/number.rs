@@ -346,16 +346,11 @@ impl AlgebraicNumber {
             &self.upper * &other.lower,
             &self.upper * &other.upper,
         ];
-        let prod_lower = corners
-            .iter()
-            .min_by(|a, b| a.cmp(b))
-            .expect("4 elements")
-            .clone();
-        let prod_upper = corners
-            .iter()
-            .max_by(|a, b| a.cmp(b))
-            .expect("4 elements")
-            .clone();
+        // A fixed array of four: the extremes are taken pairwise, with no
+        // empty case to handle.
+        let [c0, c1, c2, c3] = &corners;
+        let prod_lower = c0.min(c1).min(c2.min(c3)).clone();
+        let prod_upper = c0.max(c1).max(c2.max(c3)).clone();
 
         isolate_root_in_interval(result_poly, prod_lower, prod_upper)
     }

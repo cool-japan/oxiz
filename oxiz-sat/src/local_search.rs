@@ -8,7 +8,7 @@
 //! - ProbSAT: Uses a probability distribution based on break counts
 //! - WalkSAT: Uses a greedy heuristic with random walk
 
-use crate::clause::{ClauseDatabase, ClauseId};
+use crate::clause::{Clause, ClauseDatabase, ClauseId};
 use crate::literal::{Lit, Var};
 #[allow(unused_imports)]
 use crate::prelude::*;
@@ -58,6 +58,12 @@ pub struct LocalSearchStats {
     pub improvements: u64,
 }
 
+/// The currently unsatisfied clauses of one search, in the order they became
+/// unsatisfied, each kept with the clause it names: the reference is taken from
+/// the database while it is being iterated, so picking a clause never has to
+/// look its ID up again.
+type UnsatList<'c> = Vec<(ClauseId, &'c Clause)>;
+
 /// Local Search SAT Solver
 ///
 /// Implements both WalkSAT and ProbSAT algorithms.
@@ -69,9 +75,8 @@ pub struct LocalSearch {
     break_count: Vec<u64>,
     /// Make count for each variable (how many unsatisfied clauses would become satisfied)
     make_count: Vec<u64>,
-    /// List of currently unsatisfied clauses
-    unsat_clauses: Vec<ClauseId>,
-    /// Set of unsatisfied clauses for quick lookup
+    /// Set of unsatisfied clauses for quick lookup (the list of them, with
+    /// each clause's reference, lives for one search: see [`UnsatList`])
     unsat_set: HashMap<ClauseId, ()>,
     /// Number of true literals in each clause
     true_count: HashMap<ClauseId, usize>,
@@ -91,7 +96,6 @@ impl LocalSearch {
             assignment: vec![false; num_vars],
             break_count: vec![0; num_vars],
             make_count: vec![0; num_vars],
-            unsat_clauses: Vec::new(),
             unsat_set: HashMap::new(),
             true_count: HashMap::new(),
             rng_state: config.random_seed,
@@ -125,37 +129,37 @@ impl LocalSearch {
         }
     }
 
-    /// Initialize data structures for search
-    fn initialize(&mut self, clauses: &ClauseDatabase, num_vars: usize) {
+    /// Initialize data structures for search; `unsat_clauses` receives the
+    /// clauses the initial assignment leaves unsatisfied
+    fn initialize<'c>(
+        &mut self,
+        clauses: &'c ClauseDatabase,
+        num_vars: usize,
+        unsat_clauses: &mut UnsatList<'c>,
+    ) {
         self.initialize_random(num_vars);
         self.break_count.clear();
         self.break_count.resize(num_vars, 0);
         self.make_count.clear();
         self.make_count.resize(num_vars, 0);
-        self.unsat_clauses.clear();
+        unsat_clauses.clear();
         self.unsat_set.clear();
         self.true_count.clear();
 
         // Calculate initial true counts and unsat clauses
-        for id in clauses.iter_ids() {
-            let clause = clauses
-                .get(id)
-                .expect("id from clauses.iter_ids() is valid");
+        for (id, clause) in clauses.iter_live() {
             let true_lits = clause.lits.iter().filter(|&&lit| self.is_true(lit)).count();
 
             self.true_count.insert(id, true_lits);
 
             if true_lits == 0 {
-                self.unsat_clauses.push(id);
+                unsat_clauses.push((id, clause));
                 self.unsat_set.insert(id, ());
             }
         }
 
         // Calculate break and make counts
-        for id in clauses.iter_ids() {
-            let clause = clauses
-                .get(id)
-                .expect("id from clauses.iter_ids() is valid");
+        for (id, clause) in clauses.iter_live() {
             let true_lits = self.true_count[&id];
 
             for &lit in &clause.lits {
@@ -176,7 +180,7 @@ impl LocalSearch {
             }
         }
 
-        self.stats.min_unsat = self.unsat_clauses.len();
+        self.stats.min_unsat = unsat_clauses.len();
     }
 
     /// Check if a literal is true under the current assignment
@@ -185,8 +189,13 @@ impl LocalSearch {
         if lit.is_pos() { var_value } else { !var_value }
     }
 
-    /// Flip a variable and update data structures
-    fn flip(&mut self, var: Var, clauses: &ClauseDatabase) {
+    /// Flip a variable and update data structures, `unsat_clauses` among them
+    fn flip<'c>(
+        &mut self,
+        var: Var,
+        clauses: &'c ClauseDatabase,
+        unsat_clauses: &mut UnsatList<'c>,
+    ) {
         let var_idx = var.index();
         self.assignment[var_idx] = !self.assignment[var_idx];
         self.stats.flips += 1;
@@ -197,10 +206,7 @@ impl LocalSearch {
 
         // We need to find all clauses containing this variable
         // Since we don't have a watch list here, we iterate all clauses
-        for id in clauses.iter_ids() {
-            let clause = clauses
-                .get(id)
-                .expect("id from clauses.iter_ids() is valid");
+        for (id, clause) in clauses.iter_live() {
             if !clause.lits.contains(&pos_lit) && !clause.lits.contains(&neg_lit) {
                 continue;
             }
@@ -217,7 +223,7 @@ impl LocalSearch {
 
             // Update unsat list
             if !was_unsat && is_unsat {
-                self.unsat_clauses.push(id);
+                unsat_clauses.push((id, clause));
                 self.unsat_set.insert(id, ());
             } else if was_unsat && !is_unsat {
                 self.unsat_set.remove(&id);
@@ -251,12 +257,11 @@ impl LocalSearch {
         }
 
         // Clean up unsat_clauses list
-        self.unsat_clauses
-            .retain(|&id| self.unsat_set.contains_key(&id));
+        unsat_clauses.retain(|&(id, _)| self.unsat_set.contains_key(&id));
 
         // Track improvements
-        if self.unsat_clauses.len() < self.stats.min_unsat {
-            self.stats.min_unsat = self.unsat_clauses.len();
+        if unsat_clauses.len() < self.stats.min_unsat {
+            self.stats.min_unsat = unsat_clauses.len();
             self.stats.improvements += 1;
         }
     }
@@ -269,19 +274,19 @@ impl LocalSearch {
         clauses: &ClauseDatabase,
         num_vars: usize,
     ) -> (LocalSearchResult, Option<Vec<bool>>) {
-        self.initialize(clauses, num_vars);
+        let mut unsat_clauses = UnsatList::new();
+        self.initialize(clauses, num_vars, &mut unsat_clauses);
 
         for _ in 0..self.config.max_flips {
-            if self.unsat_clauses.is_empty() {
+            if unsat_clauses.is_empty() {
                 return (LocalSearchResult::Sat, Some(self.assignment.clone()));
             }
 
             // Pick a random unsatisfied clause
-            let clause_id = {
-                let idx = (self.rand() as usize) % self.unsat_clauses.len();
-                self.unsat_clauses[idx]
+            let (_, clause) = {
+                let idx = (self.rand() as usize) % unsat_clauses.len();
+                unsat_clauses[idx]
             };
-            let clause = clauses.get(clause_id).expect("clause_id is valid");
 
             // Decide whether to use random walk
             let use_random_walk = self.rand_float() < self.config.random_walk_prob;
@@ -308,7 +313,7 @@ impl LocalSearch {
                 best_var
             };
 
-            self.flip(var_to_flip, clauses);
+            self.flip(var_to_flip, clauses, &mut unsat_clauses);
         }
 
         (LocalSearchResult::Unknown, None)
@@ -322,19 +327,19 @@ impl LocalSearch {
         clauses: &ClauseDatabase,
         num_vars: usize,
     ) -> (LocalSearchResult, Option<Vec<bool>>) {
-        self.initialize(clauses, num_vars);
+        let mut unsat_clauses = UnsatList::new();
+        self.initialize(clauses, num_vars, &mut unsat_clauses);
 
         for _ in 0..self.config.max_flips {
-            if self.unsat_clauses.is_empty() {
+            if unsat_clauses.is_empty() {
                 return (LocalSearchResult::Sat, Some(self.assignment.clone()));
             }
 
             // Pick a random unsatisfied clause
-            let clause_id = {
-                let idx = (self.rand() as usize) % self.unsat_clauses.len();
-                self.unsat_clauses[idx]
+            let (_, clause) = {
+                let idx = (self.rand() as usize) % unsat_clauses.len();
+                unsat_clauses[idx]
             };
-            let clause = clauses.get(clause_id).expect("clause_id is valid");
 
             // Calculate probabilities based on break counts
             let mut probs: SmallVec<[f64; 8]> = SmallVec::new();
@@ -367,7 +372,7 @@ impl LocalSearch {
                 }
             }
 
-            self.flip(selected_var, clauses);
+            self.flip(selected_var, clauses, &mut unsat_clauses);
         }
 
         (LocalSearchResult::Unknown, None)

@@ -1227,11 +1227,8 @@ impl AdvancedCharSolver {
     /// Backtrack to a level
     #[allow(dead_code)]
     fn backtrack(&mut self, level: u32) {
-        while let Some(entry) = self.trail.last() {
-            if entry.level <= level {
-                break;
-            }
-            let entry = self.trail.pop().expect("trail not empty");
+        // `pop_if` is the test of the last entry and its removal in one call.
+        while let Some(entry) = self.trail.pop_if(|entry| entry.level > level) {
             self.domains.insert(entry.var, entry.old_domain);
         }
         self.decision_level = level;

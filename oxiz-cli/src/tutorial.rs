@@ -17,7 +17,12 @@ pub enum TutorialSection {
 }
 
 /// Run the interactive tutorial
-pub fn run_tutorial(section: Option<TutorialSection>) {
+///
+/// # Errors
+///
+/// Returns the I/O error when the prompt between sections cannot be flushed
+/// to standard output or the reply cannot be read from standard input.
+pub fn run_tutorial(section: Option<TutorialSection>) -> io::Result<()> {
     let section = section.unwrap_or(TutorialSection::All);
 
     print_header("OxiZ SMT Solver Tutorial");
@@ -31,13 +36,13 @@ pub fn run_tutorial(section: Option<TutorialSection>) {
         TutorialSection::CliOptions => show_cli_options(),
         TutorialSection::All => {
             show_introduction();
-            wait_for_user();
+            wait_for_user()?;
             show_basic_usage();
-            wait_for_user();
+            wait_for_user()?;
             show_theories();
-            wait_for_user();
+            wait_for_user()?;
             show_advanced_features();
-            wait_for_user();
+            wait_for_user()?;
             show_cli_options();
         }
     }
@@ -45,6 +50,7 @@ pub fn run_tutorial(section: Option<TutorialSection>) {
     println!();
     println!("Tutorial complete! For more examples, run: oxiz --examples");
     println!("For help, run: oxiz --help");
+    Ok(())
 }
 
 /// Show introduction section
@@ -345,14 +351,13 @@ fn print_example(description: &str, code: &str) {
 }
 
 /// Wait for user to press Enter
-fn wait_for_user() {
+fn wait_for_user() -> io::Result<()> {
     println!();
     print!("Press Enter to continue...");
-    io::stdout().flush().expect("flush should succeed");
+    io::stdout().flush()?;
     let mut buffer = String::new();
-    io::stdin()
-        .read_line(&mut buffer)
-        .expect("failed to read line from stdin");
+    io::stdin().read_line(&mut buffer)?;
+    Ok(())
 }
 
 /// List available tutorial sections

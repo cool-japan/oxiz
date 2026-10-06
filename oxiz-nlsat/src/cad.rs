@@ -279,12 +279,20 @@ impl CadProjection {
         let h2 = self.poly_hash(p2);
         let cache_key = if h1 < h2 { (h1, h2) } else { (h2, h1) };
 
-        // Check cache with read lock
+        // Check cache with read lock. Only a write guard poisons a `RwLock`,
+        // and the only write is the single `insert` below: its value (a clone
+        // of a resultant computed before the lock is taken) is built before
+        // the map is touched, and its `(u64, u64)` key hashes and compares
+        // without panicking, so a poisoned lock still guards a well-formed
+        // map whose every entry is a whole value an insert stored, and
+        // `into_inner` reads it as it is. (Whether a cached entry is the
+        // resultant of *these* operands is a separate question of how
+        // `cache_key` is formed; poisoning adds nothing to it.)
         {
             let cache = self
                 .resultant_cache
                 .read()
-                .expect("lock should not be poisoned");
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Some(cached) = cache.get(&cache_key) {
                 return cached.clone();
             }
@@ -293,12 +301,15 @@ impl CadProjection {
         // Not in cache, compute it
         let resultant = p1.resultant(p2, var);
 
-        // Store in cache with write lock
+        // Store in cache with write lock. As at the read above, this `insert`
+        // is the only mutation and leaves the map either without the entry
+        // or with the whole entry, so a poisoned lock guards a map whose
+        // entries are each a whole stored value and `into_inner` is sound.
         {
             let mut cache = self
                 .resultant_cache
                 .write()
-                .expect("lock should not be poisoned");
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             cache.insert(cache_key, resultant.clone());
         }
 
@@ -916,37 +927,39 @@ impl CadLifter {
         // root points themselves.
         let mut points = Vec::new();
 
-        if roots.is_empty() {
-            // No roots - just one cell, sample at 0
-            points.push(CadPoint::rational(crate::cad_algebraic::open_sample(
-                None, None,
-            )));
-        } else {
-            // Before first root
-            points.push(CadPoint::rational(crate::cad_algebraic::open_sample(
-                None,
-                Some(&roots[0]),
-            )));
-
-            for i in 0..roots.len() {
-                // The exact root itself
-                points.push(roots[i].to_point());
-
-                // Between this root and next
-                if i + 1 < roots.len() {
-                    points.push(CadPoint::rational(crate::cad_algebraic::open_sample(
-                        Some(&roots[i]),
-                        Some(&roots[i + 1]),
-                    )));
-                }
+        match roots.last() {
+            None => {
+                // No roots - just one cell, sample at 0
+                points.push(CadPoint::rational(crate::cad_algebraic::open_sample(
+                    None, None,
+                )));
             }
+            Some(last) => {
+                // Before first root
+                points.push(CadPoint::rational(crate::cad_algebraic::open_sample(
+                    None,
+                    Some(&roots[0]),
+                )));
 
-            // After last root
-            let last = roots.last().expect("collection validated to be non-empty");
-            points.push(CadPoint::rational(crate::cad_algebraic::open_sample(
-                Some(last),
-                None,
-            )));
+                for i in 0..roots.len() {
+                    // The exact root itself
+                    points.push(roots[i].to_point());
+
+                    // Between this root and next
+                    if i + 1 < roots.len() {
+                        points.push(CadPoint::rational(crate::cad_algebraic::open_sample(
+                            Some(&roots[i]),
+                            Some(&roots[i + 1]),
+                        )));
+                    }
+                }
+
+                // After last root
+                points.push(CadPoint::rational(crate::cad_algebraic::open_sample(
+                    Some(last),
+                    None,
+                )));
+            }
         }
 
         points
@@ -1108,39 +1121,28 @@ impl CadDecomposer {
         // exact root points themselves.
         let mut cells = Vec::new();
 
-        if roots.is_empty() {
-            // No roots - single cell covering all of R
-            let sample = self.select_sample_point(None, None, var);
-            cells.push(CadCell {
-                var_order: vec![var],
-                sample: vec![CadPoint::rational(sample)],
-                signs: Vec::new(),
-            });
-            self.num_cells += 1;
-
-            if self.num_cells >= self.config.max_cells {
-                return Err(CadError::TooManyCells);
-            }
-        } else {
-            // Cell before first root: sample below the first root's isolating
-            // interval lower bound (hence below the true root).
-            let sample = self.select_sample_point(None, Some(&roots[0].lo), var);
-            cells.push(CadCell {
-                var_order: vec![var],
-                sample: vec![CadPoint::rational(sample)],
-                signs: Vec::new(),
-            });
-            self.num_cells += 1;
-
-            if self.num_cells >= self.config.max_cells {
-                return Err(CadError::TooManyCells);
-            }
-
-            for i in 0..roots.len() {
-                // Cell at the (exact) root
+        match roots.last() {
+            None => {
+                // No roots - single cell covering all of R
+                let sample = self.select_sample_point(None, None, var);
                 cells.push(CadCell {
                     var_order: vec![var],
-                    sample: vec![roots[i].to_point()],
+                    sample: vec![CadPoint::rational(sample)],
+                    signs: Vec::new(),
+                });
+                self.num_cells += 1;
+
+                if self.num_cells >= self.config.max_cells {
+                    return Err(CadError::TooManyCells);
+                }
+            }
+            Some(last) => {
+                // Cell before first root: sample below the first root's isolating
+                // interval lower bound (hence below the true root).
+                let sample = self.select_sample_point(None, Some(&roots[0].lo), var);
+                cells.push(CadCell {
+                    var_order: vec![var],
+                    sample: vec![CadPoint::rational(sample)],
                     signs: Vec::new(),
                 });
                 self.num_cells += 1;
@@ -1149,14 +1151,11 @@ impl CadDecomposer {
                     return Err(CadError::TooManyCells);
                 }
 
-                // Cell between this root and next: sampled strictly inside the
-                // gap between the two roots' isolating intervals.
-                if i + 1 < roots.len() {
-                    let sample =
-                        self.select_sample_point(Some(&roots[i].hi), Some(&roots[i + 1].lo), var);
+                for i in 0..roots.len() {
+                    // Cell at the (exact) root
                     cells.push(CadCell {
                         var_order: vec![var],
-                        sample: vec![CadPoint::rational(sample)],
+                        sample: vec![roots[i].to_point()],
                         signs: Vec::new(),
                     });
                     self.num_cells += 1;
@@ -1164,21 +1163,40 @@ impl CadDecomposer {
                     if self.num_cells >= self.config.max_cells {
                         return Err(CadError::TooManyCells);
                     }
+
+                    // Cell between this root and next: sampled strictly inside the
+                    // gap between the two roots' isolating intervals.
+                    if i + 1 < roots.len() {
+                        let sample = self.select_sample_point(
+                            Some(&roots[i].hi),
+                            Some(&roots[i + 1].lo),
+                            var,
+                        );
+                        cells.push(CadCell {
+                            var_order: vec![var],
+                            sample: vec![CadPoint::rational(sample)],
+                            signs: Vec::new(),
+                        });
+                        self.num_cells += 1;
+
+                        if self.num_cells >= self.config.max_cells {
+                            return Err(CadError::TooManyCells);
+                        }
+                    }
                 }
-            }
 
-            // Cell after last root: sample above the last root's interval.
-            let last = roots.last().expect("collection validated to be non-empty");
-            let sample = self.select_sample_point(Some(&last.hi), None, var);
-            cells.push(CadCell {
-                var_order: vec![var],
-                sample: vec![CadPoint::rational(sample)],
-                signs: Vec::new(),
-            });
-            self.num_cells += 1;
+                // Cell after last root: sample above the last root's interval.
+                let sample = self.select_sample_point(Some(&last.hi), None, var);
+                cells.push(CadCell {
+                    var_order: vec![var],
+                    sample: vec![CadPoint::rational(sample)],
+                    signs: Vec::new(),
+                });
+                self.num_cells += 1;
 
-            if self.num_cells >= self.config.max_cells {
-                return Err(CadError::TooManyCells);
+                if self.num_cells >= self.config.max_cells {
+                    return Err(CadError::TooManyCells);
+                }
             }
         }
 
@@ -1222,37 +1240,27 @@ impl CadDecomposer {
         let cell_roots = crate::cad_algebraic::isolate_root_samples(&univariate_polys, var);
 
         // Create lifted cells
-        if cell_roots.is_empty() {
-            // No roots - single cell
-            let sample = self.select_sample_point(None, None, var);
-            let mut new_sample = cell.sample.clone();
-            new_sample.push(CadPoint::rational(sample));
-
-            let mut new_var_order = cell.var_order.clone();
-            new_var_order.push(var);
-
-            result.push(CadCell {
-                var_order: new_var_order,
-                sample: new_sample,
-                signs: Vec::new(),
-            });
-        } else {
-            // Before first root
-            let sample = self.select_sample_point(None, Some(&cell_roots[0].lo), var);
-            let mut new_sample = cell.sample.clone();
-            new_sample.push(CadPoint::rational(sample));
-            let mut new_var_order = cell.var_order.clone();
-            new_var_order.push(var);
-            result.push(CadCell {
-                var_order: new_var_order.clone(),
-                sample: new_sample,
-                signs: Vec::new(),
-            });
-
-            for i in 0..cell_roots.len() {
-                // At the exact root
+        match cell_roots.last() {
+            None => {
+                // No roots - single cell
+                let sample = self.select_sample_point(None, None, var);
                 let mut new_sample = cell.sample.clone();
-                new_sample.push(cell_roots[i].to_point());
+                new_sample.push(CadPoint::rational(sample));
+
+                let mut new_var_order = cell.var_order.clone();
+                new_var_order.push(var);
+
+                result.push(CadCell {
+                    var_order: new_var_order,
+                    sample: new_sample,
+                    signs: Vec::new(),
+                });
+            }
+            Some(last) => {
+                // Before first root
+                let sample = self.select_sample_point(None, Some(&cell_roots[0].lo), var);
+                let mut new_sample = cell.sample.clone();
+                new_sample.push(CadPoint::rational(sample));
                 let mut new_var_order = cell.var_order.clone();
                 new_var_order.push(var);
                 result.push(CadCell {
@@ -1261,16 +1269,10 @@ impl CadDecomposer {
                     signs: Vec::new(),
                 });
 
-                // Between roots: strictly inside the gap between the two roots'
-                // isolating intervals.
-                if i + 1 < cell_roots.len() {
-                    let sample = self.select_sample_point(
-                        Some(&cell_roots[i].hi),
-                        Some(&cell_roots[i + 1].lo),
-                        var,
-                    );
+                for i in 0..cell_roots.len() {
+                    // At the exact root
                     let mut new_sample = cell.sample.clone();
-                    new_sample.push(CadPoint::rational(sample));
+                    new_sample.push(cell_roots[i].to_point());
                     let mut new_var_order = cell.var_order.clone();
                     new_var_order.push(var);
                     result.push(CadCell {
@@ -1278,23 +1280,39 @@ impl CadDecomposer {
                         sample: new_sample,
                         signs: Vec::new(),
                     });
-                }
-            }
 
-            // After last root
-            let last = cell_roots
-                .last()
-                .expect("collection validated to be non-empty");
-            let sample = self.select_sample_point(Some(&last.hi), None, var);
-            let mut new_sample = cell.sample.clone();
-            new_sample.push(CadPoint::rational(sample));
-            let mut new_var_order = cell.var_order.clone();
-            new_var_order.push(var);
-            result.push(CadCell {
-                var_order: new_var_order,
-                sample: new_sample,
-                signs: Vec::new(),
-            });
+                    // Between roots: strictly inside the gap between the two roots'
+                    // isolating intervals.
+                    if i + 1 < cell_roots.len() {
+                        let sample = self.select_sample_point(
+                            Some(&cell_roots[i].hi),
+                            Some(&cell_roots[i + 1].lo),
+                            var,
+                        );
+                        let mut new_sample = cell.sample.clone();
+                        new_sample.push(CadPoint::rational(sample));
+                        let mut new_var_order = cell.var_order.clone();
+                        new_var_order.push(var);
+                        result.push(CadCell {
+                            var_order: new_var_order.clone(),
+                            sample: new_sample,
+                            signs: Vec::new(),
+                        });
+                    }
+                }
+
+                // After last root
+                let sample = self.select_sample_point(Some(&last.hi), None, var);
+                let mut new_sample = cell.sample.clone();
+                new_sample.push(CadPoint::rational(sample));
+                let mut new_var_order = cell.var_order.clone();
+                new_var_order.push(var);
+                result.push(CadCell {
+                    var_order: new_var_order,
+                    sample: new_sample,
+                    signs: Vec::new(),
+                });
+            }
         }
 
         result

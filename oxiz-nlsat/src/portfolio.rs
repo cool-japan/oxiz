@@ -19,7 +19,7 @@ use oxiz_math::polynomial::{Monomial, MonomialOrder, Polynomial, Term, Var};
 use oxiz_time::{Duration, Instant};
 use rustc_hash::FxHashSet;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 
 /// Configuration for portfolio-based solving.
 #[derive(Debug, Clone)]
@@ -84,7 +84,11 @@ impl SharedClauseDB {
     /// Add a clause to share from a solver.
     #[allow(dead_code)]
     fn share_clause(&self, solver_id: usize, clause: Clause) {
-        let mut clauses = self.clauses.lock().expect("lock should not be poisoned");
+        // The guarded queue's only mutations are this `push` of one whole
+        // entry and the whole-queue `clear` in `get_shared_clauses`; neither
+        // can leave a partial entry behind, so a poisoned lock still guards a
+        // queue of whole entries and `into_inner` reads it as it is.
+        let mut clauses = self.clauses.lock().unwrap_or_else(PoisonError::into_inner);
         clauses.push((solver_id, clause));
         self.total_shared.fetch_add(1, Ordering::Relaxed);
     }
@@ -92,7 +96,10 @@ impl SharedClauseDB {
     /// Get clauses shared by other solvers (not from this solver).
     #[allow(dead_code)]
     fn get_shared_clauses(&self, solver_id: usize) -> Vec<Clause> {
-        let mut clauses = self.clauses.lock().expect("lock should not be poisoned");
+        // As in `share_clause`: the queue only ever gains whole entries or is
+        // cleared whole (a panic while the entries below are cloned happens
+        // before the `clear`), so a poisoned lock guards whole entries.
+        let mut clauses = self.clauses.lock().unwrap_or_else(PoisonError::into_inner);
         let result: Vec<_> = clauses
             .iter()
             .filter(|(id, _)| *id != solver_id)
@@ -498,8 +505,13 @@ impl PortfolioSolver {
                             // Found a solution - signal other threads to stop
                             terminated.store(true, Ordering::Relaxed);
 
+                            // The slot is written once, by one assignment whose
+                            // value is built before the slot is replaced, so a
+                            // holder that panicked (while building it) left it
+                            // `None`; a poisoned lock guards `None` or a whole
+                            // result, and `into_inner` reads it as it is.
                             let mut result =
-                                result_mutex.lock().expect("lock should not be poisoned");
+                                result_mutex.lock().unwrap_or_else(PoisonError::into_inner);
                             if result.is_none() {
                                 *result = Some(PortfolioResult::Sat {
                                     solver_id,
@@ -516,8 +528,10 @@ impl PortfolioSolver {
                             // Found UNSAT - signal other threads to stop
                             terminated.store(true, Ordering::Relaxed);
 
+                            // As in the `Sat` arm: the slot holds `None` or a
+                            // whole result even when the lock is poisoned.
                             let mut result =
-                                result_mutex.lock().expect("lock should not be poisoned");
+                                result_mutex.lock().unwrap_or_else(PoisonError::into_inner);
                             if result.is_none() {
                                 *result = Some(PortfolioResult::Unsat {
                                     solver_id,
@@ -555,8 +569,10 @@ impl PortfolioSolver {
             None => run(),
         }
 
-        // Return the result
-        let result = result_mutex.lock().expect("lock should not be poisoned");
+        // Return the result. The workers write the slot only by the
+        // single-assignment pattern above, so even a poisoned lock guards
+        // `None` or a whole result some worker produced; nothing is made up.
+        let result = result_mutex.lock().unwrap_or_else(PoisonError::into_inner);
         result.clone().unwrap_or(PortfolioResult::Unknown)
     }
 

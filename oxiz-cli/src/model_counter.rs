@@ -53,19 +53,34 @@ const HASH_MIN_VARS: usize = 10;
 const DEFAULT_ENUMERATION_WALL_CLOCK_BUDGET: std::time::Duration =
     std::time::Duration::from_secs(10);
 
-/// Environment variable letting tests shrink
-/// [`DEFAULT_ENUMERATION_WALL_CLOCK_BUDGET`] so a regression test for the
-/// wall-clock safety net does not have to actually wait out the full
-/// production ceiling. Unset (or unparseable) in normal operation, where the
-/// production default always applies.
+/// Environment variable that replaces
+/// [`DEFAULT_ENUMERATION_WALL_CLOCK_BUDGET`] with a ceiling of its own, in
+/// whole milliseconds. Unset (or unparseable) in normal operation, where the
+/// production default always applies. Tests do not set it: a test gives its
+/// counter a ceiling directly (`ModelCounter::with_wall_clock_budget`), so
+/// that it never changes the process environment, which tests running on
+/// other threads of the same process may read; the parse of the variable's
+/// value is tested through [`wall_clock_budget_from_override`].
 const WALL_CLOCK_BUDGET_OVERRIDE_MS_VAR: &str = "OXIZ_MODEL_COUNT_WALL_CLOCK_BUDGET_MS";
 
-/// The wall-clock ceiling actually in effect for [`enumerate_models_bounded`]:
-/// [`DEFAULT_ENUMERATION_WALL_CLOCK_BUDGET`] unless overridden (for tests
-/// only) via [`WALL_CLOCK_BUDGET_OVERRIDE_MS_VAR`].
+/// The wall-clock ceiling in effect for [`enumerate_models_bounded`] when the
+/// counter carries none of its own (always, outside tests):
+/// [`DEFAULT_ENUMERATION_WALL_CLOCK_BUDGET`] unless
+/// [`WALL_CLOCK_BUDGET_OVERRIDE_MS_VAR`] holds a whole number of milliseconds.
 fn enumeration_wall_clock_budget() -> std::time::Duration {
-    std::env::var(WALL_CLOCK_BUDGET_OVERRIDE_MS_VAR)
-        .ok()
+    wall_clock_budget_from_override(
+        std::env::var(WALL_CLOCK_BUDGET_OVERRIDE_MS_VAR)
+            .ok()
+            .as_deref(),
+    )
+}
+
+/// The ceiling a value of [`WALL_CLOCK_BUDGET_OVERRIDE_MS_VAR`] selects: a
+/// whole number of milliseconds replaces
+/// [`DEFAULT_ENUMERATION_WALL_CLOCK_BUDGET`]; an absent or unparseable value
+/// leaves the default in force.
+fn wall_clock_budget_from_override(value: Option<&str>) -> std::time::Duration {
+    value
         .and_then(|v| v.parse::<u64>().ok())
         .map(std::time::Duration::from_millis)
         .unwrap_or(DEFAULT_ENUMERATION_WALL_CLOCK_BUDGET)
@@ -191,6 +206,10 @@ pub struct ModelCounter {
     /// estimates. Exact results and sound lower bounds always report `1.0`
     /// regardless of this setting.
     confidence: f64,
+    /// Wall-clock ceiling for bounded enumeration. `None` (always, outside
+    /// tests) uses [`enumeration_wall_clock_budget`]; a test sets its own
+    /// ceiling here instead of changing the process environment.
+    wall_clock_budget: Option<std::time::Duration>,
 }
 
 impl ModelCounter {
@@ -199,6 +218,7 @@ impl ModelCounter {
         Self {
             samples: 1000,
             confidence: 0.95,
+            wall_clock_budget: None,
         }
     }
 
@@ -214,6 +234,21 @@ impl ModelCounter {
     pub fn with_confidence(mut self, confidence: f64) -> Self {
         self.confidence = confidence.clamp(0.0, 1.0);
         self
+    }
+
+    /// Use `budget` as the enumeration wall-clock ceiling (tests only).
+    #[cfg(test)]
+    fn with_wall_clock_budget(mut self, budget: std::time::Duration) -> Self {
+        self.wall_clock_budget = Some(budget);
+        self
+    }
+
+    /// The enumeration wall-clock ceiling in effect for this counter.
+    fn wall_clock_budget(&self) -> std::time::Duration {
+        match self.wall_clock_budget {
+            Some(budget) => budget,
+            None => enumeration_wall_clock_budget(),
+        }
     }
 
     /// Count models for a given SMT-LIB2 script
@@ -249,11 +284,12 @@ impl ModelCounter {
         }
 
         let cap = self.samples.max(1);
+        let budget = self.wall_clock_budget();
         ctx.push();
-        let outcome = enumerate_models_bounded(ctx, cap);
+        let outcome = enumerate_models_bounded(ctx, cap, budget);
         ctx.pop();
 
-        result_from_enumeration(outcome, cap, start, None)
+        result_from_enumeration(outcome, cap, budget, start, None)
     }
 
     /// Approximate counting that actually invokes the solver.
@@ -315,8 +351,9 @@ impl ModelCounter {
         if all_bool && model.len() >= HASH_MIN_VARS && space_too_big_to_enumerate {
             self.count_via_hashing(ctx, &model, start)
         } else {
+            let budget = self.wall_clock_budget();
             ctx.push();
-            let outcome = enumerate_models_bounded(ctx, cap);
+            let outcome = enumerate_models_bounded(ctx, cap, budget);
             ctx.pop();
             let fallback_note = if all_bool {
                 None
@@ -327,7 +364,7 @@ impl ModelCounter {
                      non-Boolean declared variable(s)",
                 )
             };
-            result_from_enumeration(outcome, cap, start, fallback_note)
+            result_from_enumeration(outcome, cap, budget, start, fallback_note)
         }
     }
 
@@ -445,9 +482,9 @@ struct EnumerationOutcome {
     /// `true` iff the solver reported `unknown` partway through, so `found`
     /// is a sound lower bound but the search could not be completed.
     hit_unknown: bool,
-    /// `true` iff enumeration stopped because the
-    /// [`enumeration_wall_clock_budget`] elapsed (rather than the configured
-    /// cap being reached). `found` is still a sound lower bound; only the
+    /// `true` iff enumeration stopped because the counter's wall-clock
+    /// ceiling ([`enumeration_wall_clock_budget`] outside tests) elapsed
+    /// (rather than the configured cap being reached). `found` is still a sound lower bound; only the
     /// reported reason differs.
     hit_wall_clock_budget: bool,
     /// Set if blocking a found model failed (e.g. an unsupported sort);
@@ -474,11 +511,16 @@ struct EnumerationOutcome {
 ///   confirmed satisfiable, so the count is exact by construction, without
 ///   spending one more `check_sat` call to have the solver "confirm" what
 ///   sort-level reasoning already proves.
-/// * Independently, [`enumeration_wall_clock_budget`] bounds total wall time
+/// * Independently, `wall_clock_budget` (the counter's ceiling:
+///   [`enumeration_wall_clock_budget`] outside tests) bounds total wall time
 ///   regardless of `cap` or domain shape, so a genuinely unbounded-domain
 ///   formula (no finite `enumerable_domain_size`) cannot run past a sane
 ///   ceiling even under adverse (slow-machine / heavily-loaded) conditions.
-fn enumerate_models_bounded(ctx: &mut Context, cap: usize) -> EnumerationOutcome {
+fn enumerate_models_bounded(
+    ctx: &mut Context,
+    cap: usize,
+    wall_clock_budget: std::time::Duration,
+) -> EnumerationOutcome {
     let mut found = 0usize;
     // Tightened to the true assignment count the first time a model reveals
     // an all-finite-domain variable set; `None` for any formula with at
@@ -488,7 +530,6 @@ fn enumerate_models_bounded(ctx: &mut Context, cap: usize) -> EnumerationOutcome
     let mut domain_size: Option<u128> = None;
     let mut effective_cap = cap;
     let enumeration_start = std::time::Instant::now();
-    let wall_clock_budget = enumeration_wall_clock_budget();
 
     loop {
         // The wall-clock backstop only ever needs to apply while the domain
@@ -653,6 +694,7 @@ fn enumerable_domain_size(model: &[(String, String, String)]) -> Option<u128> {
 fn result_from_enumeration(
     outcome: EnumerationOutcome,
     cap: usize,
+    wall_clock_budget: std::time::Duration,
     start: std::time::Instant,
     fallback_note: Option<&str>,
 ) -> ModelCountResult {
@@ -716,8 +758,7 @@ fn result_from_enumeration(
                 "{prefix}stopped after {:?} of enumeration (likely an unbounded-domain \
                  variable with no natural stopping point before --count-samples={cap}); \
                  at least {} model(s) exist",
-                enumeration_wall_clock_budget(),
-                outcome.found
+                wall_clock_budget, outcome.found
             ),
             time_ms: elapsed,
         }
@@ -1235,21 +1276,17 @@ mod tests {
         // budget (default 1000) worth of sequential solver calls over an
         // ever-growing assertion set -- the empirically pathological case.
         //
-        // Shrink the wall-clock safety net for this test only (via the
-        // documented env var override) so the test itself stays fast while
-        // still genuinely exercising the same code path that bounds the
-        // production default.
-        //
-        // SAFETY: nextest runs each test in its own process; no other thread
-        // in this process reads/writes this env var concurrently.
-        unsafe {
-            std::env::set_var("OXIZ_MODEL_COUNT_WALL_CLOCK_BUDGET_MS", "200");
-        }
-
+        // Shrink the wall-clock safety net for this counter only, so the
+        // test itself stays fast while still genuinely exercising the same
+        // code path that bounds the production default. (The ceiling is set
+        // on the counter, not through the process environment, which tests
+        // running on other threads of the same process may read.)
         let mut ctx = Context::new();
         // A large sample cap: without the wall-clock backstop this would be
         // free to run up to 5000 sequential solver calls.
-        let counter = ModelCounter::new().with_samples(5000);
+        let counter = ModelCounter::new()
+            .with_samples(5000)
+            .with_wall_clock_budget(std::time::Duration::from_millis(200));
 
         let script = r#"
             (declare-const x Int)
@@ -1261,10 +1298,6 @@ mod tests {
         let start = std::time::Instant::now();
         let result = counter.count(&mut ctx, script, CountingMethod::Exact);
         let elapsed = start.elapsed();
-
-        unsafe {
-            std::env::remove_var("OXIZ_MODEL_COUNT_WALL_CLOCK_BUDGET_MS");
-        }
 
         // A generous margin (well beyond the 200ms budget) that tolerates
         // heavy scheduling contention without ever tolerating the old
@@ -1284,5 +1317,34 @@ mod tests {
             result.estimated_count > 0.0,
             "must still report genuinely-found models as a sound lower bound"
         );
+    }
+
+    #[test]
+    fn test_wall_clock_budget_override_parse() {
+        // The value of OXIZ_MODEL_COUNT_WALL_CLOCK_BUDGET_MS as
+        // `enumeration_wall_clock_budget` reads it, without touching the
+        // process environment: whole milliseconds replace the default, and
+        // an absent or unparseable value leaves the default in force.
+        let default = DEFAULT_ENUMERATION_WALL_CLOCK_BUDGET;
+        assert_eq!(wall_clock_budget_from_override(None), default);
+        assert_eq!(
+            wall_clock_budget_from_override(Some("200")),
+            std::time::Duration::from_millis(200)
+        );
+        assert_eq!(
+            wall_clock_budget_from_override(Some("0")),
+            std::time::Duration::ZERO
+        );
+        assert_eq!(
+            wall_clock_budget_from_override(Some("18446744073709551615")),
+            std::time::Duration::from_millis(u64::MAX)
+        );
+        for unparseable in ["", " 200", "200ms", "-5", "1.5", "18446744073709551616"] {
+            assert_eq!(
+                wall_clock_budget_from_override(Some(unparseable)),
+                default,
+                "{unparseable:?}"
+            );
+        }
     }
 }

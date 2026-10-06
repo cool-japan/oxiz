@@ -64,22 +64,14 @@ where
     /// Perform one iteration of the simplex algorithm.
     pub fn pivot(&mut self) -> Result<bool, SimplexError> {
         // Find entering variable (most negative coefficient in objective row)
-        let entering_col = self.find_entering_variable()?;
-
-        if entering_col.is_none() {
+        let Some(entering) = self.find_entering_variable()? else {
             return Ok(true); // Optimal solution found
-        }
-
-        let entering = entering_col.expect("entering_col should be valid");
+        };
 
         // Find leaving variable using minimum ratio test
-        let leaving_row = self.find_leaving_variable(entering)?;
-
-        if leaving_row.is_none() {
+        let Some(leaving) = self.find_leaving_variable(entering)? else {
             return Err(SimplexError::Unbounded);
-        }
-
-        let leaving = leaving_row.expect("leaving_row should be valid");
+        };
 
         // Perform pivot operation
         self.perform_pivot(entering, leaving);
@@ -312,22 +304,14 @@ where
         }
 
         // Find leaving variable (most negative RHS)
-        let leaving_row = find_dual_leaving_variable(&tableau)?;
-
-        if leaving_row.is_none() {
+        let Some(leaving) = find_dual_leaving_variable(&tableau)? else {
             return Err(SimplexError::Infeasible);
-        }
-
-        let leaving = leaving_row.expect("leaving_row should be valid");
+        };
 
         // Find entering variable
-        let entering_col = find_dual_entering_variable(&tableau, leaving)?;
-
-        if entering_col.is_none() {
+        let Some(entering) = find_dual_entering_variable(&tableau, leaving)? else {
             return Err(SimplexError::Infeasible);
-        }
-
-        let entering = entering_col.expect("entering_col should be valid");
+        };
 
         // Perform pivot
         tableau.perform_pivot(entering, leaving);

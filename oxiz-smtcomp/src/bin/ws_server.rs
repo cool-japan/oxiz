@@ -142,10 +142,13 @@ mod app {
         let ws_server = WsProgressServer::new(addr);
         let callback = ws_server.progress_callback();
 
-        let _handle = ws_server
-            .serve()
-            .await
-            .expect("failed to bind ws-progress server");
+        let _handle = match ws_server.serve().await {
+            Ok(handle) => handle,
+            Err(e) => {
+                eprintln!("Failed to bind the ws-progress server to {addr}: {e}");
+                std::process::exit(1);
+            }
+        };
         eprintln!("WebSocket server started on ws://{addr}/progress");
 
         // Run the benchmarks in parallel, streaming progress via WebSocket.

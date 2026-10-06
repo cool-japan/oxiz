@@ -537,18 +537,15 @@ impl super::Polynomial {
         let discriminant = &b * &b - (BigRational::from_integer(BigInt::from(4)) * &a * &c);
 
         // Check if discriminant is a perfect square
-        let num_sqrt = integer_sqrt(discriminant.numer());
-        let den_sqrt = integer_sqrt(discriminant.denom());
-
-        if num_sqrt.is_none() || den_sqrt.is_none() {
+        let (Some(num_sqrt), Some(den_sqrt)) = (
+            integer_sqrt(discriminant.numer()),
+            integer_sqrt(discriminant.denom()),
+        ) else {
             // Irreducible over rationals
             return vec![(p, 1)];
-        }
+        };
 
-        let disc_sqrt = BigRational::new(
-            num_sqrt.expect("num_sqrt should be valid"),
-            den_sqrt.expect("operation should succeed"),
-        );
+        let disc_sqrt = BigRational::new(num_sqrt, den_sqrt);
 
         // Roots: (-b ± sqrt(disc)) / (2a)
         let two_a = BigRational::from_integer(BigInt::from(2)) * &a;

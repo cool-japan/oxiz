@@ -613,7 +613,10 @@ async fn main() {
             std::process::exit(1);
         }
 
-        tutorial::run_tutorial(section);
+        if let Err(e) = tutorial::run_tutorial(section) {
+            eprintln!("Tutorial error: {}", e);
+            std::process::exit(1);
+        }
         return;
     }
 

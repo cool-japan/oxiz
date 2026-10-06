@@ -8,7 +8,7 @@ use crate::{Clause, Solver, SolverResult};
 use core::sync::atomic::{AtomicBool, Ordering};
 use oxiz_time::{Duration, Instant};
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 
 /// Configuration for portfolio solving.
 #[derive(Debug, Clone)]
@@ -169,7 +169,13 @@ impl PortfolioSolver {
 
                 // Check if we're the first to finish
                 if !found_clone.swap(true, Ordering::Relaxed) {
-                    let mut result_lock = result_clone.lock().expect("mutex poisoned");
+                    // The slot is written once, by the single assignment below,
+                    // whose value is built before the slot is replaced: a
+                    // holder that panicked left `None`, so a poisoned lock
+                    // guards `None` or a whole result and `into_inner` reads
+                    // it as it is.
+                    let mut result_lock =
+                        result_clone.lock().unwrap_or_else(PoisonError::into_inner);
                     *result_lock = Some(PortfolioResult {
                         result: sat_result,
                         solver_id,
@@ -186,11 +192,12 @@ impl PortfolioSolver {
         let elapsed = start.elapsed();
         self.stats.wall_clock_time_ms += elapsed.as_millis() as u64;
 
-        // Return the first result found
+        // Return the first result found. As in the worker above, even a
+        // poisoned lock guards `None` or a whole result a worker produced.
 
         result
             .lock()
-            .expect("mutex poisoned")
+            .unwrap_or_else(PoisonError::into_inner)
             .take()
             .unwrap_or(PortfolioResult {
                 result: SolverResult::Unknown,

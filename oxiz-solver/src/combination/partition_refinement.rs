@@ -598,12 +598,12 @@ impl PartitionComparator {
     pub fn is_finer(p1: &Partition, p2: &Partition) -> bool {
         // p1 is finer if every class in p1 is a subset of some class in p2
         for class1 in &p1.classes {
-            if class1.is_empty() {
+            // An empty class has no first term and is skipped.
+            let Some(&first_term) = class1.iter().next() else {
                 continue;
-            }
+            };
 
             // Check if all terms in class1 are in the same class in p2
-            let first_term = *class1.iter().next().expect("Non-empty class");
             let p2_class = p2.term_to_class.get(&first_term);
 
             for &term in class1 {

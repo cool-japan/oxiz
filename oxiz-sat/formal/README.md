@@ -261,6 +261,69 @@ harness encodes, and every obligation that is not decided is not decided by
 the *solver* — z3 4.15.4 decides 11 of the 12 undecided ones `unsat` and the
 twelfth `sat`.
 
+### Evidence grade
+
+Re-measured 2026-10-06 with a release CLI and driver built from the
+cargo-formal tree at `174ab2b` (OxiZ 0.3.3, rustc nightly-2026-06-20,
+`--jobs 2`, a fresh `--target-dir`, `--no-cache`), on this package as it
+stands and the `oxiz-sat`, `oxiz-core` and `oxiz-math` sources beside it.
+**53 of the 55 rows of `EXPECTED.toml` reproduce; two moved**, both on the
+`debug_assert!(lit != 0 && lit != i32::MIN)` at `../src/literal.rs:89`, and
+neither because a source moved: the same two rows move the same way with the
+binaries built at `e3a3053` on the sources as they stood before (OxiZ
+`d1802da`). (Against the table above only row 15 moved: its row 7 already
+reads `refuted`, while its tally and `EXPECTED.toml` counted that row
+`unknown`.) The verification conditions the encoder emits are not the
+2026-09-15 ones: the run lowers **32 dependency bodies (19 reachable)** where
+that run lowered 19, and the four harnesses the table lists with two `panic`
+sites (rows 6, 7, 15 and 16) now raise five each: the `Var::new`, `Lit::pos`
+and `Lit::neg` debug assertions reached through `from_dimacs` are new, and
+all three are proved in every one of them. On these scripts:
+
+* `dimacs_negation_harness`'s `panic` row is **refuted** again, counterexample
+  `dimacs = -2147483648` — the witness `plain_tests` runs concretely, and the
+  verdict of the 2026-09-08/09 and 2026-09-14 runs — where the 2026-09-15 run
+  had `unknown` (`solver-model-rejected`);
+* `spec_lit_from_dimacs_contract`'s `panic` row is **proved** on all five of
+  its sites, where the 2026-09-15 run had one of two `solver-model-rejected`.
+
+So the tally is **55 property rows over 18 harnesses: 43 proved / 4 refuted /
+8 unknown** (the nine `spec_*` harnesses: 28 proved / 2 refuted / 7 unknown),
+and the layer counters are bmc **125 proved / 4 refuted / 0 timeout / 3
+unknown** and contract **15 proved / 0 refuted / 7 unknown** over 154
+obligations (all 154 with a `vc/NNNN.smt2` reproduction),
+`solver-model-rejected: 10`, hygiene PASS over 3 files, and the exit status is
+1 for the four intended refutations (`index = 4294967295` in
+`lit_pos_roundtrip_unbounded_harness` and `spec_lit_pos_unbounded_contract`,
+`dimacs = -2147483648` in `dimacs_negation_harness` and
+`spec_lit_from_dimacs_nonzero_contract`). `EXPECTED.toml` carries the two
+moved rows, each with a dated comment, and both harness doc comments say so.
+
+Every `proved` row is **reproduction only (claim unmet)** under cargo-formal's
+default `claim-requires` (`lrat`, `oxilean-verify`, `external-replay`): the
+pinned solver's `unsat`, reproduced under a fixed seed and conflict budget,
+not an independently checked proof (`claim unmet 140 of 140 proved`). A
+default `cargo formal check` now cross-checks every proved obligation at bit
+level — bit-blasted, solved by `oxiz-sat`, its proof checked by `oxiz-proof` —
+before the verdict is published: of the 140, **64 are confirmed** and **76
+folded** (the bit-level encoder reduced an assertion to the constant `false`,
+so the encoder itself agrees), **0 are contradicted** and **0 are not
+confirmed**, and the run raises no soundness incident. A confirmed `unsat` is
+still reproduction only, because a default run attaches no certificate, and
+here the bit-level engine is the published 0.3.3 copy of the very crate this
+package verifies (see *Self-host*). `cargo formal check --evidence lrat` (the
+same binaries, a fresh `--target-dir`, `--no-cache`) raises **0 soundness
+incidents** and exits 1 for the four intended refutations: it also
+cross-checks every vacuity `unsat` at bit level before relying on it (36 of
+them: 32 confirmed, 4 folded, 0 contradicted, 0 not confirmed;
+`proved vacuously: 36 of 138 checked`), and **15 of the 140** proved
+obligations carry an LRAT certificate checked by `oxiz-proof` (12 at bmc, 3 at
+contract), all 15 counted under the run's `self-host discount`. OxiZ 0.3.3 has
+a documented wrong-`unsat` class (upstream U-Z19; cargo-formal's conformance
+fixture `u21_pinned_selector_two_define_funs`), which is why a reproduction
+alone is not a proof. `cargo formal replay --all --solver z3` was not run for
+this re-measure.
+
 ### Layer counters
 
 Including the incidental MIR-inserted checks the table above does not
