@@ -72,18 +72,18 @@ This crate supports the SMT-COMP benchmark format:
 - `rayon` - Parallel execution
 - `serde` - Serialization
 
-## Status (v0.3.2)
+## Status (v0.3.4)
 
 | Metric | Value |
 |:-------|:------|
-| Version | 0.3.2 |
+| Version | 0.3.4 |
 | Status | Alpha |
 | Tests | 264 passing |
-| Rust LoC | 13,695 (37 files) |
-| Public API items | 370 |
+| Rust LoC | 13,704 (37 files) |
+| Public API items | 370 (recorded at 0.2.0) |
 | `todo!`/`unimplemented!` | 0 |
 
-*Last updated: 2026-08-05*
+*Last updated: 2026-10-08*
 
 ## License
 

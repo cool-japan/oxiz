@@ -726,7 +726,8 @@ mod tests {
 
     #[test]
     fn test_write_typescript_types() {
-        let path = std::path::PathBuf::from("/tmp/oxiz_test_types.d.ts");
+        let path =
+            std::env::temp_dir().join(format!("oxiz_test_types_{}.d.ts", std::process::id()));
         let result = write_typescript_types(&path);
         assert!(result.is_ok());
 
@@ -738,7 +739,7 @@ mod tests {
 
     #[test]
     fn test_write_examples() {
-        let dir = std::path::PathBuf::from("/tmp/oxiz_test_examples");
+        let dir = std::env::temp_dir().join(format!("oxiz_test_examples_{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
 
         let result = write_examples(&dir);

@@ -7,14 +7,14 @@ Reference: Z3's `ast/`, `util/`, and `tactic/` directories
 ## Progress: 100% Complete ✓
 
 ## Dependencies
-- None (foundation crate)
+- **oxiz-time**: Wasm-safe `std::time` drop-ins (`Instant` / `SystemTime`); the only workspace dependency (foundation crate)
 
 ## Provides (enables other crates)
 - **oxiz-sat**: Term representation, literal mapping
 - **oxiz-theories**: Sort system, AST traversal, congruence closure
 - **oxiz-solver**: SMT-LIB2 parser, tactic framework
 - **oxiz-proof**: Proof nodes, proof rules
-- **All crates**: Error handling, source locations
+- **All crates except oxiz-time, oxiz-math and oxiz-nlsat**: Error handling, source locations
 
 ---
 

@@ -335,7 +335,8 @@ mod tests {
 
     #[test]
     fn test_cache_put_get() {
-        let cache_dir = PathBuf::from("/tmp/oxiz_test_cache");
+        let cache_dir =
+            std::env::temp_dir().join(format!("oxiz_test_cache_{}", std::process::id()));
         let mut cache = ResultCache::new(Some(cache_dir.clone()));
 
         let input = "(assert (= x 42))";
@@ -368,7 +369,8 @@ mod tests {
 
     #[test]
     fn test_lru_eviction() {
-        let cache_dir = PathBuf::from("/tmp/oxiz_test_lru_cache_lru");
+        let cache_dir =
+            std::env::temp_dir().join(format!("oxiz_test_lru_cache_lru_{}", std::process::id()));
         let _ = fs::remove_dir_all(&cache_dir);
 
         // Create cache with max 2 entries for simpler testing

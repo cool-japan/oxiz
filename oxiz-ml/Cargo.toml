@@ -14,26 +14,11 @@ categories = ["algorithms", "science"]
 [dependencies]
 oxiz-core = { workspace = true, features = ["std"] }
 oxiz-sat = { workspace = true, features = ["std"] }
-# `"nlsat"` is named explicitly, not inherited. The workspace dependency table
-# sets `default-features = false`, so this line's feature list is the whole
-# feature set this crate gets; before `nlsat` was split out of `oxiz-theories`'s
-# `std`, "std" alone carried the nonlinear (QF_NRA/QF_NIA) solver in. Naming it
-# keeps this crate deciding exactly the logics it decided before.
-oxiz-solver = { workspace = true, features = ["std", "nlsat"] }
 oxiz-time = { workspace = true, features = ["std"] }
 
-# Numerics & Math
-num-traits = { workspace = true, features = ["std"] }
-num-bigint = { workspace = true, features = ["std"] }
-num-rational = { workspace = true, features = ["std"] }
-
 # Collections & Utilities
-indexmap = { workspace = true, features = ["std"] }
 smallvec = { workspace = true }
 rustc-hash = { workspace = true, features = ["std"] }
-
-# Parallelism
-rayon = { workspace = true }
 
 # Serialization (for model persistence)
 serde = { workspace = true }
@@ -41,14 +26,12 @@ serde_json = { workspace = true }
 
 # Error handling
 thiserror = { workspace = true, features = ["std"] }
-anyhow = { workspace = true }
 
 # Random number generation (for initialization, dropout)
 rand = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
-proptest = { workspace = true }
 
 [[bench]]
 name = "ml_overhead"

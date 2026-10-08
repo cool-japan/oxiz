@@ -566,7 +566,7 @@ dependencies = [
 
 [[package]]
 name = "oxiz"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "num-bigint",
  "num-traits",
@@ -580,17 +580,15 @@ dependencies = [
 
 [[package]]
 name = "oxiz-core"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "bumpalo",
  "hashbrown 0.17.0",
- "indexmap",
  "lasso",
  "num-bigint",
  "num-integer",
  "num-rational",
  "num-traits",
- "oxiz-math",
  "oxiz-time",
  "parking_lot",
  "portable-atomic",
@@ -607,7 +605,7 @@ dependencies = [
 
 [[package]]
 name = "oxiz-math"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "hashbrown 0.17.0",
  "num-bigint",
@@ -623,41 +621,35 @@ dependencies = [
 
 [[package]]
 name = "oxiz-nlsat"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "num-bigint",
  "num-rational",
  "num-traits",
  "num_cpus",
- "oxiz-core",
  "oxiz-math",
  "oxiz-time",
  "rayon",
  "rustc-hash",
  "smallvec",
- "thiserror 2.0.18",
- "tracing",
 ]
 
 [[package]]
 name = "oxiz-proof"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
- "num-bigint",
  "num-rational",
- "num-traits",
  "oxiz-core",
  "oxiz-time",
  "regex",
  "rustc-hash",
  "smallvec",
  "thiserror 2.0.18",
- "tracing",
 ]
 
 [[package]]
 name = "oxiz-sat"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "hashbrown 0.17.0",
  "libm",
@@ -672,7 +664,7 @@ dependencies = [
 
 [[package]]
 name = "oxiz-solver"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "hashbrown 0.17.0",
  "num-bigint",
@@ -692,7 +684,7 @@ dependencies = [
 
 [[package]]
 name = "oxiz-theories"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "egg",
  "hashbrown 0.17.0",
@@ -713,11 +705,11 @@ dependencies = [
 
 [[package]]
 name = "oxiz-time"
-version = "0.3.3"
+version = "0.3.4"
 
 [[package]]
 name = "oxiz-z3-parity"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "anyhow",
  "chrono",

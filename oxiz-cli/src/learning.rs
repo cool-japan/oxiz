@@ -474,7 +474,10 @@ mod tests {
 
     #[test]
     fn test_cache_put_get() {
-        let cache_path = PathBuf::from("/tmp/oxiz_test_learning_cache.json");
+        let cache_path = std::env::temp_dir().join(format!(
+            "oxiz_test_learning_cache_{}.json",
+            std::process::id()
+        ));
         let _ = fs::remove_file(&cache_path);
 
         let mut cache = LearnedConstraintCache::new(Some(cache_path.clone()));
@@ -512,7 +515,10 @@ mod tests {
 
     #[test]
     fn test_lru_eviction() {
-        let cache_path = PathBuf::from("/tmp/oxiz_test_learning_lru.json");
+        let cache_path = std::env::temp_dir().join(format!(
+            "oxiz_test_learning_lru_{}.json",
+            std::process::id()
+        ));
         let _ = fs::remove_file(&cache_path);
 
         let mut cache = LearnedConstraintCache::new(Some(cache_path.clone())).with_max_entries(2);
@@ -552,7 +558,10 @@ mod tests {
 
     #[test]
     fn test_cache_persistence() {
-        let cache_path = PathBuf::from("/tmp/oxiz_test_learning_persist.json");
+        let cache_path = std::env::temp_dir().join(format!(
+            "oxiz_test_learning_persist_{}.json",
+            std::process::id()
+        ));
         let _ = fs::remove_file(&cache_path);
 
         // Create and populate cache
@@ -583,7 +592,10 @@ mod tests {
 
     #[test]
     fn test_cache_stats() {
-        let cache_path = PathBuf::from("/tmp/oxiz_test_learning_stats.json");
+        let cache_path = std::env::temp_dir().join(format!(
+            "oxiz_test_learning_stats_{}.json",
+            std::process::id()
+        ));
         let _ = fs::remove_file(&cache_path);
 
         let mut cache = LearnedConstraintCache::new(Some(cache_path.clone()));
@@ -611,7 +623,10 @@ mod tests {
 
     #[test]
     fn test_merge_similar() {
-        let cache_path = PathBuf::from("/tmp/oxiz_test_learning_merge.json");
+        let cache_path = std::env::temp_dir().join(format!(
+            "oxiz_test_learning_merge_{}.json",
+            std::process::id()
+        ));
         let _ = fs::remove_file(&cache_path);
 
         let mut cache = LearnedConstraintCache::new(Some(cache_path.clone()));

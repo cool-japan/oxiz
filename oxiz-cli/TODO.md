@@ -121,7 +121,6 @@ Benefits:
 ## Dependencies
 - **oxiz-core**: SMT-LIB2 parser, AST
 - **oxiz-solver**: Main solver API
-- **oxiz-opt**: Optimization commands (optional)
 
 ## Provides
 - SMT-LIB2 compliant command-line solver

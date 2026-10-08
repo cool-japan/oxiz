@@ -50,7 +50,7 @@ Three facts keep that claim honest, and they are worth stating separately:
 
 1. **Two versions of one file are involved.** The harnesses verify
    `oxiz-sat/src/literal.rs` *of this working tree* — `oxiz-sat` 0.3.4,
-   unpublished, reached by relative path. The solver that decides them is
+   reached by relative path. The solver that decides them is
    crates.io OxiZ `=0.3.3`: that is the pin `cargo-formal` builds against, it
    is what the report's `pins` field says (`"oxiz": "0.3.3"`) and what every
    item's evidence records, and its embedded SAT core still carries the

@@ -10,7 +10,6 @@ Reference: Z3's `nlsat/` directory
 - [x] Recursion hardening: remaining unguarded recursive term/conflict walks (e.g. `solver::conflict::is_redundant_literal`) converted to explicit heap stacks; verified with a deep-recursion regression test
 
 ## Dependencies
-- **oxiz-core**: Term representation, polynomial constraints
 - **oxiz-math**: Polynomial arithmetic, Sturm sequences, root isolation, Gröbner bases
 
 ## Provides (enables other crates)
@@ -87,7 +86,7 @@ Reference: Z3's `nlsat/` directory
 - [x] Model construction (basic implementation in solver)
 - [x] Unsat core extraction
 - [x] Proof generation
-- [x] Statistics and tracing (basic implementation)
+- [x] Statistics (`SolverStats` via `NlsatSolver::stats()`: decisions, propagations, conflicts, restarts, learned clauses, theory propagations and theory conflicts, among others); there is no tracing - `oxiz-nlsat` has no `tracing` dependency
 
 ## Completed
 

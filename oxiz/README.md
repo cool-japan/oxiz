@@ -6,7 +6,7 @@ Next-Generation SMT Solver in Pure Rust
 [![Documentation](https://docs.rs/oxiz/badge.svg)](https://docs.rs/oxiz)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/cool-japan/oxiz/blob/main/LICENSE)
 
-> **Version**: 0.3.2 | **Status**: Meta-crate | **Tests**: 25
+> **Version**: 0.3.4 | **Status**: Meta-crate | **Tests**: 25
 
 ## About
 

@@ -15,7 +15,6 @@ This crate (`oxiz-nlsat`) is a **non-linear arithmetic SMT solver** implementing
 
 The project uses:
 - `num-bigint`, `num-rational`, `num-traits`: For exact arbitrary-precision arithmetic (required for exact real algebraic computation)
-- `oxiz-core`: Core SMT infrastructure (AST, sorts, SMT-LIB parsing)
 - `oxiz-math`: Mathematical primitives (polynomials, intervals, Sturm sequences)
 - `rustc-hash`: Fast hashing for internal data structures
 - `smallvec`: Stack-allocated vectors for performance

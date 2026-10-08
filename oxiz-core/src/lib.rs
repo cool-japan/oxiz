@@ -92,6 +92,7 @@ const _: () = assert!(
 pub mod interner;
 pub(crate) mod lru_cache;
 mod prelude;
+mod reserved;
 
 // === Always-available modules (no_std compatible) ===
 pub mod ast;

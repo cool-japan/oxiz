@@ -25,8 +25,8 @@
 ## Future Enhancements
 
 ### Performance
-- [ ] GPU acceleration for parallel solving — **(decision: won't-implement — out-of-scope for the Pure-Rust policy; the inert `cuda`/`opencl`/`vulkan` stub feature flags in `oxiz-sat` were confirmed fully dead (zero references anywhere in the workspace) and deleted entirely in the 0.3.0 hardening pass, rather than kept as always-`BackendNotSupported` stubs. Not planned going forward — see root `TODO.md` "Remaining (post-0.3.0 hardening)" (b).)**
-- [ ] Distributed execution across multiple machines — **(status: future — this release upgraded `oxiz-spacer`'s distributed PDR from a single-process sequential fallback to a genuine multi-thread parallel portfolio on one machine, but true multi-machine coordination (a wire protocol, e.g. over `websocket.rs`) has not been started; see root `TODO.md` "Remaining (post-0.3.0 hardening)" (b).)**
+- [ ] GPU acceleration for parallel solving — **(decision: won't-implement — out-of-scope for the Pure-Rust policy; the inert `cuda`/`opencl`/`vulkan` stub feature flags in `oxiz-sat` were confirmed fully dead (zero references anywhere in the workspace) and deleted entirely in the 0.3.0 hardening pass, rather than kept as always-`BackendNotSupported` stubs. Not planned going forward — see root `TODO.md` "(b) Deliberately deferred capabilities (with reasons)".)**
+- [ ] Distributed execution across multiple machines — **(status: future — this release upgraded `oxiz-spacer`'s distributed PDR from a single-process sequential fallback to a genuine multi-thread parallel portfolio on one machine, but true multi-machine coordination (a wire protocol, e.g. over `websocket.rs`) has not been started; see root `TODO.md` "(b) Deliberately deferred capabilities (with reasons)".)**
 - [x] Caching of parsing results (planned 2026-04-15, completed 2026-04-15)
   - **Goal:** Add a parse-result cache in the loader/benchmark pipeline so repeated loads of the same SMT-LIB file skip parsing. Correctness preserved via mtime + size keys.
   - **Design:** Introduce `ParseCache` wrapping `FxHashMap<(PathBuf, SystemTime, u64), Arc<ParsedBenchmark>>` behind `Mutex`. Expose via `Loader::with_cache(cache)`. On `load_benchmark`, check cache; on miss, parse and insert. Bounded LRU (N=1024 default, configurable). Subagent to verify the exact return type of `loader.rs::load_benchmark` and adapt.
@@ -64,7 +64,7 @@
   - **Risk:** Root `Cargo.toml` is already dirty from the v0.2.1 bump — adding workspace deps is additive and won't conflict, but notifies the user. Scope creep from custom layouts; mitigation: plain table only.
 
 ### Integration
-- [ ] SMT-LIB 3.0 support when available — **(status: externally blocked — the SMT-LIB 3.0 standard itself is unreleased; nothing to implement against yet. See root `TODO.md` "Remaining (post-0.3.0 hardening)" (a).)**
+- [ ] SMT-LIB 3.0 support when available — **(status: externally blocked — the SMT-LIB 3.0 standard itself is unreleased; nothing to implement against yet. See the open items under "Policy / Release Chores" in the root `TODO.md`.)**
 - [x] Integration with other benchmark suites (SV-COMP, etc.)
 - [x] Docker container generation for reproducible runs (planned 2026-04-15, completed 2026-04-15)
   - **Goal:** Provide a reproducible Docker image for `smtcomp2026` runs. Builder stage compiles `--release --bin smtcomp2026`; runtime stage is a slim image with only the binary and a mount point for benchmark dirs.

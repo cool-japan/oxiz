@@ -13,7 +13,6 @@ categories = ["algorithms", "data-structures"]
 
 [dependencies]
 # Always available (no_std compatible)
-indexmap = { workspace = true, default-features = false }
 thiserror = { workspace = true, default-features = false }
 tracing = { workspace = true, default-features = false, optional = true }
 smallvec = { workspace = true }
@@ -25,7 +24,6 @@ num-integer = { workspace = true, default-features = false }
 hashbrown.workspace = true
 portable-atomic = { workspace = true }
 portable-atomic-util = { workspace = true }
-oxiz-math = { workspace = true, default-features = false }
 oxiz-time = { workspace = true }
 
 # Optional (std-only)
@@ -65,13 +63,11 @@ std = [
     "tracing",
     "tracing/std",
     "thiserror/std",
-    "indexmap/std",
     "num-rational/std",
     "num-bigint/std",
     "num-traits/std",
     "num-integer/std",
     "rustc-hash/std",
-    "oxiz-math/std",
     "oxiz-time/std",
 ]
 # User-defined tactics written in Rhai, i.e. `tactic::ScriptableTactic` and

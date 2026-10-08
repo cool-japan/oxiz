@@ -484,7 +484,7 @@ fn make_skolem_term(
     governing: &[(Spur, SortId)],
     counter: &mut usize,
 ) -> TermId {
-    let skolem_name = crate::smtlib::reserved_name("sk", &counter.to_string());
+    let skolem_name = crate::reserved::reserved_name("sk", &counter.to_string());
     *counter += 1;
 
     if governing.is_empty() {

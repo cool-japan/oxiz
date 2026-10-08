@@ -1,6 +1,6 @@
 # OxiZ Architecture
 
-**Last Updated:** 2026-08-26 (v0.3.3)
+**Last Updated:** 2026-10-08 (v0.3.4)
 
 ## 1. Project Overview
 
@@ -9,8 +9,8 @@
 OxiZ is a next-generation **Satisfiability Modulo Theories (SMT) solver** written entirely in pure Rust. It implements a modular CDCL(T) architecture that closely follows the design of Z3 while leveraging Rust's safety guarantees and modern features.
 
 **Project Statistics** (measured via `tokei`/`cargo nextest` at the time of this update — see `README.md` for the always-current figures):
-- 468,022 lines of production Rust code (584,993 total including comments/blank lines, 1,321 files)
-- 10,345 tests passing, 12 skipped (`cargo nextest run --workspace --all-features`), plus 110 doc-tests
+- 513,849 lines of production Rust code (638,596 total including comments/blank lines, 1,443 files)
+- 11,036 tests passing, 27 skipped (`cargo nextest run --workspace --all-features`), plus 114 doc-tests
 - 18 workspace crates (`cargo metadata`)
 - Z3 parity is honestly measured per-logic, not a single percentage — 170/170 Correct, 0 Wrong, 0 Inconclusive, 0 Timeout, 0 Error on the extended 19-logic / 170-benchmark differential suite (`bench/z3_parity`) against a real z3 4.15.4 binary under the honest comparator (`Unknown` never counts as a match), with all 19 logic families at 100% of that suite. That is a statement about the differential parity suite, not a blanket "100% Z3 compatibility" claim; see `README.md`'s "Z3 Parity" section for the full breakdown before relying on any summary number
 
@@ -31,68 +31,71 @@ OxiZ is a next-generation **Satisfiability Modulo Theories (SMT) solver** writte
 ## 2. Crate Dependency Graph
 
 ```
-                              +-----------+
-                              |   oxiz    |  (meta-crate: unified API)
-                              +-----+-----+
-                                    |
-           +------------------------+-------------------------+
-           |                        |                         |
-           v                        v                         v
-    +------------+           +------------+            +------------+
-    | oxiz-cli   |           | oxiz-wasm  |            | oxiz-opt   |
-    | (CLI front)|           | (WASM bind)|            | (MaxSAT/OMT)
-    +-----+------+           +-----+------+            +-----+------+
-          |                        |                         |
-          +------------------------+-------------------------+
-                                   |
-                            +------+------+
-                            | oxiz-solver |  (CDCL(T) orchestration)
-                            +------+------+
-                                   |
-           +-----------------------+-----------------------+
-           |                       |                       |
-           v                       v                       v
-    +-------------+        +---------------+       +--------------+
-    | oxiz-spacer |        | oxiz-theories |       | oxiz-proof   |
-    | (PDR/CHC)   |        | (EUF,LRA,BV..)|       | (DRAT,Alethe)|
-    +------+------+        +-------+-------+       +------+-------+
-           |                       |                      |
-           |           +-----------+-----------+          |
-           |           |                       |          |
-           |           v                       v          |
-           |     +----------+          +-----------+      |
-           |     | oxiz-sat |          | oxiz-nlsat|      |
-           |     | (CDCL)   |          | (CAD/NRA) |      |
-           |     +-----+----+          +-----+-----+      |
-           |           |                     |            |
-           |           +----------+----------+            |
-           |                      |                       |
-           +----------------------+-----------------------+
+                              +-------+
+                              | oxiz  |  (meta-crate: unified API)
+                              +---+---+
+                                  |...........................
+                                  |        :                 :
+                                  |        :                 :
+                                  |        :                 :
+                                  |        v                 v
+ +-------------+  +-------------+ | +--------------+  +-------------+
+ |  oxiz-cli   |  |  oxiz-wasm  | | |   oxiz-opt   |  | oxiz-spacer |
+ | (CLI front) |  | (WASM bind) | | | (MaxSAT/OMT) |  |  (PDR/CHC)  |
+ +------+------+  +------+------+ | +------+-------+  +------+------+
+        |                |        |        |                 |
+        +----------------+--------+--------+-----------------+
                                   |
-                           +------+------+
-                           | oxiz-math   |  (polynomials, simplex, LP)
-                           +------+------+
-                                  |
-                           +------+------+
-                           | oxiz-core   |  (AST, sorts, parser, tactics)
+                                  v
                            +-------------+
+                           | oxiz-solver |  (CDCL(T) orchestration)
+                           +------+------+
+         .........................|
+         v                        v
+ +---------------+      +------------------+
+ |  oxiz-proof   |      |  oxiz-theories   |
+ | (DRAT,Alethe) |      |  (EUF,LRA,BV..)  |
+ +-------+-------+      +---+-----------+--+
+         |                  |           :
+         |                  v           v
+         |         +-----------+     +------------+
+         |         | oxiz-sat  |     | oxiz-nlsat |
+         |         |  (CDCL)   |     | (CAD/NRA)  |
+         |         +-----+-----+     +-----+------+
+         |               |                 |
+         v               v                 v
+   +---------------------------------+  +----------------------------+
+   |            oxiz-core            |  |         oxiz-math          |
+   |  (AST, sorts, parser, tactics)  |  | (polynomials, simplex, LP) |
+   +----------------+----------------+  +-------------+--------------+
+                    |                                 |
+                    +----------------+----------------+
+                                     v
+                         +-----------------------+
+                         |       oxiz-time       |
+                         | (wasm-safe std::time) |
+                         +-----------------------+
 ```
+
+Arrows point from a crate to a crate it directly depends on, and dotted lines are optional (feature-gated) dependencies. Only the main edges are drawn; the table below lists the direct (non-dev) workspace dependencies of every drawn crate in full. `oxiz-ml`, `oxiz-smtcomp`, `oxiz-py` and the benchmark harnesses are not drawn.
 
 ### Dependency Summary
 
 | Crate | Depends On | Provides |
 |-------|------------|----------|
-| **oxiz-core** | None (foundation) | AST, sorts, SMT-LIB2 parser, tactics, rewriters |
-| **oxiz-math** | num-rational, num-bigint | Polynomials, simplex, intervals, LP, Grobner bases |
-| **oxiz-sat** | oxiz-core | CDCL SAT solver with VSIDS/LRB/VMTF/CHB |
-| **oxiz-theories** | oxiz-core, oxiz-sat | EUF, LRA, LIA, BV, Arrays, Strings, FP, Datatypes |
-| **oxiz-nlsat** | oxiz-core, oxiz-math | Non-linear arithmetic (CAD, NRA/NIA) |
-| **oxiz-proof** | oxiz-core, (oxiz-sat optional) | DRAT, Alethe, LFSC, Coq/Lean/Isabelle exports |
-| **oxiz-solver** | oxiz-core, oxiz-sat, oxiz-theories | CDCL(T) orchestration, SMT-LIB2 execution |
-| **oxiz-spacer** | oxiz-core, oxiz-solver | PDR/IC3, CHC solving, BMC, invariant synthesis |
-| **oxiz-opt** | oxiz-core, oxiz-sat, oxiz-solver | MaxSAT, OMT, Pareto optimization |
-| **oxiz-cli** | oxiz-core, oxiz-solver | Command-line interface, LSP server |
+| **oxiz-time** | None (foundation) | Wasm-safe `std::time` drop-ins (`Instant` / `SystemTime`) |
+| **oxiz-core** | oxiz-time | AST, sorts, SMT-LIB2 parser, tactics, rewriters |
+| **oxiz-math** | oxiz-time, num-rational, num-bigint | Polynomials, simplex, intervals, LP, Grobner bases |
+| **oxiz-sat** | oxiz-core, oxiz-time | CDCL SAT solver with VSIDS/LRB/VMTF/CHB |
+| **oxiz-theories** | oxiz-core, oxiz-math, oxiz-sat, oxiz-time, (oxiz-nlsat optional) | EUF, LRA, LIA, BV, Arrays, Strings, FP, Datatypes |
+| **oxiz-nlsat** | oxiz-math, oxiz-time | Non-linear arithmetic (CAD, NRA/NIA) |
+| **oxiz-proof** | oxiz-core, oxiz-time, (oxiz-sat optional) | DRAT, Alethe, LFSC, Coq/Lean/Isabelle exports |
+| **oxiz-solver** | oxiz-core, oxiz-sat, oxiz-theories, oxiz-time, (oxiz-proof optional) | CDCL(T) orchestration, SMT-LIB2 execution |
+| **oxiz-spacer** | oxiz-core, oxiz-solver, oxiz-time | PDR/IC3, CHC solving, BMC, invariant synthesis |
+| **oxiz-opt** | oxiz-core, oxiz-sat, oxiz-solver, oxiz-time | MaxSAT, OMT, Pareto optimization |
+| **oxiz-cli** | oxiz-core, oxiz-ml, oxiz-proof, oxiz-smtcomp, oxiz-solver | Command-line interface, LSP server |
 | **oxiz-wasm** | oxiz-core, oxiz-solver | WebAssembly bindings for browsers |
+| **oxiz** | oxiz-core, oxiz-math, oxiz-sat, oxiz-solver, oxiz-theories, (oxiz-nlsat, oxiz-opt, oxiz-proof, oxiz-spacer optional) | Unified API (meta-crate) |
 
 ---
 
@@ -100,7 +103,7 @@ OxiZ is a next-generation **Satisfiability Modulo Theories (SMT) solver** writte
 
 ### oxiz-core (Foundation)
 
-**Purpose:** Core data structures and utilities used by all other crates.
+**Purpose:** Core data structures and utilities used by all other crates except `oxiz-time`, `oxiz-math` and `oxiz-nlsat`.
 
 | Component | Algorithm/Technique |
 |-----------|---------------------|

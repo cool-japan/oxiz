@@ -31,7 +31,7 @@ use super::super::term::{TermId, TermKind};
 use super::super::traversal::get_children;
 use super::TermManager;
 use crate::interner::Spur;
-use crate::prelude::{FxHashMap, FxHashSet};
+use crate::prelude::*;
 use crate::sort::SortId;
 
 /// How many rounds [`TermManager::fold_constructor_accessors`] runs: one
@@ -182,7 +182,7 @@ impl TermManager {
 mod tests {
     use super::super::TermManager;
     use crate::ast::term::TermKind;
-    use crate::prelude::FxHashMap;
+    use crate::prelude::*;
     use crate::sort::{DataTypeConstructor, SortId};
     use smallvec::smallvec;
 

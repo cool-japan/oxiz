@@ -211,10 +211,12 @@ mod tests {
 - Use `Result<T, E>` for operations that can fail
 - Define error types using `thiserror`
 - Avoid `unwrap()` and `expect()` except in tests or truly impossible cases. `clippy::unwrap_used`
-  is set to `deny` in the workspace lint table, and every member crate is covered — 13 declare it
+  is set to `deny` in the workspace lint table, and every member crate is covered — 14 declare it
   directly in their own `[lints.clippy]`, while `oxiz`, `oxiz-smtcomp`, `oxiz-py` and `oxiz-ml`
   inherit it via `[lints] workspace = true`. A stray `unwrap()` in production code therefore fails
-  the build rather than merely warning.
+  `cargo clippy` (the lint is checked only by clippy, so a plain `cargo build` still compiles it)
+  rather than merely warning; `expect()` is not covered, since `clippy::expect_used` is not
+  enabled, and `clippy.toml` allows both in tests.
   - When converting a native-recursive walk to an explicit heap stack (to
     remove a stack-overflow risk), drive the loop from
     `while let Some(frame) = stack.pop()` (own the frame, push back what
@@ -384,7 +386,7 @@ PRs are merged via squash-and-merge.
 
 ## Architecture Overview
 
-OxiZ is organized as a Cargo workspace with 17 members: 15 crates plus the two benchmark
+OxiZ is organized as a Cargo workspace with 18 members: 16 crates plus the two benchmark
 harnesses under `bench/`. Everything except `oxiz-py` (which needs maturin for Python linking)
 is in `default-members`, so a plain `cargo build` covers the whole tree.
 
@@ -392,27 +394,36 @@ is in `default-members`, so a plain `cargo build` covers the whole tree.
 
 ```
 oxiz (meta-crate: unified API)
-  |
-  +-- oxiz-cli (Command-line interface)
-  +-- oxiz-wasm (WebAssembly bindings)
-  +-- oxiz-py (Python bindings via PyO3/maturin)
-  +-- oxiz-smtcomp (SMT-COMP entry package and runners)
-  +-- oxiz-ml (ML-guided heuristics)
-  +-- oxiz-opt (MaxSAT/OMT optimization)
-  |
-  +-- oxiz-solver (CDCL(T) orchestration)
-        |
-        +-- oxiz-spacer (PDR/CHC solving)
-        +-- oxiz-theories (Theory solvers: EUF, LRA, BV, etc.)
-        +-- oxiz-proof (Proof generation: DRAT, Alethe, LFSC)
-              |
-              +-- oxiz-sat (CDCL SAT solver)
-              +-- oxiz-nlsat (Non-linear arithmetic)
-                    |
-                    +-- oxiz-math (Mathematical foundations)
-                          |
-                          +-- oxiz-core (AST, sorts, parser, tactics)
++-- oxiz-solver (CDCL(T) orchestration)
+|   +-- oxiz-theories (Theory solvers: EUF, LRA, BV, etc.)
+|   |   +-- oxiz-sat (CDCL SAT solver)
+|   |   |   +-- oxiz-core (AST, sorts, parser, tactics)
+|   |   |       +-- oxiz-time (Wasm-safe std::time drop-ins; no workspace dependencies)
+|   |   +-- oxiz-nlsat (Non-linear arithmetic) [optional]
+|   |       +-- oxiz-math (Mathematical foundations)
+|   |           +-- oxiz-time (see above)
+|   +-- oxiz-proof (Proof generation: DRAT, Alethe, LFSC) [optional]
+|       +-- oxiz-core (see above)
++-- oxiz-opt (MaxSAT/OMT optimization) [optional]
+|   +-- oxiz-solver (see above)
++-- oxiz-spacer (PDR/CHC solving) [optional]
+    +-- oxiz-solver (see above)
+
+oxiz-py (Python bindings via PyO3/maturin)
++-- oxiz (see above)
+
+oxiz-cli (Command-line interface)
++-- oxiz-solver (see above)
++-- oxiz-smtcomp (SMT-COMP entry package and runners)
+|   +-- oxiz-solver (see above)
++-- oxiz-ml (ML-guided heuristics)
+    +-- oxiz-sat (see above)
+
+oxiz-wasm (WebAssembly bindings)
++-- oxiz-solver (see above)
 ```
+
+Each nested crate is a direct dependency of the crate it is nested under, `[optional]` marks a feature-gated dependency and `(see above)` a crate already expanded earlier. Only the main edges are drawn and the two benchmark harnesses are left out; the Dependency Summary in [ARCHITECTURE.md](docs/ARCHITECTURE.md) lists the direct dependencies of every crate it covers in full.
 
 ### Key Abstractions
 

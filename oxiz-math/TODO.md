@@ -16,12 +16,11 @@ Reference: Z3's `math/` directory
 - [x] Multivariate polynomial GCD now implemented for real via primitive PRS (pseudo-division), replacing the previous stub
 
 ## Dependencies
-- **oxiz-core**: Term representation for polynomial constraints
+- **oxiz-time**: Wasm-safe `std::time` drop-ins (`Instant` / `SystemTime`); the only workspace dependency
 
 ## Provides (enables other crates)
 - **oxiz-nlsat**: Polynomial arithmetic, Sturm sequences, root isolation
 - **oxiz-theories**: Simplex algorithm for LRA/LIA
-- **oxiz-opt**: LP solver foundation, interior point method
 
 ---
 

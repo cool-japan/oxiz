@@ -1,6 +1,6 @@
 # OxiZ TODO
 
-Last Updated: 2026-09-19
+Last Updated: 2026-10-08
 
 ---
 
@@ -29,19 +29,19 @@ Recounted at the 0.3.1 release (2026-07-31) directly from the checkboxes under "
 
 ---
 
-## Current Statistics (v0.3.2 - 2026-08-05, re-measured at release time)
+## Current Statistics (v0.3.4 - 2026-10-08, re-measured at release time)
 
-- **Rust Lines of Code (code)**: 451,853 code lines across 1,276 files (tokei, `--exclude target`; 37,877 comment lines, 74,573 blanks)
-- **Total Rust Lines (with docs/tests)**: 564,303 (grand total across all languages: 600,702 lines in 1,483 files)
-- **Tests**: 9,953 (workspace, nextest, all-features, all passing; 8 skipped, 0 failures) plus 110 passing doc-tests (`cargo test --doc --workspace --all-features`, 0 failures)
-- **Z3 Parity (extended suite, 170 benchmarks / 19 logics, against installed z3 4.15.4)**: **170 Correct / 0 Wrong / 0 Inconclusive / 0 Timeout / 0 Error** — **100% of the differential parity suite**, with all 19 logic families at 100% Correct (AUFLIA 10/10, AUFLIRA 5/5, QF_ABV 5/5, QF_ALIA 5/5, QF_AUFBV 5/5, QF_AUFLIA 5/5, QF_NIRA 5/5, QF_UFLIA 5/5, QF_UFLRA 5/5, UFLIA 20/20, UFLRA 10/10, qf_a 10/10, qf_bv 15/15, qf_dt 10/10, qf_fp 12/12, qf_lia 16/16, qf_lra 16/16, qf_nia 1/1, qf_s 10/10 — see the tracked per-environment snapshot `bench/z3_parity/results.<os>-<arch>.json`; only `results.macos-aarch64.json` is currently in the tree, so the cross-environment agreement rule (every tracked snapshot must agree on every benchmark's verdict, differing only in timings) applies once a second snapshot exists rather than being exercised today; `results.json` itself is git-ignored scratch output of the last local run). Measured under the honest comparator, which never counts `Unknown` as a match, against a real `z3 4.15.4` binary; verified over three consecutive full runs on an idle machine plus a fourth run after the repeated-check-sat resource work. This is a claim about this benchmark suite — **not** a blanket claim of 100% Z3 compatibility as a general property. Closed in 0.3.1: the last quantified-logic gaps (`AUFLIA` 7→10/10, `UFLIA` 14→20/20, `UFLRA` 5→10/10) via MBQI finite-range quantifier expansion (AUFLIA), Skolem witness synthesis + CEGAR (UFLIA), and symbolic model certification over Reals + quasi-macro detection (UFLRA); the three former 60s timeouts now solve in ~1ms. Grew 168→170 in 0.3.3: two new symbolic-`RoundingMode` QF_FP benchmarks (`qf_fp` 10/10→12/12); no verdict moved on any of the 168 pre-existing benchmarks, and none of the fifteen SMT-LIB soundness fixes from the 0.3.3 issue-tracker sweep are visible in this suite (a curated suite already at 100% cannot show a soundness gain — see the Issue-tracker intake section).
-- **Workspace Crates**: 17 members (16 default-members; `oxiz-py` is excluded because it needs maturin, and `fuzz` is a separate harness outside the workspace)
+- **Rust Lines of Code (code)** (v0.3.4, 2026-10-08): 513,849 code lines across 1,443 files (tokei, `--exclude target`; 45,486 comment lines, 79,261 blanks)
+- **Total Rust Lines (with docs/tests)** (v0.3.4, 2026-10-08): 638,596 (grand total across all languages: 683,274 lines in 1,688 files)
+- **Tests** (v0.3.4, 2026-10-08): 11,036 (workspace, nextest, all-features, all passing; 27 skipped, 0 failures) plus 114 passing doc-tests (`cargo test --doc` over every workspace crate, `--all-features`, 0 failures; 28 ignored)
+- **Z3 Parity (extended suite, 170 benchmarks / 19 logics, against installed z3 4.15.4)** (v0.3.4, 2026-10-08): **170 Correct / 0 Wrong / 0 Inconclusive / 0 Timeout / 0 Error** — **100% of the differential parity suite**, with all 19 logic families at 100% Correct (AUFLIA 10/10, AUFLIRA 5/5, QF_ABV 5/5, QF_ALIA 5/5, QF_AUFBV 5/5, QF_AUFLIA 5/5, QF_NIRA 5/5, QF_UFLIA 5/5, QF_UFLRA 5/5, UFLIA 20/20, UFLRA 10/10, qf_a 10/10, qf_bv 15/15, qf_dt 10/10, qf_fp 12/12, qf_lia 16/16, qf_lra 16/16, qf_nia 1/1, qf_s 10/10 — see the tracked per-environment snapshot `bench/z3_parity/results.<os>-<arch>.json`; only `results.macos-aarch64.json` is currently in the tree, so the cross-environment agreement rule (every tracked snapshot must agree on every benchmark's verdict, differing only in timings) applies once a second snapshot exists rather than being exercised today; `results.json` itself is git-ignored scratch output of the last local run). Measured under the honest comparator, which never counts `Unknown` as a match, against a real `z3 4.15.4` binary; verified over three consecutive full runs on an idle machine plus a fourth run after the repeated-check-sat resource work. This is a claim about this benchmark suite — **not** a blanket claim of 100% Z3 compatibility as a general property. Closed in 0.3.1: the last quantified-logic gaps (`AUFLIA` 7→10/10, `UFLIA` 14→20/20, `UFLRA` 5→10/10) via MBQI finite-range quantifier expansion (AUFLIA), Skolem witness synthesis + CEGAR (UFLIA), and symbolic model certification over Reals + quasi-macro detection (UFLRA); the three former 60s timeouts now solve in ~1ms. Grew 168→170 in 0.3.3: two new symbolic-`RoundingMode` QF_FP benchmarks (`qf_fp` 10/10→12/12); no verdict moved on any of the 168 pre-existing benchmarks, and none of the fifteen SMT-LIB soundness fixes from the 0.3.3 issue-tracker sweep are visible in this suite (a curated suite already at 100% cannot show a soundness gain — see the Issue-tracker intake section).
+- **Workspace Crates** (v0.3.4, 2026-10-08, `cargo metadata`): 18 members (17 default-members; `oxiz-py` is excluded because it needs maturin, and `fuzz` is a separate harness outside the workspace)
 - **todo!/unimplemented! macros**: 0 outside test code (all Rust crates)
-- **Clippy Warnings**: 0 (`cargo clippy --workspace --all-targets --all-features`, clean in both dev and release profiles; `clippy::unwrap_used` denied in all 17 member crates)
+- **Clippy Warnings**: 0 (`cargo clippy --workspace --all-targets --all-features`, clean in both dev and release profiles; `clippy::unwrap_used` denied in all 18 workspace members (v0.3.4, 2026-10-08))
 - **Rustdoc / cargo-deny**: `cargo doc` clean under `-D warnings`; `cargo deny check bans` clean
-- **Largest File**: 1,997 lines (`oxiz-solver/src/solver/tests.rs`) — all files under 2,000 lines; largest non-test file is 1,989 lines (`oxiz-solver/src/mbqi/model_completion.rs`)
+- **Largest File**: 1,997 lines (`oxiz-solver/src/solver/tests.rs`) — all files under 2,000 lines; largest non-test file is 1,995 lines (`oxiz-solver/src/solver/theory_manager.rs`)
 - **Toolchain**: cargo/rustc 1.95.0
-- **2026-09-14 (0.3.4 working tree, cargo-formal intake — see that section)**: **10,465 workspace tests** (nextest, release, `--workspace`; 10,465 passed, 13 skipped, 0 failures) after the U-Z10/U-Z11/U-Z12/U-Z13/U-Z14/U-Z17, `oxiz-sat` `Lit` and `#P2b-19`–`#P2b-22` push/pop fixes, up from 10,437 / 13 / 0 on the same gate on 2026-09-09 and from 9,953 at the 0.3.2 measurement above. The other figures in this section are still the 0.3.2 release-time numbers and were not re-measured.
+- **2026-09-14 (0.3.4 working tree, cargo-formal intake — see that section)**: **10,465 workspace tests** (nextest, release, `--workspace`; 10,465 passed, 13 skipped, 0 failures) after the U-Z10/U-Z11/U-Z12/U-Z13/U-Z14/U-Z17, `oxiz-sat` `Lit` and `#P2b-19`–`#P2b-22` push/pop fixes, up from 10,437 / 13 / 0 on the same gate on 2026-09-09 and from 9,953 at the 0.3.2 measurement.
 
 ---
 
@@ -180,24 +180,26 @@ checkbox, under the heading it still stands under. No open item was touched.
 ## Cross-Crate Dependencies
 
 ```
-oxiz-core (foundation)
+oxiz-time (wasm-safe std::time drop-ins; no workspace dependencies)
     |
     +-- oxiz-math (polynomial, simplex, intervals, LP)
     |       |
     |       +-- oxiz-nlsat (CAD, NIA)
     |
-    +-- oxiz-sat (CDCL, XOR)
-    |       |
-    |       +-- oxiz-proof (DRAT, Craig interpolation)
-    |       +-- oxiz-opt (MaxSAT core)
-    |
-    +-- oxiz-theories (EUF, LRA, BV, Arrays, Strings, FP, DL, UTVPI)
+    +-- oxiz-core (foundation)
             |
-            +-- oxiz-solver (CDCL(T) orchestration)
+            +-- oxiz-sat (CDCL, XOR)
+            |       |
+            |       +-- oxiz-proof (DRAT, Craig interpolation)
+            |       +-- oxiz-opt (MaxSAT core)
+            |
+            +-- oxiz-theories (EUF, LRA, BV, Arrays, Strings, FP, DL, UTVPI)
                     |
-                    +-- oxiz-spacer (PDR/CHC, invariants)
-                    +-- oxiz-opt (OMT)
-                    +-- oxiz-wasm / oxiz-cli (frontends)
+                    +-- oxiz-solver (CDCL(T) orchestration)
+                            |
+                            +-- oxiz-spacer (PDR/CHC, invariants)
+                            +-- oxiz-opt (OMT)
+                            +-- oxiz-wasm / oxiz-cli (frontends)
 ```
 
 ---
@@ -280,7 +282,7 @@ Refreshed for v0.3.3 (2026-08-26). The v0.3.0-era entries (hot-path profiling, p
 3. **JIT-style specialization for hot theory operations** (v0.4.0)
    - Requires an IR + codegen layer; the only remaining pending item in the performance track
 
-4. **Remaining frontend/feature gaps** (see "Remaining (post-0.3.0 hardening)") — recursive functions end-to-end, NLSAT algebraic-number witnesses, and `mk_bv_concat`'s release-build width default all landed in 0.3.3 (see CHANGELOG.md). One gap remains:
+4. **Remaining frontend/feature gaps** (see "(b) Deliberately deferred capabilities (with reasons)") — recursive functions end-to-end, NLSAT algebraic-number witnesses, and `mk_bv_concat`'s release-build width default all landed in 0.3.3 (see CHANGELOG.md). One gap remains:
    - `RegLan` as a first-class `SortKind` variant — still honestly rejected in nullary-declaration position; 0.3.3 only corrected the parser's rejection *message* (it no longer claims the sublanguage "is not yet implemented" — `RegLan` is reserved because `TermManager` interns regex terms at a built-in `Uninterpreted("RegLan")` sort, not because the operators are missing), matching the accuracy bar `RoundingMode`'s own message now meets after becoming first-class.
 
 5. **Ecosystem Growth**
@@ -288,11 +290,11 @@ Refreshed for v0.3.3 (2026-08-26). The v0.3.0-era entries (hot-path profiling, p
 
 ---
 
-**Status**: Production Ready
-**Current Version**: v0.3.4 (2026-08-26)
-**Tests**: 9,953 passing (all-features, 8 skipped) + 110 doc-tests | **LoC**: 451,853 code (564,303 total) | **Files**: 1,276 | **Clippy**: 0 warnings
+**Status**: Under active development — not a general production-readiness claim (see README.md, "Not a General Production-Readiness Claim")
+**Current Version**: v0.3.4 (2026-10-08)
+**Tests**: 11,036 passing (all-features, 27 skipped) + 114 doc-tests | **LoC**: 513,849 code (638,596 total) | **Files**: 1,443 | **Clippy**: 0 warnings
 **Z3 Parity**: 170/170 Correct on the extended 19-logic differential suite (0 Wrong / 0 Inconclusive / 0 Timeout / 0 Error, honest comparator vs z3 4.15.4)
-**Next Milestone**: v0.4.0 - JIT specialization, `recfun` support, and the remaining completeness gaps (see "Remaining (post-0.3.0 hardening)")
+**Next Milestone**: v0.4.0 - JIT specialization and the remaining completeness gaps (see "(b) Deliberately deferred capabilities (with reasons)")
 **Long-term Goal**: v1.0.0 - Industry-Ready SMT Solver (Target: Q4 2026)
 
 ---
@@ -393,7 +395,7 @@ Condensed 2026-09-23 to make room under the 2,000-line limit before round-4 pass
 
 ### Policy / Release Chores (condensed 2026-09-23)
 
-- [x] **Policy and release chores (2026-07/08).** `oxiz-theories/src/bv/solver.rs` exceeded the 2,000-line policy at 2008 lines and was split with splitrs to 1779, with `bv/solver/{division,shifts,tests}.rs` extracted as submodules; the non-test `.unwrap()`s (48 at audit, ~39 at a release-time spot-recheck) were eliminated — none remain outside tests and doc comments; the stray `rustc-ice-2026-04-25T11_26_41-70917.txt` / `rustc-ice-2026-05-04T17_25_54-90362.txt` dumps are gone and `.gitignore` keeps `rustc-ice-*.txt`; the empty `CHANGELOG.md` [0.2.4] section was filled with a waves-1–5 summary; `oxiz-cli/tests/benchmark.rs`'s <5000ms wall-clock assertions, flaky under load, are gated behind `OXIZ_TIMING_TESTS=1`; the "production ready / 100% Z3 parity" claims were revised to the then-honest 168-benchmark breakdown (122 Correct / 35 Inconclusive / 10 Error / 1 Wrong, QF_S and QF_FP named) and `results.json` regenerated under the honest comparator (the one `Wrong` then left was in `QF_NIRA`); and the adversarial verification of P2/P3, stopped early at 90 of ~250 verdicts, was completed by 10+ scoped audit/verify agents and three implementation waves across all of P0–P4, the gaps left then being enumerated in "Remaining (post-0.3.0 hardening)". Audit Coverage Notes (condensed 2026-09-16 and 2026-09-21): nineteen scoped agents — bindings, core-ast, core-rest, core-tactic, frontends, math, nlsat, opt-proof, panic-audit, release-audit, sat, smtlib-compliance, solver-core, solver-rest, spacer, test-gap, theories-arith, theories-rest, z3-gap. (condensed 2026-09-23; the full prose is in this file's history)
+- [x] **Policy and release chores (2026-07/08).** `oxiz-theories/src/bv/solver.rs` exceeded the 2,000-line policy at 2008 lines and was split with splitrs to 1779, with `bv/solver/{division,shifts,tests}.rs` extracted as submodules; the non-test `.unwrap()`s (48 at audit, ~39 at a release-time spot-recheck) were eliminated — none remain outside tests and doc comments; the stray `rustc-ice-2026-04-25T11_26_41-70917.txt` / `rustc-ice-2026-05-04T17_25_54-90362.txt` dumps are gone and `.gitignore` keeps `rustc-ice-*.txt`; the empty `CHANGELOG.md` [0.2.4] section was filled with a waves-1–5 summary; `oxiz-cli/tests/benchmark.rs`'s <5000ms wall-clock assertions, flaky under load, are gated behind `OXIZ_TIMING_TESTS=1`; the "production ready / 100% Z3 parity" claims were revised to the then-honest 168-benchmark breakdown (122 Correct / 35 Inconclusive / 10 Error / 1 Wrong, QF_S and QF_FP named) and `results.json` regenerated under the honest comparator (the one `Wrong` then left was in `QF_NIRA`); and the adversarial verification of P2/P3, stopped early at 90 of ~250 verdicts, was completed by 10+ scoped audit/verify agents and three implementation waves across all of P0–P4, the gaps left then being enumerated in the open items of this section and in "(b) Deliberately deferred capabilities (with reasons)" and "(c) Confirmed-open findings (no wave addressed these; file:line)" below. Audit Coverage Notes (condensed 2026-09-16 and 2026-09-21): nineteen scoped agents — bindings, core-ast, core-rest, core-tactic, frontends, math, nlsat, opt-proof, panic-audit, release-audit, sat, smtlib-compliance, solver-core, solver-rest, spacer, test-gap, theories-arith, theories-rest, z3-gap. (condensed 2026-09-23; the full prose is in this file's history)
 - [ ] **SMT-COMP 2026 submission portal** — the entry package is complete (`Track` enum, per-track `starexec_run_*` scripts, `scripts/package_smtcomp.sh`); actual submission is gated on the SMT-COMP portal opening.
 - [ ] **SMT-LIB 3.0 standard** (`oxiz-smtcomp/TODO.md`) — the standard itself is unreleased; nothing to implement against yet.
 - [ ] **Symbolic-execution / verification-framework integration** (root TODO.md — KLEE/angr/S2E, Frama-C/CBMC/SeaHorn) — too vague to scope without a user-selected target; re-scope once a specific integration target is chosen.
@@ -1714,6 +1716,30 @@ Line numbers below were re-verified on 2026-09-09, after the two file splits thi
   trajectory printed a correct one). Such a function now reads OPEN: every other assertion is read as above, and an
   assertion that applies it is withheld unless a fresh solver, the function uninterpreted, refutes its negation
   (`round4_pass19_fix_pins`; a table that parses into a non-value, a sort `|W X|`'s `@uc_W X_n`, counts as unreadable).
+  **The root fix (2026-10-08, `b9be4c7`):** the lever above is pulled whole — the datatype axioms and the model builder
+  read every assertion as the SAT core encodes it. `Solver::register_encoded_assertion_root`, which every assertion,
+  named assertion, binder-row lemma and quantifier obligation passes through, records the encoded term in
+  `dt_assertion_roots` (journalled, `TrailOp::DtAssertionRootAdded`), and `Solver::encoded_dt_scan` reads those roots
+  beside `ground_dt_roots` (`Solver::register_ground_dt_root`, unchanged) in place of `self.assertions` re-spelled
+  through `ite_elim_aliases`: the encoding carries every rewrite of the pre-pass chain, numeric purification — the half
+  re-fix pass 18 left — included. The separation repair counts a field named only in the encoded spelling (`(hd (h v))`
+  for the written `(hd (h 2))`) as named; with no datatype declared the scan is skipped (`SortManager::has_datatypes`,
+  new). The mechanism removed: `(h 2)` was axiomatised while the search decided `(h v)` beside `(= v 2)`, so its testers
+  were free atoms — the model gate refused every candidate whose phantom tester disagreed with the encoded one, a
+  blocking round apiece (a refutation then surfaces only as `unknown`), and a candidate it let through printed a value
+  nothing had decided. Closed with it: decision (24a)'s (B′) rows `gen_dt.py` 30100192 `d00401#0-1` and 30102003
+  `d00498#0-2` (marked there; `d00498`'s verdict had ridden the trajectory — on Linux x86_64 the unedited tree answered
+  `sat` ×3 after six refused candidates). Pins: `oxiz-solver/tests/p2b88_encoded_dt_roots.rs`, new — §1 the smallest
+  refutations and their satisfiable twins (`push` / `pop` included), every one `unknown` at some check on `7e4647c`,
+  §2 `d00401` verbatim, §3 / §4 the holes `#P2b-95` and `#P2b-96` filed below;
+  `round4_pass18_recheck_pins::a_fresh_datatype_goal_pass_seventeen_decides_is_decided` (inverted);
+  `round4_pass16_recheck_pins::a_datatype_model_the_net_shows_false_is_withheld_at_every_check` (its first check now
+  prints a model that holds; the second and third stay `unknown`, on `#P2b-95`);
+  `round4_pass19_fix_pins::an_unreadable_table_no_longer_switches_the_net_off` (`d00236` beside the unreadable table
+  now `sat` at both checks with the model withheld for the table; the false-candidate vehicle is `#P2b-95`'s
+  `U1_COLLISION`). The fix moves the datatype trajectory: `gen_dt.py` 30093154 `d00090`, three z3-confirmed models on
+  `7e4647c`, answers `unknown` at every check here (`#P2b-96`). **Not re-measured:** every other row of decision (24a)
+  and every rate there was measured before this fix, and no corpus has been re-run on it, so this item stays open.
 - [x] **#P2b-89 (2026-10-01) — MODEL, every build, quantifier-free: an array whose element sort is a datatype, an enumeration or an uninterpreted sort, read at two indices the arithmetic valued alike, printed one entry (the array twin of `#P2b-84`).** — fixed at the root by re-fix pass 17 (decision (79)(b)); REOPENED by adversarial recheck 17 for an array of ARRAYS into such a sort (`b05`, falsifying on every build) and closed again at the root by re-fix pass 18 (decision (86)); the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-89), written there by re-fix passes 17 and 18.
 - [x] **#P2b-90 (2026-10-01) — SOUNDNESS, a WRONG `sat` on every build (0.3.3 through re-fix pass 17): a tester, a selector or an equality over a datatype-sorted `ite` was not tied to the `ite`'s value (`m15`: `c` false beside `(< 0 (ite ((_ is cons) (ite c l1 nil)) 1 0))`; adversarial recheck 17's fresh `gen_dt.py` seed 30100192 `d00370`), and a datatype term only a quantifier body names had no datatype axiom (`q2`: `(forall ((n Int)) (=> (and (<= 0 n) (<= n 2)) ((_ is nil) (tl l2))))` beside `(= l1 l2)`, `((_ is cons) l1)`, `((_ is cons) (tl l1))`).** — found by adversarial recheck 17 (and its quantified half by re-fix pass 18's `gen_dtite.py`), fixed at the root by re-fix pass 18 (decision (84)): no wrong verdict at any size measured, and the verdict reached for an `ite` chain of at most `MAX_ITE_LIFT_NODES` (256) nodes — past the bound it is `#P2b-93`'s (open; scoped by re-fix pass 19, decision (92)(b)); the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-90), written there by re-fix pass 18.
 - [ ] **#P2b-91 (2026-10-02) — MODEL, every build: a printed datatype model gives no value to a selector applied to
@@ -1768,6 +1794,30 @@ Line numbers below were re-verified on 2026-09-09, after the two file splits thi
   verdict is `unknown` wherever the table matters; the printing itself is not fixed. The lever is quoting every printed symbol
   by the SMT-LIB lexical rule at the printer (one place, `context/model_fmt`), with a pin per shape; the pass-19 pins carry a
   vehicle guard that must be re-derived when this closes.
+- [ ] **#P2b-95 (2026-10-08, filed from the `#P2b-88` fix's measurement) — COMPLETENESS, never wrong (`7e4647c` and
+  this tree): a numeric selector under an uninterpreted function has no theory value, so the printed function collides
+  at the field's default.** `track_theory_vars` does not descend into an application's arguments, so `(px p)` in
+  `(h (px p))` has no arithmetic variable; the Ackermann round (`solver::uf_consistency`) finds no value for it and never
+  sees the collision, and the rebuilt `p` prints the field as its sort default `0` — the point where `(h 0)` is
+  `(cons 6 l3)`. Repro (`p2b88_encoded_dt_roots`'s `SELECTOR_UNDER_A_FUNCTION`): `(declare-datatypes ((L 0) (C 0) (P
+  0)) (((nil) (cons (hd Int) (tl L))) ((red) (green) (blue)) ((mk (px Int) (pc C)))))`, `(declare-fun h (Int) L)`,
+  `(declare-const l3 L)`, `(declare-const p P)`, `(assert (= (cons 6 l3) (h 0)))`, `(assert (= (h (px p)) l3))`,
+  `(check-sat)` — the printed `h` is not a function, the honesty net reads assertion 2 false, and the check answers
+  `unknown` (z3: `sat`). An `Int` constant `w` in place of `(px p)` is given a fresh value by the printer (`#P2b-71`)
+  and decided (the control, `CONSTANT_UNDER_A_FUNCTION`). Pinned as a hole by
+  `p2b88_encoded_dt_roots::a_selector_under_an_uninterpreted_function_is_not_decided` (never `unsat`; a `sat` must print
+  a model that holds and then trips the pin — invert it then and close this item). No fix yet.
+- [ ] **#P2b-96 (2026-10-08, filed from the `#P2b-88` fix's measurement) — MODEL, never wrong, a completeness cost of
+  that fix's trajectory: the datatype model builder renders a consistent search state as a falsifying model.**
+  `gen_dt.py` seed 30093154 `d00090` (verbatim in `p2b88_encoded_dt_roots` as `D00090`; three checks, the third after a
+  `push` and `(assert (<= 0 (+ 2 (- 1))))`): `7e4647c` printed three models z3 confirms; on this tree's trajectory the
+  search decides `(v (cons x l2))` is `nil` while the printed `v` maps the printed `(cons x l2)` to a cons cell, so the
+  second assertion — `(distinct (v (v l2)) (ite ((_ is cons) (v (cons x l2))) (tl (v (cons x l2))) nil))` under an `and`
+  with `(= c1 red)` and `(distinct l1 (v l2))` — reads false and every check answers `unknown` with the net's reason
+  (z3: `sat` ×3). Which check a trajectory lands on this mechanism is not a property of the script — a tripwire would
+  trip on another host the way `d00498`'s did — so it is pinned by property, not by a closing tripwire:
+  `p2b88_encoded_dt_roots::the_rendering_hole_is_never_wrong` (never `unsat`; a `sat` prints a model that holds or
+  withholds it; every check prints a model that holds or names why it has none). No fix yet.
 - [x] **#P2b-62 (2026-09-28) — a published model falsified its own GROUND assertion: a quantifier body's read over its bound variable was rendered as an array entry (REGRESSION vs `c4b04b7`).** — closed; the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-62), moved verbatim by re-fix pass 14 (decision (58)).
 - [x] **#P2b-66 (2026-09-28) — SOUNDNESS, public API: `oxiz_sat::Solver::solve_with_assumptions` answered `sat` with a model falsifying one of its own assumptions, and its core dropped the partner of a complementary pair.** — closed; the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-66), moved verbatim by re-fix pass 14 (decision (58)).
 - [x] **#P2b-67 (2026-09-28) — `oxiz-opt` PMRES (WPM1) relaxed every core clause from its ORIGINAL body, so a core needing two violations reproduced itself for ever — masked by `#P2b-66`.** — closed; the long form is in [`docs/round4-closed.md`](docs/round4-closed.md#p2b-67), moved verbatim by re-fix pass 14 (decision (58)).

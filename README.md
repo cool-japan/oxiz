@@ -12,14 +12,40 @@ OxiZ is a high-performance Satisfiability Modulo Theories (SMT) solver written e
 
 **Pure Rust is a fundamental requirement** - no C/C++ dependencies, no FFI bindings, just clean, safe Rust code.
 
-### Implementation Status (v0.3.2)
+### Implementation Status (v0.3.4)
 
 OxiZ is under active development with core theories at production quality on its tested surface.
 
-- **Pure Rust Implementation**: 451,853 lines of production Rust code across 1,276 files (564,303 total including comments/blank lines, per `tokei . --exclude target`)
-- **Unit Tests**: 9,953 passing, 8 skipped (`cargo nextest run --workspace --all-features`, confirmed at release time), plus 110 doc-tests (`cargo test --doc --workspace --all-features`)
+- **Pure Rust Implementation**: 513,849 lines of production Rust code across 1,443 files (638,596 total including comments/blank lines, per `tokei . --exclude target`)
+- **Unit Tests**: 11,036 passing, 27 skipped (`cargo nextest run --workspace --all-features`); 11,014 passing, 27 skipped with default features; plus 114 doc-tests (`cargo test --doc` over every workspace crate with `--all-features`; 28 ignored)
 - **Z3 Parity**: honest, non-fabricated comparison against a real `z3` 4.15.4 binary (`bench/z3_parity`): **170/170 Correct, 0 Wrong, 0 Inconclusive, 0 Timeout, 0 Error** on the extended 19-logic / 170-benchmark differential suite under the honest comparator (an `Unknown` from either solver never counts as a match). All 19 logic families are individually at 100%, up from 154/168 with 12 Inconclusive and 2 Timeout at 0.3.0. This is 100% *of the differential parity suite* — it is not a blanket "100% Z3 compatibility" claim about the solver as a whole; see "Z3 Parity" below and [`TODO.md`](TODO.md) for what the suite does and does not cover
-- **Audit + hardening (multiple waves)**: a 2026-07-16 production-readiness audit (19 scoped agents + adversarial verification), the 0.3.0 follow-on waves, the 0.3.1 soundness sweep, and this release's issue-[#25](https://github.com/cool-japan/oxiz/issues/25)-driven soundness sweep found and fixed soundness and honesty gaps across every crate — SMT-LIB parser coverage (now fully iterative), quantifier elimination (Ferrante-Rackoff, virtual substitution, MBI/Craig interpolants), MBQI SAT certification and completeness, Spacer MIC generalization and multi-threaded parallel PDR, IEEE-754 `fp.rem`/fused-multiply-add, proof-rule/checker validation, >64-bit bitvector arithmetic, process-crash fixes, and — this release — EUF congruence closure, Bool/EUF encoding and Arithmetic⇄EUF combination false-`sat` families plus NLSAT conflict-analysis polarity bugs. Re-verified status (which items are fixed vs. still open) is tracked per-item in [`TODO.md`](TODO.md); a small number of NLSAT items (notably irrational-root isolation) remain open and are called out there and in the [CHANGELOG](CHANGELOG.md#032---2026-08-05)
+- **Audit + hardening (multiple waves)**: a 2026-07-16 production-readiness audit (19 scoped agents + adversarial verification), the 0.3.0 follow-on waves, the 0.3.1 soundness sweep, 0.3.2's issue-[#25](https://github.com/cool-japan/oxiz/issues/25)-driven soundness sweep, 0.3.3's issue-[#44](https://github.com/cool-japan/oxiz/issues/44)-[#50](https://github.com/cool-japan/oxiz/issues/50) sweep, and this release's sweep (found from outside by [cargo-formal](https://github.com/cool-japan/cargo-formal)'s capability probe and differential conformance suite, then widened by this release's own adversarial rechecks and generated-corpus campaigns) found and fixed soundness and honesty gaps across every crate — SMT-LIB parser coverage (now fully iterative), quantifier elimination (Ferrante-Rackoff, virtual substitution, MBI/Craig interpolants), MBQI SAT certification and completeness, Spacer MIC generalization and multi-threaded parallel PDR, IEEE-754 `fp.rem`/fused-multiply-add, proof-rule/checker validation, >64-bit bitvector arithmetic, process-crash fixes; in 0.3.2 the EUF congruence closure, Bool/EUF encoding and Arithmetic⇄EUF combination false-`sat` families plus NLSAT conflict-analysis polarity bugs; in 0.3.3 fifteen SMT-LIB benchmarks that answered `sat` where they are `unsat`; and — this release — wrong-`sat` and wrong-`unsat` families in bit-vectors, push/pop scopes, arrays, quantifiers, datatypes and `Int` terms solved over the reals, plus two undefined-behaviour paths in `oxiz-core`'s bump allocators (see "What's New in 0.3.4" below). Re-verified status (which items are fixed vs. still open) is tracked per-item in [`TODO.md`](TODO.md); a small number of NLSAT items remain open and are called out there — an irrational root has been a model since 0.3.3's algebraic-number witnesses ([CHANGELOG](CHANGELOG.md#033---2026-08-26)), but only one algebraic value at a time (a second one, or any root atom, still answers `unknown`), and NLSAT's Gomory-cut hook (`add_cutting_plane`) is still a no-op
+
+## What's New in 0.3.4 (2026-10-08)
+
+Another soundness release, this one found from outside. [cargo-formal](https://github.com/cool-japan/cargo-formal) — a Cargo subcommand for formal verification of Rust that uses OxiZ as its SMT backend — ran a capability probe and a differential conformance suite against 0.3.3 and came back with wrong verdicts in two independent bit-vector families (a third turned up while they were being fixed); this release's own close-out reviews, adversarial rechecks and generated-corpus campaigns then found more in push/pop scopes, arrays, quantifiers, datatypes and integer arithmetic. Each soundness fix below carries regression tests. What it costs — some checks an earlier tree answered now answer `unknown` or withhold their model — is stated under "Honest limits" and named check by check in [`TODO.md`](TODO.md). Full itemized detail is in [`CHANGELOG.md`](CHANGELOG.md#034---2026-10-08); highlights:
+
+### ⚠️ Breaking change (0.x API)
+`Command::GetValue` is a struct variant, `GetValue { terms: Vec<TermId>, keys: Vec<String> }` — match it as `Command::GetValue { terms, .. }`; the new field keys each answer by the term as the script wrote it. `SolverConfig` has a new public field, `max_bv_embedded_checks: u64` (a struct literal needs `..SolverConfig::default()`; `0` keeps the calibrated default). `BvSolver::assert_bool_value` returns `bool` instead of `()`, `BvSolver::pinned_terms` returns `Vec<TermId>` instead of `&[TermId]`, and the six `BvSolver::assert_*` methods are `#[must_use]`. Every internal name the solver mints — proxies, Skolem constants, array witnesses — now carries the reserved `\oxiz.` prefix, which no SMT-LIB script can spell, so Skolem symbols are `\oxiz.sk!N` / `\oxiz.skf!N` rather than `sk!N` / `skf!N`; and the parser refuses a user symbol that begins with `@` or `.`, which SMT-LIB reserves for the solver (the model's `@uc_S_n` witnesses). `(set-option :max-conflicts N)` now installs three independent budgets of `N` — the outer Boolean search, the embedded bit-blaster's total, and theory conflicts — so a caller who relied on completion under a small budget can get `unknown` where they used to get `unsat`. Further behaviour changes (`:timeout` is one deadline for the whole `(check-sat)`, ill-sorted terms such as `(= a8 b16)` are errors, bit-vector values print `#x` at every width that is a multiple of 4) are listed in CHANGELOG.md.
+
+### Soundness fixes
+- **Bit-vectors (the families cargo-formal reported).** `(= a #x0f)` beside `(not (and (bvule a #x0f) (bvule a #x10)))` answered `sat` on 0.3.3, and so did 846 of 6,341 randomly generated unsatisfiable width-8 formulas in the later differential campaign: Boolean structure over bit-vector atoms went wrong because the bit-vector solver's scope rollback was only half a rollback, and `(> bv bv)` / `(>= bv bv)` asserted nothing at all. Nested `bvsub`/`bvneg` over a free bit-vector wider than 64 bits was wrong in both directions, including `unsat` — a false proof — for satisfiable goals. All are fixed at the root, and the model-verification gate, which could not read a bit-vector value and so approved every QF_BV model, now reads them at full width as a second line of defence; the same differential generator now reports 0 wrong `sat`, 0 wrong `unsat` and 0 `unknown` across 24,054 width-8 verdicts.
+- **Other false proofs (wrong `unsat`).** A clause learned inside a `push`ed scope, and a theory propagation's reason clause, outlived the `pop` that retracted their premises; a theory conflict explanation omitted the outer Booleans pinned into the circuit (`#P2b-25`); a stale circuit snapshot merged two different bit-vector literals in an incremental `QF_AUFBV` script (`#P2b-68`, a regression against 0.3.3); and the names the solver minted for its own proxies and Skolem constants could be declared by a script, which then inherited the solver's constraints — a satisfiable eight-line script answered `unsat` (`#P2b-39`, `#P2b-41`; closed by the reserved prefix above).
+- **Arrays and quantifiers.** Read-over-write was never instantiated for a `select` nested under an operator or used only as an application's argument, a read of `((as const …) d)` was a free leaf, `distinct` over arrays recorded no extensionality pair, a `select` through an array-sorted `ite` was unconstrained, and an array read under a binder above the finite expansion's budget answered `sat` where it is `unsat` (`#P2b-32`, `#P2b-33`, `#P2b-36`, `#P2b-37`, `#P2b-45`, `#P2b-48`, `#P2b-60`). A quantifier under `=>`, `or`, `not`, `ite` or a Boolean `=` was an unconstrained Boolean, so `(assert (not (forall ((x U)) (= (f x) (f x)))))` answered `sat` (`#P2b-54`), and a universal whose guard holds on an interval open at its boundary, `(forall ((q Int)) (=> (> q 7) false))`, answered `sat` on every earlier build (`#P2b-75`).
+- **Datatypes.** Two lists that differ two constructors deep were equated (`#P2b-76`); `(distinct (f 1) (f (hd (cons 1 l1))))` answered `sat` (`#P2b-82`), as did a cycle through an uninterpreted application two constructors deep (`#P2b-83`) and a tester, selector or equality over a datatype-sorted `ite` (`#P2b-90`) — all on every earlier build; and constructors were not distinct as array indices (`#P2b-61`).
+- **`Int` solved over the reals.** Under `(set-logic ALL)` or no logic an `Int` term was solved over the reals, so `(= (* 2 x) 1)` answered `sat` on every earlier build; the `Int` terms are now decided by branch-and-bound once per final check (`#P2b-79`).
+- **Models and the SAT API.** A quantified `sat` publishes a certified model or none — `(get-model)` answers an error naming the failing assertion, and the `sat` stands (`#P2b-51`) — and a quantifier-free `sat` over a datatype, an enumeration, an uninterpreted sort or an array over one is never answered over a model the solver's exact reading shows false: that check answers `unknown`. `oxiz_sat::Solver::solve_with_assumptions` could answer `sat` with a model falsifying one of its own assumptions (`#P2b-66`).
+
+### Memory safety
+Two undefined-behaviour paths in `oxiz-core`'s public bump allocators (`Arena`, `Region`), reachable from safe code and both reproduced under Miri, are closed at the root: a zero-size allocation reached the global allocator with a zero-size layout, and a value aligned to more than 8 bytes was written at an address aligned to 8 only. No solver code uses these allocators, so no verdict was affected. A `static mut` in `oxiz-math` built without `std`, open to a data race, is now a compile-time `static`. Not closed: `ArenaHandle::get` / `get_mut` (a `Copy` handle with no lifetime can outlive `Arena::reset`) and `oxiz_sat::ClauseArena` remain unsound and are named in the CHANGELOG's Known open; no solver path uses either type.
+
+### New capabilities
+The SMT-LIB 2.7 bit-vector overflow predicates `bvuaddo`, `bvsaddo`, `bvusubo`, `bvssubo`, `bvumulo`, `bvsmulo` and `bvnego`, desugared into existing term kinds and checked over all 256 ordered pairs at width 4 in both polarities. Budgets that bind: `:timeout` and `:max-conflicts` now stop a bit-blasted solve, `:max-decisions` bounds the outer search, and the new `(set-option :max-bv-embedded-checks N)` bounds the embedded bit-vector checks by a count rather than a clock, so it stops a runaway identically on every machine (it can only narrow the calibrated ceiling, never widen it). `(get-info :all-statistics)` adds deterministic work counters (`:bv-embedded-conflicts`, `:array-refinement-rounds`, `:array-lemma-instances`) beside `:bv-embedded-checks`, so the work a verdict cost is readable without a clock. A satisfiable quantified array script above the finite expansion's budget can be decided by a certified completion — a constant array plus finitely many pinned points over bit-vector and `Bool` index sorts. `(get-value)` evaluates a compound term — bit-vector operators, comparisons, applications, array reads — against the model `(get-model)` prints, where it used to echo the term.
+
+### Honest limits
+The trade, as the CHANGELOG measures it: over the round's twenty-five generated corpora (43,060 checks, z3 4.15.4 as the judge) the 0.3.4 pre-pass tree `c702310` gave 697 wrong verdicts and the release candidate 0 — a measurement of the seeds named, not a claim about every input, taken before the final `#P2b-88` fix (`b9be4c7`) and not re-taken on it. The price: on the first twenty-one of those corpora, 252 checks that `c702310` decided correctly or printed a correct model for now answer `unknown`, run out the 10 s cap or withhold the model (71 more on the four fresh seeds), each named in `TODO.md` decision (24a) with the switch that restores it. Still open: a wrong `sat` over a Bool-argument uninterpreted function, `(P p)` beside `(not (P true))` and `(not (P false))` (`#P2b-31`, as on 0.3.3); seventeen quantifier-free models over scalars and scalar arrays on those corpora that falsify their script (`#P2b-81`, every build); real division `/`, never decided (`#P2b-80`); and `(get-proof)`, which still always errors after `(set-option :produce-proofs true)` — the one disagreement left among cargo-formal's 32 conformance fixtures.
+
+See [CHANGELOG.md](CHANGELOG.md#034---2026-10-08) for the rest (the `oxiz-sat/formal` cargo-formal self-host harnesses, the round-4 measurement tooling under `scripts/round4/`, the workspace hygiene pass, and the full root-cause write-ups).
 
 ## What's New in 0.3.3 (2026-08-26)
 
@@ -105,7 +131,7 @@ For the 0.2.4 production-readiness audit and the 0.2.3 feature set (generic `Dra
 
 ## Theory Support Status
 
-Numbers below are re-measured at release time against the current `bench/z3_parity` suite (a real `z3` 4.15.4 binary, an honest comparator that never counts `Unknown` as a match — see [`bench/z3_parity/src/comparator.rs`](bench/z3_parity/src/comparator.rs)). As of 0.3.2 every one of the 19 logic families in the suite is at 100% Correct.
+Numbers below are re-measured at release time against the current `bench/z3_parity` suite (a real `z3` 4.15.4 binary, an honest comparator that never counts `Unknown` as a match — see [`bench/z3_parity/src/comparator.rs`](bench/z3_parity/src/comparator.rs)). As of 0.3.4 every one of the 19 logic families in the suite is at 100% Correct.
 
 ### Core Logics at 100% Z3 Parity ✅
 
@@ -160,7 +186,7 @@ Numbers below are re-measured at release time against the current `bench/z3_pari
 The three quantified logics that carried the whole of 0.3.0's remaining gap closed at 0.3.1 via the MBQI completeness work (`AUFLIA` 7/10 → 10/10, `UFLIA` 14/20 → 20/20, `UFLRA` 5/10 → 10/10); the three benchmarks that previously exhausted the 60s budget now solve in about a millisecond. This is 100% of the differential parity suite, not a blanket claim of Z3 compatibility outside it.
 
 - **QF_UF** (Uninterpreted Functions) - E-graphs with congruence closure (not separately benchmarked; exercised indirectly by every other logic above)
-- **QF_NRA** (Nonlinear Real) - CAD-based NLSAT solver (Alpha: irrational-root isolation still open; not part of this benchmark suite, see `TODO.md`)
+- **QF_NRA** (Nonlinear Real) - CAD-based NLSAT solver (Alpha: an irrational root is a model, but only one algebraic value at a time, so a second one, or any root atom, answers `unknown`; not part of this benchmark suite, see `TODO.md`)
 - **AUFBV** (Arrays + UF + BV) - Theory combination via Nelson-Oppen (`QF_AUFBV` scores 5/5 on the parity suite)
 - **UFLIA** (Quantified LIA) - 20/20 since 0.3.1: Skolem witness synthesis with CEGAR refinement decides the cases that previously fell back to `Unknown` or timed out
 - **UFLRA** (Quantified LRA) - 10/10 via symbolic model certification over the reals plus quasi-macro detection
@@ -216,21 +242,21 @@ The original 8-logic, 88-benchmark quickstart core (QF_LIA, QF_LRA, QF_NIA, QF_B
 
 - ✅ **Every Benchmark Decisive, Every Answer Matching**: all 19 logic families reach 100% Correct, with no `Unknown`, no timeout and no process error anywhere in the run. Because the comparator refuses to score `Unknown` as a match, the score cannot be inflated by declining to answer — 170/170 means OxiZ committed to a verdict on every benchmark and z3 agreed with all of them.
 - ⚠️ **100% of the Suite, Not "100% Z3 Compatibility"**: this is a claim about the differential parity suite and nothing wider. The suite is 170 benchmarks across 19 logics; it does not cover `QF_NRA`, `HORN`, or the long tail of SMT-LIB, and a perfect score on it is not evidence that any given formula outside it will be decided. Coverage gaps are tracked in [`TODO.md`](TODO.md).
-- ⚠️ **Not a General Production-Readiness Claim**: the 2026-07-16 audit, 0.3.0's hardening waves, 0.3.1's soundness sweep and this release's soundness sweep found and fixed soundness gaps across the parser, quantifier elimination, MBQI, SAT conflict analysis, NLSAT, math, MaxSAT/QE, Spacer, EUF/arithmetic theory combination, and proof checking — including, in 0.3.4, a wrong `unsat` in an incremental `QF_AUFBV` script (a bit-vector literal read off a stale circuit model and merged with a different literal, `#P2b-68`, a regression against 0.3.3 found by an adversarial recheck's differential fuzzer) — but items such as NLSAT irrational-root isolation remain open; see [`TODO.md`](TODO.md) for the itemized gaps and fix status before relying on OxiZ outside this suite's scope
+- ⚠️ **Not a General Production-Readiness Claim**: the 2026-07-16 audit, 0.3.0's hardening waves, 0.3.1's soundness sweep and this release's soundness sweep found and fixed soundness gaps across the parser, quantifier elimination, MBQI, SAT conflict analysis, NLSAT, math, MaxSAT/QE, Spacer, EUF/arithmetic theory combination, and proof checking — including, in 0.3.4, a wrong `unsat` in an incremental `QF_AUFBV` script (a bit-vector literal read off a stale circuit model and merged with a different literal, `#P2b-68`, a regression against 0.3.3 found by an adversarial recheck's differential fuzzer) — but known limits such as NLSAT's one-algebraic-value-at-a-time boundary (a second algebraic value, or any root atom, answers `unknown`) remain; see [`TODO.md`](TODO.md) for the itemized gaps and fix status before relying on OxiZ outside this suite's scope
 - ✅ **Pure Rust**: Achieved without any C/C++ dependencies
 
 This snapshot validates OxiZ's arithmetic, BV, datatype, array, string, FP, combined-theory and quantified reasoning against Z3 across the whole differential suite, while being explicit that logics outside the suite remain ongoing work.
 
-## Project Statistics (v0.3.2, 2026-08-05)
+## Project Statistics (v0.3.4, 2026-10-08)
 
 | Metric | Value |
 |--------|-------|
-| Rust Lines of Code (code) | 451,853 |
-| Total Rust Lines (with comments/blanks) | 564,303 across 1,276 files |
-| Total Tests | 9,953 passing, 8 skipped (`--all-features`) at the last full nextest run, plus 110 doc-tests |
+| Rust Lines of Code (code) | 513,849 |
+| Total Rust Lines (with comments/blanks) | 638,596 across 1,443 files |
+| Total Tests | 11,036 passing, 27 skipped (`--all-features`) at the last full nextest run, plus 114 doc-tests |
 | Z3 Parity (differential suite, 170 benchmarks / 19 logics) | **170/170 (100%) Correct**, 0 Wrong / 0 Inconclusive / 0 Timeout / 0 Error, 19/19 logics at 100% |
 | Z3 Parity (quickstart core subset, 88 benchmarks) | **88/88 (100%) Correct**, 8/8 logics at 100% |
-| Crates | 17 |
+| Crates | 18 (16 crates plus the two `bench/` harnesses) |
 
 ### Codebase Breakdown by Module
 
@@ -252,6 +278,7 @@ This snapshot validates OxiZ's arithmetic, BV, datatype, array, string, FP, comb
 ```
 oxiz/
 ├── oxiz/           # Meta-crate (unified API)
+├── oxiz-time/      # Wasm-safe drop-in replacements for std::time
 ├── oxiz-core/      # Core AST, sorts, SMT-LIB parser, tactics, rewriters
 ├── oxiz-math/      # Mathematical algorithms (polynomials, matrices, LP)
 ├── oxiz-sat/       # CDCL SAT solver with VSIDS/LRB/VMTF
@@ -333,7 +360,7 @@ oxiz input.smt2
 oxiz --interactive
 
 # With verbose output
-oxiz -v input.smt2
+oxiz -v verbose input.smt2
 ```
 
 Or run directly from source:
@@ -346,7 +373,7 @@ cargo run --release -p oxiz-cli -- input.smt2
 cargo run --release -p oxiz-cli -- --interactive
 
 # With verbose output
-cargo run --release -p oxiz-cli -- -v input.smt2
+cargo run --release -p oxiz-cli -- -v verbose input.smt2
 ```
 
 ### Library Usage
@@ -376,7 +403,7 @@ fn main() {
 
 ## Supported Logics
 
-Status reflects results on the `bench/z3_parity` suite against a real `z3` 4.15.4 binary with an honest comparator (`Unknown` never counts as a match); logics marked Alpha/Partial have known gaps documented in [`TODO.md`](TODO.md) (e.g. NLSAT root isolation for irrational roots, MBQI completeness, PDR/IC3 consecution checks).
+Status reflects results on the `bench/z3_parity` suite against a real `z3` 4.15.4 binary with an honest comparator (`Unknown` never counts as a match); logics marked Alpha/Partial have known gaps documented in [`TODO.md`](TODO.md) (e.g. NLSAT's one-algebraic-value-at-a-time limit, MBQI completeness, PDR/IC3 consecution checks).
 
 | Logic | Description | Status |
 |-------|-------------|--------|
@@ -389,7 +416,7 @@ Status reflects results on the `bench/z3_parity` suite against a real `z3` 4.15.
 | QF_NIA | Nonlinear Integer Arithmetic | ✅ Complete (1/1 quickstart test; broader NIA branch-and-bound has known scoping gaps, see `TODO.md`) |
 | QF_S | Strings | ✅ Complete (10/10 Correct via the ground string decision procedure) |
 | QF_FP | Floating Point | ✅ Complete (12/12 Correct via the concrete FP model finder) |
-| QF_NRA | Nonlinear Real Arithmetic | 🔶 Alpha (irrational-root isolation still open) |
+| QF_NRA | Nonlinear Real Arithmetic | 🔶 Alpha (only one algebraic value at a time: a second one, or any root atom, answers `unknown`) |
 | AUFLIA / UFLIA / UFLRA | Quantified logics | ✅ Complete on the parity suite (AUFLIA 10/10, UFLIA 20/20, UFLRA 10/10 since 0.3.1, via finite-range expansion, Skolem-witness CEGAR and symbolic model certification); MBQI is still incomplete in general, see `TODO.md` |
 | AUFLIRA | Quantified mixed Int/Real + Arrays | ✅ Complete (5/5 on the parity suite) |
 | AUFBV | Arrays + UF + BV | 🔶 Alpha (`QF_AUFBV` variant scores 5/5 on the parity suite) |
@@ -464,10 +491,12 @@ Status reflects results on the `bench/z3_parity` suite against a real `z3` 4.15.
 > every assertion at every `sat`, and **a `sat` is never answered over a model this reading shows
 > false**: the check answers `unknown` instead, `(get-model)` answers `(error "model not certified: model
 > check failed: assertion N reads false under the candidate model")` and `(get-info :reason-unknown)`
-> gives that reason (0.3.4, decision (85)). The datatype values are rebuilt after the search from the
-> assertions' terms, while the search decided some of them through the encoder's proxies (`#P2b-88`,
-> open), so which checks get a model that holds moves with the search's trajectory — and where it is
-> false the price is a lost verdict, named in `TODO.md` decision (24a). The reading covers every
+> gives that reason (0.3.4, decision (85)). Before `#P2b-88`'s root fix (`b9be4c7`) the datatype values
+> were rebuilt after the search from the assertions' terms as written, while the search decided some of
+> them through the encoder's proxies, so which checks got a model that holds moved with the search's
+> trajectory — and where it was false the price was a lost verdict, named in `TODO.md` decision (24a);
+> the datatype axioms and the model builder now read each assertion as the SAT core encodes it, and
+> `#P2b-88` stays open because those rows were measured before the fix and not re-taken on it. The reading covers every
 > comparison, `ite`, selector, tester and array read (nested arrays too) over such values, but it is a
 > check, not a certificate: an assertion it cannot read is not checked (one the structural evaluator
 > reads false is confirmed by a fresh solver and withheld on its `unsat`; one over a function whose
@@ -683,7 +712,7 @@ Historical high-level phases, not a parity percentage claim — see "Z3 Parity" 
 - Additional rewriters
 - Muz/Datalog expansion
 - SAT solver enhancements
-- Closing the remaining `TODO.md` items surfaced by the production-readiness audit and the 0.3.1 soundness sweep (NLSAT irrational-root isolation, MBQI completeness beyond the parity suite, etc.)
+- Closing the remaining `TODO.md` items surfaced by the production-readiness audit and the 0.3.1 soundness sweep (NLSAT's Gomory-cut hook and one-algebraic-value-at-a-time limit, MBQI completeness beyond the parity suite, etc.)
 
 ## Acknowledgments
 

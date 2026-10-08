@@ -8,10 +8,10 @@ This document invites researchers, developers, and the broader formal methods co
 
 OxiZ is a high-performance, pure Rust implementation of a full-featured SMT (Satisfiability Modulo Theories) solver. It is developed as part of the COOLJAPAN open-source ecosystem and is designed to match — and ultimately surpass — the capabilities of state-of-the-art solvers such as Z3, while offering the safety, reproducibility, and ergonomics that Rust uniquely provides.
 
-**Key facts about OxiZ (v0.3.3):**
+**Key facts about OxiZ (v0.3.4):**
 
 - Honest, non-fabricated parity against a real `z3` 4.15.4 binary across **19 SMT-LIB logic families** (170 benchmark instances, `bench/z3_parity`): **170/170 Correct, 0 Wrong, 0 Inconclusive, 0 Timeout, 0 Error** on the extended 19-logic / 170-benchmark differential suite under the honest comparator (`Unknown` never counts as a match). All 19 logic families are at 100% of this differential parity suite — a claim scoped to the suite, not a blanket "100% Z3 compatibility"; see [`README.md`](../README.md#z3-parity-differential-suite-results-honest-comparator-️) for the full per-logic breakdown and known gaps
-- **10,345 unit tests** passing, 12 skipped (`cargo nextest run --workspace --all-features`) across all crates, plus 110 doc-tests
+- **11,036 unit tests** passing, 27 skipped (`cargo nextest run --workspace --all-features`) across all crates, plus 114 doc-tests
 - Zero unsafe C/C++ dependencies — pure Rust from end to end
 - Proof-producing: generates DRAT, Alethe, LFSC, Coq, Lean, and Isabelle certificates
 - Supports Craig interpolation and Spacer/PDR for model checking workloads
@@ -25,7 +25,7 @@ OxiZ is actively developed at: [https://github.com/cool-japan/oxiz](https://gith
 
 ### 1. Broad logic coverage — 19 divisions implemented, honest per-division status
 
-OxiZ has implementations across the following SMT-LIB logic families. Status reflects real, measured results from `bench/z3_parity` (a real `z3` binary, honest comparator — `Unknown` never counts as a match) as of v0.3.3, not an aspirational "all ready" claim:
+OxiZ has implementations across the following SMT-LIB logic families. Status reflects real, measured results from `bench/z3_parity` (a real `z3` binary, honest comparator — `Unknown` never counts as a match) as of v0.3.4, not an aspirational "all ready" claim:
 
 | Division | Status |
 |----------|--------|
@@ -37,7 +37,7 @@ OxiZ has implementations across the following SMT-LIB logic families. Status ref
 | QF_DT    | ✅ Ready (10/10 Correct) |
 | QF_A     | ✅ Ready (10/10 Correct) |
 | QF_NIA   | ✅ Ready (1/1 Correct on the parity suite; broader NIA branch-and-bound has known scoping gaps, see `TODO.md`) |
-| QF_NRA   | 🔶 Alpha (irrational-root isolation still open; not yet part of the parity suite) |
+| QF_NRA   | 🔶 Alpha (only one algebraic value at a time: a second one, or any root atom, answers `unknown`; not yet part of the parity suite) |
 | UFLIA    | ✅ Ready (20/20 Correct — Skolem witness synthesis + CEGAR on top of the MBQI SAT certifier) |
 | UFLRA    | ✅ Ready (10/10 Correct — symbolic model certification over the Reals + quasi-macro detection) |
 | AUFLIA   | ✅ Ready (10/10 Correct — finite-range quantifier expansion) |

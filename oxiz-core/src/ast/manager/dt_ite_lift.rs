@@ -49,7 +49,7 @@
 
 use super::super::term::{TermId, TermKind};
 use super::TermManager;
-use crate::prelude::{FxHashMap, FxHashSet};
+use crate::prelude::*;
 
 /// `ite` nodes one lift may rebuild (and the bound on the product of the two
 /// sides of a lifted equality).

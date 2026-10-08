@@ -4,12 +4,12 @@ Machine learning-guided heuristics for the OxiZ SMT solver, providing adaptive b
 
 | Metric | Value |
 |:-------|:------|
-| Version | 0.3.2 |
+| Version | 0.3.4 |
 | Status | Alpha |
 | Tests | 175 passing |
 | Source Files | 29 |
-| Rust LoC | ~6,042 |
-| Public API | 296 items |
+| Rust LoC | ~6,041 |
+| Public API | 296 items (recorded at 0.2.0) |
 | `todo!`/`unimplemented!` | 0 |
 
 ## Features
@@ -35,7 +35,7 @@ Machine learning-guided heuristics for the OxiZ SMT solver, providing adaptive b
 
 ## Quick Start
 
-Add `oxiz-ml` to your workspace member and enable it from `oxiz-solver`:
+Add `oxiz-ml` to your workspace member:
 
 ```toml
 [dependencies]

@@ -40,15 +40,15 @@ This crate implements the NLSAT algorithm for solving non-linear real arithmetic
 - Jovanović, D., & de Moura, L. (2012). Solving Non-linear Arithmetic. IJCAR.
 - Collins, G. E. (1975). Quantifier elimination for real closed fields by cylindrical algebraic decomposition.
 
-## Status (v0.3.2)
+## Status (v0.3.4)
 
 | Metric | Value |
 |:-------|:------|
-| Version | 0.3.2 |
+| Version | 0.3.4 |
 | Status | Stable |
-| Tests | 497 passing (4 skipped) |
-| Rust LoC | 19,440 (55 files) |
-| Public API items | 716 |
+| Tests | 511 passing (4 skipped) |
+| Rust LoC | 19,557 (45 files) |
+| Public API items | 716 (recorded at 0.3.1) |
 | `todo!`/`unimplemented!` | 0 |
 
 0.3.1: recursion-hardening pass (remaining unguarded recursive term walks

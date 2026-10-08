@@ -28,6 +28,8 @@
 
 use super::super::term::{TermId, TermKind};
 use super::TermManager;
+#[cfg(not(feature = "std"))]
+use crate::prelude::{Vec, vec};
 
 impl TermManager {
     /// The folded equality of two constructor applications of one sort:
