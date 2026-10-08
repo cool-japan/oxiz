@@ -255,7 +255,20 @@ impl FiniteModelFinder {
         let mut universe = Vec::new();
 
         for i in 0..size.size() {
-            let name = format!("u!{}!{}", sort.0, i);
+            // Minted through `reserved_name`, like every other name the solver
+            // interns for itself: a universe element is a constant the search
+            // may equate with a user's, so a user constant that happened to be
+            // spelled `u!0!0` would be captured by it.  The `\oxiz.` prefix is
+            // unspellable in both SMT-LIB 2.6 symbol forms and the parser
+            // refuses it by prefix, so the collision cannot be constructed.
+            //
+            // No exploit was found for the old spelling (thirteen attempts
+            // against quantified shapes, all correctly `sat`), which is why
+            // this is an audit repair rather than a defect fix; the point is
+            // that the argument for the reserved class is "every mint site
+            // goes through it", and one that does not makes the argument
+            // unavailable rather than merely untested.
+            let name = oxiz_core::smtlib::reserved_name("mbqiuniv", &format!("{}!{}", sort.0, i));
             let elem = manager.mk_var(&name, sort);
             universe.push(elem);
         }

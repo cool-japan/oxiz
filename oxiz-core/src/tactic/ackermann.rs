@@ -244,7 +244,13 @@ impl<'a> AckermannizeTactic<'a> {
                 continue; // Skip if term not found
             };
             let sort = term.sort;
-            let var_name = format!("!ack_{}", var_counter);
+            // Minted through the reserved class (`#P2b-44`): the Ackermann
+            // constant replaces a ground application and is then *asserted
+            // equal* to it in the subgoal this tactic returns, so a user term
+            // spelled the same way would be captured by that side condition.
+            // `\oxiz.` is unspellable in both SMT-LIB 2.6 symbol forms and the
+            // parser refuses it by prefix, so the collision cannot be built.
+            let var_name = crate::smtlib::reserved_name("ack", &var_counter.to_string());
             let fresh_var = self.manager.mk_var(&var_name, sort);
 
             term_to_var.insert(term_id, fresh_var);

@@ -1,8 +1,16 @@
 # oxiz-wasm TODO
 
-Last Updated: 2026-07-31 (v0.3.1) — see root TODO.md for the workspace-wide 0.3.1 soundness/hardening pass (recursive term-walks converted to explicit stacks, exhaustive error handling, clippy::unwrap_used denied)
+Last Updated: 2026-10-08 (v0.3.4)
 
-## Progress: ~99% Complete
+## Progress
+
+Every item in the checklists below is checked. Two checked methods stop short of what their names
+promise, as their own doc comments in `src/js_api/optimize.rs` state: `computeInterpolant` confirms its
+UNSAT/proof preconditions and then always throws `NotSupported`, and `eliminateQuantifiers` runs only
+`QeLiteSolver`'s cheap rules (its doc comment names a body that is already a tautology as the case it
+handles) and throws `NotSupported` for most other formulas. Workspace-level
+open items that touch this crate are tracked in the root `TODO.md` — for example `#P2b-13`: `oxiz-sat`
+built on its own for `wasm32-unknown-unknown` fails in `getrandom`.
 
 ---
 
@@ -107,7 +115,7 @@ Last Updated: 2026-07-31 (v0.3.1) — see root TODO.md for the workspace-wide 0.
 
 ## Packaging
 
-- [ ] Publish to npm (ready - use ./publish.sh when ready) — **(status: blocked — awaiting explicit authorization from the user (KitaSan) per the workspace publish policy; code, packaging (`package.json`, CDN docs, framework wrappers), and the `publish.sh`/`version-bump.sh` automation are all ready. See root `TODO.md` "Remaining (post-0.3.0 hardening)" (a).)**
+- npm: the `@cooljapan/oxiz` package (`package.json`) is built with `wasm-pack`; the root `.github/workflows/npm-publish.yml` builds the bundler, web and Node.js targets and publishes the bundler build on a manual dispatch (dry-run by default) or a `v*` tag push, and `./publish.sh` is the local alternative.
 - [x] Add CDN distribution (unpkg/jsdelivr) - CDN_USAGE.md created
 - [x] Create package.json configuration
 - [x] Create .npmignore for clean npm packages
@@ -127,8 +135,8 @@ Last Updated: 2026-07-31 (v0.3.1) — see root TODO.md for the workspace-wide 0.
 - [x] Add Node.js integration tests - tests/nodejs.rs
 - [x] Add performance benchmarks - benches/performance.rs (criterion-based)
 - [x] Test in all target environments (Chrome, Firefox, Safari, Edge) - BROWSER_TESTING.md created with comprehensive testing guide
-- [x] Add CI/CD pipeline for automated testing (.github/workflows/ci.yml)
-- [x] Add release automation (.github/workflows/release.yml)
+- [x] Add CI/CD pipeline for automated testing (`oxiz-wasm/.github/workflows/ci.yml` — inside the crate directory, where GitHub Actions does not run it; GitHub runs only the repository root's `.github/workflows/`)
+- [x] Add release automation (`oxiz-wasm/.github/workflows/release.yml`, likewise not run by GitHub; npm releases go through the root `.github/workflows/npm-publish.yml`)
 - [x] Add fuzzing tests (fuzz/)
 - [x] Add regression tests (tests/regression.rs)
 
@@ -159,8 +167,8 @@ Last Updated: 2026-07-31 (v0.3.1) — see root TODO.md for the workspace-wide 0.
   - [x] assertSoft() method for soft constraints (MaxSMT)
 - [x] Add model minimization
   - [x] getMinimalModel() method to get model with only specified variables
-- [x] Add interpolation support (computeInterpolant method - basic implementation)
-- [x] Add quantifier elimination API (eliminateQuantifiers method - returns NotSupported, full implementation planned)
+- [x] Add interpolation API (computeInterpolant method - confirms its UNSAT/proof preconditions, then always throws NotSupported; no interpolant is computed)
+- [x] Add quantifier elimination API (eliminateQuantifiers method - runs only QeLiteSolver's cheap rules, so most formulas get NotSupported; the tests pin a `true` body, which eliminates to `true`; full implementation planned)
 
 ## Completed
 
@@ -243,11 +251,11 @@ Last Updated: 2026-07-31 (v0.3.1) — see root TODO.md for the workspace-wide 0.
 - [x] Comprehensive tests for optimization features
 - [x] Model minimization (getMinimalModel method)
 - [x] Tests for model minimization (4 comprehensive tests)
-- [x] Interpolation support (computeInterpolant method for Craig interpolation)
-- [x] Quantifier elimination API (eliminateQuantifiers method with NotSupported response)
+- [x] Interpolation API (computeInterpolant method; after confirming its UNSAT/proof preconditions it always throws NotSupported, as real Craig interpolation is not wired up)
+- [x] Quantifier elimination API (eliminateQuantifiers method; runs only QeLiteSolver's cheap rules, so most formulas get a NotSupported response; the tests pin a `true` body, which eliminates to `true`)
 - [x] Comprehensive tests for interpolation (7 tests covering edge cases and validation)
 - [x] Comprehensive tests for quantifier elimination (7 tests)
-- [x] Interactive HTML example for Craig interpolation (examples/interpolation.html)
+- [x] Interactive HTML example page for computeInterpolant (examples/interpolation.html) - its success branch cannot run while computeInterpolant always throws NotSupported
 - [x] Updated examples README with interpolation documentation
 - [x] Batch operations for efficiency:
   - [x] declareFuns() - declare multiple constants at once

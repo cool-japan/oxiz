@@ -5,7 +5,6 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
@@ -64,6 +63,11 @@ pub struct ProgressInfo {
 
 impl Checkpoint {
     /// Create a new checkpoint with current timestamp
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the system clock reads a time before the Unix
+    /// epoch, which leaves no timestamp to name the checkpoint by.
     #[allow(dead_code)]
     pub fn new(
         problem: String,
@@ -71,13 +75,17 @@ impl Checkpoint {
         solver_state: SolverState,
         progress: ProgressInfo,
         options: Vec<(String, String)>,
-    ) -> Self {
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("SystemTime should be after UNIX_EPOCH")
-            .as_secs();
+    ) -> Result<Self, String> {
+        let timestamp = crate::cache::unix_time_secs()?;
 
-        Self::with_timestamp(timestamp, problem, logic, solver_state, progress, options)
+        Ok(Self::with_timestamp(
+            timestamp,
+            problem,
+            logic,
+            solver_state,
+            progress,
+            options,
+        ))
     }
 
     /// Create a new checkpoint with explicit timestamp (useful for testing)
@@ -395,7 +403,8 @@ mod tests {
             SolverState::new(),
             ProgressInfo::new(1000, 50.0, "solving".to_string()),
             vec![("timeout".to_string(), "30".to_string())],
-        );
+        )
+        .expect("clock should be readable");
 
         assert!(!checkpoint.id.is_empty());
         assert_eq!(checkpoint.problem, "(assert true)");
@@ -414,7 +423,8 @@ mod tests {
             SolverState::new(),
             ProgressInfo::new(2000, 75.0, "solving".to_string()),
             vec![],
-        );
+        )
+        .expect("clock should be readable");
 
         let path = checkpoint
             .save(&temp_dir)
@@ -445,7 +455,8 @@ mod tests {
             SolverState::new(),
             ProgressInfo::new(1000, 33.0, "solving".to_string()),
             vec![],
-        );
+        )
+        .expect("clock should be readable");
 
         manager
             .save_checkpoint(checkpoint1)

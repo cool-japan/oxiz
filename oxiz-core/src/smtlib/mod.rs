@@ -23,3 +23,52 @@ pub use printer::Printer;
 // metadata in `oxiz-core::smtlib::printer::proof`, so a `"` or control
 // character in user-supplied text cannot break the surrounding syntax.
 pub use printer::format_string_literal;
+
+// The single encoder that turns a bit-vector *value* back into SMT-LIB source
+// text, and therefore the one place the `#x`-iff-`width % 4 == 0` radix rule
+// is stated.  Re-exported for the same reason as `format_string_literal`
+// above: `oxiz-solver` renders bit-vector values on paths that hold no
+// `TermManager` (`Context::default_value`), and a second copy of the rule is
+// exactly how the two spellings of finding U-Z13 came about.
+pub use printer::format_bitvec_literal;
+
+// The single encoder that writes a *symbol* back as SMT-LIB source text, and
+// therefore the one place the simple-symbol character set of section 3.1 is
+// stated.  Re-exported for the same reason as `format_string_literal` above:
+// `oxiz-solver`'s model printer holds declaration names as plain strings and
+// has no `TermManager` to route them through, and a second copy of the rule is
+// how `(get-model)` came to print `|a b|` without its bars while `(get-value)`
+// printed it with them.
+pub use printer::{format_symbol, is_simple_symbol};
+
+/// The interned function symbol the parser gives the SMT-LIB array constant
+/// `((as const (Array D R)) d)`.
+///
+/// There is no dedicated `TermKind` for an array constant: `parser::terms`
+/// (`Head::Qualified`) turns the qualified identifier into an ordinary
+/// uninterpreted application, and the *name* of that application is the only
+/// record that it is an array constant rather than a user function.  The name
+/// therefore has to be one no SMT-LIB script can spell, or a script that
+/// declares the same symbol makes the two indistinguishable — a read of the
+/// user's function would be decided by the array-constant axiom and a
+/// satisfiable formula would answer `unsat`.
+///
+/// A backslash is what makes it unspellable, and it is unspellable in both
+/// of SMT-LIB 2.6's symbol forms at once: a *simple* symbol's character set
+/// (section 3.1) excludes `\`, and a *quoted* symbol "may not contain `|` or
+/// `\`" — the lexer rejects one outright ([`Lexer`]), so the two together
+/// leave no way to write this name.
+///
+/// Printing is the mirror image: the term printers special-case exactly this
+/// name back to `((as const (Array D R)) d)` using the application's own
+/// sort, so the reserved spelling never reaches a user-visible response.
+pub const CONST_ARRAY_FUNC: &str = "\\oxiz.as-const";
+
+// The reserved-symbol helpers are defined in `crate::reserved`, which is
+// compiled without the `std` feature as well: `ast` mints its Skolem constants
+// through `reserved_name` and this module does not exist there.  Re-exported so
+// every `oxiz_core::smtlib::<item>` path is exactly what it was.
+pub use crate::reserved::{
+    ARRAY_EXT_WITNESS_PREFIX, ARRAY_OFF_CHAIN_PREFIX, RESERVED_PREFIX, is_reserved_tag,
+    reserved_name,
+};

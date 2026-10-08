@@ -27,7 +27,9 @@ use super::model_completion::ModelCompleter;
 use super::sat_certify;
 use super::{Instantiation, MBQIResult, MBQIStats, QuantifiedFormula, QuantifierId};
 
+mod goal;
 mod search_state;
+mod vacuity;
 
 pub use search_state::MbqiSearchCheckpoint;
 
@@ -107,6 +109,10 @@ pub struct MBQIIntegration {
     generated_instantiations: FxHashMap<InstantiationKey, usize>,
     /// Extra candidate terms per sort (e.g. Skolem function applications)
     extra_candidates: FxHashMap<SortId, Vec<TermId>>,
+    /// The assertions in scope, for the SAT certification (see `goal`).
+    goal_assertions: Vec<TermId>,
+    /// This round's instances are exactly the unnamed-region ones (see `goal`).
+    unnamed_only: bool,
     /// Whether blind instantiation has been attempted (one-shot guard)
     blind_attempted: bool,
     /// Current round number
@@ -139,6 +145,8 @@ impl MBQIIntegration {
             quantifiers: Vec::new(),
             generated_instantiations: FxHashMap::default(),
             extra_candidates: FxHashMap::default(),
+            goal_assertions: Vec::new(),
+            unnamed_only: false,
             blind_attempted: false,
             current_round: 0,
             budget: MBQIBudget::new(1024),
@@ -193,6 +201,7 @@ impl MBQIIntegration {
             self.start_time = Some(Instant::now());
         }
 
+        self.unnamed_only = false;
         if self.quantifiers.is_empty() {
             return MBQIResult::NoQuantifiers;
         }
@@ -264,6 +273,25 @@ impl MBQIIntegration {
         // Collect quantifiers first to avoid borrow checker issues
         let quantifiers: Vec<_> = self.quantifiers.to_vec();
 
+        // Discharge, for this round, every quantifier the candidate model
+        // makes vacuously true — see `quantifier_vacuous_under_model`.  A
+        // guarded universal `∀x. (g → φ)` whose guard `g` the search set
+        // `false` is satisfied by this model outright, so it is neither an
+        // obligation to verify nor a source of instances; leaving it in the
+        // round would let its symbolic residual clear
+        // `all_evaluations_fully_ground` and cost a `Sat` that the model
+        // genuinely supports (`#P2b-57`).
+        let quantifiers: Vec<QuantifiedFormula> = if partial_model.is_empty() {
+            quantifiers
+        } else {
+            quantifiers
+                .into_iter()
+                .filter(|quantifier| {
+                    !self.quantifier_vacuous_under_model(quantifier, partial_model, manager)
+                })
+                .collect()
+        };
+
         // Fast path: if every instantiable quantifier has a body that
         // simplifies to `true` independently of its bound variables (e.g.
         // `forall x. f(x) = f(x)`), the whole quantified block is valid over
@@ -298,69 +326,29 @@ impl MBQIIntegration {
         // an unsatisfiable goal into a detected conflict but never fabricate
         // `Sat`.  Goals outside the fragment yield `NotEligible` and fall
         // through to the normal counterexample path (and ultimately `Unknown`).
-        match sat_certify::collect_fragment_instances(
-            &quantifiers,
-            &completed_model,
-            manager,
-            SAT_CERTIFY_CAP,
-            self.current_round as u32,
-        ) {
-            sat_certify::CertifyResult::Instances(insts) => {
-                let mut fresh = Vec::new();
-                for mut inst in insts {
-                    if self.is_duplicate(&inst) {
-                        continue;
-                    }
-                    // Record against the (quantifier, binding) key *before* the
-                    // tautology filter below.  Saturation is detected purely by
-                    // this key (never by the result term), so recording every
-                    // relevant tuple — even those whose body collapses to `true`
-                    // — is what lets a later round observe "nothing fresh" and
-                    // conclude `Satisfied` soundly.
-                    self.record_instantiation(&inst);
-
-                    // Simplify so that the concrete guards of a bounded-box
-                    // instance collapse: e.g.
-                    //   (and (>= 1 0) (<= 1 10) (= (f 1) (f 2))) => (= 1 2)
-                    // reduces to the clean disequality (not (= (f 1) (f 2))).
-                    // Emitting the raw guarded implication instead feeds the
-                    // downstream pigeonhole / integer-domain clause heuristics a
-                    // spurious "bounded integer variable" shape (the substituted
-                    // constants still parse as `(>= c 0) (<= c 10)` conjuncts),
-                    // which over-constrains the ground problem and can flip a
-                    // satisfiable goal to a spurious `unsat`.  This mirrors the
-                    // enumerative path, which simplifies for the same reason.
-                    inst.result = self.deep_simplify(inst.result, manager);
-
-                    // A tautology instance (body ≡ ⊤) constrains nothing.  It is
-                    // already recorded above (so the set can still saturate), so
-                    // just skip emitting it as a lemma.
-                    if manager
-                        .get(inst.result)
-                        .is_some_and(|t| matches!(t.kind, TermKind::True))
-                    {
-                        continue;
-                    }
-
-                    callback.on_instantiation(&inst);
-                    fresh.push(inst);
-                }
-                let result = if fresh.is_empty() {
-                    // Saturated: every relevant instance was either emitted in an
-                    // earlier round or is a tautology, and the ground solver still
-                    // found a model — so by the completeness theorem for this
-                    // fragment the whole quantified formula is `Sat`.
-                    MBQIResult::Satisfied
-                } else {
-                    MBQIResult::NewInstantiations(fresh)
-                };
-                callback.on_round_end(self.current_round, &result);
-                self.update_final_stats();
-                return result;
-            }
-            sat_certify::CertifyResult::NotEligible => {
-                // Not in the certifiable fragment: keep the normal behaviour.
-            }
+        //
+        // Saturation over the relevant set is checked once more with the
+        // representatives of the array-index region no term names added
+        // (`#P2b-60`, `sat_certify::unnamed_region`): only when those
+        // instances are not fresh either is the goal `Satisfied`.  They are
+        // deferred to that point because they are needed only to *conclude*
+        // — every earlier round is a refinement anyway — and an extra index
+        // term in every round is what an array search pays for most.
+        if let sat_certify::CertifyResult::Instances(insts) =
+            sat_certify::collect_fragment_instances(
+                &quantifiers,
+                &completed_model,
+                None,
+                manager,
+                SAT_CERTIFY_CAP,
+                self.current_round as u32,
+            )
+            && let Some(result) =
+                self.certify_or_refine(insts, &quantifiers, &completed_model, manager, callback)
+        {
+            callback.on_round_end(self.current_round, &result);
+            self.update_final_stats();
+            return result;
         }
 
         for quantifier in &quantifiers {
@@ -931,6 +919,33 @@ impl MBQIIntegration {
             .unwrap_or_default()
     }
 
+    /// Does the candidate pool hold any ground term of `sort`?
+    ///
+    /// The read half of [`Self::add_candidate`], and the one production read of
+    /// `extra_candidates` (the `#[cfg(test)]` snapshot above explains why the
+    /// field is otherwise write-only).  It exists for
+    /// [`Solver::register_asserted_forall`](crate::solver::Solver): a
+    /// trigger-free `forall` over a sort with *no* inhabitant in the pool gets
+    /// no instance at all, so the refutation of
+    ///
+    /// ```text
+    /// (assert (forall ((i (_ BitVec 7)))
+    ///           (distinct (_ bv0 7)
+    ///                     (select ((as const (Array (_ BitVec 7) (_ BitVec 7)))
+    ///                              (_ bv0 7)) i))))
+    /// ```
+    ///
+    /// used to depend on the script happening to carry an unrelated
+    /// `(declare-const d (_ BitVec 7))` — `unsat` with it, `unknown` without.
+    /// The caller mints one reserved witness per binder sort when this answers
+    /// `false`, so the verdict is a property of the formula rather than of the
+    /// spelling.
+    pub fn has_candidate_of_sort(&self, sort: SortId) -> bool {
+        self.extra_candidates
+            .get(&sort)
+            .is_some_and(|candidates| !candidates.is_empty())
+    }
+
     /// Whether blind instantiation has been attempted
     pub fn blind_tried(&self) -> bool {
         self.blind_attempted
@@ -1217,15 +1232,34 @@ impl MBQIIntegration {
                     continue;
                 }
 
-                // Skip lemmas that still have an Implies at the top level
-                // after simplification. These have non-ground guards (free
-                // variables from declared constants) and can cause spurious
-                // UNSAT when the theory solver doesn't handle them correctly.
-                // Lemmas with fully resolved guards collapse to just the
-                // consequent (no Implies wrapper) and are safe to add.
+                // Skip a lemma whose residual `Implies` guard still mentions a
+                // variable some tracked quantifier binds.  That is a
+                // substitution which failed to ground — and because a declared
+                // constant and a bound variable share the `TermKind::Var`
+                // representation, asserting it would constrain the *constant*
+                // of that name and can produce a spurious `unsat`.
+                //
+                // A guard that is ground stays.  The lemma is then the plain
+                // clause `¬g ∨ φ(c)`, and `φ(c)` is an instance of a universal
+                // that is asserted **unconditionally** (that is what being in
+                // `self.quantifiers` means), so the clause is entailed by the
+                // assertions and can never turn a satisfiable goal into
+                // `unsat`.  Dropping it, on the other hand, is not free: it is
+                // the only thing that seeds the relevant-term set for a guarded
+                // universal, and without a seed `sat_certify` never becomes
+                // eligible and the script answers `unknown` forever.  Measured
+                // (`#P2b-57`): with the blanket filter, `(assert g)` beside
+                // `(assert (forall ((x (_ BitVec 7))) (=> g (r x))))` is
+                // `unknown`; the same formula spelled `(or (not g) (r x))` —
+                // which is not `Implies`-headed and so was never filtered — is
+                // `sat`.
                 if manager
                     .get(simplified)
-                    .is_some_and(|t| matches!(t.kind, TermKind::Implies(_, _)))
+                    .and_then(|t| match t.kind {
+                        TermKind::Implies(premise, _) => Some(premise),
+                        _ => None,
+                    })
+                    .is_some_and(|premise| self.mentions_tracked_bound_var(premise, manager))
                 {
                     continue;
                 }

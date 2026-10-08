@@ -281,11 +281,25 @@ impl GroebnerPreprocessor {
 
         // Reserve a slot, or honestly skip if we're already at the cap on
         // outstanding (potentially permanently-running) worker threads.
-        let reserved = OUTSTANDING_GROBNER_THREADS
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
-                (n < MAX_OUTSTANDING_GROBNER_THREADS).then_some(n + 1)
-            })
-            .is_ok();
+        //
+        // The compare-exchange loop `fetch_update` ran, spelled out: rustc 1.99
+        // deprecates `fetch_update` for `try_update`, which is stable only
+        // from 1.95, above the workspace's `rust-version` of 1.88.
+        let mut outstanding = OUTSTANDING_GROBNER_THREADS.load(Ordering::Acquire);
+        let reserved = loop {
+            if outstanding >= MAX_OUTSTANDING_GROBNER_THREADS {
+                break false;
+            }
+            match OUTSTANDING_GROBNER_THREADS.compare_exchange_weak(
+                outstanding,
+                outstanding + 1,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => break true,
+                Err(actual) => outstanding = actual,
+            }
+        };
         if !reserved {
             return None;
         }

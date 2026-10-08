@@ -181,13 +181,28 @@ impl DratProof {
     }
 
     /// Convert to string (text format)
+    ///
+    /// The text is the same as [`Self::write_text`] produces; it is built
+    /// directly into a `String`, so no I/O or UTF-8 conversion step is involved.
     #[must_use]
     #[allow(clippy::inherent_to_string)]
     pub fn to_string(&self) -> String {
-        let mut buf = Vec::new();
-        self.write_text(&mut buf)
-            .expect("writing to Vec should not fail");
-        String::from_utf8(buf).expect("DRAT output is ASCII")
+        let mut out = String::new();
+        for step in &self.steps {
+            let clause = match step {
+                DratStep::Add(clause) => clause,
+                DratStep::Delete(clause) => {
+                    out.push_str("d ");
+                    clause
+                }
+            };
+            for &lit in clause {
+                out.push_str(&lit.to_string());
+                out.push(' ');
+            }
+            out.push_str("0\n");
+        }
+        out
     }
 }
 

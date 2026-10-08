@@ -27,7 +27,6 @@ num-traits = { workspace = true, features = ["std"] }
 smallvec.workspace = true
 rustc-hash = { workspace = true, features = ["std"] }
 thiserror = { workspace = true, features = ["std"] }
-tracing = { workspace = true, features = ["std"] }
 rand.workspace = true
 rayon.workspace = true
 

@@ -216,9 +216,8 @@ impl Optimizer for Adam {
             .expect("Dimension mismatch in m update");
 
         // Update biased second moment: v = beta2 * v + (1 - beta2) * gradient^2
-        let grad_squared = gradient
-            .mul(gradient)
-            .expect("Dimension mismatch in gradient square");
+        // (the element-wise square, built from the gradient's own elements)
+        let grad_squared = gradient.map(|g| g * g);
         let grad_sq_contrib = grad_squared.scale(1.0 - self.beta2);
         *v = v
             .scale(self.beta2)
@@ -238,12 +237,11 @@ impl Optimizer for Adam {
             update.data[i] = m_hat.data[i] / (v_hat.data[i].sqrt() + self.epsilon);
         }
 
-        // Apply weight decay (decoupled)
+        // Apply weight decay (decoupled): param = param - weight_decay * param,
+        // element by element over the parameter's own elements
         if self.weight_decay > 0.0 {
-            let decay = param.scale(self.weight_decay);
-            *param = param
-                .sub(&decay)
-                .expect("Dimension mismatch in weight decay");
+            let weight_decay = self.weight_decay;
+            *param = param.map(|p| p - p * weight_decay);
         }
 
         // Update parameters: param = param - lr * update
@@ -318,9 +316,8 @@ impl Optimizer for AdaGrad {
             .or_insert_with(|| Tensor::zeros(param.shape()));
 
         // Update accumulated: acc = acc + gradient^2
-        let grad_squared = gradient
-            .mul(gradient)
-            .expect("Dimension mismatch in gradient square");
+        // (the element-wise square, built from the gradient's own elements)
+        let grad_squared = gradient.map(|g| g * g);
         *acc = acc
             .add(&grad_squared)
             .expect("Dimension mismatch in accumulated update");

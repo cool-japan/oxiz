@@ -252,6 +252,24 @@ pub struct SolverConfig {
     pub max_conflicts: u64,
     /// Maximum number of decisions before giving up (0 = unlimited)
     pub max_decisions: u64,
+    /// Deterministic ceiling on the *embedded* bit-blasted checks one
+    /// `check-sat` may run (`0` = leave the calibrated default in place).
+    ///
+    /// The third deterministic currency beside `max_conflicts` and
+    /// `max_decisions`, published as `:bv-embedded-checks`.  The bit-vector
+    /// bridge runs one complete embedded `BvSolver::check` per bit-vector atom
+    /// propagation, which neither of the other two counters can see — a search
+    /// that never conflicts can still spend minutes there — so a caller that
+    /// wants a *bounded* `check-sat` needs this knob and not only those.
+    ///
+    /// It can only ever make the budget **smaller**: the value actually spent
+    /// is the minimum of this and the calibrated default, so setting it cannot
+    /// buy a verdict the default would not have reached (see
+    /// `theory_manager::bv_budget`).  Being a count rather than a clock, it
+    /// bounds the search identically on every machine, which is what lets a
+    /// test harness use it where `(set-option :timeout N)` would make the
+    /// test's strength a property of the host (decision (16)).
+    pub max_bv_embedded_checks: u64,
     /// Restart strategy for SAT solver
     pub restart_strategy: RestartStrategy,
     /// Enable clause minimization (recursive minimization of learned clauses)
@@ -437,6 +455,7 @@ impl SolverConfig {
             simplify: true, // Keep basic simplification
             max_conflicts: 0,
             max_decisions: 0,
+            max_bv_embedded_checks: 0,
             restart_strategy: RestartStrategy::Geometric, // Faster than Glucose
             enable_clause_minimization: true,             // Keep this, it's fast
             enable_clause_subsumption: false,             // Skip for speed
@@ -471,6 +490,7 @@ impl SolverConfig {
             simplify: true,
             max_conflicts: 0,
             max_decisions: 0,
+            max_bv_embedded_checks: 0,
             restart_strategy: RestartStrategy::Glucose, // Adaptive restarts
             enable_clause_minimization: true,
             enable_clause_subsumption: true,
@@ -509,6 +529,7 @@ impl SolverConfig {
             simplify: true,
             max_conflicts: 0,
             max_decisions: 0,
+            max_bv_embedded_checks: 0,
             restart_strategy: RestartStrategy::Glucose,
             enable_clause_minimization: true,
             enable_clause_subsumption: true,
@@ -546,6 +567,7 @@ impl SolverConfig {
             simplify: false,
             max_conflicts: 0,
             max_decisions: 0,
+            max_bv_embedded_checks: 0,
             restart_strategy: RestartStrategy::Geometric,
             enable_clause_minimization: false,
             enable_clause_subsumption: false,
@@ -655,6 +677,50 @@ pub struct Statistics {
     /// search: a `sat` is a genuine model all the same, and an `unsat` was
     /// downgraded to `unknown` rather than reported.
     pub model_blocking_clauses: u64,
+    /// Lazy array-axiom refinement rounds performed by the last `check`.
+    ///
+    /// One round is one full re-solve driven by freshly asserted array
+    /// lemmas. Reset at the entry of every `check`, so the number describes
+    /// that check and not the script's history.
+    ///
+    /// This and [`Self::array_lemma_instances`] are the *deterministic*
+    /// currency the array refinement budget is denominated in: both count
+    /// work the solver performs, not seconds it spends, so the same script on
+    /// the same build reaches the same budget on an idle and on a loaded
+    /// machine (`#P2b-38` strand (c)).
+    pub array_refinement_rounds: u64,
+    /// Array-axiom lemma instances asserted by the last `check`, summed over
+    /// its refinement rounds.
+    ///
+    /// Reset at the entry of every `check`. See
+    /// [`Self::array_refinement_rounds`].
+    pub array_lemma_instances: u64,
+    /// Complete checks of the **embedded bit-blasted solver** run by the
+    /// theory callbacks during the last `check`, summed over its refinement
+    /// rounds.
+    ///
+    /// Reset at the entry of every `check`, like the two counters above, and
+    /// in the same deterministic currency: it counts work the solver
+    /// performs, not seconds it spends.
+    ///
+    /// # Why this is counted (`#P2b-46`)
+    ///
+    /// `array_refinement_rounds` and `array_lemma_instances` bound a
+    /// refinement loop that *searches* and one that only *builds*.  Neither
+    /// sees the third shape: **one** round whose re-solve is enormous.  The
+    /// enumerated extensionality family can put `C(n,2) · |D|` bit-vector
+    /// equality atoms into a single round, and the outer search then runs one
+    /// complete embedded `BvSolver::check` per bit-vector atom propagation —
+    /// measured at 75,740 checks for twelve pairwise-distinct arrays over
+    /// `(Array (_ BitVec 3) (_ BitVec 1))`, in *one* refinement round with 66
+    /// lemma instances and 1,444 conflicts, three orders of magnitude below
+    /// every other ceiling.  Twenty such arrays ran 900 s with no answer and
+    /// no budget stopping them; only a wall-clock `:timeout` did, which is
+    /// exactly the machine-dependence decision (9) removed.
+    ///
+    /// This counter is what that shape moves, so it is what the budget is
+    /// denominated in.  See `check_core::BV_EMBEDDED_CHECK_CEILING`.
+    pub bv_embedded_checks: u64,
 }
 
 impl Statistics {
@@ -675,6 +741,11 @@ impl Statistics {
 pub struct Model {
     /// Variable assignments
     assignments: FxHashMap<TermId, TermId>,
+    /// Terms whose entry is only the sort default the model builder filled
+    /// in because no theory valued them (`#P2b-71`): the printer may give such
+    /// a term's congruence class a fresh value instead.  Cleared for a term
+    /// the moment it is [`set`](Self::set) again.
+    defaulted: FxHashSet<TermId>,
 }
 
 impl Model {
@@ -683,7 +754,21 @@ impl Model {
     pub fn new() -> Self {
         Self {
             assignments: FxHashMap::default(),
+            defaulted: FxHashSet::default(),
         }
+    }
+
+    /// Record `value` for `term` as a sort default no theory chose
+    /// (`#P2b-71`).
+    pub(crate) fn set_default(&mut self, term: TermId, value: TermId) {
+        self.assignments.insert(term, value);
+        self.defaulted.insert(term);
+    }
+
+    /// Whether `term`'s entry is a sort default no theory chose.
+    #[must_use]
+    pub(crate) fn is_defaulted(&self, term: TermId) -> bool {
+        self.defaulted.contains(&term)
     }
 
     /// Get the value of a term in the model
@@ -695,6 +780,19 @@ impl Model {
     /// Set a value in the model
     pub fn set(&mut self, term: TermId, value: TermId) {
         self.assignments.insert(term, value);
+        if !self.defaulted.is_empty() {
+            self.defaulted.remove(&term);
+        }
+    }
+
+    /// Remove the entry for `term`, returning the value it had.
+    ///
+    /// Used where an interpretation is *replaced* rather than extended: an
+    /// entry derived from the old interpretation (a read, an atom over it)
+    /// would otherwise answer `(get-value)` from the model it no longer
+    /// describes.
+    pub(crate) fn remove(&mut self, term: TermId) -> Option<TermId> {
+        self.assignments.remove(&term)
     }
 
     /// Minimize the model by removing redundant assignments

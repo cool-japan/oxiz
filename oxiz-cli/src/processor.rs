@@ -164,10 +164,16 @@ pub(crate) fn run_files(ctx: &mut Context, args: &Args, verbosity: Verbosity) {
                     memory_bytes,
                     decisions: stats.decisions,
                     conflicts: stats.conflicts,
-                    timestamp: std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .expect("SystemTime should be after UNIX_EPOCH")
-                        .as_secs(),
+                    timestamp: match cache::unix_time_secs() {
+                        Ok(secs) => secs,
+                        Err(e) => {
+                            eprintln_colored(
+                                args,
+                                &format!("Error: cannot record benchmarks: {e}"),
+                            );
+                            std::process::exit(1);
+                        }
+                    },
                     solver_version: env!("CARGO_PKG_VERSION").to_string(),
                 };
                 tracker.add_entry(entry);
@@ -482,6 +488,26 @@ fn process_files_parallel(
     (results, aggregated_sat_stats)
 }
 
+/// Look `script` up in the result cache. A system clock that reads a time
+/// before the Unix epoch leaves the cache no access time to record; that stops
+/// the process with exit status 1 and a message.
+fn cache_lookup(
+    cache: &mut cache::ResultCache,
+    script: &str,
+    args: &Args,
+) -> Option<cache::CacheEntry> {
+    match cache.get(script) {
+        Ok(entry) => entry,
+        Err(e) => exit_on_cache_clock_error(args, &e),
+    }
+}
+
+/// Report a result-cache clock failure and exit with status 1.
+fn exit_on_cache_clock_error(args: &Args, error: &str) -> ! {
+    eprintln_colored(args, &format!("Error: result cache unavailable: {error}"));
+    std::process::exit(1);
+}
+
 /// Process a single file and return the result
 fn process_single_file(
     file: &Path,
@@ -666,7 +692,7 @@ fn process_single_file(
 
         // Check cache first
         if let Some(cache_ref) = cache
-            && let Some(cached_entry) = cache_ref.get(&script)
+            && let Some(cached_entry) = cache_lookup(cache_ref, &script, args)
         {
             return SolverResult {
                 file: Some(file.display().to_string()),
@@ -684,8 +710,10 @@ fn process_single_file(
         let time_ms = start.elapsed().as_millis();
 
         // Store in cache if enabled
-        if let Some(cache_ref) = cache {
-            cache_ref.put(&script, &result, time_ms);
+        if let Some(cache_ref) = cache
+            && let Err(e) = cache_ref.put(&script, &result, time_ms)
+        {
+            exit_on_cache_clock_error(args, &e);
         }
 
         SolverResult {

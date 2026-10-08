@@ -275,6 +275,21 @@ impl TermManager {
             ) => {
                 return self.mk_bool(v1 == v2 && w1 == w2);
             }
+            // Two constructor applications of one datatype: decided here, at
+            // every depth — different constructors are unequal, the same
+            // constructor is equal exactly when its fields are (`dt_eq`).
+            (Some(TermKind::DtConstructor { .. }), Some(TermKind::DtConstructor { .. })) => {
+                if let Some(folded) = self.fold_constructor_eq(lhs, rhs) {
+                    return folded;
+                }
+            }
+            // A datatype-sorted `ite` on either side: the equality reads its
+            // branches (`#P2b-90`, `dt_ite_lift`).
+            (Some(TermKind::Ite(..)), _) | (_, Some(TermKind::Ite(..))) => {
+                if let Some(lifted) = self.lift_dt_ite_eq(lhs, rhs) {
+                    return lifted;
+                }
+            }
             _ => {}
         }
 
@@ -1030,31 +1045,21 @@ impl TermManager {
     ///
     /// Tests if a term was constructed with a specific constructor.
     /// For example, `is-cons(x)` tests if `x` is a cons cell.
+    /// A tester of a constructor application is folded (`dt_fold`).
     pub fn mk_dt_tester(&mut self, constructor: &str, arg: TermId) -> TermId {
         let constructor_spur = self.intern_str(constructor);
-        let bool_sort = self.sorts.bool_sort;
-        self.intern(
-            TermKind::DtTester {
-                constructor: constructor_spur,
-                arg,
-            },
-            bool_sort,
-        )
+        self.mk_dt_tester_spur(constructor_spur, arg)
     }
 
     /// Create a datatype selector/accessor
     ///
     /// Extracts a field from a datatype value.
     /// For example, `head(x)` extracts the first element of a cons cell.
+    /// A selector of the constructor application it reads is folded to the
+    /// field (`dt_fold`).
     pub fn mk_dt_selector(&mut self, selector: &str, arg: TermId, result_sort: SortId) -> TermId {
         let selector_spur = self.intern_str(selector);
-        self.intern(
-            TermKind::DtSelector {
-                selector: selector_spur,
-                arg,
-            },
-            result_sort,
-        )
+        self.mk_dt_selector_spur(selector_spur, arg, result_sort)
     }
 
     /// Create a universal quantifier without patterns

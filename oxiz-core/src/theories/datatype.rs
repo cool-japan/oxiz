@@ -1202,8 +1202,13 @@ mod tests {
                 &mut manager,
             )
             .expect("is_mk(mk(x, y)) = true should be buildable");
+        // A tester over a constructor application may be decided where it is
+        // built (`#P2b-82`, `ast::manager::dt_fold`), whichever of the two
+        // interners this helper's declaration reads through: the axiom is
+        // then the tautology `true` it denotes, and never `false`.
         let truth = manager.mk_true();
         match manager.get(positive).map(|t| t.kind.clone()) {
+            Some(TermKind::True) => {}
             Some(TermKind::Eq(lhs, rhs)) => {
                 let tester_side = if lhs == truth { rhs } else { lhs };
                 assert!(lhs == truth || rhs == truth, "one side should be true");
@@ -1225,6 +1230,7 @@ mod tests {
             )
             .expect("not is_none(mk(x, y)) should be buildable");
         match manager.get(negative).map(|t| t.kind.clone()) {
+            Some(TermKind::True) => {}
             Some(TermKind::Not(inner)) => {
                 assert!(matches!(
                     manager.get(inner).map(|t| t.kind.clone()),
@@ -1236,7 +1242,7 @@ mod tests {
     }
 
     #[test]
-    fn test_distinctness_axiom_is_a_ground_disequality() {
+    fn test_distinctness_axiom_of_two_constructors_is_decided_at_construction() {
         let mut theory = DatatypeTheory::new();
         let mut manager = TermManager::new();
         let (pair_sort, bv_sort) = declare_pair(&mut manager);
@@ -1256,20 +1262,16 @@ mod tests {
             .axiom_to_term(distinctness, &mut manager)
             .expect("the ground instance should be buildable");
 
-        match manager.get(term).map(|t| t.kind.clone()) {
-            Some(TermKind::Not(inner)) => match manager.get(inner).map(|t| t.kind.clone()) {
-                Some(TermKind::Eq(lhs, rhs)) => {
-                    for side in [lhs, rhs] {
-                        assert!(matches!(
-                            manager.get(side).map(|t| t.kind.clone()),
-                            Some(TermKind::DtConstructor { .. })
-                        ));
-                    }
-                }
-                other => panic!("expected an equality under the negation, got {other:?}"),
-            },
-            other => panic!("expected a negation, got {other:?}"),
-        }
+        // Two applications of different constructors: `mk_eq` folds their
+        // equality to `false` at construction (`#P2b-61`), so the ground
+        // disequality instance is the tautology `true` — decided, and valid.
+        assert!(
+            matches!(
+                manager.get(term).map(|t| t.kind.clone()),
+                Some(TermKind::True)
+            ),
+            "the distinctness instance of two different constructors is decided at construction"
+        );
     }
 
     #[test]
@@ -1330,11 +1332,15 @@ mod tests {
 
         let one = manager.mk_int(1);
         let two = manager.mk_int(2);
-        let empty = manager.mk_dt_constructor("nil", [], list_sort);
-        let inner = manager.mk_dt_constructor("cons", [one, empty], list_sort);
+        // The innermost tail is an opaque list: two literal lists of
+        // different lengths are unequal at construction (`mk_eq` decides an
+        // equality of two constructor applications at every depth since
+        // `#P2b-76`), so only a sub-term the fold cannot see keeps an atom.
+        let rest = manager.mk_var("rest", list_sort);
+        let inner = manager.mk_dt_constructor("cons", [one, rest], list_sort);
         let outer = manager.mk_dt_constructor("cons", [two, inner], list_sort);
 
-        for term in [empty, inner, outer] {
+        for term in [rest, inner, outer] {
             theory.add_term(term, &manager, &manager.sorts);
         }
 
@@ -1342,10 +1348,22 @@ mod tests {
             .axiom_to_term(&DatatypeAxiom::Acyclicity { term: outer }, &mut manager)
             .expect("outer has proper sub-terms of its own sort");
 
-        // Two disequalities: outer != inner and outer != nil.
+        // Two disequalities: outer != inner and outer != rest.  The first
+        // pairs two `cons` cells whose heads differ (2 and 1), which `mk_eq`
+        // decides at construction, so what is left to assert is the second:
+        // the disequality with the NESTED sub-term two cells down.
         match manager.get(term).map(|t| t.kind.clone()) {
-            Some(TermKind::And(conjuncts)) => assert_eq!(conjuncts.len(), 2),
-            other => panic!("expected a conjunction, got {other:?}"),
+            Some(TermKind::Not(negated)) => match manager.get(negated).map(|t| t.kind.clone()) {
+                Some(TermKind::Eq(lhs, rhs)) => {
+                    let mut sides = [lhs, rhs];
+                    sides.sort_unstable_by_key(|t| t.raw());
+                    let mut expected = [outer, rest];
+                    expected.sort_unstable_by_key(|t| t.raw());
+                    assert_eq!(sides, expected);
+                }
+                other => panic!("expected an equality under the negation, got {other:?}"),
+            },
+            other => panic!("expected the outer/rest disequality, got {other:?}"),
         }
     }
 

@@ -231,11 +231,9 @@ impl Evaluator {
         partial_assignment.remove(&atom.var);
 
         // Substitute to get univariate polynomial
-        let univariate = self.substitute_all(&atom.poly, &partial_assignment);
-        if univariate.is_none() {
+        let Some(univariate) = self.substitute_all(&atom.poly, &partial_assignment) else {
             return Lbool::Undef;
-        }
-        let univariate = univariate.expect("univariate polynomial validated");
+        };
 
         // Find the roots
         let roots = self.find_roots(&univariate, atom.var);

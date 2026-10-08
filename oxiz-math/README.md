@@ -1,6 +1,6 @@
 # oxiz-math
 
-[![Version](https://img.shields.io/badge/version-0.3.3-blue)](https://github.com/cool-japan/oxiz)
+[![Version](https://img.shields.io/badge/version-0.3.4-blue)](https://github.com/cool-japan/oxiz)
 [![Status](https://img.shields.io/badge/status-stable-green)]()
 
 Mathematical foundations for the OxiZ SMT solver.
@@ -28,13 +28,13 @@ use oxiz_math::polynomial::Polynomial;
 use oxiz_math::interval::Interval;
 ```
 
-## Status (v0.3.2)
+## Status (v0.3.4)
 
 | Metric | Value |
 |:-------|:------|
 | Tests | 753 passing |
-| Rust LoC | 28,968 (78 files) |
-| Public API items | 1,070 |
+| Rust LoC | 27,012 (63 files) |
+| Public API items | 1,070 (recorded at 0.3.1) |
 | `todo!`/`unimplemented!` | 0 |
 | Status | Stable |
 

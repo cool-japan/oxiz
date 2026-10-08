@@ -26,6 +26,8 @@ use oxiz_time::{Duration, Instant};
 use smallvec::SmallVec;
 
 use super::model_completion::CompletedModel;
+
+mod guard_points;
 use super::{Instantiation, InstantiationReason, QuantifiedFormula};
 
 /// Compute SMT-LIB Euclidean division and remainder for integers.
@@ -251,7 +253,6 @@ impl CounterExampleGenerator {
 
         // Build candidate lists for each bound variable
         let candidates = self.build_candidate_lists(&quantifier.bound_vars, model, manager);
-
         // Enumerate combinations of candidates
         let combinations = self.enumerate_combinations(
             &candidates,
@@ -306,6 +307,16 @@ impl CounterExampleGenerator {
                 counterexamples.push(cex);
                 self.stats.num_counterexamples_found += 1;
             }
+        }
+
+        // `#P2b-70`: where no candidate falsified the body, try the points the
+        // body's own guards name (`guard_points`).  Only an extra probe: it
+        // adds counterexamples, never changes `all_ground`, and never runs
+        // where the candidates above already found one.
+        if counterexamples.is_empty() {
+            let extra = self.guard_point_counterexamples(quantifier, &candidates, model, manager);
+            self.stats.num_counterexamples_found += extra.len();
+            counterexamples.extend(extra);
         }
 
         // Sort by quality (best first)

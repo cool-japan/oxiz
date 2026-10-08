@@ -75,6 +75,17 @@ struct DeclaredFun {
     arg_sorts: Vec<SortId>,
     /// Return sort
     ret_sort: SortId,
+    /// Whether the symbol already carries an interpretation of its own, so a
+    /// model must **not** invent one for it (`#P2b-34`).
+    ///
+    /// `declared_funs` is the signature table for every symbol with arguments,
+    /// and three kinds live in it: genuinely uninterpreted functions from
+    /// `(declare-fun f (S) T)`, datatype constructors/selectors (whose meaning
+    /// is the datatype declaration), and `define-fun`/`define-funs-rec` macros
+    /// (whose meaning is their body, printed by `recfun_model_lines`).  Only
+    /// the first kind has a model interpretation to report; printing one for
+    /// an enum constructor produced `(define-fun blue () Color red)`.
+    interpreted: bool,
 }
 
 /// Solver context for managing the solving process
@@ -171,6 +182,8 @@ pub struct Context {
     /// before returning.
     #[cfg(feature = "std")]
     proof_log_path: Option<PathBuf>,
+    /// What the last `sat` publishes (`model_fmt::published`).
+    published: model_fmt::PublishedModel,
 }
 
 impl Default for Context {
@@ -202,6 +215,7 @@ impl Context {
             recfun: recfun::RecFunState::default(),
             #[cfg(feature = "std")]
             proof_log_path: None,
+            published: model_fmt::PublishedModel::default(),
         }
     }
 
@@ -269,11 +283,39 @@ impl Context {
     /// Registers a function signature in the context. For nullary functions (constants),
     /// use `declare_const` instead.
     pub fn declare_fun(&mut self, name: &str, arg_sorts: Vec<SortId>, ret_sort: SortId) {
+        self.push_fun_decl(name, arg_sorts, ret_sort, false);
+    }
+
+    /// Register the signature of a symbol that is **not** an uninterpreted
+    /// function: a datatype constructor or selector, or a `define-fun` macro.
+    ///
+    /// Introspection (`get_fun_signature`, `declared_function_names`) reports
+    /// it exactly as before; the flag only keeps `(get-model)` from inventing
+    /// an interpretation for a symbol whose meaning is already fixed (see
+    /// [`DeclaredFun::interpreted`]).
+    pub(crate) fn declare_interpreted_fun(
+        &mut self,
+        name: &str,
+        arg_sorts: Vec<SortId>,
+        ret_sort: SortId,
+    ) {
+        self.push_fun_decl(name, arg_sorts, ret_sort, true);
+    }
+
+    /// The one write site of `declared_funs` / `fun_name_to_index`.
+    fn push_fun_decl(
+        &mut self,
+        name: &str,
+        arg_sorts: Vec<SortId>,
+        ret_sort: SortId,
+        interpreted: bool,
+    ) {
         let index = self.declared_funs.len();
         self.declared_funs.push(DeclaredFun {
             name: name.to_string(),
             arg_sorts,
             ret_sort,
+            interpreted,
         });
         self.fun_name_to_index.insert(name.to_string(), index);
     }
@@ -341,6 +383,7 @@ impl Context {
         self.discharge_recfun_scope();
         self.last_result = None;
         self.last_assumptions.clear();
+        self.settle_published_model(SolverResult::Unknown);
     }
 
     /// Add an assertion
@@ -409,6 +452,7 @@ impl Context {
         // report stale assumptions.
         self.last_assumptions.clear();
         self.last_result = Some(result);
+        let result = self.settle_published_model(result);
 
         // Write a binary proof log if a path is configured (std-only).
         #[cfg(feature = "std")]
@@ -584,6 +628,10 @@ impl Context {
     /// - `timeout` (milliseconds) — wall-clock budget for the search; `0`
     ///   disables it.  Maps to [`crate::SolverConfig::timeout_ms`], enforced between
     ///   MBQI rounds and inside the theory callbacks.
+    /// - `max-bv-embedded-checks` (non-negative integer) — the third
+    ///   deterministic currency, a ceiling on the embedded bit-blasted checks
+    ///   one `check-sat` may run (`:bv-embedded-checks` reports the count).
+    ///   It can only lower the calibrated default, never raise it.
     /// - `max-conflicts` / `max-decisions` (non-negative integer) — resource
     ///   limits; `0` means unlimited.
     /// - `theory-mode` (`eager`/`lazy`) — theory propagation eagerness.
@@ -626,6 +674,13 @@ impl Context {
                 if let Ok(n) = value.trim().parse::<u64>() {
                     let mut config = self.solver.config().clone();
                     config.max_conflicts = n;
+                    self.solver.set_config(config);
+                }
+            }
+            "max-bv-embedded-checks" | "max_bv_embedded_checks" => {
+                if let Ok(n) = value.trim().parse::<u64>() {
+                    let mut config = self.solver.config().clone();
+                    config.max_bv_embedded_checks = n;
                     self.solver.set_config(config);
                 }
             }
@@ -725,14 +780,9 @@ impl Context {
             "version" => format!("(:version \"{}\")", env!("CARGO_PKG_VERSION")),
             "authors" => "(:authors \"COOLJAPAN OU (Team Kitasan)\")".to_string(),
             "error-behavior" => "(:error-behavior continued-execution)".to_string(),
-            "reason-unknown" => {
-                // Report why the last check returned `unknown`, or `unsupported`
-                // when the last result was decided (sat/unsat) or absent.
-                match self.last_result {
-                    Some(SolverResult::Unknown) => "(:reason-unknown incomplete)".to_string(),
-                    _ => "(:reason-unknown \"not applicable\")".to_string(),
-                }
-            }
+            // Why the last check returned `unknown` (the honesty net's reason
+            // where it took a `sat` back), or "not applicable".
+            "reason-unknown" => self.reason_unknown_info(),
             _ => format!(
                 "(error {})",
                 oxiz_core::smtlib::format_string_literal(&format!(
@@ -825,14 +875,26 @@ impl Context {
     pub fn get_statistics(&self) -> String {
         let stats = self.solver.get_statistics();
         format!(
-            "(:decisions {} :conflicts {} :propagations {} :restarts {} :learned-clauses {} :theory-propagations {} :theory-conflicts {})",
+            "(:decisions {} :conflicts {} :propagations {} :restarts {} :learned-clauses {} :theory-propagations {} :theory-conflicts {} :array-refinement-rounds {} :array-lemma-instances {} :bv-embedded-checks {} :bv-embedded-conflicts {})",
             stats.decisions,
             stats.conflicts,
             stats.propagations,
             stats.restarts,
             stats.learned_clauses,
             stats.theory_propagations,
-            stats.theory_conflicts
+            stats.theory_conflicts,
+            stats.array_refinement_rounds,
+            stats.array_lemma_instances,
+            stats.bv_embedded_checks,
+            // `:conflicts` above is the OUTER Boolean search only.  A script
+            // decided inside the embedded bit-blasted solver moves neither it
+            // nor `:theory-conflicts`, so "the `(set-option :max-conflicts N)`
+            // budget ran out" used to be unreadable from this line: four of
+            // the five losses `#P2b-38` (b) names answer `unknown` at
+            // `:conflicts 0`, and widening `:max-conflicts` to 20000 decides
+            // them — still at `:conflicts 0`.  This is the currency that
+            // moved.  See `Solver::bv_conflicts_spent`.
+            self.solver.bv_conflicts_spent()
         )
     }
 
@@ -1041,11 +1103,15 @@ impl Context {
         // `(get-model)` then served a stale or absent interpretation while the
         // session claimed `sat`.  Report the restore verdict honestly instead.
         let restore = self.check_with_assumptions_raw(assumptions);
-        let (status, cached) = consequences_restore_state(restore);
+        let (mut status, cached) = consequences_restore_state(restore);
         match cached {
             Some(result) => {
                 self.last_result = Some(result);
                 self.last_assumptions = assumptions.to_vec();
+                // The honesty net can take the `sat` back (decision (85)).
+                if self.settle_published_model(result) == SolverResult::Unknown {
+                    status = "unknown";
+                }
             }
             None => self.invalidate_last_check(),
         }
@@ -1099,7 +1165,7 @@ impl Context {
                     | Command::GetOption(_)
                     | Command::GetUnsatCore
                     | Command::GetUnsatAssumptions
-                    | Command::GetValue(_)
+                    | Command::GetValue { .. }
                     | Command::GetInfo(_)
                     | Command::Echo(_)
                     | Command::Simplify(_)
@@ -1208,6 +1274,7 @@ impl Context {
                         result = SolverResult::Unknown;
                     }
                     self.last_result = Some(result);
+                    let result = self.settle_published_model(result);
                     output.push(match result {
                         SolverResult::Sat => "sat".to_string(),
                         SolverResult::Unsat => "unsat".to_string(),
@@ -1273,8 +1340,8 @@ impl Context {
                         );
                     }
                 }
-                Command::GetValue(terms) => {
-                    output.push(self.format_get_value(&terms));
+                Command::GetValue { terms, keys } => {
+                    output.push(self.format_get_value(&terms, &keys));
                 }
                 Command::GetInfo(keyword) => {
                     output.push(self.get_info(&keyword));
@@ -1339,7 +1406,7 @@ impl Context {
                             .iter()
                             .map(|(_, sort_name)| self.parse_sort_name(sort_name))
                             .collect::<Result<_>>()?;
-                        self.declare_fun(&name, arg_sorts, sort);
+                        self.declare_interpreted_fun(&name, arg_sorts, sort);
                     }
                 }
                 Command::DeclareDatatype { name, .. } => {
@@ -1366,9 +1433,24 @@ impl Context {
     }
 
     /// Get solver statistics
+    ///
+    /// The **outer** Boolean engine's counters, cumulative across every check
+    /// on this context; `(set-option :max-conflicts N)` and
+    /// `(set-option :max-decisions N)` bound their growth over a single check.
     #[must_use]
     pub fn stats(&self) -> &oxiz_sat::SolverStats {
         self.solver.stats()
+    }
+
+    /// Embedded bit-blasting conflicts spent by the last `(check-sat)`.
+    ///
+    /// `(set-option :max-conflicts N)` installs three independent budgets of
+    /// `N`; this reports the consumption of the bit-blasting one, which is a
+    /// total across every `BvSolver::check` probe and every repair round of a
+    /// single check.  See `Solver::bv_conflicts_spent`.
+    #[must_use]
+    pub fn bv_conflicts_spent(&self) -> u64 {
+        self.solver.bv_conflicts_spent()
     }
 }
 

@@ -97,6 +97,9 @@ impl Solver {
                             self.arith_terms.insert(current);
                             self.trail.push(TrailOp::ArithTermAdded { term: current });
                             self.arith.intern(current);
+                            if is_int {
+                                self.arith.mark_int_term(current);
+                            }
                         }
                     } else if let Some(sort) = manager.sorts.get(term.sort)
                         && sort.is_bitvec()
@@ -107,9 +110,12 @@ impl Solver {
                         if let Some(width) = sort.bitvec_width() {
                             self.bv.new_bv(current, width);
                         }
-                        // Also intern in ArithSolver for BV comparison constraints
-                        // (BV comparisons are handled as bounded integer arithmetic)
-                        self.arith.intern(current);
+                        // Deliberately *not* interned into the `ArithSolver`:
+                        // the bounded-integer relaxation of unsigned
+                        // comparisons that needed a tableau column per
+                        // bit-vector variable was retired in `#P2b-28`, and
+                        // the circuit is the only theory that reasons about
+                        // bit-vector variables now.
                     }
                 }
 
@@ -246,6 +252,9 @@ impl Solver {
                         self.arith_terms.insert(current);
                         self.trail.push(TrailOp::ArithTermAdded { term: current });
                         self.arith.intern(current);
+                        if is_int {
+                            self.arith.mark_int_term(current);
+                        }
                     }
                 }
 
@@ -282,6 +291,9 @@ impl Solver {
                         self.arith_terms.insert(current);
                         self.trail.push(TrailOp::ArithTermAdded { term: current });
                         self.arith.intern(current);
+                        if is_int {
+                            self.arith.mark_int_term(current);
+                        }
                     }
                 }
 

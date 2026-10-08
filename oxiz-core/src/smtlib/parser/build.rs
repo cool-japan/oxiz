@@ -33,36 +33,36 @@ use num_rational::Rational64;
 /// mode — are *not* listed here: their heads need work at open time, so
 /// `Parser::open_compound` handles them before consulting this table.
 pub(super) fn operand_plan(op: &str) -> Option<Plan> {
-    let plan =
-        match op {
-            // ---- one operand ----
-            "not" | "abs" | "to_real" | "to_int" | "is_int" | "bvnot" | "bvneg" | "fp.isNormal"
-            | "fp.isSubnormal" | "fp.isZero" | "fp.isInfinite" | "fp.isNaN" | "fp.isNegative"
-            | "fp.isPositive" | "fp.abs" | "fp.neg" | "fp.to_real" | "str.len" | "str.is_digit"
-            | "str.to_code" | "str.from_code" | "str.to_int" | "str.to.int" | "int.to_str"
-            | "int.to.str" | "str.from_int" | "str.to_re" | "str.to.re" | "re.*" | "re.+"
-            | "re.opt" | "re.comp" => Plan::Fixed(1),
+    let plan = match op {
+        // ---- one operand ----
+        "not" | "abs" | "to_real" | "to_int" | "is_int" | "bvnot" | "bvneg" | "fp.isNormal"
+        | "fp.isSubnormal" | "fp.isZero" | "fp.isInfinite" | "fp.isNaN" | "fp.isNegative"
+        | "fp.isPositive" | "fp.abs" | "fp.neg" | "fp.to_real" | "str.len" | "str.is_digit"
+        | "str.to_code" | "str.from_code" | "str.to_int" | "str.to.int" | "int.to_str"
+        | "int.to.str" | "str.from_int" | "str.to_re" | "str.to.re" | "re.*" | "re.+"
+        | "re.opt" | "re.comp" | "bvnego" => Plan::Fixed(1),
 
-            // ---- two operands ----
-            "mod" | "select" | "bvand" | "bvor" | "bvadd" | "bvsub" | "bvmul" | "bvult"
-            | "bvslt" | "bvule" | "bvsle" | "bvugt" | "bvsgt" | "bvuge" | "bvsge" | "bvxor"
-            | "bvnand" | "bvnor" | "bvxnor" | "bvcomp" | "bvsmod" | "bvudiv" | "bvsdiv"
-            | "bvurem" | "bvsrem" | "bvshl" | "bvlshr" | "bvashr" | "concat" | "fp.rem"
-            | "fp.eq" | "fp.lt" | "fp.gt" | "fp.leq" | "fp.geq" | "fp.min" | "fp.max"
-            | "str.at" | "str.contains" | "str.prefixof" | "str.suffixof" | "str.in_re"
-            | "str.in.re" | "re.diff" | "re.range" => Plan::Fixed(2),
+        // ---- two operands ----
+        "mod" | "select" | "bvand" | "bvor" | "bvadd" | "bvsub" | "bvmul" | "bvult" | "bvslt"
+        | "bvule" | "bvsle" | "bvugt" | "bvsgt" | "bvuge" | "bvsge" | "bvxor" | "bvnand"
+        | "bvnor" | "bvxnor" | "bvcomp" | "bvsmod" | "bvudiv" | "bvsdiv" | "bvurem" | "bvsrem"
+        | "bvshl" | "bvlshr" | "bvashr" | "concat" | "fp.rem" | "fp.eq" | "fp.lt" | "fp.gt"
+        | "fp.leq" | "fp.geq" | "fp.min" | "fp.max" | "str.at" | "str.contains"
+        | "str.prefixof" | "str.suffixof" | "str.in_re" | "str.in.re" | "re.diff" | "re.range"
+        | "bvuaddo" | "bvsaddo" | "bvusubo" | "bvssubo" | "bvumulo" | "bvsmulo" => Plan::Fixed(2),
 
-            // ---- three operands ----
-            "ite" | "store" | "fp" | "str.substr" | "str.indexof" | "str.replace"
-            | "str.replace_all" | "str.replace_re" | "str.replace_re_all" => Plan::Fixed(3),
+        // ---- three operands ----
+        "ite" | "store" | "fp" | "str.substr" | "str.indexof" | "str.replace"
+        | "str.replace_all" | "str.replace_re" | "str.replace_re_all" => Plan::Fixed(3),
 
-            // ---- operands until the closing paren ----
-            "and" | "or" | "=>" | "xor" | "=" | "distinct" | "+" | "-" | "*" | "div" | "/"
-            | "<" | "<=" | ">" | ">=" | "str.++" | "str.<" | "str.<=" | "re.++" | "re.union"
-            | "re.inter" => Plan::Variadic,
+        // ---- operands until the closing paren ----
+        "and" | "or" | "=>" | "xor" | "=" | "distinct" | "+" | "-" | "*" | "div" | "/" | "<"
+        | "<=" | ">" | ">=" | "str.++" | "str.<" | "str.<=" | "re.++" | "re.union" | "re.inter" => {
+            Plan::Variadic
+        }
 
-            _ => return None,
-        };
+        _ => return None,
+    };
     Some(plan)
 }
 
@@ -135,6 +135,284 @@ impl Parser<'_> {
         }
     }
 
+    /// `term`'s sort, spelled the way SMT-LIB spells it (`Bool`, `Int`,
+    /// `(_ BitVec 8)`, `(Array Int Int)`, …), for use in an error message.
+    fn sort_text(&self, term: TermId) -> String {
+        match self.manager.get(term) {
+            Some(t) => self.sort_id_to_string(t.sort),
+            // Unreachable for a term the parser just built; an honest
+            // placeholder beats a panic in an error path.
+            None => "Unknown".to_string(),
+        }
+    }
+
+    /// Whether `term` has sort `Bool`.
+    fn is_bool_term(&self, term: TermId) -> bool {
+        self.manager
+            .get(term)
+            .and_then(|t| self.manager.sorts.get(t.sort))
+            .is_some_and(|s| matches!(s.kind, SortKind::Bool))
+    }
+
+    /// Whether `term` has an arithmetic sort, i.e. `Int` or `Real`.
+    fn is_arith_term(&self, term: TermId) -> bool {
+        self.manager
+            .get(term)
+            .and_then(|t| self.manager.sorts.get(t.sort))
+            .is_some_and(|s| matches!(s.kind, SortKind::Int | SortKind::Real))
+    }
+
+    /// Whether two operands may sit on the two sides of `=` / `distinct`, or
+    /// be the two branches of an `ite`.
+    ///
+    /// Sorts are hash-consed on their [`SortKind`], so identical sorts are the
+    /// same [`crate::sort::SortId`] and equality is exact. `Int` and `Real`
+    /// additionally mix, and only they: every SMT-LIB numeral is `Int`-sorted,
+    /// while every logic that has `Real` at all admits the standard `Int`→
+    /// `Real` injection, so `(= r 1)` with `r` of sort `Real` is what users
+    /// write and what Z3 accepts. Nothing else mixes — in particular two
+    /// bit-vector sorts of *different widths* do not, which is the case
+    /// U-Z14 exists to reject.
+    fn sorts_are_compatible(&self, x: TermId, y: TermId) -> bool {
+        let (Some(xt), Some(yt)) = (self.manager.get(x), self.manager.get(y)) else {
+            return true;
+        };
+        xt.sort == yt.sort || (self.is_arith_term(x) && self.is_arith_term(y))
+    }
+
+    /// Enforce that every operand of `op` shares one sort — the SMT-LIB rule
+    /// for `=` and `distinct`, whose signature is `(par (A) (A A Bool))`.
+    ///
+    /// Without it `(= a8 b16)` between an 8-bit and a 16-bit constant was
+    /// interned as an ordinary equality, abstracted to a free Boolean by the
+    /// bit-vector theory, and answered `sat` — a wrong verdict for an input
+    /// the standard says is not a formula at all.
+    fn check_same_sorts(&self, op: &str, args: &[TermId]) -> Result<()> {
+        let Some((&first, rest)) = args.split_first() else {
+            return Ok(());
+        };
+        for &other in rest {
+            if !self.sorts_are_compatible(first, other) {
+                return Err(OxizError::ParseError {
+                    position: self.lexer.position(),
+                    message: format!(
+                        "operands of {op} must have the same sort, got {} and {}",
+                        self.sort_text(first),
+                        self.sort_text(other)
+                    ),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// Enforce that every operand of a Boolean connective has sort `Bool`.
+    ///
+    /// `not`, `and`, `or`, `=>` and `xor` are declared over `Bool` alone.
+    /// Applying one to a bit-vector used to intern silently (`(not a8)` became
+    /// a `Not` node over a term of bit-vector sort), which the solver then
+    /// abstracted to a free Boolean and answered `sat` for.
+    fn check_bool_operands(&self, op: &str, args: &[TermId]) -> Result<()> {
+        for &arg in args {
+            if !self.is_bool_term(arg) {
+                return Err(OxizError::ParseError {
+                    position: self.lexer.position(),
+                    message: format!(
+                        "operands of {op} must have sort Bool, got {}",
+                        self.sort_text(arg)
+                    ),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// Whether `term` is an *untyped placeholder* rather than a term whose
+    /// sort the user chose.
+    ///
+    /// Outside script mode `parse_term` mints an undeclared symbol as a fresh
+    /// `Bool` variable so that ad-hoc free variables can be built without a
+    /// declaration prologue (`terms.rs`, "Lenient fallback (bare-term mode)",
+    /// pinned by `audit_div_semantics::bare_term_parse_stays_lenient`). The
+    /// `Bool` in that fallback is the parser's own arbitrary choice, not a
+    /// declaration, so sort-checking it would be checking a guess: `(< x y)`
+    /// on two such placeholders is exactly the term that path exists to allow.
+    /// In script mode every symbol is declared before use, so nothing is a
+    /// placeholder and this is never true.
+    fn is_untyped_placeholder(&self, term: TermId) -> bool {
+        !self.script_mode
+            && self.is_bool_term(term)
+            && matches!(
+                self.manager.get(term).map(|t| &t.kind),
+                Some(TermKind::Var(_))
+            )
+    }
+
+    /// Enforce that both operands of an arithmetic comparison are `Int` or
+    /// `Real`.
+    ///
+    /// `<`, `<=`, `>` and `>=` come from the `Ints`/`Reals` theories and have
+    /// no bit-vector reading: the bit-vector theory spells its own orders
+    /// `bvult`/`bvslt`/… precisely because "less than" on a bit-vector needs a
+    /// signedness the arithmetic symbols do not carry. An ill-sorted
+    /// `(> a8 #x0f)` used to build a `Gt` node that the theory manager's
+    /// bit-vector branch recognised but had no arm for, so it asserted
+    /// *nothing* and the solver answered `sat` for an unsatisfiable script
+    /// (verified: cargo-formal Phase 2b report `I0-a` §4.1).
+    ///
+    /// An untyped bare-term placeholder passes (see
+    /// [`Parser::is_untyped_placeholder`]); a `Bool` *literal* or a bit-vector
+    /// does not, in either mode.
+    fn check_arith_operands(&self, op: &str, x: TermId, y: TermId) -> Result<()> {
+        let acceptable =
+            |term: TermId| self.is_arith_term(term) || self.is_untyped_placeholder(term);
+        if acceptable(x) && acceptable(y) {
+            return Ok(());
+        }
+        Err(OxizError::ParseError {
+            position: self.lexer.position(),
+            message: format!(
+                "operands of {op} must have sort Int or Real, got {} and {}",
+                self.sort_text(x),
+                self.sort_text(y)
+            ),
+        })
+    }
+
+    /// The bit-vector width both operands of an overflow predicate share.
+    ///
+    /// [`Parser::check_bv_binary_widths`] has already rejected a mismatch, so
+    /// this only has to read the width back off the left operand — and reject
+    /// the degenerate width 0, which has no sign bit for the signed
+    /// predicates and no `(_ bvMIN 0)` for `bvnego`.
+    fn overflow_operand_width(&self, op: &str, x: TermId) -> Result<u32> {
+        let width = self.bv_sort_width(x).ok_or_else(|| OxizError::ParseError {
+            position: self.lexer.position(),
+            message: format!("operands of {op} must have bit-vector sorts"),
+        })?;
+        if width == 0 {
+            return Err(OxizError::ParseError {
+                position: self.lexer.position(),
+                message: format!("operands of {op} must be at least 1 bit wide"),
+            });
+        }
+        Ok(width)
+    }
+
+    /// `2 * width`, the width of the exact product the multiplication
+    /// overflow predicates reason about.
+    ///
+    /// Checked, because `width` comes straight from the input: an operand of
+    /// more than `2^31` bits has no representable double-width product, and
+    /// the standard reading of the predicate does not exist for it.
+    fn overflow_double_width(&self, op: &str, width: u32) -> Result<u32> {
+        width.checked_mul(2).ok_or_else(|| OxizError::ParseError {
+            position: self.lexer.position(),
+            message: format!(
+                "{op} needs a {}-bit intermediate product, which exceeds the \
+                 largest representable bit-vector width",
+                u64::from(width) * 2
+            ),
+        })
+    }
+
+    /// `((_ zero_extend n) x)`, built exactly as the indexed-operator parser
+    /// builds it: `n` zero bits concatenated in front of `x`.
+    fn bv_zero_extend(&mut self, n: u32, x: TermId) -> Result<TermId> {
+        if n == 0 {
+            return Ok(x);
+        }
+        let zeros = self.manager.mk_bitvec(0, n);
+        self.manager.try_mk_bv_concat(zeros, x)
+    }
+
+    /// `((_ sign_extend n) x)` for an operand of `width` bits, built exactly
+    /// as the indexed-operator parser builds it: `n` copies of the sign bit
+    /// concatenated in front of `x`.
+    fn bv_sign_extend(&mut self, n: u32, width: u32, x: TermId) -> Result<TermId> {
+        if n == 0 {
+            return Ok(x);
+        }
+        let sign_bit = self.manager.mk_bv_extract(width - 1, width - 1, x);
+        let mut ext = sign_bit;
+        for _ in 1..n {
+            ext = self.manager.try_mk_bv_concat(ext, sign_bit)?;
+        }
+        self.manager.try_mk_bv_concat(ext, x)
+    }
+
+    /// The sign bit of a `width`-bit operand, as a 1-bit term.
+    fn bv_sign_bit(&mut self, width: u32, x: TermId) -> TermId {
+        self.manager.mk_bv_extract(width - 1, width - 1, x)
+    }
+
+    /// Build one of the SMT-LIB 2.7 binary overflow predicates.
+    ///
+    /// Every one of them is a *desugaring* into term kinds the bit-blaster
+    /// already handles — there is no new `TermKind` and no new circuit — so
+    /// the predicates inherit the bit-vector theory's semantics exactly.
+    /// The definitions are the standard ones:
+    ///
+    /// * `bvuaddo(a, b)` = `bvult(bvadd(a, b), a)` — an unsigned sum wraps iff
+    ///   it comes out below either summand.
+    /// * `bvusubo(a, b)` = `bvult(a, b)` — an unsigned difference borrows iff
+    ///   the minuend is the smaller.
+    /// * `bvsaddo(a, b)` = the summands share a sign and the sum does not.
+    /// * `bvssubo(a, b)` = the operands differ in sign and the difference does
+    ///   not match the minuend's.
+    /// * `bvumulo(a, b)` = the high half of the exact `2w`-bit unsigned
+    ///   product is non-zero.
+    /// * `bvsmulo(a, b)` = the exact `2w`-bit signed product differs from the
+    ///   sign-extension of its own low `w` bits.
+    fn build_bv_overflow_binary(&mut self, op: &str, x: TermId, y: TermId) -> Result<TermId> {
+        let width = self.overflow_operand_width(op, x)?;
+        let term = match op {
+            "bvuaddo" => {
+                let sum = self.manager.mk_bv_add(x, y);
+                self.manager.mk_bv_ult(sum, x)
+            }
+            "bvusubo" => self.manager.mk_bv_ult(x, y),
+            "bvsaddo" => {
+                let sum = self.manager.mk_bv_add(x, y);
+                let sx = self.bv_sign_bit(width, x);
+                let sy = self.bv_sign_bit(width, y);
+                let ss = self.bv_sign_bit(width, sum);
+                let same_input_sign = self.manager.mk_eq(sx, sy);
+                let flipped = self.manager.mk_distinct([sx, ss]);
+                self.manager.mk_and([same_input_sign, flipped])
+            }
+            "bvssubo" => {
+                let diff = self.manager.mk_bv_sub(x, y);
+                let sx = self.bv_sign_bit(width, x);
+                let sy = self.bv_sign_bit(width, y);
+                let sd = self.bv_sign_bit(width, diff);
+                let differing_input_sign = self.manager.mk_distinct([sx, sy]);
+                let flipped = self.manager.mk_distinct([sx, sd]);
+                self.manager.mk_and([differing_input_sign, flipped])
+            }
+            "bvumulo" => {
+                let double = self.overflow_double_width(op, width)?;
+                let wide_x = self.bv_zero_extend(width, x)?;
+                let wide_y = self.bv_zero_extend(width, y)?;
+                let product = self.manager.mk_bv_mul(wide_x, wide_y);
+                let high = self.manager.mk_bv_extract(double - 1, width, product);
+                let zero = self.manager.mk_bitvec(0, width);
+                self.manager.mk_distinct([high, zero])
+            }
+            "bvsmulo" => {
+                let _ = self.overflow_double_width(op, width)?;
+                let wide_x = self.bv_sign_extend(width, width, x)?;
+                let wide_y = self.bv_sign_extend(width, width, y)?;
+                let product = self.manager.mk_bv_mul(wide_x, wide_y);
+                let low = self.manager.mk_bv_extract(width - 1, 0, product);
+                let widened = self.bv_sign_extend(width, width, low)?;
+                self.manager.mk_distinct([product, widened])
+            }
+            _ => return Err(self.plan_mismatch(op)),
+        };
+        Ok(term)
+    }
+
     /// Build the conjunction of the boolean atoms produced by a chainable
     /// operator (`=`, `<`, `<=`, `>`, `>=`). SMT-LIB defines these operators as
     /// *chainable*: `(op a b c)` means `(and (op a b) (op b c))`. When there is
@@ -199,7 +477,20 @@ impl Parser<'_> {
     /// Build a `Plan::Fixed(1)` built-in from its single operand.
     pub(super) fn build_unary(&mut self, op: &str, x: TermId) -> Result<TermId> {
         let term = match op {
-            "not" => self.manager.mk_not(x),
+            "not" => {
+                self.check_bool_operands("not", &[x])?;
+                self.manager.mk_not(x)
+            }
+            // `bvnego(a)` holds iff negating `a` overflows, which happens for
+            // exactly one value: the most negative one, `1 << (w - 1)`, whose
+            // positive counterpart does not fit `w` bits. Desugared to that
+            // equality — no new term kind, no new circuit.
+            "bvnego" => {
+                let width = self.overflow_operand_width("bvnego", x)?;
+                let min = BigInt::from(1) << (width - 1);
+                let most_negative = self.manager.mk_bitvec(min, width);
+                self.manager.mk_eq(x, most_negative)
+            }
             // (abs x) = (ite (>= x 0) x (- x)), with the zero literal typed to
             // match the operand sort so mixed Int/Real reasoning stays
             // consistent.
@@ -352,6 +643,11 @@ impl Parser<'_> {
             "bvlshr" => self.manager.mk_bv_lshr(x, y),
             "bvashr" => self.manager.mk_bv_ashr(x, y),
             "concat" => self.manager.try_mk_bv_concat(x, y)?,
+            // SMT-LIB 2.7's bit-vector overflow predicates, desugared into
+            // existing term kinds (see `build_bv_overflow_binary`).
+            "bvuaddo" | "bvsaddo" | "bvusubo" | "bvssubo" | "bvumulo" | "bvsmulo" => {
+                self.build_bv_overflow_binary(op, x, y)?
+            }
             "fp.rem" => self.manager.mk_fp_rem(x, y),
             "fp.eq" => self.manager.mk_fp_eq(x, y),
             "fp.lt" => self.manager.mk_fp_lt(x, y),
@@ -381,7 +677,14 @@ impl Parser<'_> {
         z: TermId,
     ) -> Result<TermId> {
         let term = match op {
-            "ite" => self.manager.mk_ite(x, y, z),
+            // `(ite c t e)` is `(par (A) (Bool A A A))`: the condition is
+            // `Bool` and the two branches share one sort. Neither was checked,
+            // so `(ite a8 x y)` and `(ite c a8 b16)` both interned silently.
+            "ite" => {
+                self.check_bool_operands("ite", &[x])?;
+                self.check_same_sorts("ite", &[y, z])?;
+                self.manager.mk_ite(x, y, z)
+            }
             "store" => self.manager.mk_store(x, y, z),
             // Floating-point bit-triple literal constructor: (fp sign exp sig).
             "fp" => self.build_fp_lit(x, y, z)?,
@@ -499,6 +802,17 @@ impl Parser<'_> {
     /// `(str.++ x1 … x100000)` of syntactic depth 2 would build a
     /// 100 000-deep term while `MAX_PARSE_DEPTH` reported it as depth 2.
     pub(super) fn build_variadic(&mut self, op: &str, args: &[TermId]) -> Result<TermId> {
+        // SMT-LIB sort checks. The Boolean connectives take `Bool` operands
+        // only; `=` and `distinct` are `(par (A) (A A Bool))` and so need one
+        // sort across every operand. Both used to intern anything at all,
+        // which the solver then abstracted to a free Boolean — a wrong `sat`
+        // for a script the standard says is not a formula (fixtures u03, u04,
+        // u05 of cargo-formal's conformance suite).
+        match op {
+            "and" | "or" | "=>" | "xor" => self.check_bool_operands(op, args)?,
+            "=" | "distinct" => self.check_same_sorts(op, args)?,
+            _ => {}
+        }
         let term = match op {
             "and" => self.manager.mk_and(args.iter().copied()),
             "or" => self.manager.mk_or(args.iter().copied()),
@@ -551,6 +865,12 @@ impl Parser<'_> {
                 let mut atoms = Vec::with_capacity(args.len() - 1);
                 for pair in args.windows(2) {
                     let (a, b) = (pair[0], pair[1]);
+                    // `<`, `<=`, `>` and `>=` are arithmetic; a bit-vector
+                    // operand has no reading under them (see
+                    // `check_arith_operands`).
+                    if matches!(op, "<" | "<=" | ">" | ">=") {
+                        self.check_arith_operands(op, a, b)?;
+                    }
                     atoms.push(match op {
                         "=" => self.manager.mk_eq(a, b),
                         "<" => self.manager.mk_lt(a, b),
@@ -647,6 +967,12 @@ fn is_same_width_bv_op(op: &str) -> bool {
             | "bvshl"
             | "bvlshr"
             | "bvashr"
+            | "bvuaddo"
+            | "bvsaddo"
+            | "bvusubo"
+            | "bvssubo"
+            | "bvumulo"
+            | "bvsmulo"
     )
 }
 
@@ -704,6 +1030,7 @@ mod tests {
         "re.+",
         "re.opt",
         "re.comp",
+        "bvnego",
         // Fixed(2)
         "mod",
         "select",
@@ -750,6 +1077,12 @@ mod tests {
         "str.in.re",
         "re.diff",
         "re.range",
+        "bvuaddo",
+        "bvsaddo",
+        "bvusubo",
+        "bvssubo",
+        "bvumulo",
+        "bvsmulo",
         // Fixed(3)
         "ite",
         "store",

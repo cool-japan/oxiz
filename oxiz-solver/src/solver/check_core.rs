@@ -6,6 +6,8 @@
 //! `pub(super)` rather than private: `Solver::check_with_arith_refinement`
 //! (still in `mod.rs`) is `check_core`'s only caller.
 
+use super::array_refinement::ArrayRefinementStep;
+use super::integrality_exit::IntegralityAtExit;
 use super::*;
 
 impl Solver {
@@ -56,6 +58,11 @@ impl Solver {
         if self.encode_depth_exceeded {
             return SolverResult::Unknown;
         }
+        // A quantified goal decides the integrality of its `Int` terms where
+        // the MBQI loop would answer `sat`, never inside a round's search
+        // (`solver::integrality_exit`); a quantifier-free one inside the
+        // arithmetic solver, at every final check (`#P2b-79`).
+        self.arith.set_defer_integrality(self.has_quantifiers);
 
         // Supply the defining axioms of every internalised `div` / `mod` /
         // numeric-`ite` term before any stage inspects the arithmetic atoms:
@@ -154,6 +161,13 @@ impl Solver {
             return SolverResult::Unknown;
         }
 
+        // The array refinement's deterministic work counters describe *this*
+        // check, not the script's history: a second `(check-sat)` gets the
+        // same budget as the first.  See [`Statistics::array_refinement_rounds`].
+        self.statistics.array_refinement_rounds = 0;
+        self.statistics.array_lemma_instances = 0;
+        self.statistics.bv_embedded_checks = 0;
+
         // Check resource limits before starting
         if self.config.max_conflicts > 0 && self.statistics.conflicts >= self.config.max_conflicts {
             return SolverResult::Unknown;
@@ -161,6 +175,80 @@ impl Solver {
         if self.config.max_decisions > 0 && self.statistics.decisions >= self.config.max_decisions {
             return SolverResult::Unknown;
         }
+
+        // Wall-clock deadline for the whole check.  `timeout_ms == 0` means "no
+        // timeout".  Computed exactly once, here, and then handed to every
+        // consumer below: the MBQI round boundary in the search loop, every
+        // `TheoryManager` this function builds (including the ones it rebuilds
+        // for a refinement round -- deriving it inside `TheoryManager::new`
+        // used to restart the clock on each, granting a script with `N` rounds
+        // `N * timeout_ms`), the outer SAT solver, and the bit-vector solver's
+        // embedded one.
+        //
+        // Placed here, *above* the pure-equality fast path, for two reasons:
+        // that path runs its own `self.sat.solve()` and must be budgeted like
+        // every other solve on this engine (a budget-induced `Unknown` there
+        // costs a wasted probe and falls through -- `eq_skeleton`'s `Unknown`
+        // arm returns `None`, never a verdict), and because the ceilings below
+        // are relative to the engine's *current* counters, leaving them
+        // un-refreshed until after that solve would let the previous check's
+        // exhausted ceiling silently abort it.
+        //
+        // Not `cfg`-gated on `std`: `oxiz_time::Instant` exists on every
+        // target, and on one whose clock is frozen
+        // (`wasm32-unknown-unknown` / `no_std`) `now()` is a constant t = 0, so
+        // no deadline built from it can ever be reached and `:timeout` is the
+        // documented no-op `oxiz_time`'s crate docs describe.
+        let deadline: Option<oxiz_time::Instant> = if self.config.timeout_ms > 0 {
+            oxiz_time::Instant::now()
+                .checked_add(core::time::Duration::from_millis(self.config.timeout_ms))
+        } else {
+            None
+        };
+
+        // Arm the two SAT engines this check will run (finding U-Z12).
+        //
+        // Until this existed, `(set-option :max-conflicts N)` bounded only
+        // *theory* conflicts (`Statistics::conflicts`, incremented solely next
+        // to a `theory_conflicts += 1`), `(set-option :max-decisions N)` was
+        // wired to nothing at all, and `(set-option :timeout N)` was polled
+        // only between MBQI rounds and at the entry of a theory callback -- all
+        // of them outside the one place a bit-blasted goal actually spends its
+        // time, `BvSolver::check`'s embedded `solve()`.
+        //
+        // After this, `N` is *three independent budgets of `N`*, one per kind
+        // of work, all re-armed once per check:
+        //   * outer Boolean conflicts / decisions -- `oxiz_sat::SolverStats`
+        //     on `self.sat`, bounded here;
+        //   * embedded bit-blasting conflicts -- the total across every probe
+        //     and repair round of this check, bounded by `BvSolver`'s own
+        //     `conflicts_spent` accumulator;
+        //   * theory conflicts -- `Statistics::conflicts`, unchanged, still
+        //     compared inside `TheoryManager`.
+        // They are separate counters because they count different work; a
+        // single shared counter would need the embedded solver to report into
+        // the outer `Statistics`.  `:timeout`, by contrast, is one wall-clock
+        // deadline shared by all of them.
+        //
+        // The ceilings are relative to the counters' current values because
+        // `oxiz_sat::SolverStats` is cumulative across `solve()` calls and the
+        // outer solver is never reset between checks (only backtracked to the
+        // root): a raw `Some(N)` would give the second `(check-sat)` of a
+        // script whatever the first left over, and eventually nothing.
+        let conflict_budget = (self.config.max_conflicts > 0).then_some(self.config.max_conflicts);
+        let decision_budget = (self.config.max_decisions > 0).then_some(self.config.max_decisions);
+        // Read into locals first: `stats()` borrows `self.sat` immutably while
+        // the setters borrow it mutably.
+        let conflicts_so_far = self.sat.stats().conflicts;
+        let decisions_so_far = self.sat.stats().decisions;
+        self.sat
+            .set_max_conflicts(conflict_budget.map(|n| conflicts_so_far.saturating_add(n)));
+        self.sat
+            .set_max_decisions(decision_budget.map(|n| decisions_so_far.saturating_add(n)));
+        self.sat.set_deadline(deadline);
+        // `set_budget` re-arms the bit-vector solver's total allowance, so the
+        // budget's period is one call to this function.
+        self.bv.set_budget(conflict_budget, deadline);
 
         // Pure Equality Logic fast path: static transitivity clauses (see
         // `eq_skeleton`'s module doc) make plain SAT a complete decision
@@ -198,18 +286,6 @@ impl Solver {
         // `Solver::push` / `pop` and would leak across a user scope as well.
         self.rebase_theory_state();
 
-        // Wall-clock deadline for the CDCL(T)/MBQI search.  `timeout_ms == 0`
-        // means "no timeout".  The deadline is enforced (a) between MBQI
-        // rounds here and (b) mid-search inside the theory callbacks, so a
-        // single long `solve_with_theory` call cannot run past the budget.
-        #[cfg(feature = "std")]
-        let deadline: Option<oxiz_time::Instant> = if self.config.timeout_ms > 0 {
-            oxiz_time::Instant::now()
-                .checked_add(core::time::Duration::from_millis(self.config.timeout_ms))
-        } else {
-            None
-        };
-
         // Run SAT solver with theory integration
         let mut theory_manager = TheoryManager::new(
             manager,
@@ -226,36 +302,69 @@ impl Solver {
             &mut self.statistics,
             self.config.max_conflicts,
             self.config.max_decisions,
+            self.config.max_bv_embedded_checks,
             self.has_bv_arith_ops,
             self.has_quantifiers,
             &self.quantifier_uf_funcs,
-            self.config.timeout_ms,
+            deadline,
         );
 
         // MBQI loop for quantified formulas
         let max_mbqi_iterations = 100;
         let mut mbqi_iteration = 0;
 
-        // Lazy array-axiom refinement rounds (see `instantiate_array_axioms`).
-        // Bounded independently of the MBQI budget; deduplication guarantees
-        // saturation well within this generous cap for realistic inputs.
-        let max_array_refinement_rounds = 256;
-        let mut array_refinement_rounds = 0;
+        // Lazy array-axiom refinement rounds (see `array_refinement`); the
+        // round cap is [`MAX_ARRAY_REFINEMENT_ROUNDS`].
+        let mut array_refinement_rounds = 0usize;
+        // Deterministic budget for the *re-solves* the array refinement
+        // triggers (`#P2b-38` strand (c)), armed when the first array lemma is
+        // asserted: the value of `SolverStats::conflicts` past which this check
+        // answers `Unknown`.  See [`ARRAY_REFINEMENT_RESOLVE_CONFLICTS`].
+        let mut array_resolve_conflict_ceiling: Option<u64> = None;
 
-        // Stamp the start of the search so the non-convex-LIA case-split
-        // refinement can gate itself on how long the *first* solve took (see
-        // `int_case_split::REFINEMENT_TIME_CEILING_MS`): the refinement
-        // re-solves the whole problem from scratch, which is only affordable
-        // when the first solve was fast.
-        #[cfg(feature = "std")]
-        let check_start = oxiz_time::Instant::now();
+        // How much SAT work this check had done before the search started.
+        // The two repair gates below (`case_split_affordable`,
+        // `blocking_affordable`) are relative to it, so that "the first solve
+        // was cheap" is a statement about propagations performed and not about
+        // seconds elapsed — see [`REFINEMENT_WORK_CEILING_PROPAGATIONS`].
+        let propagations_at_entry = self.sat.stats().propagations;
 
         loop {
             // Enforce the wall-clock timeout between MBQI rounds.  Mid-`solve`
-            // enforcement lives in the theory callbacks (see TheoryManager).
-            #[cfg(feature = "std")]
+            // enforcement lives in the theory callbacks (see TheoryManager) and,
+            // since U-Z12, inside both SAT engines themselves.
             if let Some(d) = deadline {
                 if oxiz_time::Instant::now() >= d {
+                    return SolverResult::Unknown;
+                }
+            }
+            // The array refinement's own budget, in conflicts rather than in
+            // seconds (decision (9)).  Checked here, at the same round
+            // boundary the wall-clock version used, so an exhausted budget
+            // answers `Unknown` and never a verdict; the model goes with it for
+            // the reason the round-budget exit below gives.
+            if let Some(ceiling) = array_resolve_conflict_ceiling {
+                // Two counters, because a refinement loop can run away in two
+                // different ways and a single one does not see both.
+                //
+                // * Conflicts bound a loop that *searches*: the re-solves
+                //   branch and backtrack, and the conflict count climbs.
+                // * Lemma instances bound a loop that only *builds*.  The
+                //   const-array / chain-index families can enlarge the circuit
+                //   round after round while the search itself stays
+                //   conflict-free — `rc3/slow/m5.smt2` (six declarations, three
+                //   assertions) ran 400 s with no answer and never accrued the
+                //   50,000 conflicts the ceiling asked for, because the work
+                //   was all in interning and re-solving a growing circuit, not
+                //   in conflict analysis.  Only an explicit `:timeout` stopped
+                //   it, which is exactly the machine-dependence decision (9)
+                //   removes.
+                //
+                // Both are monotone counts of work performed, so they are
+                // identical on an idle and on a loaded machine.
+                if self.sat.stats().conflicts >= ceiling {
+                    self.model = None;
+                    self.unsat_core = None;
                     return SolverResult::Unknown;
                 }
             }
@@ -350,17 +459,18 @@ impl Solver {
                         // the CDCL(T) core has no atom to branch its value on
                         // and a genuine `unsat` can come back a spurious
                         // `sat`. Emit an explicit `(or (= t v0) ...)` lemma
-                        // for each such term and re-solve. Gated on the first
-                        // solve having been fast, since the refinement
+                        // for each such term and re-solve. Gated on the search
+                        // so far having been cheap, since the refinement
                         // re-solves the whole problem from scratch — see
-                        // `int_case_split::REFINEMENT_TIME_CEILING_MS`.
-                        #[cfg(feature = "std")]
-                        let case_split_affordable = check_start.elapsed()
-                            < std::time::Duration::from_millis(
-                                int_case_split::REFINEMENT_TIME_CEILING_MS,
-                            );
-                        #[cfg(not(feature = "std"))]
-                        let case_split_affordable = true;
+                        // [`REFINEMENT_WORK_CEILING_PROPAGATIONS`], the
+                        // deterministic ceiling that replaced the wall-clock
+                        // one this gate used to read (decision (9)).
+                        let case_split_affordable = self
+                            .sat
+                            .stats()
+                            .propagations
+                            .saturating_sub(propagations_at_entry)
+                            < REFINEMENT_WORK_CEILING_PROPAGATIONS;
                         // The affordability test must not simply short-circuit
                         // the call away: `split_narrow_int_domains` is what
                         // discovers whether this candidate has unbranched
@@ -368,8 +478,8 @@ impl Solver {
                         // `case_split_skipped_targets` for the honesty gate in
                         // `check`. With a plain `affordable && split(..)` the
                         // gate never heard about a candidate whose refinement
-                        // the ceiling declined, so the verdict depended on
-                        // machine speed — `sat` under load, `unsat` idle.
+                        // the ceiling declined, so the verdict silently changed
+                        // with the ceiling.
                         //
                         // When the round is unaffordable the targets are still
                         // *counted* (marking the `Sat` unverified) but no lemma
@@ -387,7 +497,7 @@ impl Solver {
                             // available, no surgical undo), so rebase to root
                             // before re-driving them from a fresh
                             // `TheoryManager`.
-                            self.rebase_theory_state();
+                            self.rebase_theory_state_for_round();
                             theory_manager = TheoryManager::new(
                                 manager,
                                 &mut self.euf,
@@ -403,10 +513,11 @@ impl Solver {
                                 &mut self.statistics,
                                 self.config.max_conflicts,
                                 self.config.max_decisions,
+                                self.config.max_bv_embedded_checks,
                                 self.has_bv_arith_ops,
                                 self.has_quantifiers,
                                 &self.quantifier_uf_funcs,
-                                self.config.timeout_ms,
+                                deadline,
                             );
                             continue;
                         }
@@ -417,62 +528,49 @@ impl Solver {
                         // array terms in this candidate model and assert every
                         // axiom instance it does not already satisfy as a lemma,
                         // then re-solve.  Only genuine array models survive.
-                        if self.has_array_ops && self.instantiate_array_axioms(manager) {
-                            array_refinement_rounds += 1;
-                            if array_refinement_rounds >= max_array_refinement_rounds {
-                                // Could not saturate the array axioms within the
-                                // round budget: do not fabricate a verdict.
-                                //
-                                // The model goes with it (issue #40): since the
-                                // refutation gate moved *below* this path, the
-                                // candidate on the table here may be one the
-                                // gate would have rejected, and a rejected model
-                                // must not stay readable behind an `Unknown`.
-                                self.model = None;
-                                self.unsat_core = None;
+                        // Lazy array-axiom refinement (see
+                        // `solver::array_refinement`).  One round asserts every
+                        // axiom instance this candidate model violates and
+                        // prepares a fresh search; rebuilding the theory
+                        // manager and looping is this call site's job, because
+                        // the manager holds `&mut` borrows the round cannot
+                        // exist across.
+                        match self.array_refinement_round(
+                            manager,
+                            &mut array_refinement_rounds,
+                            &mut array_resolve_conflict_ceiling,
+                            conflict_budget,
+                            conflicts_so_far,
+                            deadline,
+                        ) {
+                            ArrayRefinementStep::OutOfBudget => {
                                 return SolverResult::Unknown;
                             }
-                            // A read-over-write lemma is an `ite` over the two
-                            // array values; at Int/Real sort that `ite` is a new
-                            // opaque arithmetic atom, so define it before the
-                            // re-solve or the lemma carries no numeric meaning.
-                            self.instantiate_arith_axioms(manager);
-                            // Re-solve with the freshly asserted array lemmas from
-                            // a clean state.  `add_clause` backtracked the SAT core
-                            // to root for the unit lemmas, but the incremental
-                            // theory solvers still hold the facts committed by the
-                            // just-refuted candidate model (e.g. a stale
-                            // `select = 6`) — including any left in scopes this
-                            // round's search never unwound.
-                            self.rebase_theory_state();
-                            // After backtracking to root and resetting the
-                            // theory solvers: the SAT-variable <-> term tables
-                            // and the Tseitin memo are *not* reset here, so
-                            // they must still describe the same variables the
-                            // replayed search will re-derive.
-                            self.debug_check_invariants("check_core: after array-lemma backtrack");
-                            // Re-solve with the freshly asserted array lemmas.
-                            theory_manager = TheoryManager::new(
-                                manager,
-                                &mut self.euf,
-                                &mut self.arith,
-                                &mut self.bv,
-                                &self.bv_terms,
-                                &self.var_to_constraint,
-                                &self.var_to_parsed_arith,
-                                &self.term_to_var,
-                                &self.var_to_term,
-                                &mut self.derived_reasons,
-                                self.config.theory_mode,
-                                &mut self.statistics,
-                                self.config.max_conflicts,
-                                self.config.max_decisions,
-                                self.has_bv_arith_ops,
-                                self.has_quantifiers,
-                                &self.quantifier_uf_funcs,
-                                self.config.timeout_ms,
-                            );
-                            continue;
+                            ArrayRefinementStep::Resolve => {
+                                theory_manager = TheoryManager::new(
+                                    manager,
+                                    &mut self.euf,
+                                    &mut self.arith,
+                                    &mut self.bv,
+                                    &self.bv_terms,
+                                    &self.var_to_constraint,
+                                    &self.var_to_parsed_arith,
+                                    &self.term_to_var,
+                                    &self.var_to_term,
+                                    &mut self.derived_reasons,
+                                    self.config.theory_mode,
+                                    &mut self.statistics,
+                                    self.config.max_conflicts,
+                                    self.config.max_decisions,
+                                    self.config.max_bv_embedded_checks,
+                                    self.has_bv_arith_ops,
+                                    self.has_quantifiers,
+                                    &self.quantifier_uf_funcs,
+                                    deadline,
+                                );
+                                continue;
+                            }
+                            ArrayRefinementStep::NoLemma => {}
                         }
                         // Soundness gate: never return `Sat` for a model that
                         // provably violates an assertion (see
@@ -497,17 +595,16 @@ impl Solver {
                             // a search restriction rather than a lemma, and for
                             // the `Unsat` downgrade that pays for it.
                             //
-                            // Gated on the same wall-clock ceiling the
+                            // Gated on the same deterministic ceiling the
                             // case-split refinement uses, and for the same
                             // reason: a round is a full re-solve from scratch,
-                            // affordable only when the first solve was fast.
-                            #[cfg(feature = "std")]
-                            let blocking_affordable = check_start.elapsed()
-                                < std::time::Duration::from_millis(
-                                    int_case_split::REFINEMENT_TIME_CEILING_MS,
-                                );
-                            #[cfg(not(feature = "std"))]
-                            let blocking_affordable = true;
+                            // affordable only when the search so far was cheap.
+                            let blocking_affordable = self
+                                .sat
+                                .stats()
+                                .propagations
+                                .saturating_sub(propagations_at_entry)
+                                < REFINEMENT_WORK_CEILING_PROPAGATIONS;
                             if self.block_refuted_model_and_rebase(blocking_affordable) {
                                 theory_manager = TheoryManager::new(
                                     manager,
@@ -524,10 +621,11 @@ impl Solver {
                                     &mut self.statistics,
                                     self.config.max_conflicts,
                                     self.config.max_decisions,
+                                    self.config.max_bv_embedded_checks,
                                     self.has_bv_arith_ops,
                                     self.has_quantifiers,
                                     &self.quantifier_uf_funcs,
-                                    self.config.timeout_ms,
+                                    deadline,
                                 );
                                 continue;
                             }
@@ -540,6 +638,19 @@ impl Solver {
                             self.unsat_core = None;
                             return SolverResult::Unknown;
                         }
+                        // The gate's other refusal (`#P2b-27`): an assertion
+                        // it could not evaluate *because a Boolean variable
+                        // has no model entry* is not "no opinion" — the
+                        // published model prints a default for that
+                        // variable, and may falsify the assertion with it.
+                        // Nothing to block and re-solve here (the variable
+                        // was never assigned, so the candidate would come
+                        // back unchanged): the honest answer is `unknown`.
+                        if self.model_leaves_a_boolean_undetermined(manager) {
+                            self.model = None;
+                            self.unsat_core = None;
+                            return SolverResult::Unknown;
+                        }
                         self.unsat_core = None;
                         self.debug_check_invariants("check_core: before returning sat");
                         return SolverResult::Sat;
@@ -547,6 +658,63 @@ impl Solver {
 
                     // Build partial model for MBQI
                     self.build_model(manager);
+
+                    // Lazy array-axiom refinement, on the *quantified* path.
+                    //
+                    // This call is the other half of the seam
+                    // `solver::ground_instance` documents.  The round used to
+                    // exist only in the `!self.has_quantifiers` branch above,
+                    // so a script with one `forall` in it never ran a single
+                    // array rule — not over the terms an MBQI instance
+                    // grounds, and not even over the ones its own ground
+                    // assertions spell out.  `(assert (= (select a #b1) #b0))`
+                    // beside `(assert (forall ((i …)) (= (select (store a #b0
+                    // #b1) i) #b1)))` is unsatisfiable and answered `sat`,
+                    // with a `(get-value)` that contradicted itself.
+                    //
+                    // It runs *before* `certify_quantified_sat` and before all
+                    // three of the loop's `Sat` exits, because a candidate that
+                    // violates read-over-write is not a model and must not be
+                    // offered to the certifier as one.  A candidate that
+                    // satisfies every applicable instance costs one collection
+                    // walk and returns `NoLemma`.
+                    match self.array_refinement_round(
+                        manager,
+                        &mut array_refinement_rounds,
+                        &mut array_resolve_conflict_ceiling,
+                        conflict_budget,
+                        conflicts_so_far,
+                        deadline,
+                    ) {
+                        ArrayRefinementStep::OutOfBudget => {
+                            return SolverResult::Unknown;
+                        }
+                        ArrayRefinementStep::Resolve => {
+                            theory_manager = TheoryManager::new(
+                                manager,
+                                &mut self.euf,
+                                &mut self.arith,
+                                &mut self.bv,
+                                &self.bv_terms,
+                                &self.var_to_constraint,
+                                &self.var_to_parsed_arith,
+                                &self.term_to_var,
+                                &self.var_to_term,
+                                &mut self.derived_reasons,
+                                self.config.theory_mode,
+                                &mut self.statistics,
+                                self.config.max_conflicts,
+                                self.config.max_decisions,
+                                self.config.max_bv_embedded_checks,
+                                self.has_bv_arith_ops,
+                                self.has_quantifiers,
+                                &self.quantifier_uf_funcs,
+                                deadline,
+                            );
+                            continue;
+                        }
+                        ArrayRefinementStep::NoLemma => {}
+                    }
 
                     // NOTE (soundness): each of the three `Sat` exits below is
                     // guarded by `quantified_model_refutes_ground_assertions`
@@ -579,17 +747,24 @@ impl Solver {
                     // follows outright and MBQI has nothing left to add.  When
                     // it does not, nothing changes: the certifier declines and
                     // the instantiation loop below runs exactly as before.
-                    if self.certify_quantified_sat(manager) {
-                        if self.quantified_model_refutes_ground_assertions(manager) {
-                            self.model = None;
+                    let certified_integral = match self.certify_quantified_sat(manager) {
+                        false => None,
+                        true => Some(self.integrality_at_quantified_exit()),
+                    };
+                    match certified_integral {
+                        Some(IntegralityAtExit::Integral) => {
+                            if self.quantified_model_refutes_ground_assertions(manager) {
+                                self.model = None;
+                                self.unsat_core = None;
+                                return SolverResult::Unknown;
+                            }
                             self.unsat_core = None;
-                            return SolverResult::Unknown;
+                            self.debug_check_invariants(
+                                "check_core: before returning sat (certified model)",
+                            );
+                            return SolverResult::Sat;
                         }
-                        self.unsat_core = None;
-                        self.debug_check_invariants(
-                            "check_core: before returning sat (certified model)",
-                        );
-                        return SolverResult::Sat;
+                        Some(IntegralityAtExit::Resume) | None => {}
                     }
 
                     // Run MBQI to check quantified formulas
@@ -599,32 +774,61 @@ impl Solver {
                         .map(|m| m.assignments().clone())
                         .unwrap_or_default();
 
-                    let mbqi_result = self.mbqi.check_with_model(&model_assignments, manager);
+                    // The integrality taken back at the certified exit above:
+                    // skip the MBQI check and search again
+                    // (`solver::integrality_exit`).
+                    let mbqi_result = if certified_integral == Some(IntegralityAtExit::Resume) {
+                        MBQIResult::Satisfied
+                    } else {
+                        self.mbqi.note_goal(&self.assertions);
+                        self.mbqi.check_with_model(&model_assignments, manager)
+                    };
                     match mbqi_result {
+                        _ if certified_integral == Some(IntegralityAtExit::Resume) => {}
                         MBQIResult::NoQuantifiers => {
-                            if self.quantified_model_refutes_ground_assertions(manager) {
+                            // A candidate that leaves an `Int` term
+                            // fractional takes the integrality back and runs
+                            // another round (`solver::integrality_exit`) ...
+                            let integral = self.integrality_at_quantified_exit()
+                                == IntegralityAtExit::Integral;
+                            if integral && !self.quantified_model_refutes_ground_assertions(manager)
+                            {
+                                self.unsat_core = None;
+                                self.debug_check_invariants(
+                                    "check_core: before returning sat (no quantifiers)",
+                                );
+                                return SolverResult::Sat;
+                            }
+                            // A candidate that is not a function gets its
+                            // Ackermann lemmas and one more round
+                            // (`uf_consistency`); anything else is `unknown`.
+                            if integral && !self.assert_exit_consistency_lemmas(manager) {
                                 self.model = None;
                                 self.unsat_core = None;
                                 return SolverResult::Unknown;
                             }
-                            self.unsat_core = None;
-                            self.debug_check_invariants(
-                                "check_core: before returning sat (no quantifiers)",
-                            );
-                            return SolverResult::Sat;
                         }
                         MBQIResult::Satisfied => {
                             // All quantifiers satisfied by the current model.
-                            if self.quantified_model_refutes_ground_assertions(manager) {
+                            // As above: a fractional `Int` term runs another
+                            // round (`solver::integrality_exit`) ...
+                            let integral = self.integrality_at_quantified_exit()
+                                == IntegralityAtExit::Integral;
+                            if integral && !self.quantified_model_refutes_ground_assertions(manager)
+                            {
+                                self.unsat_core = None;
+                                self.debug_check_invariants(
+                                    "check_core: before returning sat (mbqi fixpoint)",
+                                );
+                                return SolverResult::Sat;
+                            }
+                            // ... and a refused candidate gets its Ackermann
+                            // lemmas and one more round, or `unknown`.
+                            if integral && !self.assert_exit_consistency_lemmas(manager) {
                                 self.model = None;
                                 self.unsat_core = None;
                                 return SolverResult::Unknown;
                             }
-                            self.unsat_core = None;
-                            self.debug_check_invariants(
-                                "check_core: before returning sat (mbqi fixpoint)",
-                            );
-                            return SolverResult::Sat;
                         }
                         MBQIResult::InstantiationLimit => {
                             // Too many instantiations - return unknown
@@ -655,6 +859,20 @@ impl Solver {
                             // Continue loop
                         }
                         MBQIResult::NewInstantiations(instantiations) => {
+                            // `#P2b-60`: the relevant set is saturated and only
+                            // the unnamed-region instances are fresh.  A
+                            // certified completion concludes without them.
+                            if self.mbqi.only_unnamed_region_pending()
+                                && self.integrality_at_quantified_exit()
+                                    == IntegralityAtExit::Integral
+                                && self.certify_at_mbqi_saturation(manager)
+                            {
+                                self.unsat_core = None;
+                                self.debug_check_invariants(
+                                    "check_core: before returning sat (completion at saturation)",
+                                );
+                                return SolverResult::Sat;
+                            }
                             // Collect ground sub-terms (especially Skolem
                             // applications) from instantiation results so they
                             // become MBQI candidates in subsequent rounds.
@@ -680,16 +898,23 @@ impl Solver {
                                     break;
                                 }
                                 // Scan for pigeonhole patterns (recurses into Implies)
+                                // The seam: an MBQI instance is ground, so it
+                                // gets the pre-passes an assertion gets and
+                                // becomes a root of the next array-structure
+                                // collection round.  See
+                                // `solver::ground_instance` for the wrong `sat`
+                                // that skipping this produced.
+                                let prepared = self.prepare_ground_instance(inst.result, manager);
                                 self.scan_for_pigeonhole(
-                                    inst.result,
+                                    prepared,
                                     manager,
                                     &mut ph_domains,
                                     &mut ph_diseqs,
                                 );
-                                let lit = self.encode(inst.result, manager);
+                                let lit = self.encode(prepared, manager);
                                 let ok = self.sat.add_clause([lit]);
                                 let _ = ok;
-                                self.add_int_domain_clauses(inst.result, manager);
+                                self.add_int_domain_clauses(prepared, manager);
                             }
                             // Add pigeonhole exclusion clauses
                             if !ph_diseqs.is_empty() && !ph_domains.is_empty() {
@@ -706,6 +931,9 @@ impl Solver {
                             let mut new_clauses_added = 0usize;
                             let mut ematch_unsat = false;
                             for lemma in ematch_lemmas {
+                                // Same seam as the MBQI instances above: an
+                                // e-matching lemma is a ground instance too.
+                                let lemma = self.prepare_ground_instance(lemma, manager);
                                 let lit = self.encode(lemma, manager);
                                 if self.sat.add_clause([lit]) {
                                     new_clauses_added += 1;
@@ -744,15 +972,19 @@ impl Solver {
                                     }
                                     // Track domains and disequalities for pigeonhole
                                     let _ = manager.get(inst.result);
+                                    // Same seam as the model-driven instances:
+                                    // a blind instantiation is ground too.
+                                    let prepared =
+                                        self.prepare_ground_instance(inst.result, manager);
                                     self.scan_for_pigeonhole(
-                                        inst.result,
+                                        prepared,
                                         manager,
                                         &mut ph_domains,
                                         &mut ph_diseqs,
                                     );
-                                    let lit = self.encode(inst.result, manager);
+                                    let lit = self.encode(prepared, manager);
                                     let _ = self.sat.add_clause([lit]);
-                                    self.add_int_domain_clauses(inst.result, manager);
+                                    self.add_int_domain_clauses(prepared, manager);
                                 }
                                 // Add pigeonhole exclusion clauses directly
                                 // from the collected domains and disequalities.
@@ -783,6 +1015,11 @@ impl Solver {
                                         {
                                             continue;
                                         }
+                                        // Same seam as the other three
+                                        // instantiation paths: a finite-domain
+                                        // instance is ground too.
+                                        let simplified =
+                                            self.prepare_ground_instance(simplified, manager);
                                         self.scan_for_pigeonhole(
                                             simplified, manager, &mut ph_d, &mut ph_q,
                                         );
@@ -819,7 +1056,14 @@ impl Solver {
                                 // Unknown — never fabricate Sat for an unverified
                                 // quantifier.
                                 self.unsat_core = None;
-                                if self.quantifiers_trivially_valid(manager) {
+                                // Giving up (or concluding) over a candidate
+                                // that leaves an `Int` term fractional takes
+                                // the integrality back and runs another round
+                                // (`solver::integrality_exit`).
+                                let integrality = self.integrality_at_quantified_exit();
+                                if integrality == IntegralityAtExit::Integral
+                                    && self.quantifiers_trivially_valid(manager)
+                                {
                                     self.build_model(manager);
                                     // Same ground-model gate as the other
                                     // quantified `Sat` exits: "every quantifier
@@ -839,7 +1083,9 @@ impl Solver {
                                     );
                                     return SolverResult::Sat;
                                 }
-                                return SolverResult::Unknown;
+                                if integrality == IntegralityAtExit::Integral {
+                                    return SolverResult::Unknown;
+                                }
                             }
                             // Continue MBQI loop
                         }
@@ -878,7 +1124,15 @@ impl Solver {
                     // consequences committed at the root, and the replay below
                     // re-derives the theory state from exactly those.  Nothing is
                     // re-encoded, so no clause is duplicated.
-                    self.rebase_theory_state();
+                    //
+                    // An instance of this round can hold a datatype term no
+                    // axiom covers yet (`Solver::register_ground_dt_root`,
+                    // `#P2b-90`): axiomatise it before the next search.
+                    // Idempotent; nothing to do on a datatype-free goal.
+                    if !self.ground_dt_roots.is_empty() {
+                        self.instantiate_dt_axioms(manager);
+                    }
+                    self.rebase_theory_state_for_round();
                     theory_manager = TheoryManager::new(
                         manager,
                         &mut self.euf,
@@ -894,13 +1148,118 @@ impl Solver {
                         &mut self.statistics,
                         self.config.max_conflicts,
                         self.config.max_decisions,
+                        self.config.max_bv_embedded_checks,
                         self.has_bv_arith_ops,
                         self.has_quantifiers,
                         &self.quantifier_uf_funcs,
-                        self.config.timeout_ms,
+                        deadline,
                     );
                 }
             }
         }
     }
 }
+
+/// Boolean conflicts the array-axiom refinement's re-solves may accrue, counted
+/// from the round that asserts the first array lemma (`#P2b-38` strand (c)).
+///
+/// # Why a conflict count and not a clock
+///
+/// This budget used to be a wall-clock floor of two minutes, and that made the
+/// *verdict* a property of the machine.  Measured on one release binary and one
+/// twelve-line script with no `:timeout`: run alone it answered `sat` at
+/// 77.5 s; with ten copies in flight all ten answered `unknown` at the 120 s
+/// floor; with six copies all six answered `sat` at 114-116 s.  `oxiz` verdicts
+/// are consumed as verification evidence by `cargo-formal`, which requires the
+/// same verdict on every machine, so a budget that reads the clock is not a
+/// budget this solver may use to *decide* anything.
+///
+/// `SolverStats::conflicts` is the replacement: monotone, advanced by the
+/// search itself rather than by the scheduler, and identical on an idle and a
+/// loaded machine.  A user `:timeout` is unaffected and remains the only
+/// wall-clock limit there is.
+///
+/// # Calibration
+///
+/// Measured on this tree (2026-09-18), total conflicts per script — an
+/// over-estimate of the refinement's share, which starts counting later: the
+/// whole 217-script `bench/` corpus peaks at 1,408, on a datatype goal that
+/// reaches no array lemma at all; 1,200 exhaustive array/UF scripts peak at 65;
+/// 1,200 random mixed scripts at 5; 700 new-shape scripts at 4,098; 400
+/// array-constant scripts at 1; 300 datatype scripts at 0; an 80-script sample
+/// of the `n`-ary-`distinct`-over-store-chains corpus peaks at 8,106, and the
+/// twelve-line script that motivated the budget answers `sat` at 558.
+///
+/// Fifty thousand is six times the largest of those, so nothing that decides
+/// today comes near it, and it still turns an unbounded search into an
+/// `unknown` that reproduces byte for byte on an idle and on a loaded machine.
+/// Verified live rather than assumed: dropping the constant to 1 in an
+/// isolated tree copy turns
+/// `round4_pass2_recheck_pins::n_ary_distinct_over_store_chains_is_decided`
+/// red, so the ceiling really does reach the search.
+///
+/// It is not, on its own, a bound on the loop: see
+/// [`ARRAY_REFINEMENT_LEMMA_BUDGET`] for the case it does not see.
+pub(super) const ARRAY_REFINEMENT_RESOLVE_CONFLICTS: u64 = 50_000;
+
+/// Array-axiom lemma instances one `check` may assert before it answers
+/// `Unknown` (`#P2b-38` strand (c), second currency).
+///
+/// # Why a second counter
+///
+/// [`ARRAY_REFINEMENT_RESOLVE_CONFLICTS`] bounds a refinement loop that
+/// *searches*.  It does not bound one that only *builds*: a family that mints
+/// a fresh index per pair per round enlarges the circuit every round while the
+/// re-solves stay conflict-free, so the conflict count never moves and the
+/// ceiling never fires.  That is not hypothetical — `rc3/slow/m5.smt2` (six
+/// declarations, three assertions, answered `sat` in 0.5 ms by the 0.3.4 base)
+/// ran 400 s under `/usr/bin/time` on the previous tree with no answer and no
+/// budget stopping it; only an explicit `:timeout` did.
+///
+/// Counted in [`crate::solver::Statistics::array_lemma_instances`], which
+/// `Solver::assert_new_instances` advances once per lemma that reaches the SAT
+/// core, and checked at the same round boundary the conflict ceiling is.
+/// Budget exhaustion answers `Unknown` and clears the model; it never produces
+/// a verdict.
+///
+/// # Calibration
+///
+/// Measured on this tree (2026-09-18), lemma instances per script over the
+/// corpora this round uses: the 217-script `bench/` corpus peaks at 116; the
+/// four in-tree `n`-ary-`distinct` scripts at 158; the 2,350-script generated
+/// campaign at 372; `c20`/`c21` at 12 and 9.  Ten thousand is more than
+/// twenty-five times the largest of those, so nothing that decides today comes
+/// near it, while the runaway shapes cross it in well under a second.
+pub(super) const ARRAY_REFINEMENT_LEMMA_BUDGET: u64 = 10_000;
+
+/// SAT propagations, counted from the entry of this `check`, past which the
+/// two *repair* refinements below decline to re-solve: the non-convex-LIA
+/// case split (`split_narrow_int_domains`) and bounded model blocking
+/// (`block_refuted_model_and_rebase`).
+///
+/// # Why this is not a clock
+///
+/// Both repairs re-solve the whole problem from scratch, so both are only
+/// affordable when the search so far has been cheap; both used to read
+/// `Instant::elapsed()` against `int_case_split::REFINEMENT_TIME_CEILING_MS`
+/// (two minutes), *whether or not the caller set a `:timeout`*.  A gate that
+/// reads the clock and then decides a verdict makes the verdict a property of
+/// the machine: the unaffordable branch of the first marks its `Sat`
+/// unverified, and the unaffordable branch of the second falls through to
+/// `Unknown`.  Reachability is measured, not argued — with this ceiling set to
+/// 1 in an isolated tree copy, 7 of the 217 `bench/` scripts flip `sat` to
+/// `unknown`.
+///
+/// Propagations are the replacement currency: monotone, advanced by the search
+/// rather than by the scheduler, and cheap to read.  Decision (9) leaves an
+/// explicit `:timeout` as the only wall clock in the solver.
+///
+/// # Calibration
+///
+/// Measured on this tree (2026-09-18): of the 217 `bench/` scripts the largest
+/// propagation count at the first candidate model is 1.4 million, and the
+/// seven scripts the mutation above flips peak at 41 thousand.  One hundred
+/// million is seventy times the largest, so every script that decides today
+/// stays affordable, while a search that has already propagated a hundred
+/// million times is not one a from-scratch re-solve will rescue.
+const REFINEMENT_WORK_CEILING_PROPAGATIONS: u64 = 100_000_000;

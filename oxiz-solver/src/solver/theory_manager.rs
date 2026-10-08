@@ -11,13 +11,17 @@ use oxiz_theories::euf::EufSolver;
 use oxiz_theories::{EqualityNotification, Theory, TheoryCombination};
 use smallvec::SmallVec;
 
-use super::theory_bv_encode::{debug_verify_bv_circuits, encode_bv_term_recursive};
+use super::theory_bv_encode::encode_bv_term_recursive;
 use super::types::{
     ArithConstraintType, Constraint, ParsedArithConstraint, Statistics, TheoryMode,
 };
 
+mod bv_bridge;
+mod bv_budget;
+
 mod conflict_clause;
 mod derived_reasons;
+mod integrality;
 mod intern;
 mod nelson_oppen;
 pub(crate) use derived_reasons::DerivedReasons;
@@ -95,6 +99,9 @@ pub(crate) struct TheoryManager<'a> {
     statistics: &'a mut Statistics,
     /// Maximum conflicts allowed (0 = unlimited)
     max_conflicts: u64,
+    /// The embedded-check ceiling this `check` spends; see
+    /// [`bv_budget::effective_bv_embedded_check_ceiling`].
+    bv_embedded_check_ceiling: u64,
     /// Maximum decisions allowed (0 = unlimited)
     #[allow(dead_code)]
     max_decisions: u64,
@@ -223,13 +230,52 @@ pub(crate) struct TheoryManager<'a> {
     /// exists so that the *release* build degrades to `Unknown` instead of
     /// emitting the empty clause, which claims an unconditional refutation.
     unjustified_conflict: bool,
-    /// Wall-clock deadline for this solve, derived from `timeout_ms`.  `None`
-    /// means no timeout.  Checked in the theory callbacks so a single
-    /// uninterruptible `solve_with_theory` call cannot run past the budget:
-    /// once the deadline passes we set `resource_exhausted` and stop reporting
-    /// conflicts, forcing the search to terminate; the owning `Solver` then
-    /// answers `Unknown`.
-    #[cfg(feature = "std")]
+    /// Set to `true` when a bit-vector atom reached the BV dispatch but no
+    /// `assert_*` ever reached the bit-blasted circuit — `BvSolver` refused the
+    /// pair (operands not bit-blasted, or of unequal width), or the atom's
+    /// `Constraint` kind has no BV encoding.  The atom then survives as a *free*
+    /// Boolean: `BvSolver::check()`'s `Sat` says nothing about it, `final_check`
+    /// never re-checks the BV solver, and the model gate cannot evaluate
+    /// bit-vectors — so an overall `Sat` would rest on an abstraction, which is
+    /// how U-Z10's sibling family (`(> bv bv)`, whose `Constraint::Gt` had no arm
+    /// at all) produced a wrong `sat`.  Read through
+    /// [`Self::resource_exhausted`] so the owning `Solver` answers `Unknown`
+    /// instead.  `Unsat` stays sound: dropping information can only lose
+    /// refutations, never manufacture one.
+    bv_atom_unmodelled: bool,
+    /// Whether an outer Boolean was pinned into a live bit-vector node since
+    /// the embedded solver was last consulted.  `final_check` runs one
+    /// deferred check when it is set, so a pin that no later constraint
+    /// checks cannot end the search unexamined (`#P2b-24`); every BV check
+    /// clears it.
+    bv_pin_pending: bool,
+    /// Set when the bit-vector / EUF equality exchange
+    /// (`bv_bridge::combine_bv_with_euf`, `#P2b-29`) could not decide
+    /// whether the current assignment is consistent: the circuit entails a
+    /// *disjunction* of argument equalities none of which it entails alone
+    /// (the non-convex case a probe cannot split), an argument term has no
+    /// circuit the encoder can build, or a round bound was hit.  Read
+    /// through [`Self::resource_exhausted`] so the owning `Solver` answers
+    /// `Unknown`; a `sat` that rests on an undecided combination is exactly
+    /// the wrong-`sat` family the exchange exists to close.
+    bv_euf_undecided: bool,
+    /// Wall-clock deadline for this solve.  `None` means no timeout.  Checked
+    /// in the theory callbacks so a single uninterruptible `solve_with_theory`
+    /// call cannot run past the budget: once the deadline passes we set
+    /// `resource_exhausted` and stop reporting conflicts, forcing the search to
+    /// terminate; the owning `Solver` then answers `Unknown`.
+    ///
+    /// Computed **once** by `check_core`, from `SolverConfig::timeout_ms`, and
+    /// handed to every `TheoryManager` it builds — including the ones it
+    /// rebuilds for a case-split, array-lemma or MBQI refinement round.  It used
+    /// to be derived here, from `timeout_ms`, which re-read the clock on every
+    /// construction and silently granted a script with `N` refinement rounds
+    /// `N * timeout_ms`.
+    ///
+    /// Not `cfg`-gated on `std`: `oxiz_time::Instant` exists on every target,
+    /// and where no clock does the frozen stub makes the comparison a
+    /// documented no-op — the same behaviour the `#[cfg(not(feature = "std"))]`
+    /// arm of `timed_out` used to hand-roll.
     deadline: Option<oxiz_time::Instant>,
     /// Latest SAT-assignment polarity of each theory-atom variable
     /// (`true` = atom assigned true, `false` = assigned false).  Recorded in
@@ -318,19 +364,12 @@ impl<'a> TheoryManager<'a> {
         statistics: &'a mut Statistics,
         max_conflicts: u64,
         max_decisions: u64,
+        max_bv_embedded_checks: u64,
         has_bv_arith_ops: bool,
         has_quantifiers: bool,
         quantifier_uf_funcs: &'a FxHashSet<oxiz_core::interner::Spur>,
-        timeout_ms: u64,
+        deadline: Option<oxiz_time::Instant>,
     ) -> Self {
-        #[cfg(feature = "std")]
-        let deadline = if timeout_ms > 0 {
-            oxiz_time::Instant::now().checked_add(core::time::Duration::from_millis(timeout_ms))
-        } else {
-            None
-        };
-        #[cfg(not(feature = "std"))]
-        let _ = timeout_ms;
         Self {
             manager,
             euf,
@@ -350,6 +389,9 @@ impl<'a> TheoryManager<'a> {
             processed_equalities: FxHashMap::default(),
             statistics,
             max_conflicts,
+            bv_embedded_check_ceiling: bv_budget::effective_bv_embedded_check_ceiling(
+                max_bv_embedded_checks,
+            ),
             max_decisions,
             has_bv_arith_ops,
             has_quantifiers,
@@ -359,8 +401,10 @@ impl<'a> TheoryManager<'a> {
             bool_true_node: None,
             bool_false_node: None,
             resource_exhausted: false,
+            bv_atom_unmodelled: false,
+            bv_pin_pending: false,
+            bv_euf_undecided: false,
             unjustified_conflict: false,
-            #[cfg(feature = "std")]
             deadline,
             assigned_pol_gen: Vec::new(),
             assigned_pol_val: Vec::new(),
@@ -400,28 +444,28 @@ impl<'a> TheoryManager<'a> {
     }
 
     /// Returns `true` once the configured wall-clock deadline has passed.
-    /// Always `false` when no timeout was set or in `no_std` builds (no clock).
+    /// Always `false` when no timeout was set, and on a target whose clock is
+    /// frozen (`wasm32-unknown-unknown` / `no_std`), where `Instant::now()` is
+    /// a constant t = 0 and can never reach a deadline built from it.
     #[inline]
     fn timed_out(&self) -> bool {
-        #[cfg(feature = "std")]
-        {
-            match self.deadline {
-                Some(d) => oxiz_time::Instant::now() >= d,
-                None => false,
-            }
-        }
-        #[cfg(not(feature = "std"))]
-        {
-            false
+        match self.deadline {
+            Some(d) => oxiz_time::Instant::now() >= d,
+            None => false,
         }
     }
 
-    /// Returns `true` if a real theory conflict was suppressed because the
-    /// conflict limit was reached during this solve.  When set, the caller must
-    /// treat any subsequent `Sat` as `Unknown`: the dropped conflict means the
-    /// current assignment is not a verified model.
+    /// Returns `true` when a subsequent `Sat` must be downgraded to `Unknown`
+    /// because this manager dropped information the verdict would rest on.
+    ///
+    /// Three causes, all meaning "the current assignment is not a verified
+    /// model": a real theory conflict suppressed at the conflict limit
+    /// ([`Self::resource_exhausted`]), a bit-vector atom that never reached
+    /// the bit-blasted circuit ([`Self::bv_atom_unmodelled`]), and a
+    /// bit-vector / EUF equality exchange that could not decide the
+    /// assignment ([`Self::bv_euf_undecided`]).
     pub(crate) fn resource_exhausted(&self) -> bool {
-        self.resource_exhausted
+        self.resource_exhausted || self.bv_atom_unmodelled || self.bv_euf_undecided
     }
 
     /// Returns `true` if a theory conflict was dropped because its justification
@@ -839,108 +883,6 @@ impl<'a> TheoryManager<'a> {
         }
     }
 
-    /// Look up the BV bit-width of a term from its sort, if it has a BV sort.
-    fn bv_width_of(&self, term: TermId, manager: &TermManager) -> Option<u32> {
-        manager
-            .get(term)
-            .and_then(|t| manager.sorts.get(t.sort))
-            .and_then(|s| s.bitvec_width())
-    }
-
-    /// Bit-blast both operands of a BV constraint into the embedded SAT solver.
-    ///
-    /// Each side is encoded recursively; a bare leaf that the recursive encoder
-    /// cannot handle falls back to a fresh BV variable of the operand's width.
-    /// Returns `true` if both operands are BV-sorted with equal width (so that
-    /// `assert_eq` / `assert_neq` may be called safely), `false` otherwise.
-    fn bit_blast_bv_pair(&mut self, lhs: TermId, rhs: TermId, manager: &TermManager) -> bool {
-        let (lw, rw) = match (
-            self.bv_width_of(lhs, manager),
-            self.bv_width_of(rhs, manager),
-        ) {
-            (Some(lw), Some(rw)) if lw == rw => (lw, rw),
-            _ => return false,
-        };
-        let mut encoded: FxHashSet<TermId> = FxHashSet::default();
-        if !encode_bv_term_recursive(self.bv, lhs, manager, &mut encoded) {
-            self.bv.new_bv(lhs, lw);
-        }
-        if !encode_bv_term_recursive(self.bv, rhs, manager, &mut encoded) {
-            self.bv.new_bv(rhs, rw);
-        }
-        true
-    }
-
-    /// Run the embedded BV SAT check after the caller has asserted a constraint.
-    ///
-    /// Records `constraint_term` so the conflict clause is non-empty, then
-    /// returns `Some(Conflict(..))` if the embedded solver reports UNSAT and
-    /// `None` otherwise (so the caller falls through to its conservative path).
-    ///
-    /// `operands` are the two sides of the atom just asserted.  When the check
-    /// comes back SAT they are handed to [`debug_verify_bv_circuits`], the
-    /// debug-only model-validity net: every bit-blasted node under them must
-    /// reproduce its own operation concretely on the model the solver just
-    /// found.  That is the check which distinguishes "the search is right" from
-    /// "the circuit is wrong", and it costs nothing in release builds.
-    fn bv_run_check(
-        &mut self,
-        constraint_term: TermId,
-        operands: (TermId, TermId),
-        manager: &TermManager,
-    ) -> Option<TheoryCheckResult> {
-        use oxiz_theories::Theory;
-        use oxiz_theories::TheoryCheckResult as TheoryCheckResultEnum;
-        self.bv.record_constraint_term(constraint_term);
-        match self.bv.check() {
-            Ok(TheoryCheckResultEnum::Unsat(conflict_terms)) => {
-                Some(self.conflict_from_terms(&conflict_terms))
-            }
-            Ok(TheoryCheckResultEnum::Sat) => {
-                debug_verify_bv_circuits(self.bv, operands.0, manager);
-                debug_verify_bv_circuits(self.bv, operands.1, manager);
-                None
-            }
-            _ => None,
-        }
-    }
-
-    /// Bit-blast `lhs`/`rhs`, assert `lhs != b` at the bit level, and check.
-    ///
-    /// Returns `Some(Conflict(..))` on a detected BV theory conflict, `None`
-    /// otherwise (including when the operands are not equal-width BV terms).
-    fn bv_check_neq(
-        &mut self,
-        lhs: TermId,
-        rhs: TermId,
-        constraint_term: TermId,
-        manager: &TermManager,
-    ) -> Option<TheoryCheckResult> {
-        if !self.bit_blast_bv_pair(lhs, rhs, manager) {
-            return None;
-        }
-        self.bv.assert_neq(lhs, rhs);
-        self.bv_run_check(constraint_term, (lhs, rhs), manager)
-    }
-
-    /// Bit-blast `lhs`/`rhs`, assert `lhs = b` at the bit level, and check.
-    ///
-    /// Returns `Some(Conflict(..))` on a detected BV theory conflict, `None`
-    /// otherwise (including when the operands are not equal-width BV terms).
-    fn bv_check_eq(
-        &mut self,
-        lhs: TermId,
-        rhs: TermId,
-        constraint_term: TermId,
-        manager: &TermManager,
-    ) -> Option<TheoryCheckResult> {
-        if !self.bit_blast_bv_pair(lhs, rhs, manager) {
-            return None;
-        }
-        self.bv.assert_eq(lhs, rhs);
-        self.bv_run_check(constraint_term, (lhs, rhs), manager)
-    }
-
     /// Process a theory constraint
     fn process_constraint(
         &mut self,
@@ -1149,7 +1091,7 @@ impl<'a> TheoryManager<'a> {
                         _ => None,
                     };
 
-                    if let Some(width) = width {
+                    if width.is_some() {
                         // Bit-blast both operands *with constant bits pinned*.
                         //
                         // `new_bv` alone allocates a fresh, completely
@@ -1172,12 +1114,23 @@ impl<'a> TheoryManager<'a> {
                         // shapes it does not model (e.g. an `Apply` of an
                         // uninterpreted function returning a bit-vector), where
                         // a free bit-vector is the correct abstraction.
+                        //
+                        // `#P2b-24`: an operand the encoder cannot model is
+                        // no longer replaced by a free bit-vector.  The
+                        // encoder abstracts opaque leaves itself, so a
+                        // failure here is interpreted structure without a
+                        // circuit; the atom is recorded as unmodelled (the
+                        // owning `Solver` answers `unknown`, never `sat`) and
+                        // nothing is asserted about it.
                         let mut bv_encoded: FxHashSet<TermId> = FxHashSet::default();
-                        if !encode_bv_term_recursive(self.bv, lhs, manager, &mut bv_encoded) {
-                            self.bv.new_bv(lhs, width);
-                        }
-                        if !encode_bv_term_recursive(self.bv, rhs, manager, &mut bv_encoded) {
-                            self.bv.new_bv(rhs, width);
+                        let both_encoded =
+                            encode_bv_term_recursive(self.bv, lhs, manager, &mut bv_encoded)
+                                && encode_bv_term_recursive(self.bv, rhs, manager, &mut bv_encoded);
+                        // The opaque leaves just abstracted are live circuits
+                        // congruence closure must know about (`#P2b-29`).
+                        self.intern_opaque_leaves(manager);
+                        if !both_encoded {
+                            self.bv_atom_unmodelled = true;
                         }
 
                         // Derive signedness from the original TermKind stored for
@@ -1190,24 +1143,48 @@ impl<'a> TheoryManager<'a> {
                             matches!(t.kind, TermKind::BvSlt(_, _) | TermKind::BvSle(_, _))
                         });
 
-                        if is_positive {
+                        // `Gt`/`Ge` carry no signedness of their own: `is_signed`
+                        // is read above from `TermKind::BvSlt`/`BvSle` on the
+                        // constraint term, and a `Constraint::Gt`/`Ge` can only
+                        // come from `TermKind::Gt`/`Ge` (`encode.rs`) — so it is
+                        // unconditionally `false` here and a signed branch would
+                        // be dead code.  (An ill-sorted `(> bv bv)` has no
+                        // principled signedness to recover; rejecting it in the
+                        // parser is the better repair, and these arms are defence
+                        // in depth for a term built through the API.)  `asserted`
+                        // answers "did anything reach the circuit": before this
+                        // fix both matches ended in a silent `_ => {}`, so
+                        // `Constraint::Gt`/`Ge` asserted *nothing* and
+                        // `(= a #x0f) ∧ (> a #x0f)` answered `sat`.
+                        let asserted = if !both_encoded {
+                            false
+                        } else if is_positive {
                             // Positive assignment: constraint holds
                             match constraint {
                                 Constraint::Lt(a, b) => {
                                     if is_signed {
-                                        self.bv.assert_slt(a, b);
+                                        self.bv.assert_slt(a, b)
                                     } else {
-                                        self.bv.assert_ult(a, b);
+                                        self.bv.assert_ult(a, b)
                                     }
                                 }
-                                Constraint::Le(a, b) if is_signed => {
-                                    self.bv.assert_sle(a, b);
-                                }
+                                Constraint::Le(a, b) if is_signed => self.bv.assert_sle(a, b),
                                 Constraint::Le(a, b) => {
                                     // Unsigned a <= b ≡ NOT(b <u a).
-                                    self.bv.assert_ule(a, b);
+                                    self.bv.assert_ule(a, b)
                                 }
-                                _ => {}
+                                // a >u b ≡ b <u a.
+                                Constraint::Gt(a, b) => self.bv.assert_ult(b, a),
+                                // a >=u b ≡ b <=u a.
+                                Constraint::Ge(a, b) => self.bv.assert_ule(b, a),
+                                // Unreachable: the enclosing arm matched only
+                                // `Lt`/`Le`/`Gt`/`Ge`.  Spelled out rather than
+                                // left to a silent `_ => {}` so that a future
+                                // `Constraint` kind routed here is *recorded* as
+                                // not modelled instead of quietly abstracted.
+                                Constraint::Eq(..)
+                                | Constraint::Diseq(..)
+                                | Constraint::BoolApp(..) => false,
                             }
                         } else {
                             // Negated assignment: the negation of the comparator
@@ -1215,31 +1192,38 @@ impl<'a> TheoryManager<'a> {
                             // swapped non-strict / strict comparator:
                             //   ¬(a <u  b) ≡ b <=u a   ¬(a <=u b) ≡ b <u  a
                             //   ¬(a <s  b) ≡ b <=s a   ¬(a <=s b) ≡ b <s  a
+                            //   ¬(a >u  b) ≡ a <=u b   ¬(a >=u b) ≡ a <u  b
                             match constraint {
                                 Constraint::Lt(a, b) => {
                                     if is_signed {
-                                        self.bv.assert_sle(b, a);
+                                        self.bv.assert_sle(b, a)
                                     } else {
-                                        self.bv.assert_ule(b, a);
+                                        self.bv.assert_ule(b, a)
                                     }
                                 }
                                 Constraint::Le(a, b) => {
                                     if is_signed {
-                                        self.bv.assert_slt(b, a);
+                                        self.bv.assert_slt(b, a)
                                     } else {
-                                        self.bv.assert_ult(b, a);
+                                        self.bv.assert_ult(b, a)
                                     }
                                 }
-                                _ => {}
+                                Constraint::Gt(a, b) => self.bv.assert_ule(a, b),
+                                Constraint::Ge(a, b) => self.bv.assert_ult(a, b),
+                                Constraint::Eq(..)
+                                | Constraint::Diseq(..)
+                                | Constraint::BoolApp(..) => false,
                             }
-                        }
+                        };
 
                         // Check BV solver for conflicts.  Routed through
                         // `bv_run_check` so the comparison path shares the
-                        // (dis)equality path's debug-only model-validity net.
+                        // (dis)equality path's debug-only model-validity net,
+                        // and so that `asserted == false` is recorded rather
+                        // than read as "no theory objection".
                         let constraint_term = self.term_for_var(var);
                         if let Some(result) =
-                            self.bv_run_check(constraint_term, (lhs, rhs), manager)
+                            self.bv_run_check(constraint_term, (lhs, rhs), manager, asserted)
                         {
                             return result;
                         }
@@ -1358,14 +1342,47 @@ impl TheoryCallback for TheoryManager<'_> {
         // `(= (ite c #x01 #x02) x) ∧ ¬c ∧ (= x #x01)`.  Only variables that
         // actually carry a term are replayed: `term_for_var`'s `TermId::new(0)`
         // fallback would otherwise pin an unrelated term.
-        if let Some(term) = self.var_to_term.get(var.index()).copied() {
-            self.bv.assert_bool_value(term, is_positive);
+        //
+        // A pin that lands on a *live* node is an assertion the embedded
+        // solver can refute (`#P2b-24`): before this, `(= x (ite p 1 2)) ∧
+        // (= x 2) ∧ p` asserted in that order ended the search with `p`
+        // pinned and no check run — `final_check` never consulted the
+        // bit-blaster — and only the model gate noticed, answering `unknown`
+        // for an `unsat`.  The pin is *not* checked here and now: every
+        // constraint asserted after it runs an embedded `check()` that sees
+        // the unit, so only a pin with no later constraint can go
+        // unexamined, and `final_check` closes exactly that gap with one
+        // deferred check (see `bv_pin_pending`).  Checking eagerly instead
+        // costs a full embedded solve per pinned assignment, which on a
+        // 32-bit divider circuit turned a sub-second script into minutes.
+        if let Some(term) = self.var_to_term.get(var.index()).copied()
+            && self.bv.assert_bool_value(term, is_positive)
+        {
+            self.bv_pin_pending = true;
         }
 
         // Enforce the wall-clock timeout mid-search.  Suppressing conflicts
         // (returning Sat) drives the search to a full assignment quickly; the
         // `resource_exhausted` flag makes the owning solver answer `Unknown`.
         if self.timed_out() {
+            self.resource_exhausted = true;
+            return TheoryCheckResult::Sat;
+        }
+
+        // An exhausted budget has already decided `Unknown`: no more theory
+        // work, and no more conflicts *counted* past `:max-conflicts`
+        // (decision (20); nine distinct arrays under a budget of 100 reported
+        // 242 once bit-vector explanations became cores, decision (45)).
+        if self.resource_exhausted {
+            return TheoryCheckResult::Sat;
+        }
+
+        // The same exit in the *deterministic* currency (`#P2b-46`): one
+        // refinement round can hand the search a circuit whose per-assignment
+        // embedded check is the whole cost, and neither refinement counter can
+        // see that because the round boundary is never reached again.  See
+        // [`BV_EMBEDDED_CHECK_CEILING`].
+        if self.bv_embedded_budget_spent() {
             self.resource_exhausted = true;
             return TheoryCheckResult::Sat;
         }
@@ -1461,12 +1478,19 @@ impl TheoryCallback for TheoryManager<'_> {
             // downstream by the model-verification gate in `Solver::check`.
             //
             // Scope: the rebuild covers the EUF and arithmetic solvers, so we
-            // engage it only when the problem has no bit-vector content.  The BV
-            // solver's bit-blasted circuits are rebuilt from scratch on every
-            // `check` (see `mod.rs`) and its incremental push/pop already handles
-            // flips soundly; resetting and replaying it mid-search would instead
-            // corrupt its embedded SAT state.  BV problems therefore retain the
-            // existing (correct) incremental behaviour.
+            // engage it only when the problem has no bit-vector content.  The
+            // justification this guard used to carry — "the BV solver's
+            // bit-blasted circuits are rebuilt from scratch on every `check`" —
+            // was false, and is the belief that made U-Z10's missing scope
+            // rollback look safe: `BvSolver::check()` solves the *accumulated*
+            // clause database and rebuilds nothing.  What is true after the
+            // U-Z10 fix is that `BvSolver::pop()` rolls its three circuit memo
+            // caches (`term_to_bv`, `ult_cache`, `bool_node`) back with the
+            // clauses `sat.pop()` deletes, so the incremental push/pop is a
+            // genuine undo again.  The guard is kept because replaying the BV
+            // solver mid-search would corrupt its embedded SAT state, and
+            // because the wrong-`unsat` a stale polarity could fabricate here is
+            // an unverified hypothesis with no witness (`TODO.md`).
             Some(idx)
                 if self.assignment_trail[idx].is_positive != is_positive
                     && self.bv_terms.is_empty() =>
@@ -1553,6 +1577,10 @@ impl TheoryCallback for TheoryManager<'_> {
             self.resource_exhausted = true;
             return TheoryCheckResult::Sat;
         }
+        // An exhausted budget already decided `Unknown` (see `on_assignment`).
+        if self.resource_exhausted {
+            return TheoryCheckResult::Sat;
+        }
 
         // In lazy mode, process all pending assignments now
         if self.theory_mode == TheoryMode::Lazy {
@@ -1586,6 +1614,24 @@ impl TheoryCallback for TheoryManager<'_> {
             self.pending_assignments.clear();
         }
 
+        // A selector pinned into the bit-blasted circuit after its last
+        // check is an assertion nothing has examined yet; examine it now,
+        // once, so the search cannot end on a model the circuit refutes
+        // (`#P2b-24`, see `bv_pin_pending`).
+        if self.bv_pin_pending
+            && let Some(result) = self.bv_check_after_pin()
+        {
+            if matches!(result, TheoryCheckResult::Conflict(_)) {
+                self.statistics.theory_conflicts += 1;
+                self.statistics.conflicts += 1;
+                if self.max_conflicts > 0 && self.statistics.conflicts >= self.max_conflicts {
+                    self.resource_exhausted = true;
+                    return TheoryCheckResult::Sat;
+                }
+            }
+            return result;
+        }
+
         // Check EUF for conflicts
         if let Some(conflict_terms) = self.euf.check_conflicts() {
             // Convert TermIds to Lits for the conflict clause
@@ -1602,6 +1648,16 @@ impl TheoryCallback for TheoryManager<'_> {
             }
 
             return conflict;
+        }
+
+        // Equalities must cross between congruence closure and the
+        // bit-blasted circuit in both directions before this full assignment
+        // is accepted (`#P2b-29`; see `combine_bv_with_euf`): a congruence
+        // between two opaque leaves (`f(a) = f(b)` from `a = b`) into the
+        // circuit, and a circuit-entailed equality between two application
+        // arguments (`x = y` from `x + 1 = y + 1`) into congruence closure.
+        if let Some(result) = self.combine_bv_with_euf(self.manager) {
+            return result;
         }
 
         // Soundness backstop: replay the shadow trail through a freshly reset
@@ -1671,7 +1727,19 @@ impl TheoryCallback for TheoryManager<'_> {
         // That is the same reasoning the in-place-flip path above already
         // applies (see its `self.bv_terms.is_empty()` guard); the backstop
         // takes the identical, conservative gate rather than contradicting it.
-        if self.bv_terms.is_empty() && self.euf.has_app_nodes() {
+        //
+        // `bv_terms` lists the bit-vector *variables* of the asserted atoms
+        // and is empty for a problem whose only bit-vector terms are opaque
+        // leaves — `(distinct (g x) (g y))` — so the gate also asks the
+        // bit-blaster itself whether it holds any circuit (`#P2b-29`).  Such
+        // a problem carries the argument circuits, the shared leaf
+        // equalities and the lemmas the bit-vector / EUF exchange built,
+        // none of which the replay re-creates; rebuilding it published a
+        // model with `x = y = 0` for the assertion above.
+        if self.bv_terms.is_empty()
+            && self.bv.circuit_terms().next().is_none()
+            && self.euf.has_app_nodes()
+        {
             let rebuilt = self.resync_theory_state();
             if let TheoryCheckResult::Conflict(conflict_terms) = rebuilt {
                 self.statistics.theory_conflicts += 1;
@@ -1703,10 +1771,9 @@ impl TheoryCallback for TheoryManager<'_> {
                         // Arithmetic is consistent: run full (bidirectional)
                         // Nelson-Oppen theory combination so that an
                         // arithmetic-entailed equality/disequality over a
-                        // shared UF-argument term reaches EUF, not merely the
-                        // EUF-derived-equality direction `Sat` used to check
-                        // by itself.
-                        self.nelson_oppen_combine()
+                        // shared UF-argument term reaches EUF, then the
+                        // integrality of the `Int` terms (`integrality`).
+                        self.combine_then_integrality()
                     }
                     oxiz_theories::TheoryCheckResult::Unsat(conflict_terms) => {
                         // Arithmetic conflict detected - convert to SAT conflict clause

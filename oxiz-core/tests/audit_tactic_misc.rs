@@ -223,7 +223,11 @@ fn test_lia2card_sequential_counter_aux_vars_unique_across_passes() {
     // pass over [a,b,c,d], AtLeast pass over [!a,!b,!c,!d]) must therefore
     // produce 24 *distinct* TermIds. Before the fix, the passes' identical
     // (i, j) names aliased pairwise, collapsing this down to 12.
-    let card_s_vars = distinct_vars_with_prefix(&goals[0].assertions, &manager, "__card_s_");
+    let card_s_vars = distinct_vars_with_prefix(
+        &goals[0].assertions,
+        &manager,
+        &oxiz_core::smtlib::reserved_name("cards", ""),
+    );
     assert_eq!(
         card_s_vars.len(),
         24,
@@ -291,7 +295,11 @@ fn test_lia2card_commander_aux_vars_unique_across_constraints() {
     // therefore yield 4 distinct commander TermIds; before the fix both
     // calls produced `__card_cmd_0` / `__card_cmd_1`, aliasing the two
     // constraints' commanders pairwise (collapsing to 2).
-    let cmd_vars = distinct_vars_with_prefix(&goals[0].assertions, &manager, "__card_cmd_");
+    let cmd_vars = distinct_vars_with_prefix(
+        &goals[0].assertions,
+        &manager,
+        &oxiz_core::smtlib::reserved_name("cardcmd", ""),
+    );
     assert_eq!(
         cmd_vars.len(),
         4,

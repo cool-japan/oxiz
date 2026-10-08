@@ -97,7 +97,20 @@ impl Recorder {
     #[must_use]
     pub fn get(&self, id: ArenaProofStepId) -> Option<&ProofStep> {
         self.arena_steps.get(id.0 as usize).map(|ptr| {
-            // SAFETY: pointers come from `self.arena.alloc` and stay valid until reset/drop.
+            // SAFETY: every pointer in `arena_steps` was made by
+            // `record_step_arena` from the `&mut ProofStep` that
+            // `self.arena.alloc(step)` returned: bumpalo reserved it with
+            // `Layout::new::<ProofStep>()`, so it is aligned for `ProofStep`,
+            // and wrote `step` there, so it is initialized. Its chunk is
+            // reused or freed only by `self.arena.reset()`, which only `clear`
+            // calls, emptying `arena_steps` in the same block, or by dropping
+            // the `Recorder`; moving the `Recorder` moves the `Bump` handle,
+            // not its chunks. Both fields are private and `Recorder` is not
+            // `Clone`, so no other value holds these pointers. Nothing writes
+            // a recorded step after `record_step_arena` returns (no method
+            // hands out a `&mut` to one), and the reference returned here
+            // borrows `self`, so no `&mut self` method (`clear`,
+            // `record_step_arena`, `proof_mut`) can run while it lives.
             unsafe { ptr.as_ref() }
         })
     }

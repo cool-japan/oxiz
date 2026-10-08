@@ -531,14 +531,12 @@ impl MonomialHelper for Monomial {
         }
         #[cfg(not(feature = "std"))]
         {
-            // Single-threaded no_std (zkVM): leak a Box for a &'static reference
-            static mut EMPTY_PTR: *const FxHashMap<Var, usize> = core::ptr::null();
-            unsafe {
-                if EMPTY_PTR.is_null() {
-                    EMPTY_PTR = Box::into_raw(Box::new(FxHashMap::default()));
-                }
-                &*EMPTY_PTR
-            }
+            // An empty map built at compile time: `with_hasher` is a `const
+            // fn`, so the `'static` reference needs no lazy initialisation and
+            // no `static mut` (nothing makes a no_std build single-threaded).
+            static EMPTY: FxHashMap<Var, usize> =
+                FxHashMap::with_hasher(core::hash::BuildHasherDefault::new());
+            &EMPTY
         }
     }
 

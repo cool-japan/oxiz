@@ -53,10 +53,11 @@ impl Scratch {
             &mut self.statistics,
             0,
             0,
+            0,
             false,
             false,
             &self.quantifier_uf_funcs,
-            0,
+            None,
         )
     }
 }

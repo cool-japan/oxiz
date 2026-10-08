@@ -92,7 +92,7 @@ use super::trail::TrailOp;
 ///
 /// Follows the `sk!` Skolem-symbol convention already used by the encoder for
 /// names that cannot collide with a user symbol.
-const DT_SIZE_MEASURE: &str = "dt.size!";
+const DT_SIZE_MEASURE: &str = "dtsize";
 
 /// Cap on the number of distinct ground datatype lemmas one solver run may
 /// assert.  Congruence is expanded Ackermann-style, so the count grows with the
@@ -273,11 +273,56 @@ fn constructor_args(term: TermId, manager: &TermManager) -> Option<Vec<TermId>> 
 /// is one of the explicitly asserted, literal-justified lemmas below.
 fn dt_size(term: TermId, manager: &mut TermManager) -> TermId {
     let int_sort = manager.sorts.int_sort;
-    let name = format!("{DT_SIZE_MEASURE}{}", term.raw());
+    let name = oxiz_core::smtlib::reserved_name(DT_SIZE_MEASURE, &term.raw().to_string());
     manager.mk_var(&name, int_sort)
 }
 
 impl Solver {
+    /// [`scan_datatype_terms`] over the assertion set as the search decides
+    /// it: the encoded spelling of every assertion
+    /// (`Solver::dt_assertion_roots`) and every quantifier instance that holds
+    /// a datatype term (`Solver::ground_dt_roots`), in term-id order.
+    ///
+    /// The axioms are asserted over these members and the model builder
+    /// rebuilds their values, so the lemmas and the values speak of the terms
+    /// the search decided.  Read off the assertions as written they spoke of
+    /// terms the pre-pass chain had re-spelled on the way to the encoder
+    /// (`#P2b-88`):
+    ///
+    /// * a non-Bool `ite` the encoder replaces by a proxy — a tester over the
+    ///   written `ite` and the tester over its proxy were two unrelated atoms
+    ///   (the wrong `sat` of `#P2b-90`), and an application over an `ite` was
+    ///   valued from atoms the search never constrained; re-fix pass 18
+    ///   re-spelled each member through `Solver::ite_elim_aliases`;
+    /// * a numeric argument of an uninterpreted function the encoder hoists
+    ///   into a proxy variable — `(h 2)` was axiomatised while the search
+    ///   decided `(h v)` beside `(= v 2)`, so its testers were free atoms the
+    ///   model gate read and the model builder valued (see
+    ///   `Solver::register_dt_assertion_root`).
+    ///
+    /// The encoding carries every rewrite of the chain at once, so no member
+    /// needs re-spelling: an eliminated `ite` is its proxy in every root (the
+    /// elimination replaces each eligible ground `ite` of the term it is given,
+    /// and instances pass through it in `Solver::prepare_ground_instance`).
+    ///
+    /// With no datatype declared, no sort a root holds resolves to a
+    /// declaration and the scan would find nothing, so it is not walked: a
+    /// datatype-free goal pays nothing here at any check.
+    pub(super) fn encoded_dt_scan(&self, manager: &TermManager) -> Option<DtScan> {
+        if !manager.sorts.has_datatypes() {
+            return None;
+        }
+        let mut roots: Vec<TermId> = self
+            .dt_assertion_roots
+            .iter()
+            .chain(self.ground_dt_roots.iter())
+            .copied()
+            .collect();
+        roots.sort_unstable();
+        roots.dedup();
+        scan_datatype_terms(&roots, manager)
+    }
+
     /// Assert the defining axioms of every datatype term reachable from the
     /// current assertion set.
     ///
@@ -287,7 +332,7 @@ impl Solver {
     /// re-derives whatever it still needs.  Idempotent — re-running it inside
     /// the refinement loop of [`Solver::check`] adds nothing new.
     pub(super) fn instantiate_dt_axioms(&mut self, manager: &mut TermManager) {
-        let Some(scan) = scan_datatype_terms(&self.assertions, manager) else {
+        let Some(scan) = self.encoded_dt_scan(manager) else {
             return;
         };
 
@@ -599,7 +644,10 @@ impl Solver {
             .filter(|(a, b)| a != b)
             .map(|(&a, &b)| manager.mk_eq(a, b))
             .collect();
-        let conclusion = manager.mk_eq(left, right);
+        // The conclusion is the atom itself: `mk_eq` would decompose it into
+        // the premise (`#P2b-76`), and this lemma exists to MERGE the two
+        // applications, which the congruence closure holds as opaque leaves.
+        let conclusion = manager.mk_eq_atom(left, right);
         let lemma = if premises.is_empty() {
             // Every field is syntactically shared, so the two applications are
             // the same term and `mk_eq` has already folded this to `true`;
@@ -627,7 +675,7 @@ impl Solver {
     /// [`Solver::array_axiom_instances`]: the clause is retracted with the
     /// scope's clauses, so the mark has to go with it or a later scope would
     /// never re-assert an axiom it still needs.
-    fn assert_dt_lemma(&mut self, lemma: TermId, manager: &mut TermManager) {
+    pub(super) fn assert_dt_lemma(&mut self, lemma: TermId, manager: &mut TermManager) {
         // The builders fold trivial instances (`(= x x)`, a one-constructor
         // exhaustiveness disjunction under an already-true guard) straight to
         // `true`; asserting those would only burn a lemma slot.

@@ -2,7 +2,7 @@
 
 Main CDCL(T) SMT solver orchestration for OxiZ.
 
-**Version**: 0.3.2 | **Status**: Stable | **Tests**: 1,789 passing | **LoC**: 62,789 code in `src/` (138 files) | **Public API**: 1,637 items
+**Version**: 0.3.4 | **Status**: Stable | **Tests**: 2,510 passing | **LoC**: 80,325 code in `src/` (194 files) | **Public API**: 1,637 items (recorded at 0.3.1)
 
 ## Overview
 
@@ -122,14 +122,14 @@ Model-based quantifier instantiation:
 Status below is what the `bench/z3_parity` differential suite measures against a
 real `z3` 4.15.4 binary under the honest comparator (an `Unknown` from either
 solver never counts as a match). All 19 logic families in the suite are at 100%
-Correct in 0.3.2; per-logic counts and the suite's coverage limits are in the
+Correct in 0.3.4; per-logic counts and the suite's coverage limits are in the
 root [`README.md`](../README.md) and [`TODO.md`](../TODO.md).
 
 - `QF_UF`, `QF_UFLIA`, `QF_UFLRA` - Uninterpreted functions, alone and with arithmetic
 - `QF_LRA` (16/16), `QF_LIA` (16/16) - Linear real and integer arithmetic
 - `QF_BV` (15/15) - Fixed-size bit-vectors, including widths beyond 64 bits
 - `QF_A`, `QF_ALIA`, `QF_ABV`, `QF_AUFBV`, `QF_AUFLIA` - Arrays and their combinations
-- `QF_DT` (10/10), `QF_S` (10/10), `QF_FP` (10/10) - Datatypes, strings, floating point
+- `QF_DT` (10/10), `QF_S` (10/10), `QF_FP` (12/12) - Datatypes, strings, floating point
 - `QF_NIA` (1/1), `QF_NIRA` (5/5) - Nonlinear integer and mixed integer/real
   arithmetic; the suite's `QF_NIA` coverage is a single benchmark, and broader
   NIA branch-and-bound has known gaps (see the root `TODO.md`)

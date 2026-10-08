@@ -152,6 +152,25 @@ impl<'a> Lexer<'a> {
         self.pos
     }
 
+    /// The source text between two byte offsets of this lexer's input, or `""`
+    /// when the range is not a valid slice of it.
+    ///
+    /// Used to echo a queried term back *as written* (`get-value`): the
+    /// parser inlines `define-fun` bodies, so the term it hands on no longer
+    /// spells what the script asked about, and SMT-LIB 2.6 §4.1.1 requires the
+    /// response to pair each value with the term as queried.
+    #[must_use]
+    pub fn slice(&self, start: usize, end: usize) -> &'a str {
+        if start > end
+            || end > self.input.len()
+            || !self.input.is_char_boundary(start)
+            || !self.input.is_char_boundary(end)
+        {
+            return "";
+        }
+        &self.input[start..end]
+    }
+
     /// Lexical errors accumulated so far (unterminated string/quoted-symbol
     /// literals, bare `#` tokens, ...). Empty for well-formed input.
     #[must_use]
@@ -394,9 +413,28 @@ impl<'a> Lexer<'a> {
         let start = self.pos;
         while self.pos < self.input.len() {
             if let Some(c) = self.input[self.pos..].chars().next() {
+                let at = self.pos;
                 self.pos += c.len_utf8();
                 if c == '|' {
                     return self.input[start..self.pos - 1].to_string();
+                }
+                // SMT-LIB 2.6 section 3.1: a quoted symbol's body may contain
+                // any printable character *except* `|` and `\`.  The bar is
+                // excluded for the obvious reason (it terminates the symbol);
+                // the backslash is excluded so that a quoted symbol needs no
+                // escape rules at all.  Accepting one silently is how
+                // `|(as const)|`-style shadowing of a solver-internal name
+                // became possible: the only names a script cannot spell are
+                // the ones containing a character the lexer refuses, so this
+                // rule is what reserves
+                // [`CONST_ARRAY_FUNC`](crate::smtlib::CONST_ARRAY_FUNC).
+                if c == '\\' {
+                    self.errors.push(LexError {
+                        message: "a quoted symbol may not contain a backslash \
+                                  (SMT-LIB 2.6 section 3.1)"
+                            .to_string(),
+                        pos: at,
+                    });
                 }
             } else {
                 break;

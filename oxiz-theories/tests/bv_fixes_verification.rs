@@ -20,10 +20,10 @@ fn test_ult_conflict_detection() {
     solver.new_bv(y, 8);
 
     // Assert: x < y
-    solver.assert_ult(x, y);
+    assert!(solver.assert_ult(x, y));
 
     // Assert: y < x (contradictory)
-    solver.assert_ult(y, x);
+    assert!(solver.assert_ult(y, x));
 
     // Should detect UNSAT
     match solver.check().expect("check should succeed") {
@@ -47,7 +47,7 @@ fn test_ult_no_false_positive() {
     solver.new_bv(y, 8);
 
     // Assert: x < y
-    solver.assert_ult(x, y);
+    assert!(solver.assert_ult(x, y));
 
     // Should be SAT
     match solver.check().expect("check should succeed") {
@@ -205,10 +205,10 @@ fn test_multiple_ult_chaining() {
     solver.new_bv(z, 8);
 
     // Assert: x < y
-    solver.assert_ult(x, y);
+    assert!(solver.assert_ult(x, y));
 
     // Assert: y < z
-    solver.assert_ult(y, z);
+    assert!(solver.assert_ult(y, z));
 
     // Should be SAT (x < y < z is possible)
     match solver.check().expect("check should succeed") {
@@ -231,8 +231,8 @@ fn test_ult_cache_reuse() {
     solver.new_bv(y, 8);
 
     // Assert x < y twice
-    solver.assert_ult(x, y);
-    solver.assert_ult(x, y);
+    assert!(solver.assert_ult(x, y));
+    assert!(solver.assert_ult(x, y));
 
     // Should still be SAT
     match solver.check().expect("check should succeed") {

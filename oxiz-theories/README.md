@@ -89,16 +89,16 @@ solver.assert_eq(bv_term_a, bv_term_b, reason);
 let result = solver.check()?;
 ```
 
-## Status (v0.3.2)
+## Status (v0.3.4)
 
 | Metric | Value |
 |:-------|:------|
-| Version | 0.3.2 |
+| Version | 0.3.4 |
 | Status | Stable |
-| Tests | 1,760 passing |
-| Release Date | 2026-08-05 |
-| Rust LoC | 68,056 (142 files) |
-| Public API items | 2,758 |
+| Tests | 1,897 passing |
+| Release Date | 2026-10-08 |
+| Rust LoC | 72,513 (161 files) |
+| Public API items | 2,758 (recorded at 0.3.1) |
 
 0.3.1 soundness fixes to the bit-vector solver: three verified >64-bit
 bit-vector bugs fixed (`assert_const` low-limb truncation causing false

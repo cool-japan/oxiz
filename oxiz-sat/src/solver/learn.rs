@@ -95,6 +95,45 @@ impl Solver {
         count
     }
 
+    /// Register a just-learned clause with the open assertion level so
+    /// [`Solver::pop`] retracts it together with the clauses it was derived
+    /// from.
+    ///
+    /// # Why a learned clause has to be scoped at all
+    ///
+    /// A learned clause is only *entailed by the database it was learned
+    /// from*.  When that database includes the clauses of an incremental
+    /// `push`ed level, the learned clause is a consequence of
+    /// `base ∧ pushed`, not of `base` — so keeping it after the matching
+    /// `pop` over-constrains everything asserted next and can refute a
+    /// satisfiable goal.  That was a measured false proof:
+    /// `(assert A) (push 1) (assert B) (check-sat) (pop 1) (assert C)
+    /// (check-sat)` answered `unsat` for a `{A, C}` the same solver answered
+    /// `sat` for when the two were spelled flat (regression suite
+    /// `oxiz-solver/tests/bv_scope_rollback_pushpop.rs`).
+    ///
+    /// # Why the *innermost* open level is the right one
+    ///
+    /// Assertion levels are strictly LIFO: level `k` cannot be popped while
+    /// any deeper level is still open.  The innermost open level at learn time
+    /// is therefore an upper bound on every level the derivation could have
+    /// touched, and retracting the clause exactly when that level goes away is
+    /// as sound as discarding *every* learned clause on `pop` — at a small
+    /// fraction of the cost, since clauses learned at the base level (the
+    /// overwhelming majority in a non-incremental solve) are never touched.
+    ///
+    /// Registration is skipped entirely while no scope is open: `pop` declines
+    /// to remove the base level, so a base-level entry could never be consumed
+    /// and would grow one `ClauseId` per learned clause for the whole life of a
+    /// non-incremental solve.  This keeps the cost exactly where the benefit is.
+    fn register_learned_at_assertion_level(&mut self, clause_id: ClauseId) {
+        if self.assertion_clause_ids.len() > 1
+            && let Some(current_level_clauses) = self.assertion_clause_ids.last_mut()
+        {
+            current_level_clauses.push(clause_id);
+        }
+    }
+
     /// Learn a clause and set up watches
     /// Includes on-the-fly subsumption check
     /// Tracks allocation via memory optimizer for size-class pool accounting
@@ -112,6 +151,7 @@ impl Solver {
             self.stats.learned_clauses += 1;
             self.stats.unit_clauses += 1;
             self.learned_clause_ids.push(clause_id);
+            self.register_learned_at_assertion_level(clause_id);
 
             self.assert_learned_clause(&learnt_clause, clause_id);
         } else if learnt_clause.len() == 2 {
@@ -129,6 +169,7 @@ impl Solver {
             self.debug_check_learned_clause_lbd(clause_id);
 
             self.learned_clause_ids.push(clause_id);
+            self.register_learned_at_assertion_level(clause_id);
 
             let lit0 = learnt_clause[0];
             let lit1 = learnt_clause[1];
@@ -156,6 +197,7 @@ impl Solver {
             self.debug_check_learned_clause_lbd(clause_id);
 
             self.learned_clause_ids.push(clause_id);
+            self.register_learned_at_assertion_level(clause_id);
 
             let lit0 = learnt_clause[0];
             let lit1 = learnt_clause[1];
@@ -218,6 +260,35 @@ impl Solver {
 
     /// Add a theory reason clause
     /// The clause is: reason_lits[0] OR reason_lits[1] OR ... OR propagated_lit
+    ///
+    /// # Scoping
+    ///
+    /// The clause is registered at the open assertion level, exactly like the
+    /// clauses [`Solver::learn_clause`] derives — see
+    /// [`Solver::register_learned_at_assertion_level`].
+    ///
+    /// It used to be registered nowhere at all: neither in `learned_clause_ids`
+    /// nor in `assertion_clause_ids`, which made it the one live
+    /// clause-installing site in this crate that survived both
+    /// [`Solver::forget_learned_since`] and [`Solver::pop`].  That was argued
+    /// sound on the grounds that `propagated ∨ ¬l₁ ∨ … ∨ ¬lₙ` is a *theory
+    /// tautology* over formula atoms, and a tautology holds at every assertion
+    /// level — but the argument is only as strong as the theory's own reasons.
+    /// A theory whose propagation follows from constraints asserted inside the
+    /// pushed scope (which is what a scoped theory solver's state *is*) hands
+    /// back a reason that is not a tautology of the base level, and the
+    /// surviving clause then over-constrains everything asserted after the
+    /// `pop` — a false proof of exactly the `#P2b-19` shape
+    /// (`oxiz-sat/tests/theory_reason_clause_scope_regression.rs` measures it:
+    /// a plainly satisfiable `(¬p) ∧ (q)` came back `Unsat`).
+    ///
+    /// Registering is the conservative of the two remedies the defect report
+    /// listed, and it costs only precision: a reason clause that really *was*
+    /// level-independent is simply re-derived by the next theory propagation
+    /// that needs it.  Deliberately **not** added to `learned_clause_ids` as
+    /// well — that list is what [`Solver::reduce_clause_database`] and
+    /// `check_subsumption` delete from, and this clause is the justification of
+    /// a literal the caller is about to put on the trail.
     pub(super) fn add_theory_reason_clause(
         &mut self,
         reason_lits: &[Lit],
@@ -259,6 +330,12 @@ impl Solver {
         }
 
         let clause_id = self.clauses.add_learned(clause_lits.iter().copied());
+
+        // Scope the clause to the level that was open when the theory derived
+        // it, so `pop` retracts it together with the clauses that exposed it.
+        // See this method's doc comment for why the tautology argument that
+        // used to justify leaving it unscoped is not enough.
+        self.register_learned_at_assertion_level(clause_id);
 
         // Set up watches
         if clause_lits.len() >= 2 {

@@ -322,11 +322,9 @@ impl Trail {
                 .all(|l| self.var_info[l.var().index()].level == 0),
             "backtrack_to_size must retain only root-level assignments"
         );
-        while self.assignments.len() > target_size {
-            let lit = self
-                .assignments
-                .pop()
-                .expect("assignments non-empty in loop condition");
+        while self.assignments.len() > target_size
+            && let Some(lit) = self.assignments.pop()
+        {
             let var = lit.var();
             self.var_info[var.index()].value = LBool::Undef;
         }

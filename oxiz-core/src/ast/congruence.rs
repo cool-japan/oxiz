@@ -348,14 +348,13 @@ impl CongruenceClosure {
 
     /// Pop the most recent scope, undoing all operations since the last push
     pub fn pop(&mut self) {
-        if self.scope_levels.len() <= 1 {
-            return; // Cannot pop base level
-        }
-
-        let target_level = self
-            .scope_levels
-            .pop()
-            .expect("scope_levels has elements after length check");
+        // Cannot pop base level: a pop needs a level above it, and the slice
+        // pattern binds that top level only when one is there.
+        let (target_level, kept) = match self.scope_levels.as_slice() {
+            [below @ .., top] if !below.is_empty() => (*top, below.len()),
+            _ => return,
+        };
+        self.scope_levels.truncate(kept);
 
         // Undo all operations back to the target level
         while self.undo_trail.len() > target_level {

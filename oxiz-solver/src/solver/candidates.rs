@@ -42,8 +42,16 @@ impl Solver {
                     // used as integer candidates — using them would create
                     // nested applications (ack(ack(0,0), n)) that produce
                     // spurious conflicts.
+                    //
+                    // Matched through `is_reserved_tag`, the read-side twin of
+                    // the `reserved_name` the Skolemizer mints with: the old
+                    // `starts_with("sk")` test both matched a user's own `skew`
+                    // and would have gone silently dead when the Skolem symbols
+                    // moved into the reserved `\oxiz.` class.
                     let fname = manager.resolve_str(*func);
-                    if fname.starts_with("sk") || fname.starts_with("skf") {
+                    if oxiz_core::smtlib::is_reserved_tag(fname, "sk")
+                        || oxiz_core::smtlib::is_reserved_tag(fname, "skf")
+                    {
                         self.mbqi.add_candidate(term, t.sort);
                     }
                     stack.extend(args.iter().rev().copied());

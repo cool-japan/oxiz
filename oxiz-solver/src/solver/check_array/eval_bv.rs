@@ -13,8 +13,14 @@
 //! equalities never enter `var_to_parsed_arith`).  Nor is there a gate that
 //! downgrades to `Unknown` in this shape: `array_atoms_need_theory` requires a
 //! positive `store = store` equality, `arith_atoms_need_theory` skips non-Int
-//! atoms outright, and the model-verification gate's `EvalVal` has no
-//! bit-vector variant at all.
+//! atoms outright, and the model-verification gate cannot stand in for this
+//! check: it *does* now read bit-vector values (`EvalVal::Bv` and
+//! `solver/model_eval_bv.rs`), but it only inspects a **finished candidate
+//! model**, after the search has already decided to report `Sat`.  This
+//! evaluator runs *during* the search, on the partial assignment, which is
+//! why it still exists: the gate can at best downgrade a wrong `Sat` to
+//! `Unknown`, whereas the conflict found here is what lets the search reach
+//! the correct `Unsat`.
 //!
 //! So when this evaluator answers "not evaluable" the entry is dropped, the
 //! check finds nothing, and `check` returns **`Sat` for an unsatisfiable

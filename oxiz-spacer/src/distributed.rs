@@ -45,7 +45,7 @@ use oxiz_time::{Duration, Instant};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use thiserror::Error;
 
@@ -166,7 +166,19 @@ impl SharedState {
 
     /// Add work item to queue
     pub fn enqueue_work(&self, item: WorkItem) {
-        let mut queue = self.work_queue.lock().expect("lock should not be poisoned");
+        // The work queue is locked only here, in `dequeue_work` and in
+        // `work_queue_size`. Each holder makes at most one read-only scan
+        // (here, `iter().position`, whose comparison of two `i32` priorities
+        // cannot panic) and at most one mutating call (this `insert`, or a
+        // `pop_front`; `len` only reads), and that call either completes or
+        // leaves the deque as it was (`insert` grows the deque before it moves
+        // an element). No holder can stop half way through a change, so a
+        // poisoned lock still guards whole items in priority order and
+        // `into_inner` reads the queue as it is.
+        let mut queue = self
+            .work_queue
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
         // Insert based on priority (higher priority first)
         let pos = queue
             .iter()
@@ -177,46 +189,63 @@ impl SharedState {
 
     /// Dequeue work item
     pub fn dequeue_work(&self) -> Option<WorkItem> {
+        // As in `enqueue_work`: no holder of this lock can stop half way
+        // through a change, so a poisoned lock guards whole items.
         self.work_queue
             .lock()
-            .expect("lock should not be poisoned")
+            .unwrap_or_else(PoisonError::into_inner)
             .pop_front()
     }
 
     /// Get number of pending work items
     pub fn work_queue_size(&self) -> usize {
+        // As in `enqueue_work`: no holder of this lock can stop half way
+        // through a change, so a poisoned lock guards whole items.
         self.work_queue
             .lock()
-            .expect("lock should not be poisoned")
+            .unwrap_or_else(PoisonError::into_inner)
             .len()
     }
 
     /// Send message to workers
     pub fn send_message(&self, msg: WorkerMessage) {
+        // The message queue is locked only here (one `push_back`) and in
+        // `receive_message` (one `pop_front`); each call either completes or
+        // leaves the queue as it was, so a poisoned lock still guards whole
+        // messages in arrival order and `into_inner` reads it as it is.
         self.messages
             .lock()
-            .expect("lock should not be poisoned")
+            .unwrap_or_else(PoisonError::into_inner)
             .push_back(msg);
     }
 
     /// Receive message
     pub fn receive_message(&self) -> Option<WorkerMessage> {
+        // As in `send_message`: every holder of this lock makes a single
+        // `VecDeque` call, so a poisoned lock guards whole messages.
         self.messages
             .lock()
-            .expect("lock should not be poisoned")
+            .unwrap_or_else(PoisonError::into_inner)
             .pop_front()
     }
 
     /// Set result
     pub fn set_result(&self, result: SpacerResult) {
-        *self.result.lock().expect("lock should not be poisoned") = Some(result);
+        // The result slot is locked only here, where it is replaced by one
+        // assignment of a value built before the lock is taken, and in
+        // `get_result`, which only clones it. No holder can leave a partial
+        // value, so a poisoned lock guards `None` or a whole result and
+        // `into_inner` reads the slot as it is.
+        *self.result.lock().unwrap_or_else(PoisonError::into_inner) = Some(result);
     }
 
     /// Get result
     pub fn get_result(&self) -> Option<SpacerResult> {
+        // As in `set_result`: the slot holds `None` or a whole result even
+        // when the lock is poisoned.
         self.result
             .lock()
-            .expect("lock should not be poisoned")
+            .unwrap_or_else(PoisonError::into_inner)
             .clone()
     }
 
@@ -242,15 +271,24 @@ impl SharedState {
     where
         F: FnOnce(&mut DistributedStats),
     {
-        let mut stats = self.stats.lock().expect("lock should not be poisoned");
+        // The statistics are locked only here, where the caller's closure
+        // updates them, and in `get_stats`, which only clones them. Every
+        // field of `DistributedStats` is a public, independent count (the
+        // per-worker map holds each worker's own counts) and the type keeps
+        // no relation between them, so whatever a closure that panicked
+        // part-way left behind is still a set of counts; `into_inner` reads
+        // them as they are.
+        let mut stats = self.stats.lock().unwrap_or_else(PoisonError::into_inner);
         f(&mut stats);
     }
 
     /// Get statistics
     pub fn get_stats(&self) -> DistributedStats {
+        // As in `update_stats`: the guarded value is a set of independent
+        // counts, whole even when the lock is poisoned.
         self.stats
             .lock()
-            .expect("lock should not be poisoned")
+            .unwrap_or_else(PoisonError::into_inner)
             .clone()
     }
 }
@@ -684,5 +722,34 @@ mod tests {
         assert_eq!(aggregated.num_frames, 7); // Max of 5 and 7
         assert_eq!(aggregated.num_lemmas, 25); // Sum: 10 + 15
         assert_eq!(aggregated.num_pobs, 45); // Sum: 20 + 25
+    }
+
+    #[test]
+    fn test_shared_state_reads_whole_values_after_a_holder_panics() {
+        let state = Arc::new(SharedState::new());
+        state.set_result(SpacerResult::Unknown);
+        state.send_message(WorkerMessage::FrameCreated { level: 3 });
+
+        // A statistics closure that panics after its first update poisons
+        // the statistics lock; the counts it already wrote stay readable.
+        let panicking = Arc::clone(&state);
+        let outcome = thread::spawn(move || {
+            panicking.update_stats(|s| {
+                s.total_lemmas = 7;
+                panic!("statistics update interrupted");
+            });
+        })
+        .join();
+        assert!(outcome.is_err());
+
+        assert_eq!(state.get_stats().total_lemmas, 7);
+        state.update_stats(|s| s.sync_events += 1);
+        assert_eq!(state.get_stats().sync_events, 1);
+        assert_eq!(state.get_result(), Some(SpacerResult::Unknown));
+        assert!(matches!(
+            state.receive_message(),
+            Some(WorkerMessage::FrameCreated { level: 3 })
+        ));
+        assert_eq!(state.work_queue_size(), 0);
     }
 }

@@ -72,9 +72,10 @@ impl FieldExtension {
         let mut result = coeffs.to_vec();
 
         // Polynomial long division by minimal_poly
-        while result.len() > self.degree && !result.last().is_none_or(|c| c.is_zero()) {
+        while result.len() > self.degree
+            && let Some(lead_coeff) = result.last().filter(|c| !c.is_zero()).cloned()
+        {
             let deg_diff = result.len() - self.minimal_poly.len();
-            let lead_coeff = result.last().cloned().expect("checked non-empty");
             let min_lead = self
                 .minimal_poly
                 .last()
@@ -232,14 +233,16 @@ impl FieldExtension {
         a: &[BigRational],
         b: &[BigRational],
     ) -> (Vec<BigRational>, Vec<BigRational>) {
-        if b.is_empty() || b.iter().all(|c| c.is_zero()) {
-            return (vec![BigRational::zero()], a.to_vec());
-        }
+        // `b.last()` is `None` exactly when `b` is empty, so this one match is
+        // the old "empty or all zero" early return and the leading-coefficient
+        // read together.
+        let b_lead = match b.last() {
+            Some(lead) if !b.iter().all(|c| c.is_zero()) => lead,
+            _ => return (vec![BigRational::zero()], a.to_vec()),
+        };
 
         let mut remainder = a.to_vec();
         let mut quotient = vec![BigRational::zero(); a.len().saturating_sub(b.len()) + 1];
-
-        let b_lead = b.last().expect("checked non-empty");
 
         while remainder.len() >= b.len() {
             let r_lead = match remainder.last() {

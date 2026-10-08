@@ -1,6 +1,9 @@
 //! CDCL SAT Solver
 
 mod add_clause;
+/// `Solver::solve_with_assumptions`, MiniSat-style (assumptions re-decided
+/// after every backjump and restart).
+mod assumption_search;
 mod bve;
 mod config;
 mod conflict;
@@ -14,6 +17,8 @@ mod lrat_trace;
 mod lucky;
 mod probe;
 mod propagate;
+/// `Solver::add_clause_at_root`: clauses that survive every `pop`.
+mod root_clause;
 mod search_ext;
 mod self_subsumption;
 
@@ -166,6 +171,18 @@ impl std::fmt::Display for SolverError {
 }
 
 impl std::error::Error for SolverError {}
+
+/// Number of `should_stop_search` polls between two reads of the wall clock.
+///
+/// `should_stop_search` runs once per outer CDCL loop iteration (propagate /
+/// analyze / decide), not once per conflict, so this throttles the clock to
+/// roughly one read per 256 propagation rounds — cheap enough to sit in the hot
+/// loop, and still fine-grained enough for a budget in the tens of
+/// milliseconds. It does not make the deadline exact: a single `propagate()`
+/// over a large clause database is not itself interruptible, so the search can
+/// overshoot the deadline by one such round (`Solver::propagate_step_limit` is
+/// the second lever for callers who need a harder bound).
+pub(super) const DEADLINE_POLL_INTERVAL: u32 = 256;
 
 /// Statistics for the solver
 #[derive(Debug, Default, Clone)]
@@ -360,6 +377,26 @@ pub struct Solver {
     pub(super) assertion_trail_sizes: Vec<usize>,
     /// Clause IDs added at each assertion level (for proper pop)
     pub(super) assertion_clause_ids: Vec<Vec<ClauseId>>,
+    /// Value of [`Solver::trivially_unsat`] at each open assertion level's
+    /// `push`, so `pop` can restore it instead of zeroing it.
+    ///
+    /// `trivially_unsat` is a latch over the *whole* clause database, and
+    /// `pop` used to clear it unconditionally — which threw away a
+    /// contradiction that had been proved **before** the matching `push`, and
+    /// made `(assert (distinct b b)) (push 1) (pop 1) (check-sat)` answer
+    /// `sat`.  Restoring the push-time value keeps a contradiction latched
+    /// below the retracted scope and still drops one latched inside it (whose
+    /// clauses this `pop` is removing), which is all the old unconditional
+    /// clear was ever meant to do.
+    pub(super) assertion_trivially_unsat: Vec<bool>,
+    /// Unit clauses installed by [`Solver::add_clause_at_root`].  A unit lives
+    /// only as a level-0 trail assignment, and `pop` truncates the trail to
+    /// its `push`-time size, so every root unit is re-asserted by `pop` (see
+    /// `solver/root_clause.rs`).  Each unit carries the LRAT id it was
+    /// registered under (`None` while tracing is off): `pop` clears the unit
+    /// justification of every variable it unassigns, and the replay puts it
+    /// back.
+    pub(super) root_units: Vec<(Lit, Option<u64>)>,
     /// Model (if sat)
     pub(super) model: Vec<LBool>,
     /// Whether formula is trivially unsatisfiable
@@ -459,6 +496,33 @@ pub struct Solver {
     /// the resource budget consulted by the CDCL loop and drives, e.g.,
     /// `oxiz-cli --timeout`-style bounded solving.
     pub(super) max_conflicts: Option<u64>,
+    /// Optional decision budget. When `Some(n)`, the search loop returns
+    /// [`SolverResult::Unknown`] once `n` decisions have been made. `None` (the
+    /// default) means no decision limit. Counted against
+    /// [`SolverStats::decisions`], which — like every counter in that struct —
+    /// is *cumulative* across `solve()` calls on this solver, so a caller that
+    /// wants a per-solve budget must set the ceiling relative to the current
+    /// count (that is what `oxiz-solver`'s `check_core` does for
+    /// `(set-option :max-decisions N)`).
+    pub(super) max_decisions: Option<u64>,
+    /// Optional wall-clock deadline for the search. When `Some(t)`, the search
+    /// loop returns [`SolverResult::Unknown`] once `oxiz_time::Instant::now()`
+    /// has reached `t`. `None` (the default) means no deadline.
+    ///
+    /// Not `cfg`-gated: `oxiz_time::Instant` exists on every target. On a
+    /// target without a clock (`wasm32-unknown-unknown`, or any
+    /// `--no-default-features` build) the clock is *frozen* at t = 0, so
+    /// `now() >= deadline` is never true and the deadline is a documented
+    /// no-op — see the `oxiz_time` crate docs, which tell such callers to use
+    /// [`Solver::set_max_conflicts`] instead.
+    pub(super) deadline: Option<oxiz_time::Instant>,
+    /// Poll throttle for [`Solver::deadline`]: the clock is read at most once
+    /// per [`DEADLINE_POLL_INTERVAL`] calls to `should_stop_search`, which is
+    /// once per outer CDCL loop iteration (propagate / analyze / decide). Zero
+    /// means "read the clock on the next poll", which is what
+    /// [`Solver::set_deadline`] resets it to so a freshly-set deadline is
+    /// honoured immediately.
+    pub(super) deadline_poll_countdown: u32,
     /// Optional DRAT proof logger. When `Some`, the CDCL loop emits a DRAT
     /// addition line for every learned clause, a deletion line for every clause
     /// dropped by clause-database reduction / subsumption / vivification /
@@ -580,6 +644,8 @@ impl Solver {
             assertion_levels: vec![0],
             assertion_trail_sizes: vec![0],
             assertion_clause_ids: vec![Vec::new()],
+            assertion_trivially_unsat: Vec::new(),
+            root_units: Vec::new(),
             model: Vec::new(),
             trivially_unsat: false,
             phase: Vec::new(),
@@ -615,6 +681,9 @@ impl Solver {
             pure_literal_reconstruction: Vec::new(),
             interrupt: None,
             max_conflicts: None,
+            max_decisions: None,
+            deadline: None,
+            deadline_poll_countdown: 0,
             drat: None,
             lrat: None,
             clause_lrat_id: Vec::new(),
@@ -735,16 +804,61 @@ impl Solver {
 
     /// Set the conflict budget (`None` clears it). When set, the CDCL search
     /// loop returns [`SolverResult::Unknown`] once the budget is reached.
+    ///
+    /// The budget is compared against [`SolverStats::conflicts`], which is
+    /// cumulative across every `solve()` call on this solver and is only
+    /// cleared by [`Solver::reset`]. A caller that means "at most `n` conflicts
+    /// *from here on*" must therefore pass `Some(self.stats().conflicts + n)`.
     pub fn set_max_conflicts(&mut self, max_conflicts: Option<u64>) {
         self.max_conflicts = max_conflicts;
     }
 
-    /// Returns `true` when the search must stop early: the conflict budget has
-    /// been reached or an external interrupt flag has been raised.
+    /// Set the decision budget (`None` clears it). When set, the CDCL search
+    /// loop returns [`SolverResult::Unknown`] once the budget is reached.
+    ///
+    /// Same cumulative-counter caveat as [`Solver::set_max_conflicts`]: the
+    /// budget is compared against [`SolverStats::decisions`].
+    pub fn set_max_decisions(&mut self, max_decisions: Option<u64>) {
+        self.max_decisions = max_decisions;
+    }
+
+    /// Set a wall-clock deadline for the search (`None` clears it).
+    ///
+    /// Polled from `should_stop_search`, at most once per
+    /// `DEADLINE_POLL_INTERVAL` polls so the hot loop does not read the clock
+    /// on every iteration; the throttle is reset here so a freshly-set deadline
+    /// is checked on the very first poll. When the deadline has passed, the
+    /// search returns [`SolverResult::Unknown`].
+    ///
+    /// Deliberately **not** `cfg`-gated on `std`: `oxiz_time::Instant` exists on
+    /// every target. Where no clock exists (`wasm32-unknown-unknown`, or a
+    /// `--no-default-features` build) the clock is frozen at t = 0, so the
+    /// deadline never fires and this is a documented no-op — such callers
+    /// should bound the search with [`Solver::set_max_conflicts`] /
+    /// [`Solver::set_max_decisions`] instead. See the `oxiz_time` crate docs.
+    pub fn set_deadline(&mut self, deadline: Option<oxiz_time::Instant>) {
+        self.deadline = deadline;
+        self.deadline_poll_countdown = 0;
+    }
+
+    /// Returns `true` when the search must stop early: the conflict budget or
+    /// the decision budget has been reached, an external interrupt flag has
+    /// been raised, or the wall-clock deadline has passed.
+    ///
+    /// Takes `&mut self` because of the deadline poll throttle (the countdown
+    /// is state, and a `Cell` would buy nothing: all three call sites —
+    /// [`Solver::solve`], `Solver::solve_with_theory` and
+    /// `Solver::solve_under_assumptions` — already hold `&mut self` and call
+    /// this in statement position).
     #[inline]
-    pub(super) fn should_stop_search(&self) -> bool {
+    pub(super) fn should_stop_search(&mut self) -> bool {
         if let Some(max) = self.max_conflicts
             && self.stats.conflicts >= max
+        {
+            return true;
+        }
+        if let Some(max) = self.max_decisions
+            && self.stats.decisions >= max
         {
             return true;
         }
@@ -752,6 +866,16 @@ impl Solver {
             && flag.load(Ordering::Relaxed)
         {
             return true;
+        }
+        if let Some(d) = self.deadline {
+            if self.deadline_poll_countdown == 0 {
+                self.deadline_poll_countdown = DEADLINE_POLL_INTERVAL;
+                if oxiz_time::Instant::now() >= d {
+                    return true;
+                }
+            } else {
+                self.deadline_poll_countdown -= 1;
+            }
         }
         false
     }
@@ -1204,259 +1328,6 @@ impl Solver {
         }
     }
 
-    /// Solve with assumptions and return unsat core if UNSAT
-    ///
-    /// This is the key method for MaxSAT: it solves under assumptions and
-    /// if the result is UNSAT, returns the subset of assumptions in the core.
-    ///
-    /// # Arguments
-    /// * `assumptions` - Literals that must be true
-    ///
-    /// # Returns
-    /// * `(SolverResult, Option<Vec<Lit>>)` - Result and unsat core (if UNSAT)
-    ///
-    /// # LRAT tracing is unsupported here
-    ///
-    /// This entry point's clause-learning goes through `Solver::learn_clause`
-    /// (a private method, not part of this crate's public API) rather than
-    /// the plain [`Solver::solve`] loop's hint-chain-aware inline
-    /// path, and an assumption literal is installed without going through
-    /// [`Solver::add_clause`] (so it has no original-clause LRAT id to be
-    /// justified by regardless). Rather than emit an LRAT proof this port
-    /// cannot back with a real hint chain, LRAT tracing is force-disabled the
-    /// instant this entry point runs (DRAT is unaffected — `learn_clause`
-    /// already emits it correctly, self-justifying, independent of this gap).
-    ///
-    /// # Unsat core is expressed in the caller's own literals
-    ///
-    /// Internally, an assumption may be rewritten before it is decided on
-    /// (see `resolve_reintroduced_literal`, a private method not part of
-    /// this crate's public API: an equivalent-literal-substituted variable
-    /// becomes its class representative). A core drawn from those *resolved*
-    /// literals is translated back to the caller's originals (via
-    /// `translate_core_to_original`, likewise private) before this method
-    /// returns, so `core ⊆ assumptions` — a genuine subset of exactly what
-    /// was passed in — always holds, matching what a MaxSAT-style caller
-    /// keying relaxations on its own selector literals expects.
-    pub fn solve_with_assumptions(
-        &mut self,
-        assumptions: &[Lit],
-    ) -> (SolverResult, Option<Vec<Lit>>) {
-        self.disable_lrat_proof();
-        // See `Solver::solve`'s identical guard: a prior `add_clause` may
-        // have tried to reintroduce a bounded-variable-eliminated variable.
-        if self.fatal_error.is_some() {
-            return (SolverResult::Unknown, None);
-        }
-        if self.trivially_unsat {
-            return (SolverResult::Unsat, Some(Vec::new()));
-        }
-
-        // Ensure all assumption variables exist
-        for &lit in assumptions {
-            while self.num_vars <= lit.var().index() {
-                self.new_var();
-            }
-        }
-
-        // Resolve each assumption literal exactly like a fresh `add_clause`
-        // literal (see `Self::resolve_reintroduced_literal`): an
-        // equivalent-literal-substituted variable is rewritten to its class
-        // representative — still the same constraint, since the map exists
-        // only because that equivalence was already proven — and a
-        // bounded-variable-eliminated one has no sound rewrite available and
-        // poisons the solver instead of guessing (see `SolverError`).
-        // Everything below decides on and analyzes these *resolved*
-        // literals, but any unsat core handed back to the caller is
-        // translated back to `original_assumptions` (see
-        // `Self::translate_core_to_original`) before it is returned: a
-        // caller of this MaxSAT-style API expects the core to be a genuine
-        // subset of exactly what it passed in, not a class representative it
-        // never mentioned.
-        let original_assumptions = assumptions;
-        let mut resolved_assumptions: Vec<Lit> = Vec::with_capacity(assumptions.len());
-        for &lit in assumptions {
-            match self.resolve_reintroduced_literal(lit) {
-                Some(resolved) => resolved_assumptions.push(resolved),
-                None => return (SolverResult::Unknown, None),
-            }
-        }
-        let assumptions: &[Lit] = &resolved_assumptions;
-
-        // A prior solve() may have returned Sat while leaving its full model on the
-        // trail (decisions at levels > 0). Fully restart the search state by
-        // backtracking to the root BEFORE capturing `assumption_level_start` and
-        // testing the assumptions. Otherwise leftover model decisions masquerade as
-        // fixed level-0 facts: an assumption that merely disagrees with the previous
-        // arbitrary model would hit `value.is_false()` below and be reported as a
-        // false UNSAT (e.g. (a∨b); solve() picks ¬a,b; then assumptions=[a] must be
-        // SAT, not UNSAT). This is the standard incremental / MaxSAT entry protocol.
-        self.backtrack_with_phase_saving(0);
-
-        // Clear conflict-analysis marks so a stale `seen` array left by a previous
-        // solve cannot pollute the extracted assumption core.
-        for s in &mut self.seen {
-            *s = false;
-        }
-
-        // Initial propagation at level 0
-        if self.propagate().is_some() {
-            return (SolverResult::Unsat, Some(Vec::new()));
-        }
-
-        // Lucky phase, the assumption-aware variant: the resolved assumption
-        // literals are seeded into the candidate as frozen values, so a model
-        // it reports satisfies them by construction (see `solver/lucky.rs`).
-        // Placed after the level-0 propagation that establishes the facts it
-        // freezes and before the first assumption decision below, so a hit
-        // returns without ever touching the trail — there is nothing to
-        // backtrack, and no core is owed because the phase never concludes
-        // UNSAT. It declines outright when an assumption contradicts a level-0
-        // fact, leaving that verdict (and its core) to the loop below.
-        //
-        // Unlike `solve()` this entry point runs no inprocessing at all, so
-        // nothing downstream is skipped by a hit.
-        if self.try_lucky_phase(assumptions).is_some() {
-            return (SolverResult::Sat, None);
-        }
-
-        // Create a new decision level for assumptions
-        let assumption_level_start = self.trail.decision_level();
-
-        // Assign assumptions as decisions
-        for (i, &lit) in assumptions.iter().enumerate() {
-            // Check if already assigned
-            let value = self.trail.lit_value(lit);
-            if value.is_true() {
-                continue; // Already satisfied
-            }
-            if value.is_false() {
-                // Conflict with assumption - extract core from conflicting assumptions
-                let core = self.extract_assumption_core(assumptions, i);
-                self.backtrack(assumption_level_start);
-                let core =
-                    Self::translate_core_to_original(core, assumptions, original_assumptions);
-                return (SolverResult::Unsat, Some(core));
-            }
-
-            // Make decision for assumption
-            self.trail.new_decision_level();
-            self.trail.assign_decision(lit);
-
-            // Propagate after each assumption
-            if let Some(conflict) = self.propagate() {
-                // Conflict during assumption propagation: collect the full set of
-                // contributing assumptions from the conflict clause.
-                let core = self.analyze_assumption_conflict(assumptions, conflict);
-                self.backtrack(assumption_level_start);
-                let core =
-                    Self::translate_core_to_original(core, assumptions, original_assumptions);
-                return (SolverResult::Unsat, Some(core));
-            }
-        }
-
-        // Now solve normally
-        loop {
-            // Resource budget / interrupt check: abandon under-assumption search
-            // and report Unknown when the conflict budget or interrupt fires.
-            if self.should_stop_search() {
-                self.backtrack(assumption_level_start);
-                return (SolverResult::Unknown, None);
-            }
-
-            if let Some(conflict) = self.propagate() {
-                self.debug_check_conflict_clause(conflict);
-                self.stats.conflicts += 1;
-
-                // Check if conflict involves assumptions
-                let backtrack_level = self.analyze_conflict_level(conflict);
-
-                if backtrack_level <= assumption_level_start {
-                    // Conflict forces backtracking past assumptions - UNSAT
-                    let core = self.analyze_assumption_conflict(assumptions, conflict);
-                    self.backtrack(assumption_level_start);
-                    let core =
-                        Self::translate_core_to_original(core, assumptions, original_assumptions);
-                    return (SolverResult::Unsat, Some(core));
-                }
-
-                let (bt_level, learnt_clause) = self.analyze(conflict);
-
-                // Empty learned clause = genuine root-level (level-0) refutation.
-                // The `backtrack_level <= assumption_level_start` guard above
-                // already routes all-level-0 conflicts to the UNSAT-core path, so
-                // this is a belt-and-braces guard that also avoids an empty-clause
-                // index panic in `learn_clause`.
-                if learnt_clause.is_empty() {
-                    let core = self.analyze_assumption_conflict(assumptions, conflict);
-                    self.backtrack(assumption_level_start);
-                    let core =
-                        Self::translate_core_to_original(core, assumptions, original_assumptions);
-                    return (SolverResult::Unsat, Some(core));
-                }
-
-                self.backtrack_with_phase_saving(bt_level.max(assumption_level_start + 1));
-                self.debug_check_invariants("after backtrack (assumptions)");
-                self.learn_clause(learnt_clause);
-
-                self.vsids.decay();
-                self.clauses.decay_activity(self.config.clause_decay);
-                self.handle_clause_deletion_and_restart_limited(assumption_level_start);
-            } else {
-                // No conflict - try to decide. `propagate()` just returned `None`,
-                // i.e. reached a fixpoint.
-                self.debug_check_fixpoint_invariants("after propagation fixpoint (assumptions)");
-                if let Some(var) = self.pick_branch_var() {
-                    self.stats.decisions += 1;
-                    self.trail.new_decision_level();
-
-                    let polarity = if self.rand_bool(self.config.random_polarity_prob) {
-                        self.rand_bool(0.5)
-                    } else {
-                        self.phase.get(var.index()).copied().unwrap_or(false) ^ self.phase_inverted
-                    };
-                    let lit = if polarity {
-                        Lit::pos(var)
-                    } else {
-                        Lit::neg(var)
-                    };
-                    self.trail.assign_decision(lit);
-                } else {
-                    // All variables assigned - SAT
-                    self.save_model();
-                    self.debug_verify_model();
-                    self.debug_check_invariants("at SAT (assumptions)");
-                    self.backtrack(assumption_level_start);
-                    return (SolverResult::Sat, None);
-                }
-            }
-        }
-    }
-
-    /// Translate a core drawn from `resolved` (the literals
-    /// [`Self::solve_with_assumptions`] actually decided on) back to the
-    /// caller's `original` assumption literals it corresponds to.
-    ///
-    /// `resolved[i]` is what `original[i]` became after
-    /// [`Self::resolve_reintroduced_literal`]; a core literal that does not
-    /// match any position in `resolved` (should not happen — every core
-    /// literal comes from `resolved` in the first place) is passed through
-    /// unchanged rather than dropped, so a coding error here fails toward
-    /// "core has an unexpected literal" rather than silently shrinking the
-    /// core. First occurrence wins on a duplicate resolved literal, matching
-    /// how `analyze_final_core`'s own `assumption_of` map is built from this
-    /// same `resolved` list.
-    fn translate_core_to_original(core: Vec<Lit>, resolved: &[Lit], original: &[Lit]) -> Vec<Lit> {
-        core.into_iter()
-            .map(|lit| {
-                resolved
-                    .iter()
-                    .position(|&r| r == lit)
-                    .map_or(lit, |i| original[i])
-            })
-            .collect()
-    }
-
     /// Get the model (if sat)
     #[must_use]
     pub fn model(&self) -> &[LBool] {
@@ -1531,6 +1402,9 @@ impl Solver {
         self.assertion_levels.push(self.clauses.num_original());
         self.assertion_trail_sizes.push(self.trail.size());
         self.assertion_clause_ids.push(Vec::new());
+        // Snapshot the contradiction latch so the matching `pop` restores it
+        // rather than clearing it outright -- see the field's doc comment.
+        self.assertion_trivially_unsat.push(self.trivially_unsat);
     }
 
     /// Pop to previous assertion level
@@ -1543,7 +1417,26 @@ impl Solver {
 
             // Remove all clauses added at this assertion level
             if let Some(clause_ids_to_remove) = self.assertion_clause_ids.pop() {
-                for clause_id in clause_ids_to_remove {
+                for &clause_id in &clause_ids_to_remove {
+                    // Skip a clause some earlier mechanism already retracted:
+                    // clause-database reduction, on-the-fly subsumption
+                    // (`check_subsumption`) and `forget_learned_since` all
+                    // remove clauses without pruning this level's id list, and
+                    // since `learn_clause` started registering here that list
+                    // routinely names clauses already gone. `ClauseDatabase::
+                    // remove` and `purge_binary_edges` are both no-ops on a
+                    // clause flagged `deleted`, but `drat_delete` /
+                    // `lrat_delete` are not: a second deletion line for the
+                    // same clause would make the proof log disagree with the
+                    // database it describes.
+                    if self
+                        .clauses
+                        .get(clause_id)
+                        .is_none_or(|clause| clause.deleted)
+                    {
+                        continue;
+                    }
+
                     // Purge any binary-implication-graph edges for this clause
                     // before removing it. Unlike the watch lists (which lazily
                     // skip deleted clauses during propagation), the binary graph
@@ -1556,14 +1449,28 @@ impl Solver {
                     self.drat_delete(clause_id);
                     self.lrat_delete(clause_id);
 
-                    // Remove from clause database
+                    // Remove from clause database. Safe against any stale id
+                    // the guard above did not catch, because a `ClauseId` is
+                    // never recycled for a different clause (see
+                    // `ClauseDatabase::add`).
                     self.clauses.remove(clause_id);
-
-                    // Remove from learned clause tracking if it's a learned clause
-                    self.learned_clause_ids.retain(|&id| id != clause_id);
 
                     // Note: Watch lists will be cleaned up naturally during propagation
                     // as they check if clauses are deleted before using them
+                }
+
+                // Drop the retracted ids from the learned-clause registry in a
+                // single pass. This used to be one `retain` per removed clause
+                // inside the loop above, which is quadratic — affordable while
+                // only the handful of clauses `probe`/`propagate` register here
+                // could be learned, but not since `learn_clause` registers every
+                // clause it learns (without which a learned clause outlived the
+                // scope that entailed it; see
+                // `Solver::register_learned_at_assertion_level`).
+                if !clause_ids_to_remove.is_empty() && !self.learned_clause_ids.is_empty() {
+                    let removed: FxHashSet<ClauseId> =
+                        clause_ids_to_remove.iter().copied().collect();
+                    self.learned_clause_ids.retain(|id| !removed.contains(id));
                 }
             }
 
@@ -1625,8 +1532,29 @@ impl Solver {
             // in `Solver::restore_to_trail_size`.
             self.trail.reset_propagation_head();
 
-            // Clear the trivially_unsat flag as we've removed problematic clauses
-            self.trivially_unsat = false;
+            // Restore the contradiction latch to what it was when this scope
+            // was pushed, instead of clearing it outright.
+            //
+            // Clearing is right for a contradiction this `pop` has just
+            // dismantled -- the clauses that proved it are gone -- and wrong
+            // for one that was already latched before the `push`, which no
+            // amount of popping can undo: the clauses proving *it* live at a
+            // level still in force. The unconditional clear could not tell the
+            // two apart, so `(assert (distinct b b)) (push 1) (pop 1)
+            // (check-sat)` came back `sat` (the Tseitin encoding of
+            // `(distinct x x)` contradicts a level-0 fact inside `add_clause`,
+            // which latches the flag at the base level). Restoring the
+            // push-time snapshot keeps exactly the second case and drops
+            // exactly the first.
+            //
+            // Conservative in the safe direction: a contradiction that was
+            // latched inside this scope but is in fact provable without it is
+            // dropped and simply re-derived by the next `solve()`.
+            self.trivially_unsat = self.assertion_trivially_unsat.pop().unwrap_or(false);
+
+            // Root units outlive every scope, but they live on the trail
+            // only, and the truncation above may have removed them.
+            self.replay_root_units();
         }
     }
 
@@ -1641,6 +1569,16 @@ impl Solver {
     }
 
     /// Reset the solver
+    ///
+    /// The externally-configured budgets — [`Solver::set_max_conflicts`],
+    /// [`Solver::set_max_decisions`], [`Solver::set_deadline`] and
+    /// [`Solver::set_interrupt`] — are deliberately **not** cleared: they
+    /// belong to the caller that armed this solver, not to the problem being
+    /// reset. `self.stats` *is* zeroed below, so a conflict/decision ceiling
+    /// expressed relative to the old counter is stale after a reset; re-arm it
+    /// (that is what `oxiz-theories`' `BvSolver` does with its own
+    /// `conflicts_spent` accumulator, which is why its total allowance survives
+    /// the `sat.reset()` inside `BvSolver::reset`).
     pub fn reset(&mut self) {
         self.clauses = ClauseDatabase::new();
         self.trail.clear();
@@ -1666,6 +1604,8 @@ impl Solver {
         self.assertion_trail_sizes.push(0);
         self.assertion_clause_ids.clear();
         self.assertion_clause_ids.push(Vec::new());
+        self.assertion_trivially_unsat.clear();
+        self.root_units.clear();
         self.model.clear();
         self.num_vars = 0;
         self.restart_threshold = self.config.restart_interval;

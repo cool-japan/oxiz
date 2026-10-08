@@ -34,3 +34,128 @@ slow-timeout = { period = "60s", terminate-after = 2 }
 filter = 'package(oxiz-cli) and (test(timeout) or test(bench))'
 test-group = 'oxiz-cli-subprocess'
 threads-required = 1
+
+# `bv_wide_soundness::wide_sub_of_add_two_vars_is_identity_above_64_bits`
+# bit-blasts `(not (= (bvsub (bvadd x y) y) x))` at 65, 96 and 128 bits — three
+# full two-variable wide-BV searches in one test body. It is a *soundness*
+# guard (0.3.3 and the 0.3.4 base answer a false `sat` at every one of those
+# widths), so it may not be weakened, shortened or split into fewer widths to
+# fit a clock.
+#
+# Its own module documents the calibration as a release-build figure. Under the
+# unoptimised profile `cargo nextest` builds by default it takes 151.5 s run
+# inside the workspace suite on this machine, which is *under* the 180 s the
+# default `period = 60s, terminate-after = 3` allows and *over* it once the
+# machine is loaded: one workspace run at `--test-threads 4` killed it at 180 s
+# and the next let it pass at 151.5 s. That is a gate whose colour depends on
+# what else is running, which is the same machine-dependence decision (9)
+# removed from the solver itself.
+#
+# 600 s (four times the loaded measurement) is the budget. It is a *kill*
+# ceiling, not an expected duration: the test still reports SLOW at 60 s, so a
+# real hang is still visible in the output rather than silently tolerated.
+[[profile.default.overrides]]
+filter = 'package(oxiz-solver) and test(wide_sub_of_add_two_vars_is_identity_above_64_bits)'
+slow-timeout = { period = "60s", terminate-after = 10 }
+
+[[profile.ci.overrides]]
+filter = 'package(oxiz-solver) and test(wide_sub_of_add_two_vars_is_identity_above_64_bits)'
+slow-timeout = { period = "60s", terminate-after = 10 }
+
+# `array_uf_combination::array_uf_campaign` is this round's long differential
+# campaign: thousands of generated array/UF scripts, each parsed, solved and
+# scored against the in-test oracle, in one test body. It is `#[ignore]`d, so
+# it runs only under `--run-ignored all`, and it is a *coverage* guard rather
+# than a timing one — shortening it to fit a clock would be exactly the
+# weakening decision (16) forbids.
+#
+# Measured on this machine: 225.1 s in a release build outside nextest, and
+# over the default `period = 60s, terminate-after = 3` (180 s) inside it, which
+# is how a green `--run-ignored all` run turns into `TIMEOUT [180.007s]` with
+# nothing wrong. Same treatment, and the same reasoning, as the
+# `wide_sub_of_add_two_vars_is_identity_above_64_bits` override above: a kill
+# ceiling well clear of the measurement, with SLOW still reported at 60 s so a
+# real hang stays visible.
+#
+# Raised again by `#P2b-47`: the generator's `(set-option :timeout 5000)` is
+# gone and a deterministic `(set-option :max-bv-embedded-checks 500)` stands in
+# its place, so a script the clock used to abandon after 5 s is now solved to
+# its deterministic budget *and* model-replayed. That is strictly more
+# coverage and it costs wall time — 2,800 of its 3,200 scripts inside the old
+# 900 s ceiling, so it missed it by the last two seeds. 2,400 s is the new one.
+[[profile.default.overrides]]
+filter = 'package(oxiz-solver) and test(array_uf_campaign)'
+slow-timeout = { period = "60s", terminate-after = 40 }
+
+[[profile.ci.overrides]]
+filter = 'package(oxiz-solver) and test(array_uf_campaign)'
+slow-timeout = { period = "60s", terminate-after = 40 }
+
+# `array_ext_shapes_campaign` is the 6,000-script sibling. It fitted inside the
+# default 180 s while its generator rendered every script with
+# `(set-option :timeout 1000)`; `#P2b-47` took that clock out for good and put
+# `(set-option :max-bv-embedded-checks 500)` in its place (the clock decided the
+# campaign's `bad_model` tally, not only its duration — see
+# `array_uf_combination.rs`), and the campaign now needs the same headroom its
+# sibling does. It runs in 54.6 s with the deterministic budget.
+[[profile.default.overrides]]
+filter = 'package(oxiz-solver) and test(array_ext_shapes_campaign)'
+slow-timeout = { period = "60s", terminate-after = 15 }
+
+[[profile.ci.overrides]]
+filter = 'package(oxiz-solver) and test(array_ext_shapes_campaign)'
+slow-timeout = { period = "60s", terminate-after = 15 }
+
+# `round4_recheck_regressions::array_cardinality_above_the_enumeration_limit_is_decided`
+# is `#P2b-46`'s correctness guard for the Skolem cascade above
+# `ARRAY_INDEX_ENUMERATION_LIMIT`: eleven pairwise-distinct arrays over
+# `(Array (_ BitVec 4) (_ BitVec 1))`, which answered `unknown` before the fix
+# and `sat` after it. It carries a verdict, not a timing claim, so decision (16)
+# keeps it in the gate rather than behind `#[ignore]` — but it costs 0.91 s in
+# release and 113.9 s in the profile `cargo nextest` builds, which is over the
+# shared 180 s ceiling once the machine is loaded.
+#
+# Same treatment as the two overrides above: a kill ceiling well clear of the
+# measurement, with SLOW still reported at 60 s.
+[[profile.default.overrides]]
+filter = 'package(oxiz-solver) and test(array_cardinality_above_the_enumeration_limit_is_decided)'
+slow-timeout = { period = "60s", terminate-after = 10 }
+
+[[profile.ci.overrides]]
+filter = 'package(oxiz-solver) and test(array_cardinality_above_the_enumeration_limit_is_decided)'
+slow-timeout = { period = "60s", terminate-after = 10 }
+
+# The two `#[ignore]`d cost pins of `#P2b-46` assert that the shapes which used
+# to produce *no answer at all* now come back on the deterministic
+# embedded-check budget. That budget is 250,000 checks, which is minutes by
+# construction — 346.6 s and 124.6 s in a release build — so they need a
+# ceiling of their own for `--run-ignored all` not to report a spurious
+# TIMEOUT. They are opt-in and carry no gate.
+[[profile.default.overrides]]
+filter = 'package(oxiz-solver) and (test(the_index_width_three_cardinality_ladder_terminates) or test(the_store_term_cliff_terminates) or test(the_cardinality_cliff_table) or test(the_whole_array_cardinality_ladder_is_decided))'
+slow-timeout = { period = "60s", terminate-after = 40 }
+
+[[profile.ci.overrides]]
+filter = 'package(oxiz-solver) and (test(the_index_width_three_cardinality_ladder_terminates) or test(the_store_term_cliff_terminates) or test(the_cardinality_cliff_table) or test(the_whole_array_cardinality_ladder_is_decided))'
+slow-timeout = { period = "60s", terminate-after = 40 }
+
+# `round4_pass8_budget_losses::widening_the_budget_buys_back_a_named_loss` is
+# decision (31)'s attribution pin, on one of the five losses TODO.md
+# `#P2b-38` (b) names rather than on a proxy: `det_w4_n11` answers `unknown` at
+# `:max-conflicts 200` and `sat` at 20000, which is what makes the loss the
+# budget's. The wide half costs 147.1 s in the profile `cargo nextest` builds
+# (5.1 s for the tight half), measured one script per process on this machine,
+# so it needs the same treatment as
+# `array_cardinality_above_the_enumeration_limit_is_decided` above: a kill
+# ceiling well clear of the measurement, SLOW still reported at 60 s.
+#
+# It carries a verdict, not a timing claim. Lowering `:max-conflicts` to fit a
+# clock would delete the pin: the whole content of the test is that THIS budget
+# buys THIS verdict back.
+[[profile.default.overrides]]
+filter = 'package(oxiz-solver) and test(widening_the_budget_buys_back_a_named_loss)'
+slow-timeout = { period = "60s", terminate-after = 10 }
+
+[[profile.ci.overrides]]
+filter = 'package(oxiz-solver) and test(widening_the_budget_buys_back_a_named_loss)'
+slow-timeout = { period = "60s", terminate-after = 10 }

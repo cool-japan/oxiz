@@ -221,8 +221,10 @@ impl Solver {
                 .get(spine.root)
                 .map(|t| t.sort)
                 .unwrap_or(manager.sorts.int_sort);
-            let result =
-                manager.mk_var(&format!("$lookup-result!{}-{ordinal}", spine.root.0), sort);
+            let result = manager.mk_var(
+                &oxiz_core::smtlib::reserved_name("lookup", &format!("{}-{ordinal}", spine.root.0)),
+                sort,
+            );
             result_of.insert(spine.root, result);
 
             let mut not_any_key: Vec<TermId> = Vec::with_capacity(spine.arms.len());
@@ -234,7 +236,12 @@ impl Solver {
                 side_conditions.push(manager.mk_implies(key_eq, val_eq));
                 not_any_key.push(manager.mk_not(key_eq));
                 if spine.arms.len() <= MAX_AMO_ARMS {
-                    key_lits.push(self.encode_depth(key_eq, manager, 0));
+                    // `Solver::encode`: see the same change in
+                    // `int_case_split::assert_value_disjunction` — the depth-0
+                    // entry point is the one choke point the array-refinement
+                    // guard is computed at, and every caller of it has to go
+                    // through `encode` for that to hold.
+                    key_lits.push(self.encode(key_eq, manager));
                 }
             }
             let none_matched = manager.mk_and(not_any_key);

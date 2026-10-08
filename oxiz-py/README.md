@@ -1,6 +1,6 @@
 # OxiZ Python Bindings
 
-> **Version**: 0.3.2 | **Status**: Alpha | **Tests**: 11 Rust + 117 Python (`pytest`, not re-run this release) | **Rust LoC**: 1,842 (8 source files under `src/`)
+> **Version**: 0.3.4 | **Status**: Alpha | **Tests**: 11 Rust + 117 Python (`pytest`, not re-run this release) | **Rust LoC**: 1,845 (8 source files under `src/`)
 
 Python bindings for the OxiZ SMT (Satisfiability Modulo Theories) solver.
 

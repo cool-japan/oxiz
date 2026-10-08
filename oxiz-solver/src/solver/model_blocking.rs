@@ -230,7 +230,7 @@ impl Solver {
         if !affordable || !self.block_refuted_model() {
             return false;
         }
-        self.rebase_theory_state();
+        self.rebase_theory_state_for_round();
         self.debug_check_invariants("check_core: after model-blocking backtrack");
         true
     }

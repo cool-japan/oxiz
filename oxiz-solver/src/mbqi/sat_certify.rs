@@ -50,12 +50,21 @@
 //!       folded into the relevant instantiation set (see
 //!       [`augment_guard_grounds`]) so no region boundary is missed;
 //!     - **variable-vs-variable** comparisons `x ⊕ y` for the monotone-preserving
-//!       relations `≤`, `≥`, `=` only.
+//!       relations `≤`, `≥`, `=` only, and only at **positive polarity** in the
+//!       guard (`#P2b-65`: `¬(x = y)` and `¬(x ≤ y)` are not preserved).
 //!       Strict `<` / `>` *between two variables*, and any bare variable in the
 //!       consequent, are excluded because they are not preserved by the
 //!       model-extension projection.  Each variable is instantiated over its sort's
 //!       relevant set (UF-argument terms ∪ guard-ground constants); outside the guard
 //!       region the implication is vacuously true.
+//!
+//! * **Arrays** — an array is *not* an uninterpreted function: `store`, the
+//!   array constant and extensionality fix its value at indices no term names,
+//!   so for every sort a bound variable indexes an array at, the relevant set
+//!   also carries a representative of the region no index names
+//!   (`unnamed_region`, `#P2b-60`).  Without it the relevant set of
+//!   `∀i. a1[i] = #b1` beside `a1 = store(K#b0, #b0000000, #b1)` was
+//!   `{#b0000000}` alone and the certifier answered a wrong `sat`.
 //!
 //! When *any* tracked quantifier falls outside these fragments (or is an
 //! existential, which needs a witness rather than an instance) the module
@@ -74,6 +83,10 @@ use oxiz_core::sort::SortId;
 use super::model_completion::CompletedModel;
 use super::{Instantiation, InstantiationReason, QuantifiedFormula};
 
+mod datatype_points;
+mod real_regions;
+mod unnamed_region;
+
 /// Result of collecting the complete instantiation set for every tracked
 /// quantifier.
 #[derive(Debug)]
@@ -91,9 +104,14 @@ pub(crate) enum CertifyResult {
 
 /// Collect the complete instantiation set for every tracked quantifier, or
 /// report that the goal is outside the certifiable fragment.
+///
+/// `unnamed` carries the goal's literals when the representatives of the
+/// array-index region no term names are to be added (the saturation re-check,
+/// `#P2b-60`), and is `None` for the ordinary relevant set.
 pub(crate) fn collect_fragment_instances(
     quantifiers: &[QuantifiedFormula],
     model: &CompletedModel,
+    unnamed: Option<&[TermId]>,
     manager: &mut TermManager,
     cap: usize,
     generation: u32,
@@ -126,10 +144,42 @@ pub(crate) fn collect_fragment_instances(
             augment_guard_grounds(quantifier, &mut relevant, manager);
         }
     }
+    // Over `Real`, `t ± 1` does not reach the open region between two guard
+    // values: the midpoint of every pair does (`real_regions`, `#P2b-75`).
+    if !real_regions::add_real_midpoints(quantifiers, &mut relevant, manager) {
+        return CertifyResult::NotEligible;
+    }
 
+    // The third half, for arrays (`#P2b-60`), on the saturation re-check
+    // only: a representative of the index region no term names, so the
+    // projection that extends a model of the instances to the whole domain
+    // never sends an unnamed index onto a `store`'s own index.  See
+    // `unnamed_region`.  Again only instances are added, so this can only
+    // strengthen the ground problem.
+    if let Some(goal) = unnamed
+        && !unnamed_region::add_unnamed_index_points(
+            quantifiers,
+            model,
+            goal,
+            &mut relevant,
+            manager,
+        )
+    {
+        return CertifyResult::NotEligible;
+    }
+
+    // Every eligibility decision is taken before any instance is built: a
+    // round that ends `NotEligible` must leave the term manager as it found
+    // it.  Building the instances of the quantifiers that came first and then
+    // declining on a later one interned every substituted body for nothing.
+    // E-matching (`oxiz_core::ematching`) matches every trigger against
+    // every interned term, so the discarded bodies fed the search: with the
+    // guard neighbours above (`#P2b-75`) `recheck14/corpus/g14a/s00942` took
+    // 100 MBQI rounds and 10.6 s to `unknown`, against 19 rounds and 0.1 s
+    // with the neighbours interned but kept out of the relevant set (pin
+    // `tests::a_declined_round_interns_no_instance`).
     let mut saw_quantifier = false;
-    let mut instances: Vec<Instantiation> = Vec::new();
-
+    let mut planned: Vec<(&QuantifiedFormula, Vec<Vec<TermId>>)> = Vec::new();
     for quantifier in quantifiers {
         if !quantifier.can_instantiate() {
             continue;
@@ -142,28 +192,42 @@ pub(crate) fn collect_fragment_instances(
             return CertifyResult::NotEligible;
         }
 
-        match universal_instances(quantifier, model, &relevant, manager, cap, generation) {
-            Some(mut insts) => instances.append(&mut insts),
+        match universal_tuples(quantifier, model, &relevant, manager, cap) {
+            Some(tuples) => planned.push((quantifier, tuples)),
             None => return CertifyResult::NotEligible,
         }
     }
+    if !saw_quantifier {
+        return CertifyResult::NotEligible;
+    }
 
-    if !saw_quantifier || instances.is_empty() {
+    let mut instances: Vec<Instantiation> = Vec::new();
+    for (quantifier, tuples) in planned {
+        for tuple in &tuples {
+            // A substitution that leaves a bound variable free is an internal
+            // error; decline rather than emit a lemma with a stray variable.
+            let Some(ground) = substitute_tuple(quantifier, tuple, manager) else {
+                return CertifyResult::NotEligible;
+            };
+            instances.push(make_instantiation(quantifier, tuple, ground, generation));
+        }
+    }
+
+    if instances.is_empty() {
         return CertifyResult::NotEligible;
     }
     CertifyResult::Instances(instances)
 }
 
-/// Build the complete instantiation set for one universal quantifier, or `None`
-/// when it is outside the certifiable fragment.
-fn universal_instances(
+/// The complete instantiation tuples for one universal quantifier, or `None`
+/// when it is outside the certifiable fragment.  Builds no instance.
+fn universal_tuples(
     quantifier: &QuantifiedFormula,
     model: &CompletedModel,
     relevant: &FxHashMap<SortId, Vec<TermId>>,
     manager: &mut TermManager,
     cap: usize,
-    generation: u32,
-) -> Option<Vec<Instantiation>> {
+) -> Option<Vec<Vec<TermId>>> {
     // Prefer the exhaustive bounded-box domain (needs no model-extension
     // argument); otherwise fall back to the essentially-/almost-uninterpreted
     // relevant-term domain.
@@ -177,15 +241,7 @@ fn universal_instances(
         // No relevant instantiation exists at all; we cannot certify.
         return None;
     }
-
-    let mut instances = Vec::with_capacity(tuples.len());
-    for tuple in &tuples {
-        // A substitution that leaves a bound variable free is an internal error;
-        // decline rather than emit a lemma with a stray variable.
-        let ground = substitute_tuple(quantifier, tuple, manager)?;
-        instances.push(make_instantiation(quantifier, tuple, ground, generation));
-    }
-    Some(instances)
+    Some(tuples)
 }
 
 /// Collect, per sort, the ground terms that appear as an argument of some
@@ -258,6 +314,57 @@ fn collect_relevant_terms(
     per_sort
 }
 
+/// Strip a chain of leading `Implies` premises that mention none of `vars`.
+///
+/// # Why the fragment analysis needs this
+///
+/// [`encode::quant_guard`](crate::solver::Solver) ties a conditionally placed
+/// quantifier to a fresh Boolean constant `g` by rewriting `∀x. φ` into the
+/// plain universal `∀x. (g → φ)`.  `g` is *closed* — it mentions no bound
+/// variable and restricts no domain — so it is not a guard in the
+/// almost-uninterpreted sense at all; it is bookkeeping wrapped around a body
+/// that may well be in the fragment.  Every analysis below that reads "the
+/// premise of a top-level `Implies`" would otherwise read `g` and stop there:
+///
+/// * [`augment_guard_grounds`] would miss the real guard's ground constants,
+///   so a body `(=> (= i c) atom)` would contribute no `c` to the relevant
+///   set and could not be certified;
+/// * [`extract_int_bounds`] would find no `And` of comparisons and give up the
+///   exhaustive integer box;
+/// * [`is_eu_eligible`] would hand the inner `(= i c)` to [`strict_eu`] rather
+///   than to [`premise_safe`], and a bound variable under `=` fails `strict_eu`
+///   by design.
+///
+/// Peeling is sound for all three because it is an *equivalence-preserving*
+/// re-reading of the same body: `g → ψ` and `ψ` agree wherever `g` holds, and
+/// where `g` fails the body is true for **every** point of the domain at once,
+/// so no instantiation point the analyses choose can ever be wrong about it.
+/// The peeled body is used only to choose instantiation points and bounds;
+/// every lemma emitted is still built from the *original* body
+/// ([`substitute_tuple`] takes `quantifier.body`), so a guard that must be
+/// carried is carried.
+fn peel_ground_premises(body: TermId, vars: &FxHashSet<Spur>, manager: &TermManager) -> TermId {
+    let mut current = body;
+    // A hash-consed body is a DAG of bounded depth here, but the loop is
+    // bounded anyway: each round strips one `Implies` node.
+    for _ in 0..MAX_PEELED_PREMISES {
+        let Some(TermKind::Implies(premise, consequent)) =
+            manager.get(current).map(|t| t.kind.clone())
+        else {
+            return current;
+        };
+        if mentions_bound_var(premise, vars, manager) {
+            return current;
+        }
+        current = consequent;
+    }
+    current
+}
+
+/// Bound on [`peel_ground_premises`]' loop.  `quant_guard` adds one premise per
+/// polarity boundary it crosses and its own cap is far below this.
+const MAX_PEELED_PREMISES: usize = 16;
+
 /// Add, to the per-sort relevant set, every ground term that one of the
 /// quantifier's bound variables is compared against in its guard.
 ///
@@ -269,21 +376,33 @@ fn collect_relevant_terms(
 fn augment_guard_grounds(
     quantifier: &QuantifiedFormula,
     relevant: &mut FxHashMap<SortId, Vec<TermId>>,
-    manager: &TermManager,
+    manager: &mut TermManager,
 ) {
     let var_names: FxHashSet<Spur> = quantifier.bound_vars.iter().map(|(n, _)| *n).collect();
     if var_names.is_empty() {
         return;
     }
 
-    let guard = match manager.get(quantifier.body).map(|t| t.kind.clone()) {
+    let body = peel_ground_premises(quantifier.body, &var_names, manager);
+    let guard = match manager.get(body).map(|t| t.kind.clone()) {
         Some(TermKind::Implies(g, _)) => g,
-        Some(_) => quantifier.body,
+        Some(_) => body,
         None => return,
     };
 
     let mut ground_terms: Vec<TermId> = Vec::new();
     collect_guard_ground_terms(guard, &var_names, manager, &mut ground_terms);
+    // Both sides of every boundary (`#P2b-75`): `x > t`, `x < t` and
+    // `¬(x = t)` are false at `t` itself, so with `t` alone every instance was
+    // vacuous and `(forall ((q Int)) (=> (> q 7) false))` saturated `sat`.
+    // `t ± 1` as terms — a declared `m` in `(> x m)` gets `(+ m 1)`, which
+    // stays one point however the model moves `m`, where a value-keyed
+    // representative would chase it round after round.
+    let neighbours: Vec<TermId> = ground_terms
+        .iter()
+        .flat_map(|&term| guard_neighbours(term, manager))
+        .collect();
+    ground_terms.extend(neighbours);
 
     for term in ground_terms {
         if let Some(sort) = manager.get(term).map(|t| t.sort) {
@@ -295,8 +414,54 @@ fn augment_guard_grounds(
     }
 }
 
-/// Walk a guard conjunction (through `And` / `Or` / `Not`) and collect the
-/// ground side of every `bound-variable ⊕ ground` comparison.
+/// `t - 1` and `t + 1` for a guard ground `t` of an ordered sort (`Int`,
+/// `Real`, bit-vectors modulo the width), folded where `t` is a literal;
+/// nothing for any other sort.
+fn guard_neighbours(term: TermId, manager: &mut TermManager) -> Vec<TermId> {
+    let Some(data) = manager.get(term).cloned() else {
+        return Vec::new();
+    };
+    match (
+        &data.kind,
+        manager.sorts.get(data.sort).map(|s| s.kind.clone()),
+    ) {
+        (TermKind::IntConst(value), _) => {
+            vec![manager.mk_int(value - 1u8), manager.mk_int(value + 1u8)]
+        }
+        (TermKind::RealConst(value), _) => {
+            let one = num_rational::Rational64::from_integer(1);
+            [
+                num_traits::CheckedSub::checked_sub(value, &one),
+                num_traits::CheckedAdd::checked_add(value, &one),
+            ]
+            .into_iter()
+            .flatten()
+            .map(|v| manager.mk_real(v))
+            .collect()
+        }
+        (_, Some(oxiz_core::sort::SortKind::Int)) => {
+            let one = manager.mk_int(1);
+            vec![manager.mk_sub(term, one), manager.mk_add([term, one])]
+        }
+        (_, Some(oxiz_core::sort::SortKind::Real)) => {
+            let one = manager.mk_real(num_rational::Rational64::from_integer(1));
+            vec![manager.mk_sub(term, one), manager.mk_add([term, one])]
+        }
+        (_, Some(oxiz_core::sort::SortKind::BitVec(width))) => {
+            let one = manager.mk_bitvec(1u8, width);
+            vec![manager.mk_bv_sub(term, one), manager.mk_bv_add(term, one)]
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// Walk a guard (through every connective, `ite` and operator in it) and
+/// collect the ground side of every `bound-variable ⊕ ground` comparison.
+///
+/// [`eu_walk`] admits such a comparison anywhere in the premise — under an
+/// `=>`, in an `ite` condition, inside an arithmetic `ite` — so the walk
+/// descends everywhere: a comparison it missed would be a boundary without
+/// an instance on its far side.
 ///
 /// Iterative with an explicit heap stack: the guard shape is
 /// caller-controlled input and the results flow through `out` with no error
@@ -322,21 +487,17 @@ fn collect_guard_ground_terms(
         let Some(node) = manager.get(current) else {
             continue;
         };
-        match &node.kind {
-            TermKind::And(args) | TermKind::Or(args) => {
-                for &a in args.iter().rev() {
-                    stack.push(a);
-                }
-            }
-            TermKind::Not(a) => stack.push(*a),
-            TermKind::Le(l, r)
-            | TermKind::Ge(l, r)
-            | TermKind::Lt(l, r)
-            | TermKind::Gt(l, r)
-            | TermKind::Eq(l, r) => {
-                push_guard_ground(*l, *r, vars, manager, out);
-            }
-            _ => {}
+        if let TermKind::Le(l, r)
+        | TermKind::Ge(l, r)
+        | TermKind::Lt(l, r)
+        | TermKind::Gt(l, r)
+        | TermKind::Eq(l, r) = &node.kind
+        {
+            push_guard_ground(*l, *r, vars, manager, out);
+        }
+        let children = oxiz_core::ast::traversal::get_children(&node.kind);
+        for &child in children.iter().rev() {
+            stack.push(child);
         }
     }
 }
@@ -425,7 +586,8 @@ fn eu_domains(
     cap: usize,
 ) -> Option<Vec<Vec<TermId>>> {
     let var_names: FxHashSet<Spur> = quantifier.bound_vars.iter().map(|(n, _)| *n).collect();
-    if !is_eu_eligible(quantifier.body, &var_names, manager) {
+    let body = peel_ground_premises(quantifier.body, &var_names, manager);
+    if !is_eu_eligible(body, &var_names, manager) {
         return None;
     }
 
@@ -465,9 +627,46 @@ fn strict_eu(term: TermId, vars: &FxHashSet<Spur>, manager: &TermManager) -> boo
 
 /// Premise position: like [`strict_eu`], but a comparison between two bound
 /// variables using a monotone-preserving relation (`≤`, `≥`, `=`) is allowed
-/// as a guard.
+/// as a guard — **at positive polarity only** (`#P2b-65`).
+///
+/// The fragment argument needs the premise to be preserved by the projection
+/// `π` that extends a model of the instances to the whole domain: whenever the
+/// premise holds at `(x, y)` it must hold at `(π x, π y)`.  `x ≤ y` and
+/// `x = y` are (π is monotone and a function), but their negations `y < x`
+/// and `x ≠ y` are not — two unnamed indices can share one representative.
+/// So a var-var comparison under an odd number of negations (a `not`, the
+/// left side of an inner `=>`) is rejected, and so is one whose polarity the
+/// walk cannot pin down (an `ite` condition, either side of a Boolean `=` or
+/// `distinct`, anything under an arithmetic or uninterpreted operator).
+/// Before this rule `(=> (not (= i j)) (distinct (select a i) (select a j)))`
+/// — a pigeonhole over 128 indices and two values — was certified `sat`.
 fn premise_safe(term: TermId, vars: &FxHashSet<Spur>, manager: &TermManager) -> bool {
     eu_walk(term, vars, manager, true)
+}
+
+/// The polarity at which a sub-term of a premise occurs in it.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+enum Polarity {
+    /// Under an even number of negations: true there means true in the
+    /// premise.
+    Positive,
+    /// Under an odd number of negations.
+    Negative,
+    /// At both polarities (or at one the walk does not track): an `ite`
+    /// condition, a Boolean `=` / `distinct` operand, an operand of an
+    /// arithmetic or uninterpreted operator.
+    Both,
+}
+
+impl Polarity {
+    /// The polarity one negation further down.
+    fn flipped(self) -> Self {
+        match self {
+            Self::Positive => Self::Negative,
+            Self::Negative => Self::Positive,
+            Self::Both => Self::Both,
+        }
+    }
 }
 
 /// Shared traversal for [`strict_eu`] / [`premise_safe`].
@@ -488,15 +687,17 @@ fn premise_safe(term: TermId, vars: &FxHashSet<Spur>, manager: &TermManager) -> 
 /// classification is one conjunction, so obligation order cannot change the
 /// outcome: the walk answers `false` the moment any obligation fails, and
 /// `true` only once the worklist drains.  `seen` deduplicates structural
-/// obligations by `TermId` (`allow_guard` is fixed for a given walk), which
-/// preserves the verdict — a repeated subterm re-adds identical conjuncts —
-/// while bounding re-expansion of shared subterms of the hash-consed DAG to
-/// linear.
+/// obligations by `TermId` and [`Polarity`] (`allow_guard` is fixed for a
+/// given walk), which preserves the verdict — a repeated subterm at the same
+/// polarity re-adds identical conjuncts — while bounding re-expansion of
+/// shared subterms of the hash-consed DAG to linear (three polarities per
+/// term at most).
 fn eu_walk(term: TermId, vars: &FxHashSet<Spur>, manager: &TermManager, allow_guard: bool) -> bool {
     /// One pending conjunct of the classification.
     enum Obligation {
-        /// The structural essentially-uninterpreted check for a term.
-        Walk(TermId),
+        /// The structural essentially-uninterpreted check for a term, at the
+        /// polarity it occurs at in the walked formula.
+        Walk(TermId, Polarity),
         /// A direct argument of an uninterpreted function / array operation:
         /// either a bound variable (exactly the allowed leaf position) or a
         /// subterm that must itself be essentially uninterpreted.  (The old
@@ -521,16 +722,24 @@ fn eu_walk(term: TermId, vars: &FxHashSet<Spur>, manager: &TermManager, allow_gu
         /// Outside a guard (the consequent), neither exception applies and
         /// each side must itself be essentially uninterpreted, so a bare
         /// bound variable is rejected.
-        Cmp(TermId, TermId, bool),
+        ///
+        /// The var-vs-var form is admitted at [`Polarity::Positive`] only
+        /// (`#P2b-65`, see [`premise_safe`]); the var-vs-ground form at every
+        /// polarity, because the negation of each admitted relation is again
+        /// one (`¬(x ≤ t)` is `t < x`, `¬(x = t)` the disequality guard).
+        Cmp(TermId, TermId, bool, Polarity),
     }
 
-    let mut stack: Vec<Obligation> = vec![Obligation::Walk(term)];
-    let mut seen: FxHashSet<TermId> = FxHashSet::default();
+    let mut stack: Vec<Obligation> = vec![Obligation::Walk(term, Polarity::Positive)];
+    // Keyed by term AND polarity: the same sub-term met at a second polarity
+    // is a different obligation (a var-var guard fine at one is not at the
+    // other).
+    let mut seen: FxHashSet<(TermId, Polarity)> = FxHashSet::default();
 
     while let Some(obligation) = stack.pop() {
         match obligation {
-            Obligation::Walk(t) => {
-                if !seen.insert(t) {
+            Obligation::Walk(t, polarity) => {
+                if !seen.insert((t, polarity)) {
                     continue;
                 }
                 let Some(node) = manager.get(t) else {
@@ -577,35 +786,41 @@ fn eu_walk(term: TermId, vars: &FxHashSet<Spur>, manager: &TermManager, allow_gu
                     // not preserved by the model-extension projection).
                     // Both permit a bound-variable-vs-ground guard.
                     TermKind::Le(l, r) | TermKind::Ge(l, r) | TermKind::Eq(l, r) => {
-                        stack.push(Obligation::Cmp(*l, *r, true));
+                        stack.push(Obligation::Cmp(*l, *r, true, polarity));
                     }
                     TermKind::Lt(l, r) | TermKind::Gt(l, r) => {
-                        stack.push(Obligation::Cmp(*l, *r, false));
+                        stack.push(Obligation::Cmp(*l, *r, false, polarity));
                     }
 
                     // Structural boolean / arithmetic: descend.  Any bare
                     // bound variable reached this way falls into the `Var`
-                    // arm above and is rejected.
-                    TermKind::Not(a) | TermKind::Neg(a) => stack.push(Obligation::Walk(*a)),
-                    TermKind::And(args)
-                    | TermKind::Or(args)
-                    | TermKind::Add(args)
-                    | TermKind::Mul(args) => {
+                    // arm above and is rejected.  Polarity follows the
+                    // Boolean connectives and is lost (`Both`) under an
+                    // arithmetic operator.
+                    TermKind::Not(a) => stack.push(Obligation::Walk(*a, polarity.flipped())),
+                    TermKind::Neg(a) => stack.push(Obligation::Walk(*a, Polarity::Both)),
+                    TermKind::And(args) | TermKind::Or(args) => {
                         for &a in args.iter() {
-                            stack.push(Obligation::Walk(a));
+                            stack.push(Obligation::Walk(a, polarity));
                         }
                     }
-                    TermKind::Implies(l, r)
-                    | TermKind::Sub(l, r)
-                    | TermKind::Div(l, r)
-                    | TermKind::Mod(l, r) => {
-                        stack.push(Obligation::Walk(*l));
-                        stack.push(Obligation::Walk(*r));
+                    TermKind::Add(args) | TermKind::Mul(args) => {
+                        for &a in args.iter() {
+                            stack.push(Obligation::Walk(a, Polarity::Both));
+                        }
+                    }
+                    TermKind::Implies(l, r) => {
+                        stack.push(Obligation::Walk(*l, polarity.flipped()));
+                        stack.push(Obligation::Walk(*r, polarity));
+                    }
+                    TermKind::Sub(l, r) | TermKind::Div(l, r) | TermKind::Mod(l, r) => {
+                        stack.push(Obligation::Walk(*l, Polarity::Both));
+                        stack.push(Obligation::Walk(*r, Polarity::Both));
                     }
                     TermKind::Ite(c, th, el) => {
-                        stack.push(Obligation::Walk(*c));
-                        stack.push(Obligation::Walk(*th));
-                        stack.push(Obligation::Walk(*el));
+                        stack.push(Obligation::Walk(*c, Polarity::Both));
+                        stack.push(Obligation::Walk(*th, polarity));
+                        stack.push(Obligation::Walk(*el, polarity));
                     }
                     TermKind::Distinct(args) => {
                         // Disequality is not projection-preserving; reject if
@@ -615,7 +830,7 @@ fn eu_walk(term: TermId, vars: &FxHashSet<Spur>, manager: &TermManager, allow_gu
                             if is_bound_var(a, vars, manager) {
                                 return false;
                             }
-                            stack.push(Obligation::Walk(a));
+                            stack.push(Obligation::Walk(a, Polarity::Both));
                         }
                     }
 
@@ -633,9 +848,9 @@ fn eu_walk(term: TermId, vars: &FxHashSet<Spur>, manager: &TermManager, allow_gu
                 if is_bound_var(t, vars, manager) {
                     continue;
                 }
-                stack.push(Obligation::Walk(t));
+                stack.push(Obligation::Walk(t, Polarity::Both));
             }
-            Obligation::Cmp(l, r, allow_var_var) => {
+            Obligation::Cmp(l, r, allow_var_var, polarity) => {
                 if allow_guard {
                     let lb = is_bound_var(l, vars, manager);
                     let rb = is_bound_var(r, vars, manager);
@@ -647,13 +862,14 @@ fn eu_walk(term: TermId, vars: &FxHashSet<Spur>, manager: &TermManager, allow_gu
                         continue;
                     }
                     // Monotone-preserving comparison between two bound
-                    // variables.
-                    if allow_var_var && lb && rb {
+                    // variables — at positive polarity only (`#P2b-65`).
+                    if allow_var_var && lb && rb && polarity == Polarity::Positive {
                         continue;
                     }
                 }
-                stack.push(Obligation::Walk(l));
-                stack.push(Obligation::Walk(r));
+                // Either side of a Boolean `=` occurs at both polarities.
+                stack.push(Obligation::Walk(l, Polarity::Both));
+                stack.push(Obligation::Walk(r, Polarity::Both));
             }
         }
     }
@@ -689,12 +905,12 @@ fn extract_int_bounds(
     model: &CompletedModel,
     manager: &TermManager,
 ) -> Option<FxHashMap<Spur, (BigInt, BigInt)>> {
+    let var_names: FxHashSet<Spur> = bound_vars.iter().map(|(n, _)| *n).collect();
+    let body = peel_ground_premises(body, &var_names, manager);
     let guard = match manager.get(body).map(|t| t.kind.clone())? {
         TermKind::Implies(g, _) => g,
         _ => return None,
     };
-
-    let var_names: FxHashSet<Spur> = bound_vars.iter().map(|(n, _)| *n).collect();
 
     let conjuncts: Vec<TermId> = match manager.get(guard).map(|t| t.kind.clone())? {
         TermKind::And(args) => args.to_vec(),
@@ -895,6 +1111,60 @@ fn make_instantiation(
 mod tests {
     use super::*;
 
+    /// Re-fix pass 15 (`#P2b-75`): a round that ends `NotEligible` leaves the
+    /// term arena as it found it.  The certificate used to build and intern
+    /// the instances of the quantifiers that came first and then decline on
+    /// a later one; E-matching matches its triggers against every interned
+    /// term, so those discarded bodies fed the search (recheck 14's
+    /// `g14a/s00942`: 100 MBQI rounds and 10.6 s where 19 rounds sufficed).
+    #[test]
+    fn a_declined_round_interns_no_instance() {
+        let mut m = TermManager::new();
+        let int = m.sorts.int_sort;
+        let x = m.mk_var("x", int);
+        let y = m.mk_var("y", int);
+        let five = m.mk_int(5);
+        let zero = m.mk_int(0);
+        // `∀x. x > 5 ⇒ f(x) ≥ 0` is eligible (its guard grounds are 5, 4, 6)…
+        let f_x = m.mk_apply("f", [x], int);
+        let guard = m.mk_gt(x, five);
+        let f_x_ge = m.mk_ge(f_x, zero);
+        let body = m.mk_implies(guard, f_x_ge);
+        let universal = m.mk_forall([("x", int)], body);
+        // …and `∃y. g(y) = 0`, which comes second, is not.
+        let g_y = m.mk_apply("g", [y], int);
+        let witness_body = m.mk_eq(g_y, zero);
+        let existential = m.mk_exists([("y", int)], witness_body);
+        let quantifiers = [
+            QuantifiedFormula::new(
+                universal,
+                smallvec::smallvec![(var_spur(&m, x), int)],
+                body,
+                true,
+            ),
+            QuantifiedFormula::new(
+                existential,
+                smallvec::smallvec![(var_spur(&m, y), int)],
+                witness_body,
+                false,
+            ),
+        ];
+        // The relevant set's own terms (the guard neighbours) are interned
+        // before any eligibility decision; only instances must not be.
+        let _ = m.mk_int(4);
+        let _ = m.mk_int(6);
+        let before = m.len();
+        let result =
+            collect_fragment_instances(&quantifiers, &CompletedModel::new(), None, &mut m, 64, 0);
+        assert!(matches!(result, CertifyResult::NotEligible));
+        assert_eq!(
+            m.len(),
+            before,
+            "a declined round interned {} terms",
+            m.len() - before
+        );
+    }
+
     /// The interned name of a `Var` term.
     fn var_spur(m: &TermManager, v: TermId) -> Spur {
         match m.get(v).map(|t| &t.kind) {
@@ -910,6 +1180,58 @@ mod tests {
     // an explicit heap stack. These tests pin the classification verdicts
     // (behavior preservation), deep-input survival on a small thread stack,
     // and the `seen`-set bound on shared DAGs.
+
+    /// `#P2b-65`: a var-var guard is admitted at positive polarity only.
+    /// `(not (= i j))`, a triple negation, a negation inside an `and`, the
+    /// left side of an inner `=>` and an `ite` condition are all rejected;
+    /// `(not (not (= i j)))` and `(or (<= i j) …)` are admitted; and a
+    /// var-vs-ground guard stays admitted at every polarity.
+    #[test]
+    fn premise_safe_admits_a_var_var_guard_at_positive_polarity_only() {
+        let mut m = TermManager::new();
+        let bv7 = m.sorts.bitvec(7);
+        let i = m.mk_var("i", bv7);
+        let j = m.mk_var("j", bv7);
+        let k = m.mk_var("k", bv7);
+        let zero = m.mk_bitvec(BigInt::from(0u8), 7);
+        let bool_sort = m.sorts.bool_sort;
+        let p = m.mk_var("p", bool_sort);
+        let vars: FxHashSet<Spur> = [var_spur(&m, i), var_spur(&m, j), var_spur(&m, k)]
+            .into_iter()
+            .collect();
+        let i_eq_j = m.mk_eq(i, j);
+        let j_eq_k = m.mk_eq(j, k);
+        let i_eq_k = m.mk_eq(i, k);
+        assert!(premise_safe(i_eq_j, &vars, &m));
+        let not_eq = m.mk_not(i_eq_j);
+        assert!(!premise_safe(not_eq, &vars, &m), "(not (= i j))");
+        let double = m.mk_not(not_eq);
+        let triple = m.mk_not(double);
+        if m.get(double)
+            .is_some_and(|t| matches!(t.kind, TermKind::Not(_)))
+        {
+            assert!(premise_safe(double, &vars, &m), "(not (not (= i j)))");
+        }
+        assert!(!premise_safe(triple, &vars, &m), "three negations");
+        let n_jk = m.mk_not(j_eq_k);
+        let n_ik = m.mk_not(i_eq_k);
+        let conj = m.mk_and([not_eq, n_jk, n_ik]);
+        assert!(!premise_safe(conj, &vars, &m), "negations inside an and");
+        let inner = m.mk_implies(i_eq_j, p);
+        assert!(!premise_safe(inner, &vars, &m), "left side of an inner =>");
+        let ite = m.mk_ite(i_eq_j, p, p);
+        if m.get(ite)
+            .is_some_and(|t| matches!(t.kind, TermKind::Ite(..)))
+        {
+            assert!(!premise_safe(ite, &vars, &m), "an ite condition");
+        }
+        let disj = m.mk_or([i_eq_j, p]);
+        assert!(premise_safe(disj, &vars, &m), "(or (= i j) p)");
+        // Var vs ground: every polarity maps into the admitted set.
+        let i_eq_zero = m.mk_eq(i, zero);
+        let not_ground = m.mk_not(i_eq_zero);
+        assert!(premise_safe(not_ground, &vars, &m), "(not (= i #b0000000))");
+    }
 
     #[test]
     fn eu_walk_semantic_pins() {

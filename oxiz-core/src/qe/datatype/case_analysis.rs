@@ -26,6 +26,7 @@ use crate::Sort;
 use crate::ast::{TermId, TermManager};
 #[allow(unused_imports)]
 use crate::prelude::*;
+use crate::smtlib::reserved_name;
 use crate::sort::SortId;
 
 /// Variable identifier (legacy alias, kept for API compatibility).
@@ -224,10 +225,14 @@ impl CaseAnalyzer {
     }
 
     /// Generate a globally unique fresh variable name.
+    ///
+    /// Minted through [`reserved_name`] for the reason its sibling in
+    /// `plugin.rs` documents: `!dtca0` was an ordinary SMT-LIB simple symbol a
+    /// caller of the public `oxiz_core::qe::datatype` API could already hold.
     fn fresh_name(&mut self) -> String {
         let n = self.next_id;
         self.next_id += 1;
-        format!("!dtca{n}")
+        reserved_name("dtca", &n.to_string())
     }
 
     /// Check if a case is trivially false.
@@ -311,7 +316,10 @@ mod tests {
 
     #[test]
     fn test_analyze_enum_produces_real_cases() {
-        // ∃ x:Maybe. (x = Nothing). Two nullary constructors -> two cases.
+        // ∃ x:Maybe. (x = Nothing). Two nullary constructors -> two cases
+        // generated; the `Just` case `Just = Nothing` is `false` by
+        // constructor distinctness (`TermManager::mk_eq` folds it since
+        // `#P2b-61`) and is pruned, which leaves the `Nothing` case alone.
         let mut tm = TermManager::new();
         let maybe = tm.sorts.mk_datatype_sort("Maybe");
         let x = tm.mk_var("x", maybe);
@@ -323,8 +331,9 @@ mod tests {
 
         let result = analyzer.analyze(x, "Maybe", phi, &mut tm);
         assert!(result.complete);
-        assert_eq!(result.cases.len(), 2);
         assert_eq!(analyzer.stats().cases_generated, 2);
+        assert_eq!(analyzer.stats().cases_pruned, 1);
+        assert_eq!(result.cases.len(), 1);
 
         // The variable must not appear free in any case (real substitution).
         for &case in &result.cases {

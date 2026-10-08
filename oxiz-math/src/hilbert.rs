@@ -105,12 +105,13 @@ pub fn hilbert_basis(cone: &Cone) -> Vec<IntVector> {
     let max_iterations = 100;
     let mut iteration = 0;
 
-    while !candidates.is_empty() && iteration < max_iterations {
+    // The budget is tested before `pop`, so a candidate is taken only while
+    // iterations remain, exactly as when emptiness and the budget were both
+    // tested first.
+    while iteration < max_iterations
+        && let Some(candidate) = candidates.pop()
+    {
         iteration += 1;
-
-        let candidate = candidates
-            .pop()
-            .expect("collection validated to be non-empty");
 
         // Check if this is a primitive vector (not a multiple of another)
         if is_primitive(&candidate) {

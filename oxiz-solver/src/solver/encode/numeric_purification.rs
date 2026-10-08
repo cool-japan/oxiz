@@ -172,9 +172,23 @@ impl Solver {
         let mut seen: FxHashSet<TermId> = FxHashSet::default();
         for &st in &ground {
             let Some(t) = manager.get(st) else { continue };
-            let TermKind::Apply { args, .. } = &t.kind else {
+            let TermKind::Apply { func, args } = &t.kind else {
                 continue;
             };
+            // The SMT-LIB array constant is an `Apply` only because it has no
+            // term kind of its own; it is an *interpreted* symbol whose single
+            // argument is the array's default value, not an uninterpreted
+            // function whose numeric arguments need an interface variable.
+            // Proxying that argument replaced the default with a fresh
+            // variable, and both the array-constant read axiom and the model
+            // evaluator recognise an array constant by its default being a
+            // value — so `(= 2 (select ((as const (Array Int Int)) 1)
+            // (+ 0 1)))` lost its axiom and `(not (distinct 2 (select
+            // ((as const (Array Int Int)) 1) (+ 0 1))))` answered `sat`
+            // (`#P2b-37`).
+            if manager.resolve_str(*func) == crate::solver::array_axioms::CONST_ARRAY_FUNC {
+                continue;
+            }
             for &arg in args {
                 let Some(arg_t) = manager.get(arg) else {
                     continue;
@@ -219,7 +233,10 @@ impl Solver {
             let Some(arg_t) = manager.get(arg) else {
                 continue;
             };
-            let v = manager.mk_var(&format!("$encode-numarg!{}", arg.0), arg_t.sort);
+            let v = manager.mk_var(
+                &oxiz_core::smtlib::reserved_name("numarg", &arg.0.to_string()),
+                arg_t.sort,
+            );
             self.mark_numeric_uf_arg(v);
             proxy_of.insert(arg, v);
         }

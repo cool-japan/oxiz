@@ -41,9 +41,19 @@ struct Chunk {
 }
 
 impl Chunk {
-    fn new(size: usize) -> Result<Self, ArenaError> {
-        let layout = Layout::from_size_align(size, 8).map_err(|_| ArenaError::LayoutError)?;
+    /// Allocate a chunk of `size` bytes (at least one) aligned to `align` and
+    /// to 8, so that an allocation of that alignment fits at its start.
+    fn new(size: usize, align: usize) -> Result<Self, ArenaError> {
+        // Never zero: allocating zero bytes is undefined behaviour, and a
+        // zero-sized value asks for it whenever the chunk size has become 0
+        // (a zero `initial_chunk_size`, or a `growth_factor` that rounds the
+        // next size down to 0).
+        let size = size.max(1);
+        let layout =
+            Layout::from_size_align(size, align.max(8)).map_err(|_| ArenaError::LayoutError)?;
 
+        // SAFETY: `layout.size()` is `size`, which the `max(1)` above makes
+        // non-zero, the one requirement `alloc` places on its layout.
         let ptr = unsafe { alloc(layout) };
         let non_null_ptr = NonNull::new(ptr).ok_or(ArenaError::AllocationFailed)?;
 
@@ -56,8 +66,16 @@ impl Chunk {
     }
 
     fn allocate(&self, size: usize, align: usize) -> Option<NonNull<u8>> {
-        let current = self.used.get();
-        let aligned_offset = align_up(current, align);
+        // Align the address, not the offset: `align_offset` gives the padding
+        // that makes the address at `used` a multiple of `align` (a power of
+        // two, a `Layout`'s alignment), or `usize::MAX` when it cannot, which
+        // the checked addition turns into "no room here" and a fresh chunk.
+        // The base is aligned to 8 and to the alignment the chunk was made
+        // for, so for `align <= 8` the padding is the one that rounds `used`
+        // itself up to `align`.
+        let used = self.used.get();
+        let padding = self.ptr.as_ptr().wrapping_add(used).align_offset(align);
+        let aligned_offset = used.checked_add(padding)?;
         let new_used = aligned_offset.checked_add(size)?;
 
         if new_used > self.capacity {
@@ -66,11 +84,11 @@ impl Chunk {
 
         self.used.set(new_used);
 
-        unsafe {
-            Some(NonNull::new_unchecked(
-                self.ptr.as_ptr().add(aligned_offset),
-            ))
-        }
+        // SAFETY: `aligned_offset <= new_used <= self.capacity`, the size of
+        // the allocation `self.ptr` heads (`Chunk::new` made it with
+        // `self.layout`, whose size is `self.capacity`), so the result is in
+        // bounds of that allocation or one past its end, as `add` requires.
+        Some(unsafe { self.ptr.add(aligned_offset) })
     }
 
     fn reset(&self) {
@@ -139,7 +157,7 @@ impl Arena {
         }
 
         // Need new chunk
-        self.grow(size)?;
+        self.grow(size, align)?;
 
         self.chunks
             .last()
@@ -148,9 +166,9 @@ impl Arena {
     }
 
     /// Grow the arena by adding a new chunk.
-    fn grow(&mut self, min_size: usize) -> Result<(), ArenaError> {
+    fn grow(&mut self, min_size: usize, align: usize) -> Result<(), ArenaError> {
         let new_size = self.current_chunk_size.max(min_size);
-        let chunk = Chunk::new(new_size)?;
+        let chunk = Chunk::new(new_size, align)?;
         self.chunks.push(chunk);
 
         // Grow chunk size for next allocation
@@ -261,11 +279,6 @@ impl core::fmt::Display for ArenaError {
 
 impl core::error::Error for ArenaError {}
 
-/// Align a value up to the given alignment.
-fn align_up(value: usize, align: usize) -> usize {
-    (value + align - 1) & !(align - 1)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -319,11 +332,79 @@ mod tests {
         assert!(arena.num_chunks() > 1);
     }
 
+    /// For alignments up to 8 the offsets are those of the plain
+    /// offset-rounding layout: `used()` after each allocation.
     #[test]
-    fn test_alignment() {
-        assert_eq!(align_up(0, 8), 0);
-        assert_eq!(align_up(1, 8), 8);
-        assert_eq!(align_up(8, 8), 8);
-        assert_eq!(align_up(9, 8), 16);
+    fn test_small_alignment_offsets() {
+        let mut arena = Arena::new();
+        let mut used = Vec::new();
+        arena.alloc(1u8);
+        used.push(arena.used());
+        arena.alloc(2u32);
+        used.push(arena.used());
+        arena.alloc(3u16);
+        used.push(arena.used());
+        arena.alloc(4u64);
+        used.push(arena.used());
+        arena.alloc([5u8; 3]);
+        used.push(arena.used());
+        arena.alloc(6u64);
+        used.push(arena.used());
+        // Each value at its predecessor's end rounded up to its alignment.
+        let mut end: usize = 0;
+        let want: Vec<usize> = [
+            (1, 1),
+            (4, core::mem::align_of::<u32>()),
+            (2, core::mem::align_of::<u16>()),
+            (8, core::mem::align_of::<u64>()),
+            (3, 1),
+            (8, core::mem::align_of::<u64>()),
+        ]
+        .iter()
+        .map(|&(size, align): &(usize, usize)| {
+            end = end.next_multiple_of(align) + size;
+            end
+        })
+        .collect();
+        assert_eq!(used, want);
+    }
+
+    /// A value aligned more strictly than 8 is placed at an address of its
+    /// alignment, at the start of a fresh chunk and inside a used one.
+    #[test]
+    fn test_over_aligned_value_is_aligned() {
+        #[repr(align(4096))]
+        struct Page(u64);
+
+        let mut arena = Arena::new();
+        arena.alloc(1u8);
+        let page = arena.alloc(Page(7));
+        assert_eq!((page.get() as *const Page).addr() % 4096, 0);
+        assert_eq!(page.get().0, 7);
+
+        let mut roomy = Arena::with_config(ArenaConfig {
+            initial_chunk_size: 1 << 16,
+            max_chunk_size: 1 << 16,
+            growth_factor: 2.0,
+        });
+        roomy.alloc(1u8);
+        let page = roomy.alloc(Page(9));
+        assert_eq!((page.get() as *const Page).addr() % 4096, 0);
+        assert_eq!(page.get().0, 9);
+    }
+
+    /// A zero chunk size and a zero-sized value never ask the allocator for
+    /// zero bytes.
+    #[test]
+    fn test_zero_sized_requests() {
+        let mut arena = Arena::with_config(ArenaConfig {
+            initial_chunk_size: 0,
+            max_chunk_size: 0,
+            growth_factor: 2.0,
+        });
+        let unit = arena.alloc(());
+        let () = *unit.get();
+        let byte = arena.alloc(5u8);
+        assert_eq!(*byte.get(), 5);
     }
 }

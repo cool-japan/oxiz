@@ -81,6 +81,8 @@ Demonstrates optimization capabilities including minimization, maximization, and
 
 Demonstrates Craig interpolation for computing interpolants from UNSAT formula partitions.
 
+> **Note:** `computeInterpolant` does not compute an interpolant in this release. After its precondition checks (non-empty partitions, `produce-proofs` set to `true`, a combined formula that is UNSAT, a proof available) it always throws a `NotSupported` error, because the solver context does not expose the structured proof that Pudlák interpolation needs, so this example's success branch is never reached. The rest of this section describes the intended use.
+
 **Concepts covered:**
 - Enabling proof production
 - Partitioning formulas into A and B

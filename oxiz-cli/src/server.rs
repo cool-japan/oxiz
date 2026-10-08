@@ -704,6 +704,12 @@ fn extract_model(output: &[String]) -> Option<std::collections::HashMap<String, 
 }
 
 /// Parse a define-fun line and extract variable name and value
+///
+/// Only the *constant* form `(define-fun name () Sort value)` yields a
+/// binding.  Since `#P2b-34` a model also prints an interpretation for every
+/// declared function, `(define-fun f ((x!0 S)) T (ite ...))`, and that line
+/// names no variable: taking its last whitespace-separated token would report
+/// the innermost `ite` branch as if it were `f`'s value.
 fn parse_define_fun(line: &str) -> Option<(String, String)> {
     // Simple parsing for: (define-fun name () type value)
     let trimmed = line.trim();
@@ -712,6 +718,9 @@ fn parse_define_fun(line: &str) -> Option<(String, String)> {
     }
 
     let parts: Vec<&str> = trimmed.split_whitespace().collect();
+    if parts.get(2).is_some_and(|params| *params != "()") {
+        return None;
+    }
     if parts.len() >= 5 {
         let name = parts[1].to_string();
         // Value is the last part before the closing paren
@@ -745,6 +754,23 @@ mod tests {
         let (name, value) = result.expect("test operation should succeed");
         assert_eq!(name, "x");
         assert_eq!(value, "42");
+    }
+
+    #[test]
+    fn test_parse_define_fun_skips_a_function_interpretation() {
+        // `#P2b-34` made `(get-model)` print an interpretation for every
+        // declared function.  Those lines carry a parameter list and a term
+        // body, and name no variable -- the naive "last token" reading would
+        // have bound `f` to the `ite`'s else-branch.
+        let line = "  (define-fun f ((x!0 (_ BitVec 8))) (_ BitVec 8)                     (ite (= x!0 #x01) #x07 #x00))";
+        assert!(parse_define_fun(line).is_none());
+        // The constant form on the same model block is still read.
+        let result = parse_define_fun("  (define-fun x () Int 42)");
+        assert_eq!(
+            result,
+            Some(("x".to_string(), "42".to_string())),
+            "a zero-arity define-fun is a variable binding"
+        );
     }
 
     #[test]

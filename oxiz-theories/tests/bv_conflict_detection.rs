@@ -163,9 +163,9 @@ fn test_bv13_not_xor() {
     solver.bv_not(not_not_x, not_x);
 
     // Assert constraints
-    solver.assert_eq(not_x, y);
+    assert!(solver.assert_eq(not_x, y));
     solver.assert_const(xor_xy, 0xFF, 8);
-    solver.assert_eq(not_not_x, x);
+    assert!(solver.assert_eq(not_not_x, x));
 
     // Should be SAT
     match solver.check().expect("check should succeed") {
@@ -190,9 +190,9 @@ fn test_bv15_ult_conflict() {
     solver.new_bv(y, 8);
 
     // Assert: x < y
-    solver.assert_ult(x, y);
+    assert!(solver.assert_ult(x, y));
     // Assert: y < x
-    solver.assert_ult(y, x);
+    assert!(solver.assert_ult(y, x));
 
     // Should detect UNSAT
     match solver.check().expect("check should succeed") {

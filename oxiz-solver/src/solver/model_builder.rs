@@ -8,7 +8,13 @@ use oxiz_core::sort::{SortId, SortKind};
 use smallvec::SmallVec;
 
 use super::Solver;
-use super::dt_axioms::{DeclInfo, resolve_decl, scan_datatype_terms};
+use super::dt_axioms::{DeclInfo, resolve_decl};
+
+/// Publishing the opaque leaves an array model rests on (`#P2b-34`).
+mod opaque_leaves;
+/// Pulling apart two datatype values the search kept distinct.
+mod separation;
+
 use super::types::Constraint;
 use super::types::{Model, UnsatCore};
 
@@ -33,6 +39,39 @@ impl Solver {
                     continue;
                 };
                 model.set(term, bool_val);
+            }
+        }
+
+        // A Bool-sorted variable that occurs *only* as an `ite` selector has
+        // no outer clause, so the SAT core never assigned it and the loop
+        // above recorded nothing — but the bit-blasted circuit did decide it:
+        // the selector is a SAT variable of the *embedded* solver, chosen by
+        // its search.  Publish that value.  Printing the sort default `false`
+        // instead gave `(= x (ite p #x01 #x02)) ∧ (= x #x01)` the model
+        // `p = false, x = #x01`, which violates the first assertion, and the
+        // same missing entry made every assertion above `p` `Undetermined` to
+        // the model gate, so the gate could not refuse it either (`#P2b-27`).
+        // Only bare variables are published: a connective or comparison node
+        // is evaluated from its operands wherever it is read.
+        let mut circuit_bools: Vec<TermId> = self.bv.bool_node_terms().collect();
+        circuit_bools.sort_unstable_by_key(|t| t.raw());
+        for term in circuit_bools {
+            if model.get(term).is_some() {
+                continue;
+            }
+            let is_bool_var = manager.get(term).is_some_and(|t| {
+                t.sort == manager.sorts.bool_sort && matches!(t.kind, TermKind::Var(_))
+            });
+            if !is_bool_var {
+                continue;
+            }
+            if let Some(value) = self.bv.bool_value(term) {
+                let value_term = if value {
+                    manager.mk_true()
+                } else {
+                    manager.mk_false()
+                };
+                model.set(term, value_term);
             }
         }
 
@@ -78,6 +117,13 @@ impl Solver {
                     continue;
                 };
 
+                // The value is spelled at the sort of the term it values, not
+                // of the literal it was equated with: `(= (to_real x0) 3.0)`
+                // over an `Int` `x0` printed `(define-fun x0 () Int 3.0)`, an
+                // ill-sorted model (recheck 15's `i01`; every build).
+                let var_is_int = manager
+                    .get(var_term)
+                    .is_some_and(|t| t.sort == manager.sorts.int_sort);
                 match &const_term_data.kind {
                     TermKind::IntConst(n) => {
                         if let Some(val) = n.to_i64() {
@@ -85,6 +131,13 @@ impl Solver {
                             model.set(var_term, value_term);
                         }
                     }
+                    TermKind::RealConst(r) if var_is_int && r.is_integer() => {
+                        let value_term = manager.mk_int(r.to_integer());
+                        model.set(var_term, value_term);
+                    }
+                    // A non-integral literal is no value of an `Int` term; the
+                    // tableau's value is read below instead.
+                    TermKind::RealConst(_) if var_is_int => {}
                     TermKind::RealConst(r) => {
                         let value_term = manager.mk_real(*r);
                         model.set(var_term, value_term);
@@ -101,6 +154,17 @@ impl Solver {
                 }
             }
         }
+
+        // The variables of every arithmetic atom the encoder parsed: the only
+        // way a term reaches a tableau row.  A tracked term outside every one
+        // of them was never constrained by the arithmetic solver, so whatever
+        // value its column holds is a default (`#P2b-71`) — two such terms
+        // the congruence closure kept apart both read `0` there.
+        let constrained: FxHashSet<TermId> = self
+            .var_to_parsed_arith
+            .values()
+            .flat_map(|parsed| parsed.terms.iter().map(|&(term, _)| term))
+            .collect();
 
         // Get arithmetic values from theory solver
         // Iterate over tracked arithmetic terms
@@ -130,7 +194,11 @@ impl Solver {
                     // Real-sorted term: always use RealConst regardless of denominator
                     manager.mk_real(value)
                 };
-                model.set(term, value_term);
+                if constrained.contains(&term) {
+                    model.set(term, value_term);
+                } else {
+                    model.set_default(term, value_term);
+                }
             } else {
                 // If no value from ArithSolver (e.g., unconstrained variable), use default
                 // Get the sort to determine if it's Int or Real
@@ -144,27 +212,26 @@ impl Solver {
                 } else {
                     manager.mk_real(num_rational::Rational64::from_integer(0))
                 };
-                model.set(term, value_term);
+                // Recorded as a default: the printer gives a class no theory
+                // valued a fresh value instead, so two classes the search kept
+                // apart do not both print `0` (`#P2b-71`).
+                model.set_default(term, value_term);
             }
         }
 
-        // Get bitvector values.  Which theory owns a BV variable's value depends
-        // on how it was actually constrained (see `bv_solver_is_authoritative`):
+        // Get bitvector values from the bit-blasted circuit.  Every bit-vector
+        // atom — structure, (dis)equality, comparison — is bit-blasted with
+        // constant bits pinned, so `BvSolver::get_value_big` is the witness;
+        // a variable the circuit never saw (it took part in no asserted atom)
+        // is unconstrained and defaults to `0`.  There is no second source:
+        // the unbounded-integer relaxation of unsigned comparisons that the
+        // `ArithSolver` used to hold was retired in `#P2b-28` — it decided
+        // nothing the circuit does not, and overflowed `i64` at width 64.
         //
-        //   * BV structure (arithmetic, bitwise, shifts, concat/extract), BV
-        //     (dis)equalities and BV *comparisons* are all genuinely bit-blasted
-        //     — with constant operands pinned to their concrete bits — so
-        //     `BvSolver::get_value` is a real witness.
-        //   * Unsigned BV comparisons are *additionally* relaxed into the linear
-        //     `ArithSolver` as unbounded integers.  That relaxation carries no
-        //     `0 <= x < 2^width` domain bound, so its value can fall outside the
-        //     bit-vector's range; it is only consulted when the BV solver has
-        //     nothing, and is wrapped into range below either way.
-        //
-        // Establishing a single owning theory per problem keeps the extracted
-        // model self-consistent instead of reading a stale value from the wrong
-        // solver.
-        let bv_authoritative = self.bv_solver_is_authoritative(manager);
+        // `get_value_big` rather than `get_value`: the latter answers `None`
+        // for every bit-vector wider than 64 bits, so a 96-bit witness fell
+        // through to `0` — the model printed `#x000…0` for a variable the
+        // search had pinned to a huge constant.
         for &term in &self.bv_terms {
             // Don't overwrite if already set (shouldn't happen, but be safe)
             if model.get(term).is_some() {
@@ -178,44 +245,67 @@ impl Solver {
                 .and_then(|s| s.bitvec_width())
                 .unwrap_or(64);
 
-            // `get_value_big` rather than `get_value`: the latter answers `None`
-            // for every bit-vector wider than 64 bits, so a 96-bit witness fell
-            // through to the arithmetic relaxation and finally to `0` — the
-            // model printed `#x000…0` for a variable the search had pinned to a
-            // huge constant.
-            let bv_value = self.bv.get_value_big(term);
-            let arith_value = self.arith.value(term);
-
-            let raw_value = if bv_authoritative {
-                // BV theory owns the model: prefer its bit-blasted witness, then
-                // fall back to any bounded-integer value, then a default of 0.
-                if let Some(bv_value) = bv_value {
-                    num_bigint::BigInt::from(bv_value)
-                } else if let Some(arith_value) = arith_value {
-                    arith_value.to_integer().into()
-                } else {
-                    num_bigint::BigInt::ZERO
-                }
-            } else {
-                // No BV atom was bit-blasted (e.g. a BV variable that only ever
-                // appears under an uninterpreted function): the ArithSolver's
-                // relaxation is all we have.
-                if let Some(arith_value) = arith_value {
-                    arith_value.to_integer().into()
-                } else if let Some(bv_value) = bv_value {
-                    num_bigint::BigInt::from(bv_value)
-                } else {
-                    num_bigint::BigInt::ZERO
-                }
-            };
+            let circuit_value = self.bv.get_value_big(term).map(num_bigint::BigInt::from);
+            let defaulted = circuit_value.is_none();
+            let raw_value = circuit_value.unwrap_or(num_bigint::BigInt::ZERO);
             // A bit-vector model value must be a well-formed literal of the
-            // declared width.  The arithmetic relaxation has no domain bound, so
-            // it can hand back a negative or oversized integer (`(bvult x #x00)`
-            // used to yield `x = -1`, printed as the malformed `#x-1`).  Wrap
-            // into `[0, 2^width)` — the two's-complement reading SMT-LIB
-            // prescribes — before interning the constant.
+            // declared width: wrap into `[0, 2^width)` — the two's-complement
+            // reading SMT-LIB prescribes — before interning the constant.
             let value_term =
                 manager.mk_bitvec(oxiz_core::ast::bv_wrap_unsigned(&raw_value, width), width);
+            if defaulted {
+                // A variable the circuit never saw: a default, as above.
+                model.set_default(term, value_term);
+            } else {
+                model.set(term, value_term);
+            }
+        }
+
+        // A bit-vector term that occurs only as the argument of an
+        // uninterpreted function is not a theory variable of any atom, so
+        // `bv_terms` never lists it — but the bit-vector / EUF equality
+        // exchange (`#P2b-29`) gives it a circuit and *chooses* its value
+        // (`(distinct (g x) (g y))` needs `x ≠ y`).  Publish that choice:
+        // printing the sort default `#x00` for both sides handed the user a
+        // model that violates the assertion, while the verdict was right.
+        //
+        // Every *opaque leaf* of the circuit qualifies, not just a bare `Var`
+        // (`#P2b-34`): an array read and an uninterpreted application are
+        // leaves of the bit-blasting in exactly the same sense — free bits the
+        // search picks — and restricting the publication to `Var` is what left
+        // `(= (bvadd (select arr i) #x01) #x06)` printing `arr[i] = #x00`
+        // beside `i = #x00`, a model that falsifies its own assertion.  A
+        // compound node (`bvadd`, an `ite`) is *derived* from its operands and
+        // stays out: it is evaluated wherever it is read.
+        let mut circuit_leaves: Vec<TermId> = self
+            .bv
+            .circuit_terms()
+            .filter(|&term| model.get(term).is_none())
+            .filter(|&term| {
+                manager.get(term).is_some_and(|t| {
+                    matches!(
+                        t.kind,
+                        TermKind::Var(_) | TermKind::Select(..) | TermKind::Apply { .. }
+                    ) && manager.sorts.get(t.sort).is_some_and(|s| s.is_bitvec())
+                })
+            })
+            .collect();
+        circuit_leaves.sort_unstable_by_key(|t| t.raw());
+        for term in circuit_leaves {
+            let Some(width) = manager
+                .get(term)
+                .and_then(|t| manager.sorts.get(t.sort))
+                .and_then(|s| s.bitvec_width())
+            else {
+                continue;
+            };
+            let Some(value) = self.bv.get_value_big(term) else {
+                continue;
+            };
+            let value_term = manager.mk_bitvec(
+                oxiz_core::ast::bv_wrap_unsigned(&num_bigint::BigInt::from(value), width),
+                width,
+            );
             model.set(term, value_term);
         }
 
@@ -245,6 +335,14 @@ impl Solver {
                 model.set(original, value);
             }
         }
+
+        // Array reads the passes above could not reach (`#P2b-34`): a read
+        // whose value lives in the tableau or in a congruence class rather
+        // than in the circuit, and one the circuit holds under a term id the
+        // `circuit_terms` filter above never saw.  Runs after the purification
+        // aliases so a read published under its purified twin is already in
+        // scope, and before the array model is rendered from these entries.
+        self.publish_array_reads(&mut model, manager);
 
         // Rounding-mode values.  Must run after the Boolean pass above, which
         // is what put the mode-equality atoms' truth values into scope.
@@ -366,7 +464,7 @@ impl Solver {
         if self.dt_axiom_instances.is_empty() {
             return;
         }
-        let Some(scan) = scan_datatype_terms(&self.assertions, manager) else {
+        let Some(scan) = self.encoded_dt_scan(manager) else {
             return;
         };
 
@@ -434,56 +532,6 @@ impl Solver {
         }
 
         self.separate_disequal_dt_values(&decls, model, manager);
-        debug_verify_dt_model(&self.assertions, model, manager);
-    }
-
-    /// Pull apart two datatype values that the search proved *distinct* but the
-    /// reconstruction rendered identically.
-    ///
-    /// Distinctness of two applications of the *same* constructor lives entirely
-    /// in their fields, and a field the theory never pinned has no witness of its
-    /// own: `(assert (not (= p q)))` over `(mk-pair (fst Int) (snd Int))` leaves
-    /// the linear solver free to report the same value for `(fst p)` and
-    /// `(fst q)` (it discharges disequalities by case split, not by separating
-    /// witnesses — the same effect `Solver::eval_in_model` documents for
-    /// `distinct`), so both sides reconstructed to `(mk-pair 0 0)`.
-    ///
-    /// The repair only ever re-values a field whose accessor occurs in *no*
-    /// assertion — one nothing in the formula constrains, where every value of
-    /// the sort is equally legitimate — so it can only turn a wrong witness into
-    /// a right one, never the reverse.  See [`Solver::separate_dt_value`] for
-    /// why that, and not the arithmetic solver's `value()`, is the pin test.
-    fn separate_disequal_dt_values(
-        &self,
-        decls: &FxHashMap<SortId, DeclInfo>,
-        model: &mut Model,
-        manager: &mut TermManager,
-    ) {
-        let (disequal, equal_adjacency) = self.decided_dt_equalities(model, manager);
-        if disequal.is_empty() {
-            return;
-        }
-        let asserted = assertion_subterms(&self.assertions, manager);
-        for (left, right) in disequal {
-            let (Some(left_value), Some(right_value)) = (model.get(left), model.get(right)) else {
-                continue;
-            };
-            if left_value != right_value {
-                continue;
-            }
-            // The whole class the search proved equal to `right` has to move
-            // together, or the repair would break one of those equalities while
-            // fixing the disequality.  A class containing *both* sides is a
-            // contradictory assignment the repair must not paper over.
-            let class = equality_class(right, &equal_adjacency);
-            if class.contains(&left) {
-                continue;
-            }
-            let Some(sort) = manager.get(right).map(|node| node.sort) else {
-                continue;
-            };
-            self.separate_dt_value(right, sort, &class, &asserted, decls, model, manager);
-        }
     }
 
     /// The datatype-sorted term pairs whose equality atom the search decided
@@ -494,7 +542,11 @@ impl Solver {
     /// which theory ended up owning it — including the reconstruction axiom's
     /// own `t = Ci(sel(t)…)`, which relates every opaque datatype term to a
     /// constructor application.  Ordered by term id for determinism.
-    fn decided_dt_equalities(&self, model: &Model, manager: &TermManager) -> DecidedEqualities {
+    pub(super) fn decided_dt_equalities(
+        &self,
+        model: &Model,
+        manager: &TermManager,
+    ) -> DecidedEqualities {
         let mut disequal: Vec<(TermId, TermId)> = Vec::new();
         let mut adjacency: FxHashMap<TermId, Vec<TermId>> = FxHashMap::default();
         for &atom in self.term_to_var.keys() {
@@ -526,97 +578,6 @@ impl Solver {
         (disequal, adjacency)
     }
 
-    /// Re-value one numeric field of `term`'s reconstructed value so that the
-    /// value changes.
-    ///
-    /// Only fields of the outermost constructor are considered, and only
-    /// `Int`/`Real` ones whose accessor occurs in *no* assertion — for every
-    /// member of the equality class, so a field pinned through a term the search
-    /// proved equal to `term` is left alone too.  That is the criterion that
-    /// makes the repair safe: a term the assertions never mention has no
-    /// user constraint on it at all (the only lemmas that speak about it are
-    /// datatype axioms, which the repair moves *towards* satisfying), and it is
-    /// also invisible to [`Solver::model_refutes_assertions`], which evaluates
-    /// nothing but the assertions.  Note that the arithmetic solver's own
-    /// `value()` is *not* a usable pin test: it reports a value for every
-    /// tableau variable, constrained or not — reporting `0` for both `(fst p)`
-    /// and `(fst q)` is exactly how the collision arises.
-    ///
-    /// A datatype all of whose scalar fields are pinned keeps its colliding
-    /// value rather than acquiring a fabricated one.
-    ///
-    /// `class` is every term the search proved equal to `term`; all of them
-    /// receive the new value so the repair cannot break an equality.
-    #[allow(clippy::too_many_arguments)]
-    fn separate_dt_value(
-        &self,
-        term: TermId,
-        sort: SortId,
-        class: &[TermId],
-        asserted: &FxHashSet<TermId>,
-        decls: &FxHashMap<SortId, DeclInfo>,
-        model: &mut Model,
-        manager: &mut TermManager,
-    ) {
-        let Some(decl) = decls.get(&sort) else {
-            return;
-        };
-        let Some(TermKind::DtConstructor { constructor, args }) = model
-            .get(term)
-            .and_then(|value| manager.get(value))
-            .cloned()
-            .map(|node| node.kind)
-        else {
-            return;
-        };
-        let name = manager.resolve_str(constructor).to_string();
-        let Some(index) = decl.constructors.iter().position(|c| c.name == name) else {
-            return;
-        };
-        let fields: Vec<(String, SortId)> = decl.constructors[index]
-            .fields
-            .iter()
-            .map(|field| (field.selector.clone(), field.sort))
-            .collect();
-        if fields.len() != args.len() {
-            return;
-        }
-        let int_sort = manager.sorts.int_sort;
-        let real_sort = manager.sorts.real_sort;
-        for (position, (selector, field_sort)) in fields.into_iter().enumerate() {
-            if field_sort != int_sort && field_sort != real_sort {
-                continue;
-            }
-            let accessor = manager.mk_dt_selector(&selector, term, field_sort);
-            let pinned = class.iter().any(|&member| {
-                let member_accessor = manager.mk_dt_selector(&selector, member, field_sort);
-                asserted.contains(&member_accessor)
-            });
-            if pinned || asserted.contains(&accessor) {
-                continue;
-            }
-            let current = args[position];
-            let bumped = match manager.get(current).map(|node| node.kind.clone()) {
-                Some(TermKind::IntConst(value)) => manager.mk_int(value + 1),
-                Some(TermKind::RealConst(value)) => {
-                    manager.mk_real(value + num_rational::Rational64::from_integer(1))
-                }
-                _ => continue,
-            };
-            let mut new_args = args.to_vec();
-            new_args[position] = bumped;
-            let value = manager.mk_dt_constructor(&name, new_args, sort);
-            // Publish the field too, so `(get-value ((fst q)))` reports the very
-            // number `(get-model)` printed inside `q`.
-            model.set(accessor, bumped);
-            model.set(term, value);
-            for &member in class {
-                model.set(member, value);
-            }
-            return;
-        }
-    }
-
     /// Record `value` as the model entry for the datatype term `term`, unless it
     /// already has one.
     ///
@@ -631,6 +592,23 @@ impl Solver {
         if model.get(term).is_none() {
             model.set(term, value);
         }
+    }
+
+    /// The members of `term`'s congruence class of sort `sort`, `term`
+    /// excluded, in term-id order.
+    pub(super) fn dt_class_mates(
+        &self,
+        term: TermId,
+        sort: Option<SortId>,
+        manager: &TermManager,
+    ) -> Vec<TermId> {
+        let mut mates: Vec<TermId> = self
+            .euf_class_terms(term)
+            .into_iter()
+            .filter(|&member| member != term && manager.get(member).map(|n| n.sort) == sort)
+            .collect();
+        mates.sort_unstable_by_key(|member| member.raw());
+        mates
     }
 
     /// Build the constructor value of the datatype term `term`, or `None` when
@@ -987,108 +965,63 @@ impl Solver {
         }
         // An accessor introduced by the reconstruction axiom may carry a theory
         // value without ever having been registered for model extraction.
-        if sort == manager.sorts.int_sort {
-            let value = self.arith.value(term)?;
+        if sort == manager.sorts.int_sort
+            && let Some(value) = self.arith.value(term)
+        {
             return Some(manager.mk_int(*value.numer()));
         }
-        if sort == manager.sorts.real_sort {
-            let value = self.arith.value(term)?;
+        if sort == manager.sorts.real_sort
+            && let Some(value) = self.arith.value(term)
+        {
             return Some(manager.mk_real(value));
         }
         let width = manager
             .sorts
             .get(sort)
             .and_then(oxiz_core::sort::Sort::bitvec_width);
-        if let Some(width) = width {
+        if let Some(width) = width
+            && let Some(value) = self.bv.get_value_big(term)
+        {
             // Full-width witness: `get_value` is `None` above 64 bits, which
             // would report the field as unconstrained and let the datatype
             // reconstruction fill it with a sort default instead.
-            let value = self.bv.get_value_big(term)?;
             let wrapped = oxiz_core::ast::bv_wrap_unsigned(&num_bigint::BigInt::from(value), width);
             return Some(manager.mk_bitvec(wrapped, width));
         }
-        None
+        // A compound field — `(mk (+ (q 3) 1) 5)`'s first — has no theory
+        // variable of its own, so neither theory answers for it; its value is
+        // what its leaves fold to in this candidate.  Filling it with the sort
+        // default instead printed `p = (mk 0 5)` beside `q` constantly `0`, a
+        // model falsifying `p = (mk (+ (q 3) 1) 5)` (recheck 15's regression:
+        // the datatype refinement's re-solve moved `q` off the one value, `-1`,
+        // at which the default happened to be right).
+        self.folded_field_value(term, sort, model, manager)
     }
 
-    /// Decide whether the `BvSolver`'s bit-blasted model is authoritative for
-    /// BV terms in the current problem.
-    ///
-    /// It is authoritative when the problem contains genuine BV *structure* —
-    /// any BV arithmetic/bitwise/shift/concat/extract operation — or any BV
-    /// (dis)equality or comparison constraint.  All of those paths bit-blast
-    /// their operands with constant bits pinned to concrete values, so
-    /// `BvSolver::get_value` is a faithful witness.
-    ///
-    /// Comparisons count because `TheoryManager::process_constraint` now
-    /// bit-blasts their operands through `encode_bv_term_recursive` (pinning
-    /// `BitVecConst` bits) instead of allocating free bits via `new_bv`.  While
-    /// they were unpinned the BV model was arbitrary for a comparison-only
-    /// problem and the linear relaxation had to be trusted instead — but that
-    /// relaxation carries no `0 <= x < 2^width` bound and, for signed
-    /// comparisons, is deliberately never populated at all, so it produced
-    /// values that violate the very atom that made the query SAT (`x = 0` for
-    /// `(bvsle x #b10000000)`).
-    fn bv_solver_is_authoritative(&self, manager: &TermManager) -> bool {
-        // Any structural BV operation implies real bit-blasting.
-        for &term in &self.bv_terms {
-            if let Some(t) = manager.get(term)
-                && Self::is_structural_bv_op(&t.kind)
-            {
-                return true;
+    /// The value `model` gives a compound scalar field by folding its leaves
+    /// (read from the theories, as the candidate holds them), or `None`.
+    fn folded_field_value(
+        &self,
+        term: TermId,
+        sort: SortId,
+        model: &Model,
+        manager: &mut TermManager,
+    ) -> Option<TermId> {
+        match self.eval_in_model(term, model, manager, 0)? {
+            super::EvalVal::Bool(value) => Some(if value {
+                manager.mk_true()
+            } else {
+                manager.mk_false()
+            }),
+            super::EvalVal::Num(value) if sort == manager.sorts.int_sort => value
+                .is_integer()
+                .then(|| manager.mk_int(value.to_integer())),
+            super::EvalVal::Num(value) if sort == manager.sorts.real_sort => {
+                Some(manager.mk_real(value))
             }
+            super::EvalVal::Bv { value, width } => Some(manager.mk_bitvec(value, width)),
+            _ => None,
         }
-
-        // Any BV (dis)equality or comparison also bit-blasts both operands with
-        // pinned constants.  A disequality `a != b` is stored as an `Eq` atom
-        // whose SAT variable is assigned false, so both cases surface as `Eq`;
-        // `bvult`/`bvule`/`bvslt`/`bvsle` surface as `Lt`/`Le`.
-        let is_bv = |tid: TermId| -> bool {
-            manager
-                .get(tid)
-                .and_then(|t| manager.sorts.get(t.sort))
-                .is_some_and(|s| s.is_bitvec())
-        };
-        for constraint in self.var_to_constraint.values() {
-            let operands = match constraint {
-                Constraint::Eq(lhs, rhs)
-                | Constraint::Lt(lhs, rhs)
-                | Constraint::Le(lhs, rhs)
-                | Constraint::Gt(lhs, rhs)
-                | Constraint::Ge(lhs, rhs) => (*lhs, *rhs),
-                _ => continue,
-            };
-            if is_bv(operands.0) || is_bv(operands.1) {
-                return true;
-            }
-        }
-
-        false
-    }
-
-    /// Whether a `TermKind` is a structural BV operation (arithmetic, bitwise,
-    /// shift, concat, or extract) — as opposed to a comparison, constant, or
-    /// variable.  Structural ops are the ones the BV solver genuinely
-    /// bit-blasts, making its model authoritative.
-    fn is_structural_bv_op(kind: &TermKind) -> bool {
-        matches!(
-            kind,
-            TermKind::BvNot(_)
-                | TermKind::BvAnd(_, _)
-                | TermKind::BvOr(_, _)
-                | TermKind::BvXor(_, _)
-                | TermKind::BvAdd(_, _)
-                | TermKind::BvSub(_, _)
-                | TermKind::BvMul(_, _)
-                | TermKind::BvUdiv(_, _)
-                | TermKind::BvSdiv(_, _)
-                | TermKind::BvUrem(_, _)
-                | TermKind::BvSrem(_, _)
-                | TermKind::BvShl(_, _)
-                | TermKind::BvLshr(_, _)
-                | TermKind::BvAshr(_, _)
-                | TermKind::BvConcat(_, _)
-                | TermKind::BvExtract { .. }
-        )
     }
 
     /// Canonical EUF congruence-class representative node for `term`.
@@ -1108,6 +1041,81 @@ impl Solver {
         // sources cannot both be populated for one verdict, so there is no
         // ambiguity about which class id a caller is looking at.
         self.equality_skeleton_classes.get(&term).copied()
+    }
+
+    /// Every term of `term`'s congruence class, or just `term` itself when the
+    /// congruence closure never interned it.
+    ///
+    /// The model printers need the *class*, not the term: an array is
+    /// rendered from what the model published about any member of its class —
+    /// the default of an `(as const d)` member, the writes of a `store`
+    /// member, the reads of any member — so that two arrays the solver proved
+    /// equal print identically and two it proved different print differently
+    /// (`#P2b-34`).
+    pub(crate) fn euf_class_terms(&self, term: TermId) -> Vec<TermId> {
+        let Some(node) = self.euf.term_to_node(term) else {
+            return vec![term];
+        };
+        let representative = self.euf.find_immutable(node);
+        let mut members: Vec<TermId> = self
+            .euf
+            .class_members(representative)
+            .into_iter()
+            .filter_map(|member| self.euf.node_term(member))
+            .collect();
+        if !members.contains(&term) {
+            members.push(term);
+        }
+        members
+    }
+
+    /// Every term the congruence closure interned, in term-id order: the
+    /// members of every class, which `Context`'s fresh values (`#P2b-71`)
+    /// reach through their application and `select` members too.
+    pub(crate) fn euf_interned_terms(&self) -> Vec<TermId> {
+        let mut out: Vec<TermId> = self
+            .euf
+            .all_node_indices()
+            .filter_map(|node| self.euf.node_term(node))
+            .collect();
+        out.sort_unstable_by_key(|term| term.raw());
+        out.dedup();
+        out
+    }
+
+    /// The value `model` gives some member of `term`'s congruence class, for
+    /// a term whose own entry `build_model` never wrote.
+    ///
+    /// `(get-value ((f b)))` after `(= a b)` and `(= (f a) #x07)`: the model
+    /// holds an entry for `(f a)` — the application an equality atom pinned
+    /// — and none for `(f b)`, yet congruence closure holds the two in one
+    /// class, so `(f b)` is `#x07` in every model consistent with the
+    /// assignment.  The first member carrying a model entry, or that is a
+    /// value term itself (the `#x07` in `(= (f a) #x07)`), is that value;
+    /// the walk is the one `get_func_interp_raw`'s `class_value_string`
+    /// makes per class, and it is exact for the same reason.  `None` when
+    /// the term was never interned into congruence closure or no member of
+    /// its class carries a value.
+    pub(crate) fn euf_class_value(
+        &self,
+        term: TermId,
+        model: &Model,
+        manager: &TermManager,
+    ) -> Option<TermId> {
+        let node = self.euf.term_to_node(term)?;
+        let representative = self.euf.find_immutable(node);
+        for member in self.euf.class_members(representative) {
+            let Some(member_term) = self.euf.node_term(member) else {
+                continue;
+            };
+            if let Some(value) = model.get(member_term) {
+                return Some(value);
+            }
+            if is_value_term(member_term, manager) {
+                return Some(member_term);
+            }
+        }
+        None
     }
 
     /// Build unsat core for trivial conflicts (assertion of false)
@@ -1240,7 +1248,10 @@ fn is_value_term(term: TermId, manager: &TermManager) -> bool {
 /// Used as the "is this term pinned by the formula?" test: a term that occurs
 /// nowhere in the assertions carries no user constraint, so a model completion
 /// is free to give it any value of its sort.
-fn assertion_subterms(assertions: &[TermId], manager: &TermManager) -> FxHashSet<TermId> {
+pub(super) fn assertion_subterms(
+    assertions: &[TermId],
+    manager: &TermManager,
+) -> FxHashSet<TermId> {
     let mut seen: FxHashSet<TermId> = FxHashSet::default();
     let mut stack: Vec<TermId> = assertions.to_vec();
     let mut children: Vec<TermId> = Vec::new();
@@ -1260,7 +1271,10 @@ fn assertion_subterms(assertions: &[TermId], manager: &TermManager) -> FxHashSet
 
 /// Every term reachable from `term` through decided-true equalities, `term`
 /// included, in ascending term-id order.
-fn equality_class(term: TermId, adjacency: &FxHashMap<TermId, Vec<TermId>>) -> Vec<TermId> {
+pub(super) fn equality_class(
+    term: TermId,
+    adjacency: &FxHashMap<TermId, Vec<TermId>>,
+) -> Vec<TermId> {
     let mut seen: FxHashSet<TermId> = FxHashSet::default();
     let mut stack = vec![term];
     while let Some(next) = stack.pop() {
@@ -1283,223 +1297,6 @@ fn bool_value(term: TermId, manager: &TermManager) -> Option<bool> {
         TermKind::True => Some(true),
         TermKind::False => Some(false),
         _ => None,
-    }
-}
-
-/// Release build: the datatype model-validity net compiles away entirely.
-#[cfg(not(debug_assertions))]
-#[inline]
-fn debug_verify_dt_model(_assertions: &[TermId], _model: &Model, _manager: &TermManager) {}
-
-/// Debug-only model-validity net for the datatype reconstruction.
-///
-/// Substitutes the reconstructed values back into the original assertions and
-/// evaluates their *datatype fragment* — testers and datatype equalities, under
-/// the Boolean structure that connects them.  An assertion that comes out
-/// definitively `false` means the printed model does not satisfy the formula,
-/// which is precisely the defect this pass exists to remove: before it,
-/// `((_ is cons) l) ∧ (= (head l) 7)` was answered `sat` with the witness
-/// `l = nil`, and the tester evaluates to `false` under exactly that witness.
-///
-/// Deliberately three-valued and tolerant.  Anything outside the datatype
-/// fragment — arithmetic, bit-vectors, uninterpreted applications, a term with
-/// no reconstructed value — is *inconclusive*, and inconclusive poisons every
-/// enclosing connective, so only a violation the reconstruction is genuinely
-/// responsible for can fire.  A datatype equality follows the same asymmetry
-/// [`Solver::eval_in_model`] uses for numbers: two *different* values falsify
-/// it, but two identical values are not evidence that it holds, because the
-/// theories below do not always separate the witnesses of terms they merely
-/// proved distinct.  Compiles to nothing in release builds.
-#[cfg(debug_assertions)]
-fn debug_verify_dt_model(assertions: &[TermId], model: &Model, manager: &TermManager) {
-    for &assertion in assertions {
-        debug_assert!(
-            dt_fragment_value(assertion, model, manager) != Some(false),
-            "reconstructed datatype model falsifies an assertion: {}",
-            oxiz_core::smtlib::Printer::new(manager).print_term(assertion)
-        );
-    }
-}
-
-/// Three-valued evaluation of `term`'s datatype fragment under `model`;
-/// `None` means inconclusive.  See [`debug_verify_dt_model`].
-///
-/// Iterative (explicit frame stack), so the net keeps working — instead of
-/// overflowing the stack or silently going inconclusive past a depth cap — on
-/// arbitrarily deep Boolean structure.  Short-circuiting matches the
-/// recursive original: `and` stops at the first definite `false`, `or` at the
-/// first definite `true`, while an inconclusive operand only taints the
-/// result; `=>` evaluates both sides.
-#[cfg(debug_assertions)]
-fn dt_fragment_value(term: TermId, model: &Model, manager: &TermManager) -> Option<bool> {
-    /// One pending connective of the three-valued walk.
-    enum FragFrame {
-        Not,
-        And {
-            args: SmallVec<[TermId; 4]>,
-            next: usize,
-            all_true: bool,
-        },
-        Or {
-            args: SmallVec<[TermId; 4]>,
-            next: usize,
-            all_false: bool,
-        },
-        ImpliesLhs {
-            rhs: TermId,
-        },
-        ImpliesRhs {
-            lhs: Option<bool>,
-        },
-    }
-
-    let mut frames: Vec<FragFrame> = Vec::new();
-    let mut current = term;
-    'open: loop {
-        // Evaluate leaves; descend through connectives.
-        let mut value: Option<bool> = loop {
-            let Some(node) = manager.get(current) else {
-                break None;
-            };
-            match &node.kind {
-                TermKind::True => break Some(true),
-                TermKind::False => break Some(false),
-                TermKind::Not(arg) => {
-                    frames.push(FragFrame::Not);
-                    current = *arg;
-                }
-                TermKind::And(args) => match args.first() {
-                    Some(&first) => {
-                        frames.push(FragFrame::And {
-                            args: args.clone(),
-                            next: 1,
-                            all_true: true,
-                        });
-                        current = first;
-                    }
-                    None => break Some(true),
-                },
-                TermKind::Or(args) => match args.first() {
-                    Some(&first) => {
-                        frames.push(FragFrame::Or {
-                            args: args.clone(),
-                            next: 1,
-                            all_false: true,
-                        });
-                        current = first;
-                    }
-                    None => break Some(false),
-                },
-                TermKind::Implies(a, b) => {
-                    frames.push(FragFrame::ImpliesLhs { rhs: *b });
-                    current = *a;
-                }
-                // `is_C(t)` is decided by the constructor of `t`'s
-                // reconstructed value.
-                TermKind::DtTester { constructor, arg } => {
-                    let expected = *constructor;
-                    let arg = *arg;
-                    break model
-                        .get(arg)
-                        .and_then(|value| match &manager.get(value)?.kind {
-                            TermKind::DtConstructor {
-                                constructor: actual,
-                                ..
-                            } => Some(*actual == expected),
-                            _ => None,
-                        });
-                }
-                // Datatype values are hash-consed ground trees, so structural
-                // equality is term-id equality.  Only the *negative* direction
-                // is evidence.
-                TermKind::Eq(left, right)
-                    if manager
-                        .get(*left)
-                        .is_some_and(|node| manager.sorts.is_datatype(node.sort)) =>
-                {
-                    let (left, right) = (*left, *right);
-                    break match (model.get(left), model.get(right)) {
-                        (Some(left_value), Some(right_value)) => {
-                            (left_value != right_value).then_some(false)
-                        }
-                        _ => None,
-                    };
-                }
-                _ => break None,
-            }
-        };
-
-        // Fold the finished operand into the pending connectives.
-        loop {
-            let Some(frame) = frames.pop() else {
-                return value;
-            };
-            match frame {
-                FragFrame::Not => value = value.map(|v| !v),
-                FragFrame::And {
-                    args,
-                    next,
-                    mut all_true,
-                } => {
-                    match value {
-                        // Definite `false` decides the conjunction; the
-                        // remaining operands are not evaluated.
-                        Some(false) => {
-                            value = Some(false);
-                            continue;
-                        }
-                        Some(true) => {}
-                        None => all_true = false,
-                    }
-                    if let Some(&child) = args.get(next) {
-                        frames.push(FragFrame::And {
-                            args,
-                            next: next + 1,
-                            all_true,
-                        });
-                        current = child;
-                        continue 'open;
-                    }
-                    value = all_true.then_some(true);
-                }
-                FragFrame::Or {
-                    args,
-                    next,
-                    mut all_false,
-                } => {
-                    match value {
-                        Some(true) => {
-                            value = Some(true);
-                            continue;
-                        }
-                        Some(false) => {}
-                        None => all_false = false,
-                    }
-                    if let Some(&child) = args.get(next) {
-                        frames.push(FragFrame::Or {
-                            args,
-                            next: next + 1,
-                            all_false,
-                        });
-                        current = child;
-                        continue 'open;
-                    }
-                    value = all_false.then_some(false);
-                }
-                FragFrame::ImpliesLhs { rhs } => {
-                    frames.push(FragFrame::ImpliesRhs { lhs: value });
-                    current = rhs;
-                    continue 'open;
-                }
-                FragFrame::ImpliesRhs { lhs } => {
-                    value = match (lhs, value) {
-                        (Some(false), _) | (_, Some(true)) => Some(true),
-                        (Some(true), Some(false)) => Some(false),
-                        _ => None,
-                    };
-                }
-            }
-        }
     }
 }
 

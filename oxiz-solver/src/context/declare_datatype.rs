@@ -49,10 +49,10 @@ impl Context {
                 let ctor_name = self.terms.resolve_str(ctor.name).to_string();
                 let selector_sorts: Vec<SortId> =
                     ctor.selectors.iter().map(|&(_, sort)| sort).collect();
-                self.declare_fun(&ctor_name, selector_sorts, dt_sort);
+                self.declare_interpreted_fun(&ctor_name, selector_sorts, dt_sort);
                 for &(sel_spur, sel_sort) in &ctor.selectors {
                     let sel_name = self.terms.resolve_str(sel_spur).to_string();
-                    self.declare_fun(&sel_name, vec![dt_sort], sel_sort);
+                    self.declare_interpreted_fun(&sel_name, vec![dt_sort], sel_sort);
                 }
             }
         }

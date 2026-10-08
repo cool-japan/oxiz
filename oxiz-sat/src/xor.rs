@@ -204,7 +204,10 @@ impl GF2Matrix {
             row.num_vars = self.num_vars;
         }
 
-        loop {
+        // The loop ends only by `break` with the row's first set column (the
+        // row is not changed after that `first_set`), so `pivot_col` is the
+        // lowest set column of the row as it is added.
+        let pivot_col = loop {
             let first = match row.first_set() {
                 Some(f) => f,
                 None => {
@@ -220,20 +223,19 @@ impl GF2Matrix {
                 row.xor_with(&self.rows[pivot_row]);
             } else {
                 // Found a new pivot
-                break;
+                break first;
             }
-        }
+        };
 
-        // Check for unit constraint
+        // Check for unit constraint: with exactly one set column, that column
+        // is the first one.
         if row.popcount() == 1 {
-            let var_idx = row.first_set().expect("popcount == 1");
-            let var = self.col_to_var[var_idx];
+            let var = self.col_to_var[pivot_col];
             let value = row.rhs;
             return XorAddResult::Unit(var, value, row.sources.clone());
         }
 
         // Add as new row with pivot
-        let pivot_col = row.first_set().expect("non-zero row");
         let row_idx = self.rows.len();
         self.pivots[pivot_col] = Some(row_idx);
         self.rows.push(row.clone());
@@ -279,20 +281,25 @@ impl GF2Matrix {
                     row.rhs = !row.rhs;
                 }
 
-                // Check for unit or conflict
-                if row.is_zero() {
-                    if row.rhs {
-                        results.push(XorAddResult::Conflict(row.sources.clone()));
+                // Check for unit or conflict: `first_set` is `None` exactly
+                // when the row is zero, and with exactly one set column that
+                // column is the first one.
+                match row.first_set() {
+                    None => {
+                        if row.rhs {
+                            results.push(XorAddResult::Conflict(row.sources.clone()));
+                        }
                     }
-                } else if row.popcount() == 1 {
-                    let var_idx = row.first_set().expect("popcount == 1");
-                    let implied_var = self.col_to_var[var_idx];
-                    let implied_value = row.rhs;
-                    results.push(XorAddResult::Unit(
-                        implied_var,
-                        implied_value,
-                        row.sources.clone(),
-                    ));
+                    Some(var_idx) if row.popcount() == 1 => {
+                        let implied_var = self.col_to_var[var_idx];
+                        let implied_value = row.rhs;
+                        results.push(XorAddResult::Unit(
+                            implied_var,
+                            implied_value,
+                            row.sources.clone(),
+                        ));
+                    }
+                    Some(_) => {}
                 }
             }
         }

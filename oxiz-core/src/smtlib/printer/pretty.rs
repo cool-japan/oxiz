@@ -185,8 +185,15 @@ impl<'a> PrettyPrinter<'a> {
             TermKind::Sub(lhs, rhs) => {
                 self.write_binary_term(w, "-", *lhs, *rhs, indent, depth, break_here);
             }
+            // See the basic printer's arm: one term kind, two SMT-LIB
+            // divisions, told apart by the term's sort.
             TermKind::Div(lhs, rhs) => {
-                self.write_binary_term(w, "div", *lhs, *rhs, indent, depth, break_here);
+                let symbol = if term.sort == self.manager.sorts.real_sort {
+                    "/"
+                } else {
+                    "div"
+                };
+                self.write_binary_term(w, symbol, *lhs, *rhs, indent, depth, break_here);
             }
             TermKind::Mod(lhs, rhs) => {
                 self.write_binary_term(w, "mod", *lhs, *rhs, indent, depth, break_here);
@@ -479,6 +486,23 @@ impl<'a> PrettyPrinter<'a> {
             }
             TermKind::Apply { func, args } => {
                 let name = self.manager.resolve_str(*func);
+                // The array constant's reserved interned name
+                // (`smtlib::CONST_ARRAY_FUNC`) is printed back in the SMT-LIB
+                // spelling it came from, qualified by the application's own
+                // array sort — see the same arm in the basic printer.  Always
+                // on one line: the head is a sort annotation, not an operand
+                // list, and breaking inside it reads as three arguments.
+                if name == crate::smtlib::CONST_ARRAY_FUNC {
+                    let _ = write!(w, "((as const ");
+                    self.write_sort(w, term.sort);
+                    let _ = write!(w, ")");
+                    for arg in args {
+                        let _ = write!(w, " ");
+                        self.write_term(w, *arg, indent, depth + 1);
+                    }
+                    let _ = write!(w, ")");
+                    return;
+                }
                 if break_here && !args.is_empty() {
                     let inner_indent = indent + self.config.indent_width;
                     let _ = write!(w, "({name}");

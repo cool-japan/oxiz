@@ -140,15 +140,22 @@ impl TheoryManager<'_> {
 
         // An empty clause is an unconditional top-level refutation.  Reaching
         // one from a non-empty reason set would mean the theory tautologies
-        // alone are inconsistent, which they are not — so treat it as the same
-        // class of bug and fall back to the conservative lemma.
+        // alone are inconsistent, which they are not — so the conflict itself
+        // is SPURIOUS, not merely under-explained, and no lemma exists: not
+        // even the negation of the whole assignment, which is valid only when
+        // the theories genuinely refute that assignment.  Falling back to it
+        // here is how the recheck-12 wrong `unsat` came about (a literal
+        // `#b1` read off a stale circuit snapshot as `#b0` and merged with
+        // `#b0` "for good"; `bv_bridge::model_partition_lemma`): the conflict
+        // is aborted instead and the solver answers `unknown` if nothing else
+        // decides.
         if conflict.is_empty() && !terms.is_empty() {
             debug_assert!(
                 false,
                 "theory conflict over {terms:?} produced an empty clause: that \
                  claims an unconditional refutation from tautologies alone"
             );
-            return self.full_assignment_conflict_clause();
+            return None;
         }
         // Belt and braces for the remaining shape, `terms.is_empty()`: a theory
         // that reports a refutation blaming *nothing* has not justified it
@@ -319,10 +326,11 @@ mod tests {
                 &mut self.statistics,
                 0,
                 0,
+                0,
                 false,
                 false,
                 &self.quantifier_uf_funcs,
-                0,
+                None,
             )
         }
     }

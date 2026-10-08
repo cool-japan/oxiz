@@ -3,6 +3,10 @@
 //! Split out of `solver.rs` to keep that file under the 2000-line policy.
 
 use super::*;
+// `TheoryCombination` now lives in the sibling `combination` module, so the
+// glob above no longer brings the trait into scope; the tests below call
+// `get_shared_equalities` / `notify_equality` through it.
+use crate::theory::TheoryCombination;
 
 /// Regression (theories-bv, 811-line solver.rs refactor): a genuinely
 /// satisfiable 8-bit multiplication + disjunction pattern must not return
@@ -17,6 +21,11 @@ use super::*;
 /// probe. `embedded_sat_config()` now disables that heuristic (and
 /// inprocessing) so the incremental cleanup contract stays exact.
 ///
+/// Re-fix pass 12 replaced that cleanup contract altogether (an assertion is
+/// an assumption literal now, never a level-0 unit — `scope.rs`), and the
+/// regression is kept as it was: the same branches must still answer the same
+/// way.
+///
 /// Drives the same `a = x*3 ∧ a ≠ x ∧ (a = x ∨ a = 7)` disjunction as the
 /// `oxiz-solver` integration test `bv_mul_aux_disjunction_const_is_sat_8bit`
 /// via explicit `push`/`check`/`pop` branches: branch `a = x` is UNSAT, the
@@ -30,11 +39,11 @@ fn run_mul_disjunction_branches(width: u32) -> (TheoryResult, TheoryResult) {
     solver.new_bv(x, width);
     solver.assert_const(three, 3, width);
     solver.bv_mul(a, x, three);
-    solver.assert_neq(a, x);
+    assert!(solver.assert_neq(a, x));
 
     // Disjunct 1: a = x  (=> UNSAT: x*3 = x with x != x is impossible).
     solver.push();
-    solver.assert_eq(a, x);
+    assert!(solver.assert_eq(a, x));
     let r1 = solver.check().expect("check should succeed");
     solver.pop();
 
@@ -42,7 +51,7 @@ fn run_mul_disjunction_branches(width: u32) -> (TheoryResult, TheoryResult) {
     solver.push();
     solver.new_bv(seven, width);
     solver.assert_const(seven, 7, width);
-    solver.assert_eq(a, seven);
+    assert!(solver.assert_eq(a, seven));
     let r2 = solver.check().expect("check should succeed");
     solver.pop();
     (r1, r2)
@@ -73,7 +82,7 @@ fn bv_mul_disjunction_single_check_is_sat_8bit() {
     solver.new_bv(x, 8);
     solver.assert_const(three, 3, 8);
     solver.bv_mul(a, x, three);
-    solver.assert_neq(a, x);
+    assert!(solver.assert_neq(a, x));
     solver.assert_const(a, 7, 8);
     let r = solver.check().expect("check should succeed");
     assert!(matches!(r, TheoryResult::Sat), "got {r:?}");
@@ -93,7 +102,7 @@ fn test_bv_eq() {
     solver.assert_const(a, 42, 8);
 
     // a = b
-    solver.assert_eq(a, b);
+    assert!(solver.assert_eq(a, b));
 
     let result = solver.check().expect("test operation should succeed");
     assert!(matches!(result, TheoryResult::Sat));
@@ -117,7 +126,7 @@ fn test_bv_neq() {
     // b = 5
     solver.assert_const(b, 5, 4);
     // a != b (contradiction)
-    solver.assert_neq(a, b);
+    assert!(solver.assert_neq(a, b));
 
     let result = solver.check().expect("test operation should succeed");
     assert!(matches!(result, TheoryResult::Unsat(_)));
@@ -128,9 +137,10 @@ fn test_bv_neq() {
 // constraint (fixed dividend/quotient, free divisor) because its own
 // first internal `solve()` call could hit an unsound learned clause
 // (resolved through a bare, clause-less level-0 decision literal
-// installed by `assert_const`). `check()` now re-verifies an `Unsat`
+// installed by `assert_const`). `check()` re-verified an `Unsat`
 // verdict by discarding this probe's learned clauses and retrying once
-// before trusting it. This was previously worked around at the test
+// before trusting it, until re-fix pass 12 removed the bare units that made
+// that necessary (`scope.rs`); the regression stays pinned. This was previously worked around at the test
 // level by `#[ignore]`ing `test_bv10_udiv` in `tests/test_bv10.rs`.
 #[test]
 fn audit_check_recovers_from_first_attempt_false_unsat() {
@@ -150,7 +160,7 @@ fn audit_check_recovers_from_first_attempt_false_unsat() {
     solver.assert_const(dividend, 100, width);
     solver.assert_const(quotient, 5, width);
     solver.bv_udiv(result, dividend, divisor);
-    solver.assert_eq(result, quotient);
+    assert!(solver.assert_eq(result, quotient));
 
     let outcome = solver.check().expect("check should succeed");
     assert!(

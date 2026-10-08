@@ -254,7 +254,7 @@ impl Context {
                 // declared as a constant here for the terms to coincide.
                 self.declare_const(&decl.name, ret_sort);
             } else {
-                self.declare_fun(&decl.name, arg_sorts, ret_sort);
+                self.declare_interpreted_fun(&decl.name, arg_sorts, ret_sort);
             }
             let index = self.recfun.defs.len();
             self.recfun.defs.push(RecDef {

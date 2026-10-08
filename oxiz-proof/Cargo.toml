@@ -17,12 +17,9 @@ oxiz-time = { workspace = true, features = ["std"] }
 smallvec.workspace = true
 rustc-hash = { workspace = true, features = ["std"] }
 thiserror = { workspace = true, features = ["std"] }
-tracing = { workspace = true, features = ["std"] }
 bumpalo = { workspace = true, optional = true }
 regex.workspace = true
 num-rational = { workspace = true, features = ["std"] }
-num-bigint = { workspace = true, features = ["std"] }
-num-traits = { workspace = true, features = ["std"] }
 oxiz-sat = { workspace = true, optional = true, features = ["std"] }
 serde = { workspace = true, optional = true }
 
@@ -36,6 +33,7 @@ arena = ["dep:bumpalo"]
 [dev-dependencies]
 proptest.workspace = true
 criterion.workspace = true
+num-bigint = { workspace = true, features = ["std"] }
 
 [[bench]]
 name = "proof_benchmarks"

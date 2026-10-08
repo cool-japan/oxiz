@@ -28,10 +28,10 @@ fn test_trace_4bit() {
     solver.bv_add(sum, a, b);
 
     println!("Adding: sum == target");
-    solver.assert_eq(sum, target);
+    assert!(solver.assert_eq(sum, target));
 
     println!("Adding: a < b");
-    solver.assert_ult(a, b);
+    assert!(solver.assert_ult(a, b));
 
     println!("Solving...");
     match solver.check() {
@@ -92,10 +92,10 @@ fn test_trace_2bit() {
     solver.bv_add(sum, a, b);
 
     println!("Adding: sum == target");
-    solver.assert_eq(sum, target);
+    assert!(solver.assert_eq(sum, target));
 
     println!("Adding: a < b");
-    solver.assert_ult(a, b);
+    assert!(solver.assert_ult(a, b));
 
     println!("Solving...");
     match solver.check() {
@@ -151,8 +151,8 @@ fn test_trace_3bit() {
     solver.assert_const(target, 5, width); // 101 in binary
 
     solver.bv_add(sum, a, b);
-    solver.assert_eq(sum, target);
-    solver.assert_ult(a, b);
+    assert!(solver.assert_eq(sum, target));
+    assert!(solver.assert_ult(a, b));
 
     // Solutions: a=0,b=5; a=1,b=4; a=2,b=3
 

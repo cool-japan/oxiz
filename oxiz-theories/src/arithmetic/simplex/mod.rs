@@ -802,12 +802,9 @@ impl Simplex {
     /// every theory check.
     fn make_feasible(&mut self) -> Result<(), Vec<u32>> {
         for _ in 0..self.max_pivots {
-            let violating = self.find_violating();
-            if violating.is_none() {
+            let Some((basic_var, bound)) = self.find_violating() else {
                 return Ok(());
-            }
-            let (basic_var, bound) =
-                violating.expect("violating basic variable must exist after is_none check");
+            };
             let pivot_col = self.find_pivot_col(basic_var, &bound);
             match pivot_col {
                 Some(nonbasic_var) => {
@@ -846,12 +843,9 @@ impl Simplex {
         self.resource_limit = false;
         self.update_assignment();
         for _ in 0..self.max_pivots {
-            let violating = self.find_violating();
-            if violating.is_none() {
+            let Some((leaving_var, bound)) = self.find_violating() else {
                 return Ok(());
-            }
-            let (leaving_var, bound) =
-                violating.expect("violating basic variable must exist after is_none check");
+            };
             let entering = self.find_dual_pivot_col(leaving_var, &bound);
             match entering {
                 Some(entering_var) => {

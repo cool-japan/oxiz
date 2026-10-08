@@ -354,13 +354,14 @@ fn test_pr30_wide_range_uf_argument_stays_sat() {
 /// model says `y = 3` yet gives `f(y)` and `f(3)` different values, so it is
 /// not a function and cannot be reported as a model.
 ///
-/// The verdict is `unknown`, not `unsat`. `unknown` is sound -- it is the
-/// honest answer once the candidate has been refuted and the search has
-/// reached its MBQI fixpoint with nothing left to try. Deriving the full
-/// `unsat` would require purifying UF arguments under binders as well, which
-/// is exactly what the per-function gate exists to avoid (it perturbs
-/// e-matching: see `encode::numeric_purification`). Closing that gap is a
-/// completeness improvement, not a soundness one; `sat` here was the bug.
+/// The verdict was `unknown` until round-4 re-fix pass 15: the gate refused
+/// the candidate and the search had nothing left to try. It is `unsat` now,
+/// derived without purifying UF arguments under binders (which the
+/// per-function gate exists to avoid, because it perturbs e-matching: see
+/// `encode::numeric_purification`): a refused candidate that is not a
+/// function gets the Ackermann lemma `y = 3 ⇒ f(y) = f(3)` and one more
+/// round (`Solver::assert_exit_consistency_lemmas`), and that round refutes
+/// the ground part. `sat` here was the bug; `unsat` is the answer (z3 agrees).
 #[test]
 fn test_pr30_quantifier_trigger_function_ground_diseq_is_not_sat() {
     let output = run(r#"
@@ -376,9 +377,9 @@ fn test_pr30_quantifier_trigger_function_ground_diseq_is_not_sat() {
     "#);
     assert_eq!(
         output,
-        vec!["unknown"],
-        "the ground part is unsatisfiable, so `sat` is wrong; `unknown` is the \
-         sound verdict the model-verification gate produces"
+        vec!["unsat"],
+        "the ground part is unsatisfiable: the refused candidate's Ackermann \
+         lemma `y = 3 => f(y) = f(3)` refutes it"
     );
 }
 

@@ -704,3 +704,68 @@ fn regression_lra_strict_range_model_inside_bounds() {
         "model x = {value} is outside the strict range (0, 1/2)"
     );
 }
+
+/// `2x = 1` over an `Int` `x`, with the integrality deferred to the caller
+/// (re-fix pass 16, `mixed` module "Deferred integrality"): the solver runs
+/// as with no mark — the relaxation `x = 1/2` is feasible, `value()` reads
+/// it unrounded — and names `x` as the fractional marked term with its split
+/// bounds; taken back, the same constraint is refuted.
+#[test]
+fn deferred_integrality_leaves_the_relaxation_to_the_caller() {
+    let x = TermId::new(1);
+    let reason = TermId::new(100);
+    let two = Rational64::from_integer(2);
+
+    let mut deferred = ArithSolver::lra();
+    deferred.mark_int_term(x);
+    deferred.set_defer_integrality(true);
+    assert!(deferred.integrality_deferred());
+    deferred.assert_eq(&[(x, two)], Rational64::one(), reason);
+    let result = deferred
+        .check_integrality()
+        .expect("test operation should succeed");
+    assert!(matches!(result, TheoryResult::Sat), "{result:?}");
+    assert_eq!(deferred.value(x), Some(Rational64::new(1, 2)));
+    assert_eq!(
+        deferred.first_non_integral_int_term(),
+        Some((x, Rational64::zero(), Rational64::one()))
+    );
+
+    let mut decided = ArithSolver::lra();
+    decided.mark_int_term(x);
+    decided.assert_eq(&[(x, two)], Rational64::one(), reason);
+    let result = decided
+        .check_integrality()
+        .expect("test operation should succeed");
+    assert!(matches!(result, TheoryResult::Unsat(_)), "{result:?}");
+}
+
+/// A strict bound over an `Int` term is not tightened while the integrality is
+/// deferred: `2 < x < 3` keeps `x` at `2 + δ` or `3 − δ`, which the caller
+/// reads as the split `x ≤ 2 ∨ x ≥ 3`.
+#[test]
+fn deferred_integrality_keeps_a_strict_bound_at_its_infinitesimal() {
+    let x = TermId::new(1);
+    let reason = TermId::new(100);
+    let mut solver = ArithSolver::lra();
+    solver.mark_int_term(x);
+    solver.set_defer_integrality(true);
+    solver.assert_lt(
+        &[(x, Rational64::one())],
+        Rational64::from_integer(3),
+        reason,
+    );
+    solver.assert_gt(
+        &[(x, Rational64::one())],
+        Rational64::from_integer(2),
+        reason,
+    );
+    let result = solver
+        .check_integrality()
+        .expect("test operation should succeed");
+    assert!(matches!(result, TheoryResult::Sat), "{result:?}");
+    assert_eq!(
+        solver.first_non_integral_int_term(),
+        Some((x, Rational64::from_integer(2), Rational64::from_integer(3)))
+    );
+}

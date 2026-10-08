@@ -40,7 +40,7 @@ fn test_bv10_udiv() {
     solver.bv_udiv(result, dividend, divisor);
 
     // result == quotient
-    solver.assert_eq(result, quotient);
+    assert!(solver.assert_eq(result, quotient));
 
     match solver.check() {
         Ok(oxiz_theories::TheoryCheckResult::Sat) => {
@@ -86,7 +86,7 @@ fn test_mul_only() {
     solver.bv_mul(product, five, divisor);
 
     // product == 100
-    solver.assert_eq(product, target);
+    assert!(solver.assert_eq(product, target));
 
     match solver.check() {
         Ok(oxiz_theories::TheoryCheckResult::Sat) => {
@@ -140,10 +140,10 @@ fn test_udiv_components_separate() {
     solver.bv_add(sum, product, remainder);
 
     // sum == dividend (i.e., product + remainder = 100)
-    solver.assert_eq(sum, dividend);
+    assert!(solver.assert_eq(sum, dividend));
 
     // remainder < divisor (this is the key constraint)
-    solver.assert_ult(remainder, divisor);
+    assert!(solver.assert_ult(remainder, divisor));
 
     match solver.check() {
         Ok(oxiz_theories::TheoryCheckResult::Sat) => {
@@ -205,7 +205,7 @@ fn test_udiv_without_ult() {
     solver.bv_add(sum, product, remainder);
 
     // sum == dividend
-    solver.assert_eq(sum, dividend);
+    assert!(solver.assert_eq(sum, dividend));
 
     // NO remainder < divisor constraint
 
@@ -259,7 +259,7 @@ fn test_udiv_fixed_rem() {
     solver.bv_add(sum, product, remainder);
 
     // sum == dividend => product == 100
-    solver.assert_eq(sum, dividend);
+    assert!(solver.assert_eq(sum, dividend));
 
     match solver.check() {
         Ok(oxiz_theories::TheoryCheckResult::Sat) => {
@@ -311,10 +311,10 @@ fn test_udiv_fixed_div() {
     solver.bv_add(sum, product, remainder);
 
     // sum == dividend => 100 + remainder = 100 => remainder = 0
-    solver.assert_eq(sum, dividend);
+    assert!(solver.assert_eq(sum, dividend));
 
     // remainder < divisor => rem < 20 (0 < 20 is true)
-    solver.assert_ult(remainder, divisor);
+    assert!(solver.assert_ult(remainder, divisor));
 
     match solver.check() {
         Ok(oxiz_theories::TheoryCheckResult::Sat) => {

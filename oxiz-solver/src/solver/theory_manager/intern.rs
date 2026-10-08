@@ -44,6 +44,29 @@ impl TheoryManager<'_> {
     /// `select(a, x) = select(a, y)` whenever `x = y` is merged.
     pub(super) const SELECT_FUNC_ID: u32 = 0;
 
+    /// Sentinel function ID used for array `store(array, index, value)` in EUF.
+    ///
+    /// `store` is a function of the array theory exactly as `select` is, so
+    /// interning it as a ternary application gives congruence closure the one
+    /// fact it otherwise lacks: two writes that agree argument-wise are the
+    /// same array.  Without it, `store(a, i, 5)` and `store(a, i, w)` stayed
+    /// two unrelated opaque leaves *even with `5 = w` merged*, and so did the
+    /// reads over them — which is how `#P2b-33`'s QF_AUFLIA row survived the
+    /// guard fix: `Solver::purify_numeric_uf_args` rewrites a numeric literal
+    /// under an uninterpreted application into a fresh proxy variable
+    /// throughout that assertion, so the `5` inside the *store* of
+    /// `(distinct (g (select (store arr i 5) i)) (g 5))` became a proxy `w`
+    /// while the array-axiom instantiator (which walks `Solver::assertions`,
+    /// the pre-purification terms) kept reasoning about the literal copy.  The
+    /// two halves only meet through congruence over `store`.
+    ///
+    /// The value is `u32::MAX - 1` because `u32::MAX` is `ENode::NO_FUNC`, the
+    /// E-graph's own "this node is a leaf" sentinel (`euf/solver.rs`), and 0 is
+    /// [`Self::SELECT_FUNC_ID`].  Real function symbols are `Spur::into_inner()`
+    /// values, handed out from 1 upwards in interning order, so neither
+    /// sentinel can collide with one.
+    pub(super) const STORE_FUNC_ID: u32 = u32::MAX - 1;
+
     /// Intern a term into EUF, using `intern_app` for Apply terms and
     /// `TermKind::Select` terms so that congruence closure works correctly.
     ///
@@ -116,7 +139,9 @@ impl TheoryManager<'_> {
     /// The application structure of `term` for EUF interning: `Apply` uses its
     /// function symbol, `Select(array, index)` is a binary application of the
     /// sentinel [`Self::SELECT_FUNC_ID`] so that congruence closure fires when
-    /// the index (or array) arguments become equal.  Everything else is a leaf.
+    /// the index (or array) arguments become equal, and `Store(array, index,
+    /// value)` a ternary application of [`Self::STORE_FUNC_ID`] for the same
+    /// reason one level up.  Everything else is a leaf.
     pub(super) fn intern_operands(
         term: TermId,
         manager: &TermManager,
@@ -128,6 +153,10 @@ impl TheoryManager<'_> {
             Some(TermKind::Select(array, index)) => Some((
                 Self::SELECT_FUNC_ID,
                 SmallVec::from_slice(&[*array, *index]),
+            )),
+            Some(TermKind::Store(array, index, value)) => Some((
+                Self::STORE_FUNC_ID,
+                SmallVec::from_slice(&[*array, *index, *value]),
             )),
             _ => None,
         }

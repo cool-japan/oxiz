@@ -747,7 +747,12 @@ impl BitBlaster {
         let bool_sort = manager.sorts.bool_sort;
         let bits = (0..width)
             .map(|i| {
-                let name = format!("!bb_{}_{i}", term_id.0);
+                // Minted through the reserved class (`#P2b-44`), like every other
+                // name this crate interns for itself: a bit variable stands for
+                // one bit of a term and is constrained by the clauses this
+                // tactic emits, so a user symbol of the same spelling would be
+                // captured by them.
+                let name = crate::smtlib::reserved_name("bb", &format!("{}!{i}", term_id.0));
                 manager.mk_var(&name, bool_sort)
             })
             .collect();

@@ -50,11 +50,9 @@ impl HermiteNormalForm {
                 }
             }
 
-            if pivot_row.is_none() {
+            let Some(pivot_row) = pivot_row else {
                 continue;
-            }
-
-            let pivot_row = pivot_row.expect("pivot row must exist after is_none check");
+            };
 
             // Make pivot positive
             if h[pivot_row][col] < 0 {

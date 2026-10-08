@@ -27,7 +27,7 @@ use crate::ast::{RoundingMode, TermId};
 use crate::error::{OxizError, Result};
 #[allow(unused_imports)]
 use crate::prelude::*;
-use crate::sort::SortId;
+use crate::sort::{SortId, SortKind};
 use num_bigint::BigInt;
 use smallvec::SmallVec;
 use std::cell::Cell;
@@ -587,7 +587,34 @@ impl Parser<'_> {
                     state.sexpr.clear();
                 }
                 Some(_) => {
+                    let position = self
+                        .lexer
+                        .peek()
+                        .map_or_else(|| self.lexer.position(), |token| token.start);
                     let value = self.parse_simple_attribute_value()?;
+                    // A `:named` label is the one attribute value that enters
+                    // a *namespace*: it names the assertion for
+                    // `(get-unsat-core)` and it is referable as a term, so it
+                    // has to meet the same reservation rule every other user
+                    // symbol does (`Parser::reject_reserved_symbol`). Without
+                    // this, `(assert (! (= x #b00) :named @uc_U_0))` parsed
+                    // and ran while `(declare-const @uc_U_0 …)` — and
+                    // `(assert @uc_U_0)` — were refused, which is an
+                    // inconsistency in the refusal's coverage even though no
+                    // capture follows from it (an unsat core prints only on
+                    // `unsat`, where there is no model to contradict).
+                    //
+                    // Deliberately narrow: every *other* attribute value is
+                    // left alone. `:source`, `:status` and friends are
+                    // free-form annotations that name nothing and that
+                    // benchmark files in the wild fill with arbitrary
+                    // symbols; refusing those would reject conforming input to
+                    // close nothing.
+                    if key == "named"
+                        && let AttributeValue::Symbol(label) = &value
+                    {
+                        Self::reject_reserved_symbol(label, position)?;
+                    }
                     state.attrs.push(Attribute {
                         key,
                         value: Some(value),
@@ -713,7 +740,29 @@ impl Parser<'_> {
                 // For known forms like `(as const (Array D R))` we represent the
                 // qualified application as an `Apply` node whose function name
                 // records the qualifier and whose sort is the annotated one.
-                let func_name = format!("(as {name})");
+                //
+                // The array constant is the one qualified identifier the solver
+                // *interprets* (its value at every index is its argument), so
+                // its name must be one no script can also declare — otherwise a
+                // user function of the same name is read as an array constant
+                // and a satisfiable formula answers `unsat`.  It is therefore
+                // interned under the reserved
+                // [`CONST_ARRAY_FUNC`](crate::smtlib::CONST_ARRAY_FUNC), which
+                // contains a backslash and so is unspellable in either SMT-LIB
+                // symbol form; the printers render it back to
+                // `((as const (Array D R)) d)`.  Every other qualified
+                // identifier keeps the transparent `(as name)` spelling.
+                let is_const_array = name == "const"
+                    && self
+                        .manager
+                        .sorts
+                        .get(sort)
+                        .is_some_and(|s| matches!(s.kind, SortKind::Array { .. }));
+                let func_name = if is_const_array {
+                    crate::smtlib::CONST_ARRAY_FUNC.to_string()
+                } else {
+                    format!("(as {name})")
+                };
                 Ok(self
                     .manager
                     .mk_apply(&func_name, args.iter().copied(), sort))
@@ -1278,6 +1327,7 @@ impl Parser<'_> {
     }
 
     pub(super) fn parse_symbol(&mut self, s: &str) -> Result<TermId> {
+        Self::reject_reserved_symbol(s, self.lexer.position())?;
         match s {
             "true" => Ok(self.manager.mk_true()),
             "false" => Ok(self.manager.mk_false()),

@@ -124,6 +124,17 @@ impl ClauseCache {
     }
 }
 
+/// The state of one search: the current assignment and the clause cache
+/// evaluated against it. [`SlsSolver::initialize`] builds it at the start of
+/// [`SlsSolver::solve`] and every search step takes it as an argument, so no
+/// step can run without both.
+struct SearchState {
+    /// Current assignment
+    assignment: Assignment,
+    /// Clause cache
+    cache: ClauseCache,
+}
+
 /// SLS MaxSAT solver
 pub struct SlsSolver {
     /// Hard clauses (as literal vectors)
@@ -136,14 +147,10 @@ pub struct SlsSolver {
     stats: SlsStats,
     /// Random number generator
     rng: rand::rngs::StdRng,
-    /// Current assignment
-    assignment: Option<Assignment>,
     /// Best assignment found
     best_assignment: Option<Assignment>,
     /// Best cost found
     best_cost: Weight,
-    /// Clause cache
-    cache: Option<ClauseCache>,
     /// Tabu list (variable -> iteration when it was flipped)
     tabu: FxHashMap<usize, u32>,
     /// Number of variables
@@ -166,10 +173,8 @@ impl SlsSolver {
             config,
             stats: SlsStats::default(),
             rng: rand::rngs::StdRng::seed_from_u64(seed),
-            assignment: None,
             best_assignment: None,
             best_cost: Weight::Infinite,
-            cache: None,
             tabu: FxHashMap::default(),
             num_vars: 0,
         }
@@ -193,7 +198,7 @@ impl SlsSolver {
     }
 
     /// Initialize solver
-    fn initialize(&mut self) {
+    fn initialize(&mut self) -> SearchState {
         // Update num_vars from soft clauses
         for clause in &self.soft_clauses {
             for lit in &clause.lits {
@@ -204,52 +209,46 @@ impl SlsSolver {
             }
         }
 
-        // Create random initial assignment
-        self.assignment = Some(Assignment::random(self.num_vars + 1, &mut self.rng));
-
-        // Initialize cache
-        self.cache = Some(ClauseCache::new(
-            self.hard_clauses.len(),
-            self.soft_clauses.len(),
-        ));
+        let mut state = SearchState {
+            // Create random initial assignment
+            assignment: Assignment::random(self.num_vars + 1, &mut self.rng),
+            // Initialize cache
+            cache: ClauseCache::new(self.hard_clauses.len(), self.soft_clauses.len()),
+        };
 
         // Evaluate initial assignment
-        self.update_cache();
-        let cost = self.compute_cost();
+        self.update_cache(&mut state);
+        let cost = self.compute_cost(&state.cache);
         self.best_cost = cost.clone();
-        self.best_assignment = self.assignment.clone();
+        self.best_assignment = Some(state.assignment.clone());
         self.stats.best_cost = Some(cost);
+        state
     }
 
     /// Solve using SLS
     pub fn solve(&mut self) -> Result<SlsResult, SlsError> {
-        self.initialize();
+        let mut state = self.initialize();
 
         for iter in 0..self.config.max_iterations {
             self.stats.iterations = iter + 1;
 
             // Update cache
-            self.update_cache();
+            self.update_cache(&mut state);
 
             // Check if all hard clauses are satisfied
-            if !self
-                .cache
-                .as_ref()
-                .expect("cache initialized at solve start")
-                .all_hard_satisfied()
-            {
+            if !state.cache.all_hard_satisfied() {
                 // Pick a violated hard clause and flip a variable from it
-                self.flip_from_violated_hard();
+                self.flip_from_violated_hard(&mut state);
                 continue;
             }
 
             // All hard clauses satisfied, try to improve soft clause satisfaction
-            let cost = self.compute_cost();
+            let cost = self.compute_cost(&state.cache);
 
             // Update best if improved
             if cost < self.best_cost {
                 self.best_cost = cost.clone();
-                self.best_assignment = self.assignment.clone();
+                self.best_assignment = Some(state.assignment.clone());
                 self.stats.best_cost = Some(cost.clone());
             }
 
@@ -261,10 +260,10 @@ impl SlsSolver {
             // Pick a move
             if self.rng.random_bool(self.config.random_walk_prob) {
                 // Random walk: flip a random variable from a violated soft clause
-                self.random_walk();
+                self.random_walk(&mut state);
             } else {
                 // Greedy or noise move
-                self.greedy_move();
+                self.greedy_move(&mut state);
             }
 
             self.stats.flips += 1;
@@ -274,36 +273,22 @@ impl SlsSolver {
             }
         }
 
-        // Restore best assignment
-        if let Some(best) = &self.best_assignment {
-            self.assignment = Some(best.clone());
-        }
-
         Ok(SlsResult::Satisfiable)
     }
 
     /// Update the clause satisfaction cache
-    fn update_cache(&mut self) {
-        let assignment = self
-            .assignment
-            .as_ref()
-            .expect("assignment initialized at solve start");
-
+    fn update_cache(&self, state: &mut SearchState) {
         // Update hard clauses
         for (idx, clause) in self.hard_clauses.iter().enumerate() {
-            let satisfied = Self::is_clause_satisfied_static(clause, assignment);
-            if let Some(cache) = self.cache.as_mut() {
-                cache.hard_satisfied[idx] = satisfied;
-            }
+            let satisfied = Self::is_clause_satisfied_static(clause, &state.assignment);
+            state.cache.hard_satisfied[idx] = satisfied;
         }
 
         // Update soft clauses
         for (idx, clause) in self.soft_clauses.iter().enumerate() {
             let lits: Vec<i32> = clause.lits.iter().map(|l| l.to_dimacs()).collect();
-            let satisfied = Self::is_clause_satisfied_static(&lits, assignment);
-            if let Some(cache) = self.cache.as_mut() {
-                cache.soft_satisfied[idx] = satisfied;
-            }
+            let satisfied = Self::is_clause_satisfied_static(&lits, &state.assignment);
+            state.cache.soft_satisfied[idx] = satisfied;
         }
     }
 
@@ -317,11 +302,7 @@ impl SlsSolver {
     }
 
     /// Compute current cost (sum of weights of violated soft clauses)
-    fn compute_cost(&self) -> Weight {
-        let cache = self
-            .cache
-            .as_ref()
-            .expect("cache initialized at solve start");
+    fn compute_cost(&self, cache: &ClauseCache) -> Weight {
         let mut cost = Weight::zero();
 
         for (idx, &satisfied) in cache.soft_satisfied.iter().enumerate() {
@@ -334,14 +315,10 @@ impl SlsSolver {
     }
 
     /// Flip a variable from a violated hard clause
-    fn flip_from_violated_hard(&mut self) {
-        let cache = self
-            .cache
-            .as_ref()
-            .expect("cache initialized at solve start");
-
+    fn flip_from_violated_hard(&mut self, state: &mut SearchState) {
         // Find violated hard clauses
-        let violated: Vec<usize> = cache
+        let violated: Vec<usize> = state
+            .cache
             .hard_satisfied
             .iter()
             .enumerate()
@@ -362,21 +339,15 @@ impl SlsSolver {
         let var = clause[lit_idx].unsigned_abs() as usize;
 
         // Flip it
-        if let Some(ref mut assignment) = self.assignment {
-            assignment.flip(var);
-            self.tabu.insert(var, self.stats.flips);
-        }
+        state.assignment.flip(var);
+        self.tabu.insert(var, self.stats.flips);
     }
 
     /// Random walk: flip a random variable from a violated soft clause
-    fn random_walk(&mut self) {
-        let cache = self
-            .cache
-            .as_ref()
-            .expect("cache initialized at solve start");
-
+    fn random_walk(&mut self, state: &mut SearchState) {
         // Find violated soft clauses
-        let violated: Vec<usize> = cache
+        let violated: Vec<usize> = state
+            .cache
             .soft_satisfied
             .iter()
             .enumerate()
@@ -401,14 +372,12 @@ impl SlsSolver {
         let var = clause.lits[lit_idx].to_dimacs().unsigned_abs() as usize;
 
         // Flip it
-        if let Some(ref mut assignment) = self.assignment {
-            assignment.flip(var);
-            self.tabu.insert(var, self.stats.flips);
-        }
+        state.assignment.flip(var);
+        self.tabu.insert(var, self.stats.flips);
     }
 
     /// Greedy move with noise
-    fn greedy_move(&mut self) {
+    fn greedy_move(&mut self, state: &mut SearchState) {
         // Try flipping each variable and pick the one with best improvement
         let mut best_var = None;
         let mut best_delta = Weight::Infinite;
@@ -422,11 +391,9 @@ impl SlsSolver {
             }
 
             // Try flipping this variable
-            if let Some(assignment) = self.assignment.as_mut() {
-                assignment.flip(var);
-            }
-            self.update_cache();
-            let new_cost = self.compute_cost();
+            state.assignment.flip(var);
+            self.update_cache(state);
+            let new_cost = self.compute_cost(&state.cache);
             let delta = new_cost.clone(); // Simplified: should compute actual delta
 
             if delta < best_delta {
@@ -435,25 +402,19 @@ impl SlsSolver {
             }
 
             // Flip back
-            if let Some(assignment) = self.assignment.as_mut() {
-                assignment.flip(var);
-            }
+            state.assignment.flip(var);
         }
 
         // Apply best move (or noise move)
         if self.rng.random_bool(self.config.noise) {
             // Noise move: pick random variable
             let var = self.rng.random_range(1..=self.num_vars);
-            if let Some(assignment) = self.assignment.as_mut() {
-                assignment.flip(var);
-                self.tabu.insert(var, self.stats.flips);
-            }
+            state.assignment.flip(var);
+            self.tabu.insert(var, self.stats.flips);
         } else if let Some(var) = best_var {
             // Greedy move
-            if let Some(assignment) = self.assignment.as_mut() {
-                assignment.flip(var);
-                self.tabu.insert(var, self.stats.flips);
-            }
+            state.assignment.flip(var);
+            self.tabu.insert(var, self.stats.flips);
         }
     }
 

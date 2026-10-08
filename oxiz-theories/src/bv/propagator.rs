@@ -13,6 +13,32 @@ use oxiz_core::profiling::{ProfilingCategory, ScopedTimer};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PropagationError;
 
+/// Compute the bitmask covering the low `width` bits of a `u64`.
+///
+/// [`Interval`] represents bounds as plain `u64` values, so it can only
+/// faithfully model bit-vectors up to 64 bits wide. The SMT-LIB parser accepts
+/// widths up to 65536, so `width` here can legitimately exceed 64. Computing
+/// `(1u64 << width) - 1` directly for such a width is a debug-mode overflow
+/// panic and a release-mode wraparound (`<<` only uses the low 6 bits of the
+/// shift amount on `u64`), which made `Interval::full(65)` the singleton range
+/// `[0, 1]` and `Interval::full(128)` the singleton `[0, 0]` — an *unsound*
+/// abstraction that claims a 128-bit vector can only be zero.
+///
+/// Saturating to `u64::MAX` for `width >= 64` keeps the abstraction sound and
+/// merely imprecise: above 64 bits the interval degenerates to "any `u64`",
+/// which is the honest statement this reasoner can make. It is the same
+/// convention [`super::word_level`]'s `width_mask` uses (whose doc comment
+/// already claimed this file followed it).
+#[inline]
+#[must_use]
+fn width_mask(width: u32) -> u64 {
+    if width >= 64 {
+        u64::MAX
+    } else {
+        (1u64 << width) - 1
+    }
+}
+
 /// An interval representing possible values for a bitvector
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Interval {
@@ -28,11 +54,7 @@ impl Interval {
     /// Create a new interval
     #[must_use]
     pub fn new(lower: u64, upper: u64, width: u32) -> Self {
-        let mask = if width == 64 {
-            u64::MAX
-        } else {
-            (1u64 << width) - 1
-        };
+        let mask = width_mask(width);
         Self {
             lower: lower & mask,
             upper: upper & mask,
@@ -43,11 +65,7 @@ impl Interval {
     /// Create an interval representing all possible values
     #[must_use]
     pub fn full(width: u32) -> Self {
-        let mask = if width == 64 {
-            u64::MAX
-        } else {
-            (1u64 << width) - 1
-        };
+        let mask = width_mask(width);
         Self {
             lower: 0,
             upper: mask,
@@ -105,11 +123,7 @@ impl Interval {
     #[inline]
     #[must_use]
     pub fn contains(&self, value: u64) -> bool {
-        let mask = if self.width == 64 {
-            u64::MAX
-        } else {
-            (1u64 << self.width) - 1
-        };
+        let mask = width_mask(self.width);
         let v = value & mask;
         v >= self.lower && v <= self.upper
     }
@@ -253,11 +267,7 @@ impl Interval {
     /// Propagate bitwise NOT: c = ~a
     #[must_use]
     pub fn propagate_not(a: &Interval) -> Interval {
-        let mask = if a.width == 64 {
-            u64::MAX
-        } else {
-            (1u64 << a.width) - 1
-        };
+        let mask = width_mask(a.width);
 
         // ~a flips all bits
         let lower = (!a.upper) & mask;
@@ -273,12 +283,19 @@ impl Interval {
             return a.clone();
         }
 
+        // A `u64` cannot hold the sign bit of a source wider than 64 bits (and a
+        // zero-width source has no sign bit at all), so there is nothing to
+        // extend from: fall back to the sound "any value" abstraction rather
+        // than shifting past the end of a `u64`.
+        if from_width == 0 || from_width > 64 {
+            return Interval::full(to_width);
+        }
         let sign_bit = 1u64 << (from_width - 1);
+        let extension = width_mask(to_width) ^ width_mask(from_width);
 
         // Check if lower has sign bit set
         let lower = if (a.lower & sign_bit) != 0 {
             // Negative number, extend with 1s
-            let extension = ((1u64 << to_width) - 1) ^ ((1u64 << from_width) - 1);
             a.lower | extension
         } else {
             a.lower
@@ -286,7 +303,6 @@ impl Interval {
 
         // Check if upper has sign bit set
         let upper = if (a.upper & sign_bit) != 0 {
-            let extension = ((1u64 << to_width) - 1) ^ ((1u64 << from_width) - 1);
             a.upper | extension
         } else {
             a.upper
@@ -690,6 +706,55 @@ impl WordLevelPropagator {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Widths above 64 must degenerate to the whole `u64` range, not to a
+    /// singleton.
+    ///
+    /// Before this fix `width_mask` was open-coded as
+    /// `if width == 64 { u64::MAX } else { (1u64 << width) - 1 }`, so in OxiZ
+    /// 0.3.3/0.3.4 `Interval::full(65)` was `[0, 1]` and `Interval::full(128)`
+    /// was `[0, 0]` in release builds (`<<` keeps only the low 6 bits of the
+    /// shift amount), and a debug build panicked with "attempt to shift left
+    /// with overflow". Claiming a 128-bit vector can only hold `0` is an
+    /// unsound abstraction; saturating is sound and merely imprecise.
+    #[test]
+    fn interval_full_above_64_bits_is_the_whole_u64_range() {
+        for width in [64u32, 65, 96, 128, 65536] {
+            let i = Interval::full(width);
+            assert_eq!(i.lower, 0, "full({width}).lower");
+            assert_eq!(i.upper, u64::MAX, "full({width}).upper");
+            assert!(!i.is_empty(), "full({width}) must not be empty");
+            assert!(!i.is_singleton(), "full({width}) must not be a singleton");
+            assert!(i.contains(0), "full({width}) must contain 0");
+            assert!(i.contains(1), "full({width}) must contain 1");
+            assert!(i.contains(u64::MAX), "full({width}) must contain u64::MAX");
+        }
+    }
+
+    /// `Interval::new` and `contains` share the same mask, so they must agree
+    /// above 64 bits too (0.3.3/0.3.4 masked `new(5, 10, 128)` down to
+    /// `[0, 0]`).
+    #[test]
+    fn interval_new_above_64_bits_keeps_its_bounds() {
+        let i = Interval::new(5, 10, 128);
+        assert_eq!(i.lower, 5);
+        assert_eq!(i.upper, 10);
+        assert!(i.contains(7));
+        assert!(!i.contains(11));
+    }
+
+    /// Sign extension from a source wider than a `u64` (or from width 0) has no
+    /// representable sign bit; it must fall back to the full range instead of
+    /// shifting past the end of a `u64` (0.3.3/0.3.4 panicked in debug builds).
+    #[test]
+    fn sign_extend_from_unrepresentable_width_is_the_full_range() {
+        let a = Interval::new(5, 10, 128);
+        let e = Interval::propagate_sign_extend(&a, 128, 256);
+        assert_eq!(e.lower, 0);
+        assert_eq!(e.upper, u64::MAX);
+        let z = Interval::propagate_sign_extend(&Interval::new(0, 0, 8), 0, 8);
+        assert_eq!(z.upper, 255);
+    }
 
     #[test]
     fn test_interval_basic() {

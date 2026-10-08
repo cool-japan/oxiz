@@ -150,10 +150,11 @@ impl CharClass {
                         flat.push(cls);
                     }
                 }
-                if flat.len() == 1 {
-                    flat.into_iter().next().expect("exactly one element")
-                } else {
-                    CharClass::Union(flat)
+                // Exactly one class converts into a one-element array; any
+                // other length comes back as the vector it was.
+                match <[CharClass; 1]>::try_from(flat) {
+                    Ok([only]) => only,
+                    Err(flat) => CharClass::Union(flat),
                 }
             }
             CharClass::Intersection(classes) => {
@@ -167,10 +168,10 @@ impl CharClass {
                         flat.push(cls);
                     }
                 }
-                if flat.len() == 1 {
-                    flat.into_iter().next().expect("exactly one element")
-                } else {
-                    CharClass::Intersection(flat)
+                // As for the union above.
+                match <[CharClass; 1]>::try_from(flat) {
+                    Ok([only]) => only,
+                    Err(flat) => CharClass::Intersection(flat),
                 }
             }
             other => other.clone(),

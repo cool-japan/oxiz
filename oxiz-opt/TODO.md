@@ -10,11 +10,12 @@ All major features implemented. Only one optional enhancement remains (blocked b
 ## Dependencies
 - **oxiz-core**: Term representation, constraints
 - **oxiz-sat**: Core-guided MaxSAT solving
-- **oxiz-solver**: OMT SMT solving (needs integration)
+- **oxiz-solver**: SMT solving for MaxSMT and OMT queries (`Solver`, used in `src/context.rs` and `src/maxsmt.rs`)
+- **oxiz-time**: Wasm-safe `Instant` for optimization deadlines
 
 ## Provides (enables other crates)
-- **oxiz-solver**: Optimization objectives (minimize/maximize)
-- **oxiz-cli/oxiz-wasm**: MaxSMT/OMT commands
+- **oxiz**: depends on it as an optional dependency, behind the `optimization` feature (also enabled by `standard` and `full`)
+- **bench-regression**: depends on it (the `bench/regression` harness; not published)
 
 ---
 

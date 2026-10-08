@@ -11,16 +11,27 @@ use super::trail::TrailOp;
 use super::types::{ArithConstraintType, Constraint, NamedAssertion, Polarity, UnsatCore};
 
 mod arith_atom_parse;
+mod binder_row;
 pub(super) mod bool_euf_encoding;
 mod exists_skolem;
 pub(crate) mod finite_expand;
 mod finite_map_ite;
 mod numeric_purification;
+pub(crate) mod quant_guard;
 mod skolem_candidates;
 mod track_theory_vars;
 
 #[cfg(test)]
 mod tests;
+
+/// Maximum nesting of [`quant_guard`] obligations one assertion may generate.
+///
+/// The Skolemised half of an obligation can expose a quantifier that was under
+/// a binder a moment ago; each round strips exactly one binder, so a formula
+/// of realistic nesting never approaches this.  Past it the guard constant is
+/// left undefined and [`Solver::quantifier_literal_unconstrained`] is set, so
+/// the verdict degrades to `Unknown` rather than resting on a free literal.
+const MAX_QUANTIFIER_OBLIGATION_DEPTH: usize = 8;
 
 impl Solver {
     pub(super) fn get_or_create_var(&mut self, term: TermId) -> Var {
@@ -204,6 +215,12 @@ impl Solver {
             term
         };
 
+        // The read-over-write expansion under a binder (`binder_row`) is
+        // computed here, from the simplified assertion, and asserted as a
+        // separate lemma at the very end of this method — never in place of
+        // the assertion.  See `Solver::assert_binder_row_lemma`.
+        let binder_row_lemma = self.binder_row_lemma(simplified, manager);
+
         // Replace bounded-integer quantifiers by their exactly equivalent
         // ground expansion so the ground solver decides them directly.
         let expanded = self
@@ -214,6 +231,14 @@ impl Solver {
         // their Skolemization, so the ground solver *searches* for a witness
         // instead of MBQI guessing one.
         let term_to_encode = self.skolemize_asserted_existentials(expanded, manager);
+
+        // Tie every *conditionally* placed quantifier to its meaning (see
+        // `quant_guard`): each one becomes a fresh Boolean constant here and
+        // earns the obligations asserted at the end of this method.  Without
+        // it the Tseitin literal of a quantifier under `=>`, `or`, `ite`, a
+        // Boolean `=` or a `not` is a free Boolean (`#P2b-54`).
+        let (term_to_encode, quantifier_obligations) =
+            self.guard_conditional_quantifiers(term_to_encode, manager);
 
         // Check again if simplification produced a constant
         if let Some(t) = manager.get(term_to_encode) {
@@ -289,6 +314,13 @@ impl Solver {
         // is the non-convex QF_UFLIA/QF_UFIDL false-`sat` root cause).
         let term_to_encode = self.purify_numeric_uf_args(term_to_encode, manager);
 
+        // The array collector walks `self.assertions`, which holds the
+        // *pre*-rewrite term; when the chain above rewrote this assertion into
+        // something else — most consequentially when it Skolemized an asserted
+        // `exists` into a ground body — the structure the SAT core's clauses
+        // describe is in `term_to_encode` and nowhere else.  Register it.
+        self.register_encoded_assertion_root(term_to_encode, term, manager);
+
         // Collect polarity information if polarity-aware encoding is enabled
         if self.polarity_aware {
             self.collect_polarities(term_to_encode, Polarity::Positive, manager);
@@ -304,6 +336,13 @@ impl Solver {
         // pre-pass over the assertion.
         let lit = self.encode(term_to_encode, manager);
         self.sat.add_clause([lit]);
+
+        if let Some(lemma) = binder_row_lemma {
+            self.assert_binder_row_lemma(lemma, term, manager);
+        }
+        for obligation in quantifier_obligations {
+            self.assert_quantifier_obligation(obligation, term, manager, 0);
+        }
 
         self.record_assertion_identity(term, None, index);
     }
@@ -348,6 +387,13 @@ impl Solver {
             return;
         }
 
+        // See `Solver::assert`: a named assertion earns the same
+        // under-a-binder read-over-write lemma.  It is *not* tracked under the
+        // name — the lemma is a consequence of the named assertion, not part
+        // of it, so an unsat core naming it would name a term the user never
+        // wrote.
+        let binder_row_lemma = self.binder_row_lemma(term, manager);
+
         // Replace bounded-integer quantifiers by their exactly equivalent
         // ground expansion so the ground solver decides them directly.
         let expanded = self.finite_expand_assertion(term, manager).unwrap_or(term);
@@ -355,6 +401,13 @@ impl Solver {
         // Replace the existentials this assertion states unconditionally by
         // their Skolemization (see `assert`).
         let term_to_encode = self.skolemize_asserted_existentials(expanded, manager);
+
+        // See `assert`: a named assertion's conditionally placed quantifiers
+        // need the same guard.  The obligations are *not* tracked under the
+        // name, for the reason the `binder_row` lemma is not — they are
+        // consequences of the named assertion, not part of it.
+        let (term_to_encode, quantifier_obligations) =
+            self.guard_conditional_quantifiers(term_to_encode, manager);
 
         // See `Solver::assert` for why this runs here: after skolemization,
         // before polarity collection / MBQI registration, and without
@@ -370,6 +423,13 @@ impl Solver {
         // one does.
         let term_to_encode = self.purify_numeric_uf_args(term_to_encode, manager);
 
+        // The array collector walks `self.assertions`, which holds the
+        // *pre*-rewrite term; when the chain above rewrote this assertion into
+        // something else — most consequentially when it Skolemized an asserted
+        // `exists` into a ground body — the structure the SAT core's clauses
+        // describe is in `term_to_encode` and nowhere else.  Register it.
+        self.register_encoded_assertion_root(term_to_encode, term, manager);
+
         // Collect polarity information if polarity-aware encoding is enabled
         if self.polarity_aware {
             self.collect_polarities(term_to_encode, Polarity::Positive, manager);
@@ -383,6 +443,13 @@ impl Solver {
         // `Solver::add_numeric_trichotomy` inside this `encode` call.
         let lit = self.encode(term_to_encode, manager);
         self.sat.add_clause([lit]);
+
+        if let Some(lemma) = binder_row_lemma {
+            self.assert_binder_row_lemma(lemma, term, manager);
+        }
+        for obligation in quantifier_obligations {
+            self.assert_quantifier_obligation(obligation, term, manager, 0);
+        }
 
         self.record_assertion_identity(term, Some(name.to_string()), index);
     }
@@ -425,6 +492,190 @@ impl Solver {
         let rewritten = exists_skolem::skolemize_asserted_existentials(term, manager, &mut next_id);
         self.next_skolem_id = next_id;
         rewritten.unwrap_or(term)
+    }
+
+    /// `term` with every read-over-write under a binder expanded into the `ite`
+    /// case split the array axiom defines, or `None` when it carries none.
+    ///
+    /// The rewrite is the array axiom itself, so the result is an equivalence
+    /// at every polarity; [`binder_row`] documents why it is confined to binder
+    /// bodies and what each of its guards costs.  Without it an array read that
+    /// is first ground inside a quantifier instance is a free value of the
+    /// element sort and the MBQI fixpoint reports `Satisfied` for an
+    /// unsatisfiable assertion.
+    fn binder_row_lemma(&mut self, term: TermId, manager: &mut TermManager) -> Option<TermId> {
+        if !finite_expand::contains_quantifier(term, manager) {
+            return None;
+        }
+        binder_row::expand_reads_over_writes_under_binders(term, manager)
+    }
+
+    /// Encode `lemma` — the read-over-write expansion of `asserted` — as a
+    /// second, derived assertion.
+    ///
+    /// # Why beside the assertion and not in place of it
+    ///
+    /// The rewritten form is equivalent, so replacing the assertion with it
+    /// would be sound.  It is not *complete*: the two shapes reach MBQI with
+    /// different instantiation candidates, and measured on
+    ///
+    /// ```text
+    /// (assert (= (select a (_ bv1 7)) (_ bv0 7)))
+    /// (assert (forall ((i (_ BitVec 7)))
+    ///           (=> (= i (_ bv2 7))
+    ///               (= (select (store a i (_ bv5 7)) (_ bv1 7)) (_ bv5 7)))))
+    /// ```
+    ///
+    /// the original shape answers `unsat` and the rewritten shape alone answers
+    /// `unknown`.  Conjoining the two inside one assertion — `(and Q Q')` —
+    /// answers `unknown` as well, on this tree *and* on `c4b04b7`; the same two
+    /// quantifiers as two separate assertions answer `unsat`.  So the lemma is
+    /// asserted separately, which is the only one of the three shapes that
+    /// loses nothing.
+    ///
+    /// # What it does and does not touch
+    ///
+    /// It runs the pre-pass chain [`Solver::assert`] runs and registers the
+    /// lemma with the array-root collector, the polarity map and MBQI, so the
+    /// lemma behaves exactly like an assertion for the search.  It is
+    /// deliberately **not** pushed onto [`Solver::assertions`]: that vector is
+    /// what `get-assertions` prints and what an unsat core names, and a derived
+    /// lemma is neither something the user asserted nor something a core should
+    /// blame.
+    fn assert_binder_row_lemma(
+        &mut self,
+        lemma: TermId,
+        asserted: TermId,
+        manager: &mut TermManager,
+    ) {
+        if self.term_exceeds_encode_depth(lemma, manager) {
+            // The assertion itself was encoded; declining the lemma costs
+            // completeness only.
+            return;
+        }
+        let expanded = self
+            .finite_expand_assertion(lemma, manager)
+            .unwrap_or(lemma);
+        let lemma = self.skolemize_asserted_existentials(expanded, manager);
+        if matches!(
+            manager.get(lemma).map(|t| &t.kind),
+            Some(TermKind::True) | Some(TermKind::False)
+        ) {
+            // The lemma is equivalent to an assertion that was just encoded, so
+            // a constant here says nothing the SAT core does not already know.
+            return;
+        }
+        // The lemma is the assertion's own shape with the reads expanded, so
+        // it carries the assertion's quantifiers in the assertion's positions
+        // — the conditional ones included.  Guarding them here is not an
+        // optimisation: an unguarded quantifier reaching `encode` sets
+        // [`Solver::quantifier_literal_unconstrained`], which would turn the
+        // *lemma* into the reason a satisfiable script answers `unknown`.
+        let (lemma, obligations) = self.guard_conditional_quantifiers(lemma, manager);
+        let lemma = self.flatten_lookup_spines(lemma, manager);
+        let lemma = self.eliminate_nonbool_ite(lemma, manager);
+        let lemma = self.abstract_compound_bool_args(lemma, manager);
+        let lemma = self.purify_numeric_uf_args(lemma, manager);
+        self.register_encoded_assertion_root(lemma, asserted, manager);
+        if self.polarity_aware {
+            self.collect_polarities(lemma, Polarity::Positive, manager);
+        }
+        self.register_asserted_quantifiers(lemma, manager);
+        let lit = self.encode(lemma, manager);
+        self.sat.add_clause([lit]);
+        for obligation in obligations {
+            self.assert_quantifier_obligation(obligation, asserted, manager, 0);
+        }
+    }
+
+    /// `term` with every conditionally placed quantifier replaced by a fresh
+    /// Boolean constant, paired with the obligations that define those
+    /// constants — or `term` and an empty list when it has none.
+    ///
+    /// See [`quant_guard`] for the rule, the equisatisfiability argument and
+    /// what it declines.  The counter it threads is the solver-wide
+    /// fresh-symbol counter, shared with `exists_skolem` and
+    /// `register_asserted_forall` so no two witnesses can collide.
+    pub(super) fn guard_conditional_quantifiers(
+        &mut self,
+        term: TermId,
+        manager: &mut TermManager,
+    ) -> (TermId, Vec<TermId>) {
+        let mut next_skolem_id = self.next_skolem_id;
+        let guarded =
+            quant_guard::guard_conditional_quantifiers(term, manager, &mut next_skolem_id);
+        self.next_skolem_id = next_skolem_id;
+        match guarded {
+            Some(guarded) => (guarded.term, guarded.obligations),
+            None => (term, Vec::new()),
+        }
+    }
+
+    /// Encode one [`quant_guard`] obligation as a derived assertion.
+    ///
+    /// The obligation is what ties a guard constant to the quantifier it
+    /// replaced, so **declining it is not free**: unlike the `binder_row`
+    /// lemma, whose absence costs completeness only, a guard constant with no
+    /// obligation is itself an unconstrained Boolean.  Every early return here
+    /// therefore sets [`Solver::quantifier_literal_unconstrained`], which
+    /// degrades a `Sat` resting on it to `Unknown`.
+    ///
+    /// It runs the same pre-pass chain [`Solver::assert`] runs — including the
+    /// read-over-write expansion under binders, which is what lets the
+    /// *universal* obligation `∀x. (g → φ)` be refuted at index widths past
+    /// [`finite_expand`]'s budget — and registers the obligation with the
+    /// array-root collector, the polarity map and MBQI, so it behaves exactly
+    /// like an assertion for the search.  It is deliberately **not** pushed
+    /// onto [`Solver::assertions`]: an unsat core must not blame a term the
+    /// user never wrote.
+    ///
+    /// `depth` bounds the one recursion that exists: the Skolemised half of an
+    /// obligation may itself contain a quantifier that was under a binder a
+    /// moment ago and is closed now.  Each round strips one binder, so the cap
+    /// is a formality; declining past it is honest rather than silent.
+    pub(super) fn assert_quantifier_obligation(
+        &mut self,
+        obligation: TermId,
+        blame: TermId,
+        manager: &mut TermManager,
+        depth: usize,
+    ) {
+        if depth >= MAX_QUANTIFIER_OBLIGATION_DEPTH
+            || self.term_exceeds_encode_depth(obligation, manager)
+        {
+            self.quantifier_literal_unconstrained = true;
+            return;
+        }
+        let row_lemma = self.binder_row_lemma(obligation, manager);
+        let expanded = self
+            .finite_expand_assertion(obligation, manager)
+            .unwrap_or(obligation);
+        let prepared = self.skolemize_asserted_existentials(expanded, manager);
+        if matches!(manager.get(prepared).map(|t| &t.kind), Some(TermKind::True)) {
+            // The obligation is vacuous — the expansion already discharged it
+            // (`finite_expand` replaced the quantifier by its whole-sort
+            // conjunction, and the guard implication collapsed).  Nothing to
+            // assert, and nothing left free.
+            return;
+        }
+        let (prepared, nested) = self.guard_conditional_quantifiers(prepared, manager);
+        let prepared = self.flatten_lookup_spines(prepared, manager);
+        let prepared = self.eliminate_nonbool_ite(prepared, manager);
+        let prepared = self.abstract_compound_bool_args(prepared, manager);
+        let prepared = self.purify_numeric_uf_args(prepared, manager);
+        self.register_encoded_assertion_root(prepared, blame, manager);
+        if self.polarity_aware {
+            self.collect_polarities(prepared, Polarity::Positive, manager);
+        }
+        self.register_asserted_quantifiers(prepared, manager);
+        let lit = self.encode(prepared, manager);
+        self.sat.add_clause([lit]);
+        if let Some(lemma) = row_lemma {
+            self.assert_binder_row_lemma(lemma, blame, manager);
+        }
+        for obligation in nested {
+            self.assert_quantifier_obligation(obligation, blame, manager, depth + 1);
+        }
     }
 
     fn finite_expand_assertion(
@@ -526,7 +777,30 @@ impl Solver {
     /// Skipping a non-entailed quantifier costs only completeness: `check`
     /// still sees `has_quantifiers`, so it answers `Unknown` rather than
     /// guessing.
-    fn register_asserted_quantifiers(&mut self, term: TermId, manager: &mut TermManager) {
+    pub(super) fn register_asserted_quantifiers(
+        &mut self,
+        term: TermId,
+        manager: &mut TermManager,
+    ) {
+        self.register_asserted_quantifiers_with(term, manager, true);
+    }
+
+    /// [`Solver::register_asserted_quantifiers`], with control over whether a
+    /// binder sort with no ground inhabitant is given one.
+    ///
+    /// `seed_witnesses` is `true` on the assertion paths and `false` on the
+    /// instantiation path.  The pool a witness lands in is *search* state:
+    /// `MBQIIntegration::restore_search_state` truncates it back to its
+    /// check-entry size, so a witness minted mid-`check` is gone by the time
+    /// the next `check` looks for one and a fresh symbol would be minted per
+    /// `check-sat` forever.  Seeded at assert time it is recorded in the
+    /// check-entry snapshot and survives.
+    pub(super) fn register_asserted_quantifiers_with(
+        &mut self,
+        term: TermId,
+        manager: &mut TermManager,
+        seed_witnesses: bool,
+    ) {
         let mut stack: Vec<(TermId, bool)> = vec![(term, true)];
         let mut visited: FxHashSet<(TermId, bool)> = FxHashSet::default();
 
@@ -543,6 +817,10 @@ impl Solver {
                         let triggers: Vec<TermId> =
                             patterns.iter().flat_map(|p| p.iter().copied()).collect();
                         self.register_asserted_forall(current, *body, triggers, manager);
+                        if seed_witnesses {
+                            self.seed_binder_sort_witnesses(current, manager);
+                        }
+                        self.mark_quantifier_justified(current);
                     }
                     TermKind::Exists { patterns, body, .. } => {
                         let triggers: Vec<TermId> =
@@ -552,11 +830,26 @@ impl Solver {
                             self.mbqi.collect_ground_terms(trigger, manager);
                         }
                         self.collect_quantifier_uf_funcs(*body, manager);
+                        self.mark_quantifier_justified(current);
                     }
                     _ => {}
                 }
             }
             stack.extend(super::term_walk::asserted_children(&kind, positive));
+        }
+    }
+
+    /// Record that `quantifier`'s Boolean literal is tied to its meaning, so
+    /// [`Solver::encode`] does not flag it as an unconstrained Boolean.
+    ///
+    /// Journalled: the clauses doing the tying — the MBQI registration, or the
+    /// `quant_guard` obligation asserted beside the assertion — are retracted
+    /// by the `pop` that retracts the assertion, and the mark must go with
+    /// them.  See [`Solver::justified_quantifiers`].
+    pub(super) fn mark_quantifier_justified(&mut self, quantifier: TermId) {
+        if self.justified_quantifiers.insert(quantifier) {
+            self.trail
+                .push(TrailOp::JustifiedQuantifierAdded { term: quantifier });
         }
     }
 
@@ -651,12 +944,108 @@ impl Solver {
         }
     }
 
+    /// Give every binder sort of `quantifier` at least one ground inhabitant in
+    /// the MBQI candidate pool, minting a reserved constant for the sorts that
+    /// have none.
+    ///
+    /// # The spelling-dependence this removes
+    ///
+    /// MBQI seeds its instantiation from the ground terms the script spells
+    /// out.  A `forall` whose index sort has no ground inhabitant anywhere in
+    /// the script therefore gets no instance, and the assertion is neither
+    /// refuted nor satisfied — it is `unknown`.  Measured: the constant-array
+    /// read
+    ///
+    /// ```text
+    /// (assert (forall ((i (_ BitVec 7)))
+    ///           (distinct (_ bv0 7)
+    ///                     (select ((as const (Array (_ BitVec 7) (_ BitVec 7)))
+    ///                              (_ bv0 7)) i))))
+    /// ```
+    ///
+    /// answered `unknown` on its own and `unsat` the moment an unrelated
+    /// `(declare-const d (_ BitVec 7))` — used in no assertion and in no
+    /// command — was added, because that declaration put one bit-vector of the
+    /// right sort in the pool.  A verdict that depends on a declaration the
+    /// formula never mentions is a property of the spelling, not of the
+    /// formula.
+    ///
+    /// # Why minting is sound
+    ///
+    /// A candidate is only ever used to *instantiate a universal*, and
+    /// `∀x. φ(x) ⊨ φ(c)` for any term `c` whatsoever, fresh ones included.  So
+    /// every instance this enables is entailed by the assertion, and the
+    /// witness constrains nothing on its own: it is an unconstrained constant
+    /// of its sort, which every non-empty sort has.  It is minted through
+    /// [`reserved_name`](oxiz_core::smtlib::reserved_name) from the same
+    /// counter as the Skolem symbols, so it can collide with no user symbol
+    /// and with no other witness, and `(get-model)` — which prints declared
+    /// constants — never shows it.
+    ///
+    /// # Which sorts are seeded, and why not all of them
+    ///
+    /// Only sorts whose inhabitants are **atoms**: `Bool`, `(_ BitVec w)`,
+    /// `RoundingMode` and declared (uninterpreted) sorts.  A witness of such a
+    /// sort is a leaf, so instantiating with it adds one ground term and
+    /// stops.
+    ///
+    /// `Int`, `Real` and `String` are deliberately **not** seeded, and that is
+    /// measured rather than cautious: the MBQI candidate pool feeds
+    /// instantiation, instantiation feeds the pool, and over an infinite sort
+    /// the body's own function symbols close the loop.  Seeding `Int` on
+    /// `(assert (forall ((x Int)) (= (f x) (+ (f (- x 1)) 1))))` turns
+    /// `audit_solver_core_p2::mbqi_unverified_quantifier_is_not_sat` — an
+    /// `unsat` in milliseconds — into a run that does not finish in 180 s,
+    /// because `f(qwit)`, `f(qwit - 1)`, `f(qwit - 2)` … are each a fresh
+    /// candidate.  An array or floating-point sort is skipped for the same
+    /// reason one level up.  Those sorts keep the behaviour they had: a
+    /// `forall` over them with no ground inhabitant in the script is
+    /// `unknown`, which is honest.
+    ///
+    /// Only sorts with *no* inhabitant in the pool are seeded, so a script that
+    /// declares its own constants pays nothing.
+    fn seed_binder_sort_witnesses(&mut self, quantifier: TermId, manager: &mut TermManager) {
+        let Some(kind) = manager.get(quantifier).map(|t| t.kind.clone()) else {
+            return;
+        };
+        let (TermKind::Forall { vars, .. } | TermKind::Exists { vars, .. }) = kind else {
+            return;
+        };
+        let sorts: Vec<SortId> = vars.iter().map(|&(_, sort)| sort).collect();
+        for sort in sorts {
+            let atomic = matches!(
+                manager.sorts.get(sort).map(|s| &s.kind),
+                Some(
+                    oxiz_core::sort::SortKind::Bool
+                        | oxiz_core::sort::SortKind::BitVec(_)
+                        | oxiz_core::sort::SortKind::RoundingMode
+                        | oxiz_core::sort::SortKind::Uninterpreted(_)
+                )
+            );
+            if !atomic || self.mbqi.has_candidate_of_sort(sort) {
+                continue;
+            }
+            let name = oxiz_core::smtlib::reserved_name("qwit", &self.next_skolem_id.to_string());
+            let Some(next) = self.next_skolem_id.checked_add(1) else {
+                return;
+            };
+            self.next_skolem_id = next;
+            let witness = manager.mk_var(&name, sort);
+            self.mbqi.add_candidate(witness, sort);
+        }
+    }
+
     /// Encode a term into SAT clauses using Tseitin transformation.
     ///
     /// Thin wrapper over [`Solver::encode_depth`] that starts the recursion at
     /// depth 0.  The depth counter guards against native-stack overflow on
     /// adversarially deep formulas (see [`ENCODE_DEPTH_LIMIT`](super::ENCODE_DEPTH_LIMIT)).
     pub(super) fn encode(&mut self, term: TermId, manager: &mut TermManager) -> Lit {
+        // Every term that reaches the SAT core passes through here -- user
+        // assertions, array/arithmetic/datatype lemmas and MBQI instances
+        // alike -- which is what makes this the one place where the array
+        // refinement loop's guard can be computed *exhaustively* (`#P2b-33`).
+        self.mark_array_ops(term, manager);
         self.encode_depth(term, manager, 0)
     }
 
@@ -787,6 +1176,9 @@ impl Solver {
                         self.trail.push(TrailOp::ArithTermAdded { term });
                         // Register with arithmetic solver
                         self.arith.intern(term);
+                        if is_int {
+                            self.arith.mark_int_term(term);
+                        }
                     }
                 } else if let Some(sort) = manager.sorts.get(t.sort)
                     && sort.is_bitvec()
@@ -1255,30 +1647,35 @@ impl Solver {
                 let var = self.get_or_create_var(term);
                 Lit::pos(var)
             }
+            // Bit-vector unsigned comparisons.  The `Constraint::Lt` / `Le`
+            // recorded here is consumed by the bit-vector path of
+            // `TheoryManager::process_constraint`, which bit-blasts both
+            // operands and asserts the exact comparator into the circuit.
+            //
+            // They are deliberately *not* mirrored into `var_to_parsed_arith`
+            // any more (`#P2b-28`).  Until then every `bvult`/`bvule` was also
+            // parsed as a linear constraint over unbounded integers and
+            // asserted into the `ArithSolver` as a "bounded-integer
+            // relaxation".  The relaxation was redundant — the circuit decides
+            // every comparison exactly — and it lived in `Rational64`: a
+            // width-64 or width-63 literal at the top of the `i64` range made
+            // `assert_lt`'s `x < k ⇒ x ≤ k − 1` and `assert_le`'s `−rhs`
+            // overflow, so `(assert (bvult #x7fffffffffffffff v))` alone
+            // panicked in a debug build ("attempt to negate with overflow")
+            // and answered `unknown` in release, where the wrapped constant
+            // was silently a different bound.  `bvslt`/`bvsle` below never had
+            // the mirror for a related reason (signed vs. unsigned reading).
             TermKind::BvUlt(lhs, rhs) => {
-                // Bitvector unsigned less-than: treat as integer comparison
                 let var = self.get_or_create_var(term);
                 self.record_constraint(var, Constraint::Lt(*lhs, *rhs));
-                // Parse as arithmetic constraint (bitvector as bounded integer)
-                if let Some(parsed) =
-                    self.parse_arith_comparison(*lhs, *rhs, ArithConstraintType::Lt, term, manager)
-                {
-                    self.var_to_parsed_arith.insert(var, parsed);
-                }
                 // Track theory variables for model extraction
                 self.track_theory_vars(*lhs, manager);
                 self.track_theory_vars(*rhs, manager);
                 Lit::pos(var)
             }
             TermKind::BvUle(lhs, rhs) => {
-                // Bitvector unsigned less-than-or-equal: treat as integer comparison
                 let var = self.get_or_create_var(term);
                 self.record_constraint(var, Constraint::Le(*lhs, *rhs));
-                if let Some(parsed) =
-                    self.parse_arith_comparison(*lhs, *rhs, ArithConstraintType::Le, term, manager)
-                {
-                    self.var_to_parsed_arith.insert(var, parsed);
-                }
                 // Track theory variables for model extraction
                 self.track_theory_vars(*lhs, manager);
                 self.track_theory_vars(*rhs, manager);
@@ -1351,6 +1748,16 @@ impl Solver {
             // `(not (forall ((x Int)) (P x))) ∧ (not (P 5))`.
             TermKind::Forall { .. } | TermKind::Exists { .. } => {
                 self.has_quantifiers = true;
+                // Honesty gate (soundness).  The Boolean variable below has no
+                // defining clause, so it is the *registration* — an
+                // unconditional MBQI fact, or a `quant_guard` obligation that
+                // ties it to its meaning — that stops the search from setting
+                // it by fiat.  A quantifier that has neither is an
+                // unconstrained Boolean (`#P2b-54`), and any `Sat` resting on
+                // it degrades to `Unknown` in [`Solver::check`].
+                if !self.justified_quantifiers.contains(&term) {
+                    self.quantifier_literal_unconstrained = true;
+                }
                 // Create a boolean variable for the quantifier
                 let var = self.get_or_create_var(term);
                 Lit::pos(var)

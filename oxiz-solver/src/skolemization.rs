@@ -1058,7 +1058,7 @@ impl SkolemizationContext {
             .checked_add(1)
             .ok_or(SkolemizationError::CounterOverflow)?;
 
-        let name = format!("sk!{}", counter);
+        let name = oxiz_core::smtlib::reserved_name("sk", &counter.to_string());
         let term = tm.mk_var(&name, sort);
 
         self.skolem_symbols.push(SkolemSymbol {
@@ -1087,7 +1087,7 @@ impl SkolemizationContext {
             .checked_add(1)
             .ok_or(SkolemizationError::CounterOverflow)?;
 
-        let name = format!("skf!{}", counter);
+        let name = oxiz_core::smtlib::reserved_name("skf", &counter.to_string());
 
         // Collect the argument sorts and term IDs from outer universals
         let arg_sorts: Vec<SortId> = self.outer_universals.iter().map(|(s, _)| *s).collect();
@@ -1151,7 +1151,7 @@ mod tests {
         // Should have generated one Skolem symbol
         assert_eq!(ctx.skolem_count(), 1);
         let sym = &ctx.skolem_symbols()[0];
-        assert_eq!(sym.name, "sk!0");
+        assert_eq!(sym.name, oxiz_core::smtlib::reserved_name("sk", "0"));
         assert!(sym.arg_sorts.is_empty());
     }
 
@@ -1197,7 +1197,7 @@ mod tests {
         // Should have generated one Skolem function
         assert_eq!(ctx.skolem_count(), 1);
         let sym = &ctx.skolem_symbols()[0];
-        assert_eq!(sym.name, "skf!0");
+        assert_eq!(sym.name, oxiz_core::smtlib::reserved_name("skf", "0"));
         assert_eq!(sym.arg_sorts.len(), 1);
         assert_eq!(sym.arg_sorts[0], int_sort);
     }
@@ -1268,7 +1268,7 @@ mod tests {
         assert!(is_existential_free(&tm, result_id));
         assert_eq!(ctx.skolem_count(), 1);
         let sym = &ctx.skolem_symbols()[0];
-        assert_eq!(sym.name, "skf!0");
+        assert_eq!(sym.name, oxiz_core::smtlib::reserved_name("skf", "0"));
         assert_eq!(sym.arg_sorts.len(), 2);
         assert_eq!(sym.arg_sorts[0], int_sort);
         assert_eq!(sym.arg_sorts[1], int_sort);

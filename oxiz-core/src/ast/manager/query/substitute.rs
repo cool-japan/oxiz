@@ -1156,11 +1156,11 @@ impl TermManager {
             }
             TermKind::DtTester { constructor, arg } => {
                 let arg = sub(arg);
-                self.intern(TermKind::DtTester { constructor, arg }, sort)
+                self.mk_dt_tester_spur(constructor, arg)
             }
             TermKind::DtSelector { selector, arg } => {
                 let arg = sub(arg);
-                self.intern(TermKind::DtSelector { selector, arg }, sort)
+                self.mk_dt_selector_spur(selector, arg, sort)
             }
 
             TermKind::Forall { .. }

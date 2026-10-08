@@ -10,8 +10,11 @@ use crate::prelude::*;
 /// A context for incremental solving
 #[derive(Debug, Clone)]
 pub struct Context {
-    /// Stack of assertion scopes
-    scopes: Vec<Scope>,
+    /// The innermost assertion scope: the base scope until a `push`
+    current: Scope,
+    /// The scopes enclosing `current`, outermost first; empty at the base
+    /// level, so the stack of scopes is never empty by construction
+    outer: Vec<Scope>,
     /// All assertions in the current context (flattened view)
     assertions: Vec<TermId>,
 }
@@ -28,7 +31,8 @@ impl Context {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            scopes: vec![Scope { assertion_base: 0 }],
+            current: Scope { assertion_base: 0 },
+            outer: Vec::new(),
             assertions: Vec::new(),
         }
     }
@@ -46,22 +50,20 @@ impl Context {
     /// Push a new assertion scope onto the stack
     pub fn push(&mut self) {
         let assertion_base = self.assertions.len();
-        self.scopes.push(Scope { assertion_base });
+        let enclosing = core::mem::replace(&mut self.current, Scope { assertion_base });
+        self.outer.push(enclosing);
     }
 
     /// Pop the most recent assertion scope from the stack
     ///
     /// Returns `true` if a scope was popped, `false` if already at base level
     pub fn pop(&mut self) -> bool {
-        if self.scopes.len() <= 1 {
-            // Cannot pop the base scope
+        // Cannot pop the base scope: it is `current` exactly when no scope
+        // encloses it.
+        let Some(enclosing) = self.outer.pop() else {
             return false;
-        }
-
-        let scope = self
-            .scopes
-            .pop()
-            .expect("scopes has elements after length check");
+        };
+        let scope = core::mem::replace(&mut self.current, enclosing);
         self.assertions.truncate(scope.assertion_base);
         true
     }
@@ -69,7 +71,7 @@ impl Context {
     /// Get the current number of scopes
     #[must_use]
     pub fn num_scopes(&self) -> usize {
-        self.scopes.len()
+        self.outer.len() + 1
     }
 
     /// Get all assertions in the current context
@@ -92,19 +94,15 @@ impl Context {
 
     /// Reset the context to the initial state
     pub fn reset(&mut self) {
-        self.scopes.clear();
-        self.scopes.push(Scope { assertion_base: 0 });
+        self.current = Scope { assertion_base: 0 };
+        self.outer.clear();
         self.assertions.clear();
     }
 
     /// Get assertions added in the current scope
     #[must_use]
     pub fn current_scope_assertions(&self) -> &[TermId] {
-        let current_scope = self
-            .scopes
-            .last()
-            .expect("scopes always has at least base scope");
-        &self.assertions[current_scope.assertion_base..]
+        &self.assertions[self.current.assertion_base..]
     }
 }
 
@@ -185,15 +183,14 @@ impl NamedContext {
     ///
     /// Returns `true` if a scope was popped, `false` if already at base level
     pub fn pop(&mut self) -> bool {
-        if self.scopes.len() <= 1 {
-            return false;
-        }
-
-        let scope = self
-            .scopes
-            .pop()
-            .expect("scopes has elements after length check");
-        self.assertions.truncate(scope.assertion_base);
+        // The base scope is never popped: the slice pattern binds the top
+        // scope only when another scope is below it.
+        let (scope, kept) = match self.scopes.as_slice() {
+            [below @ .., top] if !below.is_empty() => (top.assertion_base, below.len()),
+            _ => return false,
+        };
+        self.scopes.truncate(kept);
+        self.assertions.truncate(scope);
         true
     }
 

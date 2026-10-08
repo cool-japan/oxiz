@@ -28,7 +28,6 @@ Reference: Z3's `sat/` directory
 - **oxiz-solver**: CDCL(T) SAT core
 - **oxiz-opt**: MaxSAT core algorithms
 - **oxiz-proof**: DRAT/LRAT proof integration
-- **oxiz-nlsat**: Boolean reasoning component
 
 ---
 

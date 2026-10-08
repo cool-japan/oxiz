@@ -17,10 +17,10 @@
 //!
 //! // Store learned clauses for a problem
 //! let clause = LearnedClause::new(vec![1, -2, 3], 0.5);
-//! cache.put("problem_fingerprint", vec![clause]);
+//! cache.put("problem_fingerprint", vec![clause])?;
 //!
 //! // Retrieve learned clauses for a similar problem
-//! if let Some(entry) = cache.get("problem_fingerprint") {
+//! if let Some(entry) = cache.get("problem_fingerprint")? {
 //!     for clause in &entry.clauses {
 //!         println!("Learned clause: {:?}", clause.literals);
 //!     }
@@ -37,7 +37,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use std::time::SystemTime;
 
 /// A learned clause/lemma from the solver
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -224,41 +223,49 @@ impl LearnedConstraintCache {
     }
 
     /// Get learned constraints for a problem
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the system clock reads a time before the Unix
+    /// epoch, which leaves no access time to record.
     #[allow(dead_code)]
-    pub fn get(&mut self, fingerprint: &str) -> Option<LearnedConstraintEntry> {
-        let now = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .expect("SystemTime should be after UNIX_EPOCH")
-            .as_secs();
+    pub fn get(&mut self, fingerprint: &str) -> Result<Option<LearnedConstraintEntry>, String> {
+        let now = crate::cache::unix_time_secs()?;
 
         if let Some(entry) = self.entries.get_mut(fingerprint) {
             // Update access time for LRU
             entry.last_access = now;
             entry.use_count += 1;
-            return Some(entry.clone());
+            return Ok(Some(entry.clone()));
         }
 
-        None
+        Ok(None)
     }
 
     /// Store learned constraints for a problem
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::put_with_metadata`].
     #[allow(dead_code)]
-    pub fn put(&mut self, fingerprint: &str, clauses: Vec<LearnedClause>) {
-        self.put_with_metadata(fingerprint, clauses, ProblemMetadata::default());
+    pub fn put(&mut self, fingerprint: &str, clauses: Vec<LearnedClause>) -> Result<(), String> {
+        self.put_with_metadata(fingerprint, clauses, ProblemMetadata::default())
     }
 
     /// Store learned constraints with problem metadata
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the system clock reads a time before the Unix
+    /// epoch, which leaves no timestamp to store; nothing is stored then.
     #[allow(dead_code)]
     pub fn put_with_metadata(
         &mut self,
         fingerprint: &str,
         mut clauses: Vec<LearnedClause>,
         metadata: ProblemMetadata,
-    ) {
-        let now = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .expect("SystemTime should be after UNIX_EPOCH")
-            .as_secs();
+    ) -> Result<(), String> {
+        let now = crate::cache::unix_time_secs()?;
 
         // Limit clauses to max_clauses_per_entry, keeping best ones (by LBD/activity)
         if clauses.len() > self.max_clauses_per_entry {
@@ -288,6 +295,7 @@ impl LearnedConstraintCache {
         };
 
         self.entries.insert(fingerprint.to_string(), entry);
+        Ok(())
     }
 
     /// Evict the least recently used entry
@@ -466,7 +474,10 @@ mod tests {
 
     #[test]
     fn test_cache_put_get() {
-        let cache_path = PathBuf::from("/tmp/oxiz_test_learning_cache.json");
+        let cache_path = std::env::temp_dir().join(format!(
+            "oxiz_test_learning_cache_{}.json",
+            std::process::id()
+        ));
         let _ = fs::remove_file(&cache_path);
 
         let mut cache = LearnedConstraintCache::new(Some(cache_path.clone()));
@@ -478,13 +489,23 @@ mod tests {
         ];
 
         // Initially not cached
-        assert!(cache.get(fingerprint).is_none());
+        assert!(
+            cache
+                .get(fingerprint)
+                .expect("clock should be readable")
+                .is_none()
+        );
 
         // Put in cache
-        cache.put(fingerprint, clauses.clone());
+        cache
+            .put(fingerprint, clauses.clone())
+            .expect("clock should be readable");
 
         // Should be cached now
-        let entry = cache.get(fingerprint).expect("key should exist in map");
+        let entry = cache
+            .get(fingerprint)
+            .expect("clock should be readable")
+            .expect("key should exist in map");
         assert_eq!(entry.clauses.len(), 2);
         assert_eq!(entry.clauses[0].literals, vec![1, -2]);
 
@@ -494,14 +515,21 @@ mod tests {
 
     #[test]
     fn test_lru_eviction() {
-        let cache_path = PathBuf::from("/tmp/oxiz_test_learning_lru.json");
+        let cache_path = std::env::temp_dir().join(format!(
+            "oxiz_test_learning_lru_{}.json",
+            std::process::id()
+        ));
         let _ = fs::remove_file(&cache_path);
 
         let mut cache = LearnedConstraintCache::new(Some(cache_path.clone())).with_max_entries(2);
 
         // Add 2 entries
-        cache.put("fp1", vec![LearnedClause::new(vec![1], 0.5)]);
-        cache.put("fp2", vec![LearnedClause::new(vec![2], 0.5)]);
+        cache
+            .put("fp1", vec![LearnedClause::new(vec![1], 0.5)])
+            .expect("clock should be readable");
+        cache
+            .put("fp2", vec![LearnedClause::new(vec![2], 0.5)])
+            .expect("clock should be readable");
 
         assert_eq!(cache.entries.len(), 2);
 
@@ -515,7 +543,9 @@ mod tests {
         }
 
         // Add 3rd entry - should evict fp2 (least recently used)
-        cache.put("fp3", vec![LearnedClause::new(vec![3], 0.5)]);
+        cache
+            .put("fp3", vec![LearnedClause::new(vec![3], 0.5)])
+            .expect("clock should be readable");
 
         assert_eq!(cache.entries.len(), 2);
         assert!(cache.entries.contains_key("fp1"));
@@ -528,23 +558,31 @@ mod tests {
 
     #[test]
     fn test_cache_persistence() {
-        let cache_path = PathBuf::from("/tmp/oxiz_test_learning_persist.json");
+        let cache_path = std::env::temp_dir().join(format!(
+            "oxiz_test_learning_persist_{}.json",
+            std::process::id()
+        ));
         let _ = fs::remove_file(&cache_path);
 
         // Create and populate cache
         {
             let mut cache = LearnedConstraintCache::new(Some(cache_path.clone()));
-            cache.put(
-                "persistent_fp",
-                vec![LearnedClause::new(vec![1, 2, 3], 0.9)],
-            );
+            cache
+                .put(
+                    "persistent_fp",
+                    vec![LearnedClause::new(vec![1, 2, 3], 0.9)],
+                )
+                .expect("clock should be readable");
             cache.save_to_disk().expect("test operation should succeed");
         }
 
         // Load cache in a new instance
         {
             let mut cache = LearnedConstraintCache::new(Some(cache_path.clone()));
-            let entry = cache.get("persistent_fp").expect("key should exist in map");
+            let entry = cache
+                .get("persistent_fp")
+                .expect("clock should be readable")
+                .expect("key should exist in map");
             assert_eq!(entry.clauses[0].literals, vec![1, 2, 3]);
         }
 
@@ -554,19 +592,26 @@ mod tests {
 
     #[test]
     fn test_cache_stats() {
-        let cache_path = PathBuf::from("/tmp/oxiz_test_learning_stats.json");
+        let cache_path = std::env::temp_dir().join(format!(
+            "oxiz_test_learning_stats_{}.json",
+            std::process::id()
+        ));
         let _ = fs::remove_file(&cache_path);
 
         let mut cache = LearnedConstraintCache::new(Some(cache_path.clone()));
 
-        cache.put(
-            "fp1",
-            vec![
-                LearnedClause::new(vec![1], 0.5),
-                LearnedClause::new(vec![2], 0.5),
-            ],
-        );
-        cache.put("fp2", vec![LearnedClause::new(vec![3], 0.5)]);
+        cache
+            .put(
+                "fp1",
+                vec![
+                    LearnedClause::new(vec![1], 0.5),
+                    LearnedClause::new(vec![2], 0.5),
+                ],
+            )
+            .expect("clock should be readable");
+        cache
+            .put("fp2", vec![LearnedClause::new(vec![3], 0.5)])
+            .expect("clock should be readable");
 
         let stats = cache.stats();
         assert_eq!(stats.num_entries, 2);
@@ -578,15 +623,24 @@ mod tests {
 
     #[test]
     fn test_merge_similar() {
-        let cache_path = PathBuf::from("/tmp/oxiz_test_learning_merge.json");
+        let cache_path = std::env::temp_dir().join(format!(
+            "oxiz_test_learning_merge_{}.json",
+            std::process::id()
+        ));
         let _ = fs::remove_file(&cache_path);
 
         let mut cache = LearnedConstraintCache::new(Some(cache_path.clone()));
 
         // Add entries with similar structural prefix
-        cache.put("abc_123", vec![LearnedClause::with_lbd(vec![1, 2], 0.5, 2)]);
-        cache.put("abc_456", vec![LearnedClause::with_lbd(vec![3, 4], 0.7, 1)]);
-        cache.put("def_789", vec![LearnedClause::with_lbd(vec![5, 6], 0.6, 3)]);
+        cache
+            .put("abc_123", vec![LearnedClause::with_lbd(vec![1, 2], 0.5, 2)])
+            .expect("clock should be readable");
+        cache
+            .put("abc_456", vec![LearnedClause::with_lbd(vec![3, 4], 0.7, 1)])
+            .expect("clock should be readable");
+        cache
+            .put("def_789", vec![LearnedClause::with_lbd(vec![5, 6], 0.6, 3)])
+            .expect("clock should be readable");
 
         let merged = cache.merge_similar("abc_000");
         assert_eq!(merged.len(), 2);

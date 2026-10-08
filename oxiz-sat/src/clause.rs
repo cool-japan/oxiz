@@ -586,6 +586,17 @@ impl ClauseDatabase {
             .map(|(i, _)| ClauseId::new(i as u32))
     }
 
+    /// Iterate over all non-deleted clauses together with their IDs: the same
+    /// IDs as [`Self::iter_ids`], in the same order, each paired with the
+    /// clause it names, so a caller never looks an ID up again.
+    pub(crate) fn iter_live(&self) -> impl Iterator<Item = (ClauseId, &Clause)> + '_ {
+        self.clauses
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| !c.deleted)
+            .map(|(i, c)| (ClauseId::new(i as u32), c))
+    }
+
     /// Bump activity of a clause
     pub fn bump_activity(&mut self, id: ClauseId, increment: f64) {
         if let Some(clause) = self.get_mut(id) {

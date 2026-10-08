@@ -34,7 +34,30 @@ pub use basic::Printer;
 ///   four; any other width must use the `#b` form with exactly `width` binary
 ///   digits.  Emitting `#x` with `width.div_ceil(4)` digits (as the printers
 ///   previously did) silently widens e.g. a 5-bit value to 8 bits.
-pub(crate) fn format_bitvec_literal(value: &num_bigint::BigInt, width: u32) -> String {
+///
+/// # `#x` is a canonicalization choice, `#b` is forced
+///
+/// The `#b` half of the radix rule is forced: a hex digit *is* four bits, so
+/// there is no legal `#x` spelling at all at a width that is not a multiple of
+/// four.  The `#x` half is a choice — `#b` with exactly `width` digits is
+/// valid SMT-LIB at *every* width, multiples of four included — and this
+/// function is where that choice is made, once, for the whole workspace.  It
+/// matches what Z3 prints.  Legitimate `#b` output elsewhere, such as the
+/// `(fp #b.. #b.. #b..)` bit-triples in this module's pretty printer, denotes
+/// a different construct and must stay `#b`.
+///
+/// # Why this is `pub`
+///
+/// Every bit-vector *value* rendered anywhere in the workspace must come from
+/// here, or the same constant comes back spelled two ways.  That is exactly
+/// what finding U-Z13 was: an 8-bit constant printed `#x05` by `(get-value)`,
+/// which reached this function, and `#b00000101` by `(get-model)`, which had a
+/// hand-rolled `format!("#b{:0>width$}", ..)` of its own.  Callers that hold a
+/// [`crate::ast::TermManager`] can print the interned constant through
+/// [`Printer`]; callers that only have a value and a width — such as
+/// `oxiz-solver`'s `Context::default_value`, which holds `&self` and cannot
+/// intern anything — call this directly.
+pub fn format_bitvec_literal(value: &num_bigint::BigInt, width: u32) -> String {
     // Width 0 is not a legal SMT-LIB bit-vector sort; there is no literal
     // syntax for it, so fall back to the shortest well-formed binary literal
     // rather than emit a zero-digit `#x`/`#b` token that no parser accepts.
@@ -1484,5 +1507,86 @@ mod tests {
             output.contains(&format!(":name {expected_literal}")),
             "expected {expected_literal} in {output}"
         );
+    }
+}
+
+/// Whether `name` is a *simple symbol* in the sense of SMT-LIB 2.6 section
+/// 3.1: a non-empty sequence of letters, digits and
+/// `~ ! @ $ % ^ & * _ - + = < > . ? /` that does not begin with a digit.
+///
+/// The one definition in the workspace, so the two printers cannot drift about
+/// how the same symbol is written.
+#[must_use]
+pub fn is_simple_symbol(name: &str) -> bool {
+    let mut chars = name.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    let allowed = |c: char| {
+        c.is_ascii_alphanumeric()
+            || matches!(
+                c,
+                '~' | '!'
+                    | '@'
+                    | '$'
+                    | '%'
+                    | '^'
+                    | '&'
+                    | '*'
+                    | '_'
+                    | '-'
+                    | '+'
+                    | '='
+                    | '<'
+                    | '>'
+                    | '.'
+                    | '?'
+                    | '/'
+            )
+    };
+    if first.is_ascii_digit() || !allowed(first) {
+        return false;
+    }
+    chars.all(allowed)
+}
+
+/// Write `name` the way SMT-LIB 2.6 section 3.1 requires it to be read back:
+/// bare when it is a simple symbol, wrapped in `|…|` when it is not.
+///
+/// # Why one function rather than one per printer
+///
+/// `(get-model)` printed a quoted symbol *without* its bars — `(declare-const
+/// |a b| …)` came back as `(define-fun a b () (_ BitVec 1) #b0)`, which is not
+/// re-parsable SMT-LIB and silently turns one symbol into two — while the
+/// `(get-value)` key path, which answers with the term's *source* spelling,
+/// printed `|a b|`.  Two commands then disagreed about how to write the same
+/// symbol in the same run.  Routing both through this function is what makes
+/// that disagreement unrepresentable.
+///
+/// A name containing `|` or `\` has no SMT-LIB spelling at all — a quoted
+/// symbol "may not contain `|` or `\`" and a simple symbol admits neither — so
+/// such a name is written bare rather than wrapped in bars that would not
+/// parse.  The only names in that class are the solver's own reserved ones
+/// ([`crate::smtlib::RESERVED_PREFIX`]), which no user symbol can collide with
+/// and which the term printers special-case before reaching here.
+///
+/// ```
+/// # use oxiz_core::smtlib::format_symbol;
+/// assert_eq!(format_symbol("x"), "x");
+/// assert_eq!(format_symbol("a-b?"), "a-b?");
+/// assert_eq!(format_symbol("a b"), "|a b|");
+/// assert_eq!(format_symbol("0start"), "|0start|");
+/// assert_eq!(format_symbol(""), "||");
+/// ```
+#[must_use]
+pub fn format_symbol(name: &str) -> String {
+    if is_simple_symbol(name) || name.contains('|') || name.contains('\\') {
+        name.to_string()
+    } else {
+        let mut out = String::with_capacity(name.len() + 2);
+        out.push('|');
+        out.push_str(name);
+        out.push('|');
+        out
     }
 }

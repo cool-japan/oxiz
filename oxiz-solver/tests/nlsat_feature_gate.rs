@@ -398,7 +398,10 @@ fn a_decided_goal_still_carries_its_model() {
     assert_eq!(
         run("(set-logic QF_NRA)(declare-const x Real)\
              (assert (= (* x x) 4.0))(check-sat)(get-value (x))"),
-        vec!["sat", "((x -2))"],
+        // `-2.0`, not `-2`: `(get-value)` answers from the printed model
+        // since re-fix pass 15 (decision (69)), and `(get-model)` has always
+        // printed this `Real` as `-2.0`; the two used to disagree.
+        vec!["sat", "((x -2.0))"],
         "the default build reports a root of x*x = 4"
     );
 }

@@ -254,8 +254,18 @@ impl<'a> Printer<'a> {
                 }
                 let _ = write!(w, ")");
             }
+            // `Div` is both SMT-LIB divisions: the parser routes the integer
+            // `div` and the real `/` to one term kind, so the SORT is what
+            // tells them apart.  Printing a `Real`-sorted one as `div` emitted
+            // a term no SMT-LIB reader accepts (`div` is Int × Int → Int) and
+            // made `(get-value ((/ x 2)))` answer `(div 3/2 2)`.
             TermKind::Div(lhs, rhs) => {
-                let _ = write!(w, "(div ");
+                let symbol = if term.sort == self.manager.sorts.real_sort {
+                    "/"
+                } else {
+                    "div"
+                };
+                let _ = write!(w, "({symbol} ");
                 self.write_term(w, *lhs);
                 let _ = write!(w, " ");
                 self.write_term(w, *rhs);
@@ -434,6 +444,22 @@ impl<'a> Printer<'a> {
             }
             TermKind::Apply { func, args } => {
                 let name = self.manager.resolve_str(*func);
+                // The array constant is interned under a reserved name no
+                // script can spell (`smtlib::CONST_ARRAY_FUNC`); printing that
+                // name verbatim would emit a symbol the reader cannot parse
+                // back, so it is rendered in the SMT-LIB spelling it came from,
+                // qualified by the application's own array sort.
+                if name == crate::smtlib::CONST_ARRAY_FUNC {
+                    let _ = write!(w, "((as const ");
+                    self.write_sort(w, term.sort);
+                    let _ = write!(w, ")");
+                    for arg in args {
+                        let _ = write!(w, " ");
+                        self.write_term(w, *arg);
+                    }
+                    let _ = write!(w, ")");
+                    return;
+                }
                 let _ = write!(w, "({name}");
                 for arg in args {
                     let _ = write!(w, " ");

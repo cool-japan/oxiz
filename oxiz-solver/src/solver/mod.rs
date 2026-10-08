@@ -1,7 +1,9 @@
 //! Main CDCL(T) SMT Solver module
 
 pub(super) mod arith_axioms;
-pub(super) mod array_axioms;
+pub(crate) mod array_axioms;
+pub(crate) mod array_completion_certify;
+pub(super) mod array_refinement;
 pub(super) mod branch_priority;
 pub(super) mod candidates;
 pub(super) mod check_array;
@@ -14,20 +16,25 @@ pub(super) mod check_nlsat;
 pub(super) mod check_string;
 pub(super) mod config;
 pub(super) mod dt_axioms;
+pub(super) mod dt_refinement;
 pub(super) mod encode;
 pub(super) mod encode_guards;
 pub(super) mod eq_skeleton;
+pub(super) mod ground_instance;
 pub(super) mod int_case_split;
 pub(super) mod int_range_lp;
+pub(super) mod integrality_exit;
 pub(super) mod model_blocking;
 pub(super) mod model_builder;
 pub(super) mod model_eval;
+pub(super) mod model_eval_bv;
 pub(super) mod pigeonhole;
 pub(super) mod term_walk;
 pub(super) mod theory_bv_encode;
 pub(super) mod theory_manager;
 pub(super) mod trail;
 pub(super) mod types;
+pub(super) mod uf_consistency;
 pub(super) mod verdict_cache;
 
 pub use types::{
@@ -142,6 +149,16 @@ pub struct Solver {
     pub(super) assumption_vars: FxHashMap<u32, Var>,
     /// Model (if sat)
     pub(super) model: Option<Model>,
+    /// The assignments of the last model `array_completion_certify`
+    /// installed, so a second hook in the same `check` can tell a certified
+    /// model from one that merely binds arrays to value terms.
+    pub(super) certified_array_model: Option<FxHashMap<TermId, TermId>>,
+    /// The candidate model a completion replaced on a `Sat` no gate took away
+    /// (decision (48)): `Context` puts it back when it already satisfies
+    /// every assertion as printed.
+    pub(super) replaced_candidate: Option<array_completion_certify::ReplacedCandidate>,
+    /// Set when decision (48) put back a candidate certified as printed.
+    pub(super) candidate_certified_as_printed: bool,
     /// Exact model values for the nonlinear-real variables that [`Model`]
     /// cannot hold — the `(get-model)` side-channel for algebraic witnesses.
     ///
@@ -250,6 +267,29 @@ pub struct Solver {
     /// evaluation rule), so without this alias a satisfiable model could
     /// never report a value for the original, unpurified application shape.
     pub(super) numeric_purify_aliases: FxHashMap<TermId, TermId>,
+    /// Alias map from the fresh proxy constant `eliminate_nonbool_ite` mints
+    /// for a non-Bool `(ite c t e)` back to **that `ite` term**.
+    ///
+    /// The proxy is an encoding-time device: the SAT core's clauses name it,
+    /// and two side conditions pin it to whichever branch `c` selects.  For
+    /// every *theory* that reasons structurally the proxy and the `ite` are
+    /// one object, and the array theory is the one where believing otherwise
+    /// costs a verdict (`#P2b-59`): `collect_array_structure` walks both
+    /// `self.assertions` (which stores the **pre**-rewrite term, so the `ite`
+    /// spelling) and `self.ground_array_roots` (which stored the **post**-
+    /// rewrite term, so the proxy spelling), and an array reachable under two
+    /// spellings is two array terms, two members of every pair set and two
+    /// copies of every rule instance — on `rk9/min/q33_a01.smt2`, 19 of 19
+    /// collected array terms where 13 is the truth, 21 extensionality
+    /// witnesses where 11 is, and 93 refinement rounds where 8 is.
+    ///
+    /// Not journalled, and that is a property of the key rather than an
+    /// omission: the proxy's name is `reserved_name("iteelim", ite.0)`, so a
+    /// proxy re-minted in a later scope is the *same* variable for the *same*
+    /// `ite` term.  The entry can therefore never go stale, only be
+    /// re-learned.  (`reset` clears it with everything else because the term
+    /// manager itself is the caller's to replace there.)
+    pub(super) ite_elim_aliases: FxHashMap<TermId, TermId>,
     /// Tseitin-encoding memo: term id -> (literal returned by `encode_depth`,
     /// polarity the term's clauses were emitted under).
     ///
@@ -292,6 +332,29 @@ pub struct Solver {
     /// most once, which makes the in-loop refinement in `check` terminate: every
     /// refinement round either adds a strictly new instance or reports `Sat`.
     pub(super) array_axiom_instances: FxHashSet<TermId>,
+    /// Ground *instances* — MBQI instantiations, blind and finite-domain
+    /// instantiations, e-matching lemmas — that mention array structure, kept
+    /// as extra roots for [`Solver::instantiate_array_axioms`]'s collection
+    /// walk.
+    ///
+    /// An instance is not an assertion: it never enters `self.assertions`, so
+    /// without this set the array term it grounds is a root of nothing and
+    /// receives no lemma at all.  See `ground_instance` for the wrong `sat`
+    /// that produced.  Journalled with `TrailOp::GroundArrayRootAdded`, so a
+    /// `pop` retracts the root together with the instance's clauses.
+    pub(super) ground_array_roots: FxHashSet<TermId>,
+    /// The quantifier instances and quantified assertions' encodings that hold
+    /// a datatype term — the roots a `check` can gain mid-search, which the
+    /// MBQI round boundary re-axiomatises — read by the datatype axioms beside
+    /// `dt_assertion_roots` (`#P2b-90`; see `ground_instance`).  Journalled
+    /// with `TrailOp::GroundDtRootAdded`.
+    pub(super) ground_dt_roots: FxHashSet<TermId>,
+    /// Every assertion — and every binder-row lemma and quantifier obligation
+    /// asserted beside one — spelled as the SAT core encodes it: the roots the
+    /// datatype axioms and the model builder read in place of
+    /// `self.assertions` (`Solver::encoded_dt_scan`, `#P2b-88`).  Journalled
+    /// with `TrailOp::DtAssertionRootAdded`.
+    pub(super) dt_assertion_roots: FxHashSet<TermId>,
     /// `div` / `mod` / numeric-`ite` terms whose defining axioms have already
     /// been asserted (see [`Solver::instantiate_arith_axioms`]).  The linear
     /// solver treats those terms as opaque atoms, so this set is what tells the
@@ -341,6 +404,37 @@ pub struct Solver {
     /// of the axioms is still `Unsat`; a `Sat` is a guess and is reported as
     /// `Unknown`.
     pub(super) array_axioms_incomplete: bool,
+    /// Set to `true` when a quantifier reached the Tseitin encoder without its
+    /// Boolean literal having been tied to its meaning.
+    ///
+    /// [`Solver::encode`] gives a `Forall` / `Exists` sub-term a fresh Boolean
+    /// variable and *no* defining clause: the quantifier's truth is supposed to
+    /// be established outside the SAT core, by the registration
+    /// [`Solver::register_asserted_quantifiers`] performs or by the guarded
+    /// obligations [`encode::quant_guard`] emits.  A quantifier that reaches
+    /// the encoder without either is an **unconstrained Boolean**: the search
+    /// may set it to whichever value closes the branch, which is how
+    /// `(assert (not (forall ((x U)) (= (f x) (f x)))))` — unsatisfiable in
+    /// every structure — answered `sat` (`#P2b-54`).
+    ///
+    /// A free literal can only ever *weaken* the encoding, so an `Unsat` stays
+    /// sound; a `Sat` may rest on a quantifier nothing checked and is reported
+    /// as `Unknown`, exactly like [`Solver::array_axioms_incomplete`].  The
+    /// flag is the safety net *under* the guarding pass, not a substitute for
+    /// it: every shape the pass handles keeps its verdict.
+    pub(super) quantifier_literal_unconstrained: bool,
+    /// The quantifier sub-terms whose Boolean literal is justified: either
+    /// registered as an unconditional fact with MBQI / e-matching, or tied to
+    /// its meaning by a [`encode::quant_guard`] obligation.
+    ///
+    /// Read by [`Solver::encode`] to decide whether a quantifier it is about to
+    /// give a free Boolean variable needs
+    /// [`Solver::quantifier_literal_unconstrained`] set.  Journalled with
+    /// `TrailOp::JustifiedQuantifierAdded`, because the clauses that justify an
+    /// entry are retracted by the same `pop` that retracts the assertion which
+    /// introduced them — a surviving entry would let the encoder trust a
+    /// literal whose meaning has just been dropped.
+    pub(super) justified_quantifiers: FxHashSet<TermId>,
     /// Terms that the *current* assertion stack pins to a concrete integer,
     /// i.e. `t` appears in some top-level `(assert (= t <literal>))`.
     ///
@@ -517,10 +611,37 @@ pub(super) const ENCODE_DEPTH_LIMIT: u32 = 512;
 /// A fully-evaluated ground value used by the model-verification soundness gate
 /// ([`Solver::model_refutes_assertions`]).  Integers and reals are unified as an
 /// exact rational so mixed Int/Real arithmetic and comparisons fold without loss.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) enum EvalVal {
+///
+/// # Why this is not `Copy`
+///
+/// [`EvalVal::Bv`] owns a [`num_bigint::BigInt`], so the enum owns a heap
+/// allocation and cannot be `Copy`.  The alternative — keeping `Copy` by
+/// storing a bit-vector's low 64 bits — is the exact shape of the wide-BV
+/// soundness bugs this crate has already had to fix (a 128-bit constant read
+/// through its low limb made `2^64` compare equal to `0`), and a *model gate*
+/// that folds `bvadd` at the wrong width does not merely miss a refutation:
+/// it can manufacture one.  Full width, allocation and all, is the only
+/// honest representation.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum EvalVal {
     Bool(bool),
     Num(num_rational::Rational64),
+    /// A bit-vector value.
+    ///
+    /// # Invariant
+    ///
+    /// `value` is **reduced**, i.e. `0 <= value < 2^width`.  Every producer
+    /// establishes it (leaves through `bv_fold::bv_wrap_unsigned`, operators
+    /// because every `bv_fold` rule is range-preserving) and every consumer
+    /// relies on it: the unsigned comparisons compare `value` directly, and
+    /// the signed ones reinterpret it through `bv_fold::to_signed`, both of
+    /// which are wrong for an unreduced operand.
+    Bv {
+        /// The bit-vector's unsigned value, in `[0, 2^width)`.
+        value: num_bigint::BigInt,
+        /// The width, in bits, this value was folded at.
+        width: u32,
+    },
 }
 
 impl Default for Solver {
@@ -616,6 +737,9 @@ impl Solver {
             named_assertions: Vec::new(),
             assumption_vars: FxHashMap::default(),
             model: None,
+            certified_array_model: None,
+            replaced_candidate: None,
+            candidate_certified_as_printed: false,
             nl_algebraic_values: FxHashMap::default(),
             unsat_core: None,
             context_stack: Vec::new(),
@@ -642,16 +766,22 @@ impl Solver {
             bool_uf_arg_terms: FxHashSet::default(),
             numeric_uf_arg_terms: FxHashSet::default(),
             numeric_purify_aliases: FxHashMap::default(),
+            ite_elim_aliases: FxHashMap::default(),
             encoded_terms: FxHashMap::default(),
             fp_constraint_cache: FxHashMap::default(),
             encode_depth_exceeded: false,
             has_array_ops: false,
             array_axiom_instances: FxHashSet::default(),
+            ground_array_roots: FxHashSet::default(),
+            ground_dt_roots: FxHashSet::default(),
+            dt_assertion_roots: FxHashSet::default(),
             arith_defined_terms: FxHashSet::default(),
             numeric_trichotomy_atoms: FxHashSet::default(),
             dt_axiom_instances: FxHashSet::default(),
             dt_axioms_incomplete: false,
             array_axioms_incomplete: false,
+            quantifier_literal_unconstrained: false,
+            justified_quantifiers: FxHashSet::default(),
             entailed_int_consts: FxHashMap::default(),
             entailed_int_consts_upto: 0,
             #[cfg(test)]
@@ -779,6 +909,25 @@ impl Solver {
             }
             result = self.check_core(manager);
         }
+        // `#P2b-58` / `#P2b-51` (decisions (36), (40), (41)): model completion
+        // for an array default under a binder, behind a quantifier-free
+        // certificate, at every `Sat` exit of `check_core` and wherever a
+        // verdict would otherwise be given up.  It changes a *verdict* only
+        // where one would be given up (`Unknown`, or a `Sat` a gate below is
+        // about to take away), and otherwise only the published *model*; an
+        // `Unsat` is never revisited.  Why the `Sat` it returns rests on the
+        // certificate alone is in `solver::array_completion_certify`.
+        let honesty_gate_pending = self.encode_depth_exceeded
+            || self.dt_axioms_incomplete
+            || self.array_axioms_incomplete
+            || self.quantifier_literal_unconstrained
+            || self.case_split_skipped_targets;
+        if self.array_completion_at_exit(result, honesty_gate_pending, manager) {
+            self.unsat_core = None;
+            self.debug_check_invariants("check: before returning sat (completed array model)");
+            return SolverResult::Sat;
+        }
+
         // Honesty gate (soundness): the Tseitin encoder can refuse a sub-term
         // *during* the search as well.  MBQI instantiation results and
         // E-matching lemmas are encoded mid-loop, never pass the assert-time
@@ -815,6 +964,17 @@ impl Solver {
             self.unsat_core = None;
             return SolverResult::Unknown;
         }
+        // Same honesty gate for the quantifier literals: a `Forall` /
+        // `Exists` sub-term the encoder gave a free Boolean variable is a
+        // quantifier nothing in the system checks, so a `Sat` that may have set
+        // it by fiat is reported as `Unknown`.  `Unsat` is untouched: a free
+        // literal only ever drops constraints.  See
+        // [`Solver::quantifier_literal_unconstrained`].
+        if result == SolverResult::Sat && self.quantifier_literal_unconstrained {
+            self.model = None;
+            self.unsat_core = None;
+            return SolverResult::Unknown;
+        }
         // Same honesty gate for a case-split round the affordability ceiling
         // declined: the candidate has shared terms whose domains were never
         // branched on, so this `Sat` is exactly the unverified kind
@@ -825,6 +985,12 @@ impl Solver {
             self.unsat_core = None;
             return SolverResult::Unknown;
         }
+        // The dev profile's datatype-model net (`debug_verify_dt_model`) that
+        // stood here asserted that a `sat` candidate never falsifies a
+        // datatype assertion; since re-fix pass 18 that is not an invariant of
+        // the search but the honesty net's business at the `Context` layer,
+        // which reads the printed candidate exactly and answers `unknown` on a
+        // false one in every profile (decision (85)).
         self.debug_check_invariants("check: exit");
         result
     }
@@ -1129,6 +1295,26 @@ impl Solver {
 
     /// Minimize an unsat core using greedy deletion
     /// This creates a minimal (but not necessarily minimum) unsatisfiable subset
+    ///
+    /// # Cost, and the budget it runs under
+    ///
+    /// Each of the `n` candidate removals is a **full re-solve from scratch**
+    /// on a fresh `Solver`, so a `(get-unsat-core)` after an `unsat` costs up
+    /// to `n` more solves on top of the one `(check-sat)` already paid for —
+    /// cargo-formal measured its `explain --blame` form (every assertion
+    /// `:named`, then `(get-unsat-core)`) at ≥ 3.8× the plain script.  That
+    /// is inherent to deletion-based minimisation; assumption-literal cores
+    /// would make it free and are the recorded follow-up (`TODO.md`).
+    ///
+    /// What is *not* acceptable is for those re-solves to ignore the budget
+    /// the caller set: each temporary solver used to start from
+    /// `Solver::new()` and therefore from an unbounded `timeout_ms`, so a
+    /// script that asked for `:timeout 10000` could spend `n × ∞` here.  The
+    /// temporary solvers now inherit `max_conflicts`, `max_decisions` and
+    /// `theory_mode`, and a *shrinking* wall-clock allowance: the caller's
+    /// `timeout_ms` minus what the minimisation has already used.  Once it
+    /// is exhausted the remaining candidates are simply kept — the core stays
+    /// a valid (unsatisfiable, superset) core, only less minimal.
     pub fn minimize_unsat_core(&mut self, manager: &mut TermManager) -> Option<UnsatCore> {
         if !self.produce_unsat_cores {
             return None;
@@ -1139,6 +1325,9 @@ impl Solver {
         if core.is_empty() {
             return Some(core.clone());
         }
+
+        let started = oxiz_time::Instant::now();
+        let total_timeout_ms = self.config.timeout_ms;
 
         // Extract the assertions in the core
         let mut core_assertions: Vec<_> = core
@@ -1158,9 +1347,23 @@ impl Solver {
         // Try to remove each assertion one by one
         let mut i = 0;
         while i < core_assertions.len() {
-            // Create a temporary solver with all assertions except the i-th one
+            // Create a temporary solver with all assertions except the i-th one,
+            // under whatever is left of the caller's budget (see the doc).
             let mut temp_solver = Solver::new();
             temp_solver.set_logic(self.logic.as_deref().unwrap_or("ALL"));
+            temp_solver.config.max_conflicts = self.config.max_conflicts;
+            temp_solver.config.max_decisions = self.config.max_decisions;
+            temp_solver.config.theory_mode = self.config.theory_mode;
+            if total_timeout_ms > 0 {
+                let spent_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+                let Some(remaining_ms) = total_timeout_ms.checked_sub(spent_ms) else {
+                    break;
+                };
+                if remaining_ms == 0 {
+                    break;
+                }
+                temp_solver.config.timeout_ms = remaining_ms;
+            }
 
             // Add all assertions except the i-th one
             for (j, &(_, assertion, _)) in core_assertions.iter().enumerate() {
@@ -1335,6 +1538,7 @@ impl Solver {
             encode_depth_exceeded: self.encode_depth_exceeded,
             dt_axioms_incomplete: self.dt_axioms_incomplete,
             array_axioms_incomplete: self.array_axioms_incomplete,
+            quantifier_literal_unconstrained: self.quantifier_literal_unconstrained,
             model_blocking_active: self.model_blocking_active,
         });
         self.sat.push();
@@ -1475,6 +1679,31 @@ impl Solver {
                             // re-assert an axiom it still needs.
                             self.array_axiom_instances.remove(&term);
                         }
+                        TrailOp::GroundArrayRootAdded { term } => {
+                            // The instance's own clauses are retracted with the
+                            // scope, so the root must go with them: a surviving
+                            // root would keep feeding `collect_array_structure`
+                            // array terms that the live assertion stack no
+                            // longer grounds, and the lemmas built over them
+                            // are lemmas about nothing.
+                            self.ground_array_roots.remove(&term);
+                        }
+                        TrailOp::GroundDtRootAdded { term } => {
+                            self.ground_dt_roots.remove(&term);
+                        }
+                        TrailOp::DtAssertionRootAdded { term } => {
+                            self.dt_assertion_roots.remove(&term);
+                        }
+                        TrailOp::JustifiedQuantifierAdded { term } => {
+                            // The clauses that justify this quantifier's
+                            // literal — the MBQI registration, or the guarded
+                            // obligation asserted beside it — are retracted
+                            // with the scope.  A surviving entry would tell
+                            // `encode` that a literal is tied to its meaning
+                            // when nothing ties it any more, which is the
+                            // free-literal defect `#P2b-54` names.
+                            self.justified_quantifiers.remove(&term);
+                        }
                         TrailOp::ArithDefinedTermAdded { term } => {
                             // The defining lemmas for this `div`/`mod`/`ite`
                             // term are retracted with the scope's clauses, so
@@ -1552,6 +1781,7 @@ impl Solver {
             self.encode_depth_exceeded = state.encode_depth_exceeded;
             self.dt_axioms_incomplete = state.dt_axioms_incomplete;
             self.array_axioms_incomplete = state.array_axioms_incomplete;
+            self.quantifier_literal_unconstrained = state.quantifier_literal_unconstrained;
 
             // Model-blocking clauses added inside the retracted scope go away
             // with the `self.sat.pop()` below, so the count of live ones has to
@@ -1667,12 +1897,18 @@ impl Solver {
         self.bool_uf_arg_terms.clear();
         self.numeric_uf_arg_terms.clear();
         self.numeric_purify_aliases.clear();
+        self.ite_elim_aliases.clear();
         self.encoded_terms.clear();
         self.fp_constraint_cache.clear();
         self.encode_depth_exceeded = false;
         self.has_array_ops = false;
         self.array_axiom_instances.clear();
+        self.ground_array_roots.clear();
+        self.ground_dt_roots.clear();
+        self.dt_assertion_roots.clear();
         self.array_axioms_incomplete = false;
+        self.quantifier_literal_unconstrained = false;
+        self.justified_quantifiers.clear();
         self.arith_defined_terms.clear();
         self.numeric_trichotomy_atoms.clear();
         // The assertions that entailed these constants are gone; a survivor
@@ -1702,9 +1938,31 @@ impl Solver {
     }
 
     /// Get solver statistics
+    ///
+    /// These are the **outer** Boolean engine's counters, and they are
+    /// cumulative across every check on this solver.  `(set-option
+    /// :max-conflicts N)` / `(set-option :max-decisions N)` bound
+    /// `SolverStats::conflicts` / `SolverStats::decisions` per check (see
+    /// `check_core`), so a caller reading them back after a check sees at most
+    /// `N` more than before it.
     #[must_use]
     pub fn stats(&self) -> &oxiz_sat::SolverStats {
         self.sat.stats()
+    }
+
+    /// Embedded bit-blasting conflicts spent by the last check.
+    ///
+    /// `(set-option :max-conflicts N)` installs three independent budgets of
+    /// `N` (see `check_core`); this is the consumption of the third one, the
+    /// total across every `BvSolver::check` probe and every repair round of a
+    /// single `(check-sat)`.  The other two are visible through
+    /// [`Self::stats`] (outer Boolean) and [`Self::get_statistics`] (theory).
+    ///
+    /// Reset when the next check arms the budget, so read it after a check and
+    /// before the next one.
+    #[must_use]
+    pub fn bv_conflicts_spent(&self) -> u64 {
+        self.bv.conflicts_spent()
     }
 }
 
