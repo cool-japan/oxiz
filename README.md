@@ -314,21 +314,21 @@ For optimal performance, we recommend:
 ```toml
 # Add to your Cargo.toml
 [dependencies]
-oxiz = "0.3.4"  # Default includes solver
+oxiz = "0.3.5"  # Default includes solver
 ```
 
 Or with specific features:
 
 ```toml
 [dependencies]
-oxiz = { version = "0.3.4", features = ["nlsat", "optimization"] }
+oxiz = { version = "0.3.5", features = ["nlsat", "optimization"] }
 ```
 
 For all features:
 
 ```toml
 [dependencies]
-oxiz = { version = "0.3.4", features = ["full"] }
+oxiz = { version = "0.3.5", features = ["full"] }
 ```
 
 ### Building from Source

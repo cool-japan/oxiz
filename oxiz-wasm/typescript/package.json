@@ -1,6 +1,6 @@
 {
   "name": "@cool-japan/oxiz",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "Pure Rust SMT solver for the web",
   "main": "oxiz.js",
   "types": "oxiz.d.ts",

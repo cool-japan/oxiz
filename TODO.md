@@ -291,7 +291,7 @@ Refreshed for v0.3.3 (2026-08-26). The v0.3.0-era entries (hot-path profiling, p
 ---
 
 **Status**: Under active development — not a general production-readiness claim (see README.md, "Not a General Production-Readiness Claim")
-**Current Version**: v0.3.4 (2026-10-08)
+**Current Version**: v0.3.5 (in development; v0.3.4 released 2026-10-08)
 **Tests**: 11,036 passing (all-features, 27 skipped) + 114 doc-tests | **LoC**: 513,849 code (638,596 total) | **Files**: 1,443 | **Clippy**: 0 warnings
 **Z3 Parity**: 170/170 Correct on the extended 19-logic differential suite (0 Wrong / 0 Inconclusive / 0 Timeout / 0 Error, honest comparator vs z3 4.15.4)
 **Next Milestone**: v0.4.0 - JIT specialization and the remaining completeness gaps (see "(b) Deliberately deferred capabilities (with reasons)")

@@ -33,21 +33,21 @@ Add OxiZ to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-oxiz = "0.3.4"  # Default: std + core solver
+oxiz = "0.3.5"  # Default: std + core solver
 ```
 
 With specific features:
 
 ```toml
 [dependencies]
-oxiz = { version = "0.3.4", features = ["nlsat", "optimization"] }
+oxiz = { version = "0.3.5", features = ["nlsat", "optimization"] }
 ```
 
 All features:
 
 ```toml
 [dependencies]
-oxiz = { version = "0.3.4", features = ["full"] }
+oxiz = { version = "0.3.5", features = ["full"] }
 ```
 
 ### Basic Usage
