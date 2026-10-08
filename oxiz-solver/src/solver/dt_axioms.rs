@@ -278,58 +278,49 @@ fn dt_size(term: TermId, manager: &mut TermManager) -> TermId {
 }
 
 impl Solver {
-    /// [`scan_datatype_terms`] over the assertion set, with every member
-    /// spelled as the search decides it (`#P2b-90`, re-fix pass 18): a
-    /// non-Bool `ite` the encoder replaced by a proxy (`Solver::ite_elim_aliases`,
-    /// `encode::bool_euf_encoding`) is read as that proxy, so `(v (ite c a b))`
-    /// is the member `(v p)` — the application the congruence closure and the
-    /// SAT search actually hold.  The axioms are asserted over these members
-    /// and the model builder rebuilds their values, so the lemmas and the
-    /// values speak of the terms the search decided.  Before, both read the
-    /// terms as written: a tester over the written `ite` and the tester over
-    /// its proxy were two unrelated atoms (the wrong `sat` of `#P2b-90`), and
-    /// an application over an `ite` was valued from atoms the search never
-    /// constrained (`#P2b-88`).  Members with no eliminated `ite` are as
-    /// written.
+    /// [`scan_datatype_terms`] over the assertion set as the search decides
+    /// it: the encoded spelling of every assertion
+    /// (`Solver::dt_assertion_roots`) and every quantifier instance that holds
+    /// a datatype term (`Solver::ground_dt_roots`), in term-id order.
     ///
-    /// The scan covers the assertions and every ground datatype root
-    /// (`Solver::ground_dt_roots`: a quantified assertion's encoding and every
-    /// quantifier instance), in term-id order.
-    pub(super) fn encoded_dt_scan(&self, manager: &mut TermManager) -> Option<DtScan> {
-        let mut roots: Vec<TermId> = self.assertions.clone();
-        let mut extra: Vec<TermId> = self.ground_dt_roots.iter().copied().collect();
-        extra.sort_unstable();
-        roots.extend(extra);
-        let mut scan = scan_datatype_terms(&roots, manager)?;
-        if self.ite_elim_aliases.is_empty() {
-            return Some(scan);
+    /// The axioms are asserted over these members and the model builder
+    /// rebuilds their values, so the lemmas and the values speak of the terms
+    /// the search decided.  Read off the assertions as written they spoke of
+    /// terms the pre-pass chain had re-spelled on the way to the encoder
+    /// (`#P2b-88`):
+    ///
+    /// * a non-Bool `ite` the encoder replaces by a proxy — a tester over the
+    ///   written `ite` and the tester over its proxy were two unrelated atoms
+    ///   (the wrong `sat` of `#P2b-90`), and an application over an `ite` was
+    ///   valued from atoms the search never constrained; re-fix pass 18
+    ///   re-spelled each member through `Solver::ite_elim_aliases`;
+    /// * a numeric argument of an uninterpreted function the encoder hoists
+    ///   into a proxy variable — `(h 2)` was axiomatised while the search
+    ///   decided `(h v)` beside `(= v 2)`, so its testers were free atoms the
+    ///   model gate read and the model builder valued (see
+    ///   `Solver::register_dt_assertion_root`).
+    ///
+    /// The encoding carries every rewrite of the chain at once, so no member
+    /// needs re-spelling: an eliminated `ite` is its proxy in every root (the
+    /// elimination replaces each eligible ground `ite` of the term it is given,
+    /// and instances pass through it in `Solver::prepare_ground_instance`).
+    ///
+    /// With no datatype declared, no sort a root holds resolves to a
+    /// declaration and the scan would find nothing, so it is not walked: a
+    /// datatype-free goal pays nothing here at any check.
+    pub(super) fn encoded_dt_scan(&self, manager: &TermManager) -> Option<DtScan> {
+        if !manager.sorts.has_datatypes() {
+            return None;
         }
-        let spelling: FxHashMap<TermId, TermId> = self
-            .ite_elim_aliases
+        let mut roots: Vec<TermId> = self
+            .dt_assertion_roots
             .iter()
-            .map(|(&proxy, &ite)| (ite, proxy))
+            .chain(self.ground_dt_roots.iter())
+            .copied()
             .collect();
-        for (_, terms) in &mut scan.members {
-            let mut mapped: Vec<TermId> = Vec::with_capacity(terms.len());
-            for &term in terms.iter() {
-                let mut map: FxHashMap<TermId, TermId> = FxHashMap::default();
-                for sub in super::encode::bool_euf_encoding::collect_ground_subterms(term, manager)
-                {
-                    if let Some(&proxy) = spelling.get(&sub) {
-                        map.insert(sub, proxy);
-                    }
-                }
-                mapped.push(if map.is_empty() {
-                    term
-                } else {
-                    manager.substitute(term, &map)
-                });
-            }
-            mapped.sort_unstable();
-            mapped.dedup();
-            *terms = mapped;
-        }
-        Some(scan)
+        roots.sort_unstable();
+        roots.dedup();
+        scan_datatype_terms(&roots, manager)
     }
 
     /// Assert the defining axioms of every datatype term reachable from the

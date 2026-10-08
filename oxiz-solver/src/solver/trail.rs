@@ -67,10 +67,14 @@ pub(crate) enum TrailOp {
     /// registered as a root for the next `collect_array_structure` round by
     /// [`super::Solver::prepare_ground_instance`].
     GroundArrayRootAdded { term: TermId },
-    /// A ground term holding a datatype term — a quantified assertion's
-    /// encoding or a quantifier instance — was registered as a root of the
-    /// datatype axioms by [`super::Solver::register_ground_dt_root`].
+    /// A quantifier instance or a quantified assertion's encoding holding a
+    /// datatype term was registered as a root of the datatype axioms by
+    /// [`super::Solver::register_ground_dt_root`].
     GroundDtRootAdded { term: TermId },
+    /// An assertion's encoded spelling (or that of a lemma or obligation
+    /// asserted beside one) was registered as a root of the datatype axioms by
+    /// [`super::Solver::register_encoded_assertion_root`].
+    DtAssertionRootAdded { term: TermId },
     /// A `div` / `mod` / numeric-`ite` term received its defining axioms
     ArithDefinedTermAdded { term: TermId },
     /// A numeric `Eq` atom received its trichotomy clause
@@ -219,6 +223,7 @@ impl super::Solver {
             array_axiom_instances: _, // TRAIL: ArrayAxiomInstanceAdded
             ground_array_roots: _, // TRAIL: GroundArrayRootAdded
             ground_dt_roots: _, // TRAIL: GroundDtRootAdded
+            dt_assertion_roots: _, // TRAIL: DtAssertionRootAdded
             arith_defined_terms: _, // TRAIL: ArithDefinedTermAdded
             numeric_trichotomy_atoms: _, // TRAIL: NumericTrichotomyAdded
             dt_axiom_instances: _, // TRAIL: DtAxiomInstanceAdded

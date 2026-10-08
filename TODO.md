@@ -1008,7 +1008,9 @@ Line numbers below were re-verified on 2026-09-09, after the two file splits thi
     * **(B′) `#P2b-90`'s fix moved the trajectory and no answer is reached (a solver honesty gate, `:reason-unknown
       incomplete`); only both switches together restore it — 2 checks:** `gen_dt.py` 30100192: `d00401#0-1`
       ITE_LIFT+ENCODED_SCAN (`c702310` and pass 14 do not decide them either; decision (88)'s stop-and-report,
-      reported).
+      reported). **CLOSED 2026-10-08 by `#P2b-88`'s root fix:** both `sat` with models z3 confirms — the gate had
+      refused all 65 candidates of the first check, each setting the tester the axioms read off the written
+      `(h 2)` while the search decided the purified `(h v)` (`p2b88_encoded_dt_roots`).
     * **(cap) cap-edge (the rule of (cap) below; the copy decides each inside 30 s) — 4 checks:** `gen_dt.py`
       30100162: `d00204#2` (pfx), `gen_dt.py` 30100182: `d00013#0` (pfx), `gen_dt.py` 30100192: `d00290#0` (pfx),
       `d00347#1` (pfx).
@@ -1106,7 +1108,10 @@ Line numbers below were re-verified on 2026-09-09, after the two file splits thi
     3 of 1,143 (H 3, S 3):** `gen_dt.py` 30102003: `d00498#0-2` HS — pass 17 `sat` ×3 with z3-confirmed models in
     5.4 s, this tree `unknown` ×3 in 4.0 s; `MUT15_NO_CTOR_FOLD` restores all three, ITE_LIFT+ENCODED_SCAN together #1-2,
     no single pass-18 switch; beside `d00401` above, pinned
-    `round4_pass18_recheck_pins::a_fresh_datatype_goal_pass_seventeen_decides_answers_unknown`.
+    `round4_pass18_recheck_pins::a_fresh_datatype_goal_pass_seventeen_decides_answers_unknown`. **CLOSED 2026-10-08 by
+    `#P2b-88`'s root fix:** `sat` ×3 with models that hold, no candidate refused (the pin inverted:
+    `::a_fresh_datatype_goal_pass_seventeen_decides_is_decided`). The verdict had ridden the trajectory: on Linux
+    x86_64 the unedited tree answered `sat` ×3 after six refused candidates, so the pin failed there.
   * **(B) — 1 of 1,143 (H 1, P 1):** `gen_dt.py` 30102003: `d00582#0` HP DT_FOLD (pass 17 `unknown` too).
   * **(cap) the rule above — 4 of 1,143 (H 1, P 1, S 4):** `gen_dt.py` 30102003: `d00222#2` (pfx) S (`sat` alone in
     8.7 s), `d00225#2` (pfx) S (10.5 s), `d00244#0` (pfx) S (12.1 s), `d00598#1` (pfx) HPS (its prefix answered

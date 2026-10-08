@@ -124,11 +124,19 @@ const DT_DECLS: &str = "(declare-fun h (Int) L)\n(declare-fun g (Int) C)\n(decla
 //     inverted pin asserts that none it prints is false.
 //
 //     Re-fix pass 18 (decision (85)): a candidate the exact value reader shows false makes the check
-//     `unknown` instead of `sat` with the model withheld, so all three checks answer `unknown` with the
-//     net's reason today.  The pin is re-derived to the property that matters, by design and not by
+//     `unknown` instead of `sat` with the model withheld, so all three checks answered `unknown` with the
+//     net's reason.  The pin was re-derived to the property that matters, by design and not by
 //     weakening: never `unsat` (z3: `sat`), every printed model satisfies every assertion in scope, a check
 //     that prints none says why, and the first check's model — the one pass 16 let through — is never
 //     printed.
+//
+//     `#P2b-88`'s root fix (the datatype axioms and the model builder read every assertion as the SAT core
+//     encodes it, not as written): the first check's candidate is no longer valued from the written
+//     `(h (+ 1 (- 1)))` while the search decided the purified one, so it holds and is printed — the
+//     property above, now met by a model rather than by none.  The second and third checks still answer
+//     `unknown` with the net's reason: the pushed `(= (h (px p)) l3)` puts a selector under `h`, which no
+//     theory values, so the rebuilt `p` prints that field as `0` and `h` collides at `0` (`#P2b-95`; with
+//     a constant `w` in place of `(px p)` all three checks print models that hold, measured).
 // ---------------------------------------------------------------------------
 
 const D00239_MIN: &str = "(declare-datatypes ((L 0) (C 0) (P 0)) (((nil) (cons (hd Int) (tl L))) ((red) (green) (blue)) ((mk (px Int) (pc C)))))\n\
@@ -187,14 +195,28 @@ fn a_datatype_model_the_net_shows_false_is_withheld_at_every_check() {
             lines.join("\n")
         );
     }
-    // The first check's model is the one the net let through before; it is
-    // never printed now — withheld, or the check answers `unknown` with the
-    // net's reason (decision (85)) — with the assertion it falsifies named.
+    // A check that is not `sat` prints no model and says why.
+    for (check, (verdict, response)) in got.iter().zip(printed.iter()).enumerate() {
+        assert!(
+            verdict == "sat" || is_withheld(response),
+            "check {check}: a missing model names its reason\n{}",
+            lines.join("\n")
+        );
+    }
+    // The first check's model is the one the net let through on pass 16,
+    // falsifying assertion 2; since `#P2b-88`'s root fix the first check is
+    // decided with a model that holds (the loop above judged it).
+    assert_eq!(
+        got.first().map(String::as_str),
+        Some("sat"),
+        "the first check is decided (z3: sat)\n{}",
+        lines.join("\n")
+    );
     assert!(
         printed
             .first()
-            .is_some_and(|response| is_withheld(response)),
-        "the first model is not printed\n{}",
+            .is_some_and(|response| response.contains("(define-fun")),
+        "the first check prints its model\n{}",
         lines.join("\n")
     );
 }

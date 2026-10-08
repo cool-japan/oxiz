@@ -38,10 +38,12 @@
 //!   honesty net turns `unknown` (z3: `sat`) are pinned as the property — never
 //!   `unsat`, and a printed model holds.
 //!
-//! * §4 HOLE — `d00498` (fresh `gen_dt.py` seed 30102003): re-fix pass 17
-//!   decides all three checks `sat` with models z3 confirms, this tree answers
-//!   `unknown` (`incomplete`, not the net) — decision (88)'s class (B′), named
-//!   under `TODO.md` decision (24a)'s (B′) beside `d00401` by re-fix pass 19.
+//! * §4 CLOSED by `#P2b-88`; inverted.  Was a HOLE — `d00498` (fresh
+//!   `gen_dt.py` seed 30102003): re-fix pass 17 decides all three checks `sat`
+//!   with models z3 confirms, re-fix pass 19's tree answered `unknown`
+//!   (`incomplete`, not the net) — decision (88)'s class (B′), named under
+//!   `TODO.md` decision (24a)'s (B′) beside `d00401` by re-fix pass 19.  All
+//!   three checks are `sat` now, and every printed model holds.
 //!
 //! No test installs a wall clock (decision (16)).
 
@@ -308,14 +310,24 @@ fn nested_array_goals_left_unknown_are_never_wrong() {
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// §4. HOLE — a verdict re-fix pass 17 reached and this tree does not (decision (88)'s class (B'), a new
-//     instance on this recheck's fresh `gen_dt.py` seed 30102003): `d00498`, verbatim.  z3 answers `sat`
-//     at all three checks; re-fix pass 17 (`88bfac0a…`) answers `sat` at all three with models z3 confirms;
-//     this tree answers `unknown` at all three with `:reason-unknown incomplete` — not the honesty net
-//     (`OXIZ_MUT18_NET_PRINT` prints nothing) — in about 4 s.  On `probe_iso18`
-//     `OXIZ_MUT15_NO_CTOR_FOLD` restores all three, `OXIZ_MUT18_NO_ITE_LIFT` + `OXIZ_MUT18_NO_ENCODED_SCAN`
-//     together restore the second and third (as for `d00401`), no single pass-18 switch does.  THE HOLE
-//     IS CLOSED when a check answers `sat` — every printed model must then hold.
+// §4. CLOSED by `#P2b-88` (the datatype axioms and the model builder read every assertion as the SAT
+//     core encodes it); inverted.  Was a HOLE — a verdict re-fix pass 17 reached and re-fix pass 19's
+//     tree did not (decision (88)'s class (B'), a new instance on this recheck's fresh `gen_dt.py` seed
+//     30102003): `d00498`, verbatim.  z3 answers `sat` at all three checks; re-fix pass 17 (`88bfac0a…`)
+//     answers `sat` at all three with models z3 confirms; re-fix pass 19's tree answered `unknown` at all
+//     three with `:reason-unknown incomplete` — not the honesty net (`OXIZ_MUT18_NET_PRINT` prints
+//     nothing) — in about 4 s.  On `probe_iso18` `OXIZ_MUT15_NO_CTOR_FOLD` restored all three,
+//     `OXIZ_MUT18_NO_ITE_LIFT` + `OXIZ_MUT18_NO_ENCODED_SCAN` together the second and third (as for
+//     `d00401`), no single pass-18 switch did.
+//
+//     The mechanism (`#P2b-88`): numeric purification spells `(h 0)` and `(h 2)` as `(h v0)` and
+//     `(h v2)` beside `(= v0 0)` and `(= v2 2)`, while the datatype axioms read the assertions as written
+//     — so the testers over `(h 0)` / `(h 2)` were free atoms, and the model gate refused every candidate
+//     whose phantom tester disagreed with the encoded one.  Which candidates came first decided the
+//     verdict: on the round's macOS host the trajectory ended `unknown` ×3; on Linux x86_64 the unedited
+//     tree (`7e4647c` under rustc 1.95.0 and 1.99.0, `d1802da` under 1.99.0) answered `sat` ×3,
+//     `7e4647c` after six refused candidates, so this pin failed there before any edit.  Now no candidate
+//     is refused.
 // ---------------------------------------------------------------------------
 
 const D00498: &str = r#"(set-logic ALL)
@@ -354,30 +366,21 @@ const D00498: &str = r#"(set-logic ALL)
 "#;
 
 #[test]
-fn a_fresh_datatype_goal_pass_seventeen_decides_answers_unknown() {
+fn a_fresh_datatype_goal_pass_seventeen_decides_is_decided() {
     let lines = run(D00498);
     let got = judge(D00498, &lines);
     assert_eq!(got.len(), 3, "{}", lines.join("\n"));
     for (check, (verdict, reading)) in got.iter().enumerate() {
-        assert_ne!(
+        assert_eq!(
             verdict,
-            "unsat",
-            "check {check}: a WRONG unsat (z3: sat)\n{}",
+            "sat",
+            "check {check} (z3: sat)\n{}",
             lines.join("\n")
         );
-        if verdict == "sat" {
-            assert_eq!(
-                reading,
-                &ModelReading::Holds,
-                "check {check}: the printed model holds\n{}",
-                lines.join("\n")
-            );
-        }
-    }
-    if got.iter().any(|(verdict, _)| verdict == "sat") {
-        panic!(
-            "THE HOLE IS CLOSED (`d00498`): a check answers sat with a model that holds — invert \
-             this pin\n{}",
+        assert_eq!(
+            reading,
+            &ModelReading::Holds,
+            "check {check}: the printed model holds\n{}",
             lines.join("\n")
         );
     }

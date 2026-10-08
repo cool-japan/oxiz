@@ -236,9 +236,10 @@ impl Solver {
         manager.substitute(term, &filtered)
     }
 
-    /// Record the term an *assertion* is actually encoded as, when the
-    /// pre-pass chain rewrote it into something `self.assertions` does not
-    /// contain.
+    /// Record the term an *assertion* is actually encoded as: for the datatype
+    /// axioms always ([`Solver::register_dt_assertion_root`]), and for the
+    /// array collector when the pre-pass chain rewrote it into something
+    /// `self.assertions` does not contain.
     ///
     /// `Solver::assert` deliberately stores the **pre**-rewrite term in
     /// `self.assertions` (a caller reading assertions back must see what it
@@ -265,6 +266,9 @@ impl Solver {
         asserted: TermId,
         manager: &mut TermManager,
     ) {
+        // The datatype axioms read the encoding itself, whatever the chain did
+        // to it (`#P2b-88`).
+        self.register_dt_assertion_root(encoded);
         // `array_root_spelling` substitutes every above-the-enumeration-limit
         // proxy back to the `ite` it names, so the root the collector sees is
         // spelled the way `self.assertions` spells it.  That — and not the
@@ -285,9 +289,10 @@ impl Solver {
         // **withdrawn** (adversarial recheck pass 10), it cannot hold, and the
         // outcome is unchanged either way because the duplicate spelling is
         // removed by the substitution above and not by this exit.
-        // A quantified assertion's encoding holds ground datatype terms the
-        // datatype axioms' scan of `self.assertions` never reaches — it stops
-        // at the binder (`#P2b-90`, re-fix pass 18).
+        // A quantified assertion's encoding is a ground root as well
+        // (`#P2b-90`, re-fix pass 18): an obligation an MBQI instance asserts
+        // mid-`check` comes through here, and a ground root is what makes the
+        // next round boundary of `check_core`'s MBQI loop axiomatise it.
         if encoded != asserted
             && super::encode::finite_expand::contains_quantifier(asserted, manager)
         {
@@ -300,11 +305,54 @@ impl Solver {
         self.register_ground_array_root(encoded, manager);
     }
 
+    /// Record `encoded` — an assertion, a binder-row lemma or a quantifier
+    /// obligation, spelled exactly as the SAT core encodes it — as a root of
+    /// the datatype axioms and of the model builder's datatype values
+    /// ([`Solver::encoded_dt_scan`], `#P2b-88`).
+    ///
+    /// `self.assertions` keeps the term as written, and the pre-pass chain of
+    /// [`Solver::assert`] re-spells datatype terms on the way to the encoder.
+    /// Numeric purification (`encode::numeric_purification`) hoists the `2` of
+    /// `(h 2)` into a proxy `v`, so the search decides `((_ is cons) (h v))`
+    /// beside `(= v 2)`; axioms read off the written assertion were about
+    /// `(h 2)`, a term no encoded clause names.  Its testers were fresh atoms
+    /// the search set at will and the model builder valued `(h 2)` from them,
+    /// so the model gate refused each candidate whose phantom tester disagreed
+    /// with the encoded one — a blocking round apiece, after which a
+    /// refutation can only surface as `unknown` — and a candidate it let
+    /// through printed a value nothing had decided: `(= (hd (h 2)) 5)` beside
+    /// `((_ is cons) (h 2))` answered `unknown` (the honesty net refused the
+    /// printed model; z3: `sat`), `(= x 2)`, `((_ is cons) (h x))`,
+    /// `((_ is nil) (h 2))` answered `unknown` (refuted after one blocking
+    /// round; z3: `unsat`), and `gen_dt.py`'s `d00401` spent all 64 rounds
+    /// (decision (24a)'s (B′); `d00498` beside it answered `unknown` or `sat`
+    /// by which candidates the host's trajectory happened to offer first).
+    /// `#P2b-88` named the lever — axiomatise and rebuild the encoded terms,
+    /// not the written ones — and re-fix pass 18 pulled its `ite` half alone
+    /// (`#P2b-90`, re-spelling each member through the `ite` proxies); the
+    /// encoding itself carries every rewrite of the chain — simplification,
+    /// lookup-spine flattening, `ite` elimination, compound Boolean arguments,
+    /// numeric purification — and any added later.
+    ///
+    /// Every assertion is recorded, rewritten or not (an unrewritten one is its
+    /// own encoding), with no test of its own terms: the scan decides what a
+    /// root holds, so the two can never disagree about a binder, and a
+    /// datatype declared after an assertion over its sort still finds the
+    /// assertion's root.  A root holding no datatype term costs one set entry
+    /// and one trail op; the scan skips every root while no datatype is
+    /// declared.  Journalled, so a `pop` retracts the root with the assertion.
+    fn register_dt_assertion_root(&mut self, encoded: TermId) {
+        if self.dt_assertion_roots.insert(encoded) {
+            self.trail
+                .push(TrailOp::DtAssertionRootAdded { term: encoded });
+        }
+    }
+
     /// Record `term` as a root of the datatype axioms
     /// ([`Solver::instantiate_dt_axioms`]), when its ground part holds a
     /// datatype-sorted term (`#P2b-90`, re-fix pass 18).
     ///
-    /// The axioms' scan walks `self.assertions` and stops at a binder, so a
+    /// The axioms' scan walked `self.assertions` and stopped at a binder, so a
     /// datatype term that only a quantifier's encoding brings into the search
     /// — the ground expansion of a bounded universal, a Skolemised
     /// existential, a guard obligation, an MBQI / e-matching / blind /
@@ -315,7 +363,10 @@ impl Solver {
     /// `unsat`), found by this pass's `gen_dtite.py`.  Every axiom is a
     /// theorem of the datatype theory, so a root that outlives the instance
     /// it came from costs lemmas, never a verdict; it is journalled so a `pop`
-    /// retracts it with the scope.
+    /// retracts it with the scope.  An assertion's own encoding is read through
+    /// [`Solver::register_dt_assertion_root`] since `#P2b-88`'s root fix; this
+    /// set keeps the instances and the quantified encodings, the roots a
+    /// `check` can gain mid-search.
     pub(super) fn register_ground_dt_root(&mut self, term: TermId, manager: &TermManager) {
         if !mentions_datatype_term(term, manager) || !self.ground_dt_roots.insert(term) {
             return;

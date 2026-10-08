@@ -83,7 +83,14 @@ impl Solver {
         if disequal.is_empty() {
             return;
         }
-        let asserted = assertion_subterms(&self.assertions, manager);
+        // Named by the formula as written or as encoded: the members are the
+        // encoded spelling (`Solver::encoded_dt_scan`, `#P2b-88`), so the field
+        // of a purified application — `(hd (h v))` for the written
+        // `(hd (h 2))` — is named only there, and moving it would print a
+        // value the search never chose.
+        let mut roots: Vec<TermId> = self.assertions.clone();
+        roots.extend(self.dt_assertion_roots.iter().copied());
+        let asserted = assertion_subterms(&roots, manager);
         for &(left, right) in &disequal {
             let (Some(left_value), Some(right_value)) = (model.get(left), model.get(right)) else {
                 continue;

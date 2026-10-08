@@ -18,7 +18,10 @@
 //!   assertion that applies the function goes to a fresh solver with the
 //!   function uninterpreted — the model is withheld unless the assertion's
 //!   negation is refuted there, i.e. unless it holds under every
-//!   interpretation of the function; the verdict stands.
+//!   interpretation of the function; the verdict stands.  `#P2b-88`'s root
+//!   fix decides `d00236` (both checks `sat` with models z3 confirms; beside
+//!   the table, `sat` with the model withheld for it), so a false candidate
+//!   beside the table is now `#P2b-95`'s collision (`U1_COLLISION`).
 //! * §2, `#P2b-92` (filed by cargo-formal wave 5.8): a bit-vector bound
 //!   against a constant near 2^63 overflowed the solver's own arithmetic on
 //!   0.3.3 (`(not (bvule n #x7fffffffffffffff))`: a debug build panics with
@@ -62,12 +65,14 @@ fn prints_a_model(lines: &[String]) -> bool {
 
 /// `gen_dt.py` seed 30093154 `d00236` with an unrelated function into a
 /// datatype whose constructor `|(a|` prints unquoted (`$R/fix19/atk/unread/
-/// d236_qa.smt2`, verbatim).  The candidate model makes assertion 3 false at
-/// both checks: `h 1 = (cons 0 nil)` against `(tl (h 2)) = (cons 4 nil)`.
-/// Which candidate the search finds rides `#P2b-88`'s trajectory: if a later
-/// change moves it, re-derive the exact verdicts below — the property that
-/// matters is that no model is printed, and a check whose candidate reads
-/// false answers `unknown` with the assertion named.
+/// d236_qa.smt2`, verbatim).  On re-fix pass 19's tree the candidate model
+/// made assertion 3 false at both checks (`h 1 = (cons 0 nil)` against
+/// `(tl (h 2)) = (cons 4 nil)`) and both answered `unknown`.  That candidate
+/// rode `#P2b-88`'s trajectory, and `#P2b-88`'s root fix moved it: both checks
+/// are `sat` now (z3: `sat`, `sat`; `d00236` itself prints two models z3
+/// confirms), and the model stays withheld because assertion 1 applies `sx`,
+/// whose table does not read back, and holds only under some readings of it.
+/// The false-candidate half of the property moved to [`U1_COLLISION`].
 const D236_QA: &str = "(set-logic ALL)\n\
 (declare-datatypes ((L 0) (C 0) (P 0)) (((nil) (cons (hd Int) (tl L))) ((red) (green) (blue)) ((mk (px Int) (pc C)))))\n\
 (declare-sort U 0)\n\
@@ -97,6 +102,28 @@ const D236_QA: &str = "(set-logic ALL)\n\
 (assert (and (= p (mk (k nil) c2)) (= p (mk (q (pc p)) (pc p)))))\n\
 (check-sat)\n\
 (get-model)\n\
+(check-sat)\n\
+(get-model)\n";
+
+/// A candidate the exact reader shows false beside a table that does not read
+/// back: `#P2b-95`'s collision (a selector under an uninterpreted function —
+/// no theory values `(px p)`, so the rebuilt `p` prints it as `0` and `h`
+/// collides at `0`; z3: `sat`), after the same `sx` prelude as [`D236_QA`].
+/// Assertion 1 applies the unreadable `sx`; assertion 3 reads false, so the
+/// check answers `unknown` naming it — the net reads every other assertion.
+/// When `#P2b-95` is closed this candidate holds and the check is `sat` with
+/// the model withheld for `sx`: re-derive the vehicle on the next false
+/// candidate then.
+const U1_COLLISION: &str = "(set-logic ALL)\n\
+(declare-datatypes ((D 0)) (((|(a|) (b))))\n\
+(declare-fun sx (Int) D)\n\
+(declare-datatypes ((L 0) (C 0) (P 0)) (((nil) (cons (hd Int) (tl L))) ((red) (green) (blue)) ((mk (px Int) (pc C)))))\n\
+(declare-fun h (Int) L)\n\
+(declare-const l3 L)\n\
+(declare-const p P)\n\
+(assert (= (sx 0) |(a|))\n\
+(assert (= (cons 6 l3) (h 0)))\n\
+(assert (= (h (px p)) l3))\n\
 (check-sat)\n\
 (get-model)\n";
 
@@ -131,12 +158,14 @@ const UNREAD_PRELUDE: &str = "(set-logic ALL)\n\
 #[test]
 fn an_unreadable_table_no_longer_switches_the_net_off() {
     assert_the_vehicle_is_still_there();
-    let lines = run(D236_QA);
+    // A candidate the reader shows false is caught beside the unreadable
+    // table: the check answers `unknown`, naming the false assertion.
+    let lines = run(U1_COLLISION);
     assert_eq!(
         verdicts(&lines),
-        vec!["unknown", "unknown"],
-        "the candidate model reads false at assertion 3 at both checks, so both answer \
-         unknown (re-fix pass 18: sat with that model printed)\n{}",
+        vec!["unknown"],
+        "assertion 3 reads false under the candidate model, so the check answers unknown \
+         (before re-fix pass 19 the unreadable `sx` made the net print it)\n{}",
         lines.join("\n")
     );
     assert!(
@@ -144,11 +173,32 @@ fn an_unreadable_table_no_longer_switches_the_net_off() {
         "no model is printed\n{}",
         lines.join("\n")
     );
-    let reason = "model check failed: assertion 3 reads false under the candidate model";
+    assert!(
+        lines.iter().any(|line| line
+            .contains("model check failed: assertion 3 reads false under the candidate model")),
+        "the (get-model) names the false assertion\n{}",
+        lines.join("\n")
+    );
+    // `d00236` beside the same table: decided (`#P2b-88`), and the model is
+    // withheld for the table assertion 1 applies.
+    let lines = run(D236_QA);
+    assert_eq!(
+        verdicts(&lines),
+        vec!["sat", "sat"],
+        "z3: sat at both checks\n{}",
+        lines.join("\n")
+    );
+    assert!(
+        !prints_a_model(&lines),
+        "no model is printed\n{}",
+        lines.join("\n")
+    );
+    let reason = "model not certified: the printed interpretation of sx does not read back \
+                  (assertion 1)";
     assert_eq!(
         lines.iter().filter(|line| line.contains(reason)).count(),
         2,
-        "each (get-model) names the false assertion\n{}",
+        "each (get-model) names the table and the assertion\n{}",
         lines.join("\n")
     );
 }

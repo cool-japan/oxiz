@@ -871,6 +871,16 @@ impl SortManager {
             .is_some_and(|key| self.datatypes.contains_key(&key))
     }
 
+    /// Whether any datatype has been declared with
+    /// [`declare_datatype`](Self::declare_datatype).
+    ///
+    /// A datatype sort that was only named ([`mk_datatype_sort`](Self::mk_datatype_sort),
+    /// a forward reference) has no declaration and does not count.
+    #[must_use]
+    pub fn has_datatypes(&self) -> bool {
+        !self.datatypes.is_empty()
+    }
+
     /// Check if a sort is a datatype sort
     #[must_use]
     pub fn is_datatype(&self, sort_id: SortId) -> bool {
