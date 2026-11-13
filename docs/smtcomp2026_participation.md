@@ -231,6 +231,6 @@ The OxiZ project is grateful to the SMT-COMP organizers for maintaining an open 
 
 ---
 
-*OxiZ — COOLJAPAN OU (Team Kitasan)*
+*OxiZ — COOLJAPAN OU (Team KitaSan)*
 *Repository: [https://github.com/cool-japan/oxiz](https://github.com/cool-japan/oxiz)*
 *Competition contact: open an issue with tag `[SMT-COMP 2026]`*

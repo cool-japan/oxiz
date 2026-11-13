@@ -778,7 +778,7 @@ impl Context {
             "all-statistics" => self.get_statistics(),
             "name" => "(:name \"oxiz\")".to_string(),
             "version" => format!("(:version \"{}\")", env!("CARGO_PKG_VERSION")),
-            "authors" => "(:authors \"COOLJAPAN OU (Team Kitasan)\")".to_string(),
+            "authors" => "(:authors \"COOLJAPAN OU (Team KitaSan)\")".to_string(),
             "error-behavior" => "(:error-behavior continued-execution)".to_string(),
             // Why the last check returned `unknown` (the honesty net's reason
             // where it took a `sat` back), or "not applicable".

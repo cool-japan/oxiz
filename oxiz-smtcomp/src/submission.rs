@@ -295,7 +295,7 @@ impl SubmissionConfig {
     /// Create a default OxiZ submission config for all 2026 divisions and tracks.
     pub fn default_oxiz_2026() -> Self {
         let contact = ContactInfo::new(
-            "COOLJAPAN OU (Team Kitasan)",
+            "COOLJAPAN OU (Team KitaSan)",
             "contact@cooljapan.io",
             "COOLJAPAN OU",
         )

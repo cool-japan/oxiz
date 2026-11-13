@@ -656,7 +656,7 @@ Contributions are welcome! Please see our contributing guidelines.
 
 ## Sponsorship
 
-OxiZ is developed and maintained by **COOLJAPAN OU (Team Kitasan)**.
+OxiZ is developed and maintained by **COOLJAPAN OU (Team KitaSan)**.
 
 If you find OxiZ useful, please consider sponsoring the project to support continued development of the Pure Rust ecosystem.
 
